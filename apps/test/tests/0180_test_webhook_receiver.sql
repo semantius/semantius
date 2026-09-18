@@ -1,7 +1,7 @@
 -- Test webhook_receivers and webhook_receiver_logs tables
 BEGIN;
 
-SELECT plan(33);
+SELECT plan(34);
 
 -- =====================================================
 -- TEST: webhook_receivers table exists and has correct structure
@@ -107,10 +107,10 @@ SELECT ok(
     'webhook_receiver_logs should have webhook_receiver_id field'
 );
 
--- Test 17: webhook_receiver_logs has webhook_id field
+-- Test 17: webhook_receiver_logs has a text message_id field (the duplicate-delivery key)
 SELECT ok(
-    (SELECT EXISTS (SELECT 1 FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id')),
-    'webhook_receiver_logs should have webhook_id field'
+    (SELECT format = 'text' FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'message_id'),
+    'webhook_receiver_logs should have a text message_id field'
 );
 
 -- Test 18: webhook_receiver_logs has webhook_timestamp field
@@ -131,10 +131,10 @@ SELECT ok(
     'webhook_receiver_logs payload field should have json format'
 );
 
--- Test 21: webhook_receiver_logs has result field with enum values
+-- Test 21: result allows exactly the codes the webhook receiver writes
 SELECT ok(
-    (SELECT enum_values @> '["10", "20", "90"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'result'),
-    'webhook_receiver_logs result field should have enum values: 10, 20, 90'
+    (SELECT enum_values = '["10", "20", "30", "40", "50", "60"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'result'),
+    'webhook_receiver_logs result field should have enum values: 10, 20, 30, 40, 50, 60'
 );
 
 -- Test 22: webhook_receiver_logs has error_message field
@@ -169,13 +169,13 @@ SELECT ok(
     'Foreign key constraint should exist on webhook_receiver_id'
 );
 
--- Test 25: Index on webhook_id exists (created by DD trigger for parent format field)
+-- Test 25: Index on webhook_receiver_id exists (created by DD trigger for parent format field)
 SELECT ok(
     (SELECT EXISTS (
-        SELECT 1 FROM pg_indexes 
-        WHERE indexname = 'idx_webhook_receiver_logs_webhook_id'
+        SELECT 1 FROM pg_indexes
+        WHERE indexname = 'idx_webhook_receiver_logs_webhook_receiver_id'
     )),
-    'Index on webhook_id should exist'
+    'Index on webhook_receiver_id should exist'
 );
 
 -- =====================================================
@@ -212,19 +212,18 @@ SELECT ok(
     'header_value column should exist in webhook_receivers table'
 );
 
--- Test 30: Test webhook_id column exists in webhook_receiver_logs table (as parent reference)
+-- Test 30: message_id is a text column in the physical table, so any sender's id fits
 SELECT ok(
-    (SELECT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'webhook_receiver_logs' AND column_name = 'webhook_id'
-    )),
-    'webhook_id column should exist in webhook_receiver_logs table'
+    (SELECT data_type = 'text' FROM information_schema.columns
+     WHERE table_name = 'webhook_receiver_logs' AND column_name = 'message_id'),
+    'message_id column should be text in webhook_receiver_logs table'
 );
 
--- Test 31: Verify format is 'parent' for webhook_id field
+-- Test 31: webhook_receiver_id is the parent reference (one link to the receiver, not two)
 SELECT ok(
-    (SELECT format = 'parent' FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_id'),
-    'webhook_id field should have format=parent in webhook_receiver_logs'
+    (SELECT format = 'parent' AND reference_delete_mode = 'cascade'
+     FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'webhook_receiver_id'),
+    'webhook_receiver_id field should have format=parent with cascade delete in webhook_receiver_logs'
 );
 
 -- Test 32: Sample webhook receiver logs exist (nwind ships one log for 'Order Intake')
@@ -237,6 +236,20 @@ SELECT ok(
 SELECT ok(
     (SELECT description LIKE '%custom header%' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'auth_type'),
     'auth_type field description should mention custom header'
+);
+
+-- Test 34: a log carrying a real sender id (never a number) is stored and found again by
+-- receiver + message_id, the lookup the webhook receiver runs to skip a delivery that
+-- already succeeded
+INSERT INTO webhook_receiver_logs (webhook_receiver_id, message_id, webhook_timestamp, payload, result)
+SELECT id, 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W', now(), '{}'::jsonb, '10'
+FROM webhook_receivers WHERE label = 'Order Intake';
+SELECT is(
+    (SELECT l.result FROM webhook_receiver_logs l
+     JOIN webhook_receivers w ON w.id = l.webhook_receiver_id
+     WHERE w.label = 'Order Intake' AND l.message_id = 'msg_2KWPBgLlAfxdpx2AI54pPJ85f4W'),
+    '10',
+    'a log with a string message_id is stored and found by webhook_receiver_id + message_id'
 );
 
 SELECT * FROM finish();

@@ -257,11 +257,11 @@ ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id
 -- and the reasoning is written out.
 
 COMMENT ON COLUMN modules.module_type IS 'Module type: domain (normal) or master (promoted for sharing).';
-COMMENT ON COLUMN modules.manage_permission IS 'The manage permission for this module. Populated by scaffold.';
-COMMENT ON COLUMN modules.admin_permission IS 'The admin permission for this module. Populated when any entity carries edit_permission: admin.';
-COMMENT ON COLUMN modules.default_viewer_role_id IS 'FK to the default viewer role for this module. Populated by scaffold.';
-COMMENT ON COLUMN modules.default_manager_role_id IS 'FK to the default manager role for this module. Populated by scaffold.';
-COMMENT ON COLUMN modules.default_admin_role_id IS 'FK to the default admin role for this module. Populated when admin permission is present.';
+COMMENT ON COLUMN modules.manage_permission IS 'Name of this module''s manage permission (FK to permissions).';
+COMMENT ON COLUMN modules.admin_permission IS 'Name of this module''s admin permission (FK to permissions).';
+COMMENT ON COLUMN modules.default_viewer_role_id IS 'FK to this module''s default viewer role.';
+COMMENT ON COLUMN modules.default_manager_role_id IS 'FK to this module''s default manager role.';
+COMMENT ON COLUMN modules.default_admin_role_id IS 'FK to this module''s default admin role.';
 
 -- =====================================================
 -- TRIGGERS FOR updated_at AUTOMATION

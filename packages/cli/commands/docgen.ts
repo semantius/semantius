@@ -81,6 +81,23 @@ function fieldJsonType(
   return formatToJsonType(field.format, typeByFormat);
 }
 
+/**
+ * A table cell's text. The driver returns JSONB columns (select_rule,
+ * validation_rules, input_type_rule, ...) as objects, which String() turns into
+ * "[object Object]", so they are serialized instead. Empty values, including an
+ * empty object or array, show as "-".
+ */
+function cellText(value: unknown): string {
+  if (value === null || value === undefined || value === '') {
+    return '-';
+  }
+  if (typeof value === 'object') {
+    const json = JSON.stringify(value);
+    return json === '{}' || json === '[]' ? '-' : json;
+  }
+  return String(value);
+}
+
 export async function docgenCommand(databaseUrl: string): Promise<void> {
   console.log("Generating schema.md documentation...");
   
@@ -155,7 +172,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
                    field.field_name === 'label_column') {
           displayValue = `\`${fieldValue}\``;
         } else {
-          displayValue = String(fieldValue);
+          displayValue = cellText(fieldValue);
         }
         
         markdown += `| ${field.field_name} | ${field.title} | ${displayValue} |\n`;
@@ -225,12 +242,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
             return value ? JSON.stringify(value) : "-";
           }
           
-          // Handle empty strings and null values
-          if (value === null || value === undefined || value === '') {
-            return "-";
-          }
-          
-          return String(value);
+          return cellText(value);
         });
         
         markdown += "| " + values.join(" | ") + " |\n";

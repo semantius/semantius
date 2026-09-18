@@ -3397,12 +3397,12 @@ UPDATE orders SET status = 'shipped' WHERE shipped_date IS NOT NULL;
 -- =====================================================
 -- Sample rows that show how platform features attach to a module.
 
--- Webhook receiver: inbound order intake, plus one processed log entry
+-- Webhook receiver: inbound order intake, plus one successful log entry
 INSERT INTO webhook_receivers (label, table_name, description, auth_type, secret, header_name, header_value)
 VALUES ('Order Intake', 'orders', 'Inbound order webhook', 'hmac', 'nwind-demo-secret', '', '');
 
-INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, received_timestamp, payload, result, error_message)
-SELECT w.id, w.id, 'ord-evt-0001', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"order_id": 10248}'::jsonb, '20', ''
+INSERT INTO webhook_receiver_logs (webhook_receiver_id, message_id, label, webhook_timestamp, received_timestamp, payload, result, error_message)
+SELECT w.id, 'msg_ord-evt-0001', 'ord-evt-0001', '2026-01-01 12:34:00'::timestamptz, '2026-01-01 12:34:01'::timestamptz, '{"order_id": 10248}'::jsonb, '10', ''
 FROM webhook_receivers w WHERE w.label = 'Order Intake';
 
 -- Dashboard for the module landing page (visible to nwind:view holders)

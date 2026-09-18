@@ -52,6 +52,12 @@ VALUES
     ('webhook_receivers', 'header_value', 'Header Value',       'text',      FALSE, 46, 'default', 'default', 'Expected value for custom header authentication',         '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'jsonata',      'JSONata Expression', 'jsonata',   FALSE, 50, 'default', 'w',       'Optional JSONata expression to transform incoming data',  '',     NULL,                          '',         '',        '');
 
+-- id and label are auto-created by the DD trigger, without a description.
+UPDATE fields SET description = 'Internal identifier, assigned automatically'
+ WHERE table_name = 'webhook_receivers' AND field_name = 'id';
+UPDATE fields SET description = 'Name that identifies this webhook receiver'
+ WHERE table_name = 'webhook_receivers' AND field_name = 'label';
+
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
 -- =====================================================
@@ -83,16 +89,22 @@ VALUES (
 
 -- Add fields to webhook_receiver_logs table
 -- Note: 'label' is the label_column and is automatically created by the create_dd_table trigger
--- webhook_id is an explicit parent reference to webhook_receivers (ON DELETE CASCADE)
+-- webhook_receiver_id is the parent reference to webhook_receivers (ON DELETE CASCADE).
+-- message_id is what the receiver matches a new delivery against: when a log for the same
+-- receiver and message_id already succeeded, the delivery is acknowledged and skipped.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('webhook_receiver_logs', 'webhook_id',          'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', 'Parent webhook receiver this log belongs to',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'reference', FALSE, 10, 'default', 'default', 'Reference to webhook receiver configuration',      NULL,                 NULL,                        NULL, 'webhook_receivers', 'clear',   'has logs'),
+    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', 'Parent webhook receiver this log belongs to',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
+    ('webhook_receiver_logs', 'message_id',          'Message Id',          'text',      FALSE, 10, 'default', 'default', 'The sender''s webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.', '', NULL, NULL, '', '', ''),
     ('webhook_receiver_logs', 'webhook_timestamp',   'Webhook Timestamp',   'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source',                    NULL,                 NULL,                        NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', 'Timestamp when webhook was received',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       'Webhook payload data',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=received, 20=processed, 90=failed', '10',          '["10", "20", "90"]'::jsonb, NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error', '10', '["10", "20", "30", "40", "50", "60"]'::jsonb, NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       'Error message if processing failed',               '',                   NULL,                        NULL, '',                  '',        '');
+
+-- id is auto-created by the DD trigger, without a description.
+UPDATE fields SET description = 'Internal identifier, assigned automatically'
+ WHERE table_name = 'webhook_receiver_logs' AND field_name = 'id';
 
 -- =====================================================
 -- ADD INDEX

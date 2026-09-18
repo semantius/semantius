@@ -3,7 +3,7 @@
 -- the in-test hierarchy edges are added under user:manage (no persisted edge from there).
 BEGIN;
 
-SELECT plan(55);
+SELECT plan(56);
 
 SELECT authenticate_as('user3');
 
@@ -293,8 +293,8 @@ SELECT is(
 -- Verify validation_rules are set on roles entity
 SELECT is(
     (SELECT jsonb_array_length(validation_rules) FROM entities WHERE table_name = 'roles'),
-    2,
-    'roles entity has 2 validation rules'
+    3,
+    'roles entity has 3 validation rules'
 );
 
 SELECT is(
@@ -307,6 +307,12 @@ SELECT is(
     (SELECT validation_rules->1->>'code' FROM entities WHERE table_name = 'roles'),
     '90204',
     'roles validation rule 1 is the system role slug immutability rule'
+);
+
+SELECT is(
+    (SELECT validation_rules->2->>'code' FROM entities WHERE table_name = 'roles'),
+    '90206',
+    'roles validation rule 2 is the catalog_role_code write-once rule'
 );
 
 -- Verify validation_rules are set on permission_hierarchy entity

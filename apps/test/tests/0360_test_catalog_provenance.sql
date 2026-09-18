@@ -5,15 +5,15 @@
 --   • existence + DD registration (ctype='core', is_core derives true)
 --   • empty defaults + additive-safety (existing rows read "absent")
 --   • shape/enum CHECKs (entity_type closed set, aliases array)
---   • write-once on the three scalar join-key codes (catalog_entity_code/_field_code/_module_code)
+--   • write-once on the four scalar join-key codes (catalog_entity_code/_field_code/_module_code/_role_code)
 --   • append-only on catalog_entity_aliases
 --   • non-uniqueness, soft pointer, core-column protection
 --   • rename survival (the rename-discovery substrate)
 --   • discovery joins + the three topologies (multi-recurrence, same-name share, alias)
--- See docs/provenance-core-0.1.2-changes.md §7. All operations run as admin (user3).
+-- All operations run as admin (user3).
 BEGIN;
 
-SELECT plan(65);
+SELECT plan(68);
 
 SELECT authenticate_as('user3');
 
@@ -97,7 +97,7 @@ SELECT lives_ok($$UPDATE entities SET catalog_owner_module='module-not-deployed-
 SELECT is((SELECT catalog_owner_module FROM entities WHERE table_name='prov_e'), 'module-not-deployed-yet', 'catalog_owner_module round-trip');
 
 -- =====================================================
--- GROUP 7: write-once on the three scalar join-key codes
+-- GROUP 7: write-once on the four scalar join-key codes
 -- =====================================================
 -- catalog_entity_code: INSERT with a non-empty code is allowed (the modeler's stamping path).
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, catalog_entity_code)
@@ -123,6 +123,15 @@ SELECT lives_ok($$UPDATE fields SET catalog_field_code='note' WHERE table_name='
 INSERT INTO modules (module_name, module_slug, catalog_module_code) VALUES ('Prov Mod WO', 'prov_mod_wo', 'ATS-CANDIDATE-CRM');
 SELECT throws_ok($$UPDATE modules SET catalog_module_code='OTHER' WHERE module_slug='prov_mod_wo'$$, '90701', NULL, 'catalog_module_code rewrite is rejected');
 SELECT is((SELECT jsonb_array_length(validation_rules) FROM entities WHERE table_name='modules'), 2, 'modules keeps 2 validation rules (write-once appended, valid_module_slug not clobbered)');
+
+-- catalog_role_code: create a role with a code, reject rewrite, allow backfill.
+INSERT INTO roles (role_name, slug, catalog_role_code) VALUES ('Prov Role WO', 'prov_role_wo', 'recruiter');
+SELECT throws_ok($$UPDATE roles SET catalog_role_code='other' WHERE slug='prov_role_wo'$$,
+    '90206', 'catalog_role_code is write-once: it cannot be changed once set',
+    'catalog_role_code rewrite (value->other) rejected with code + message');
+INSERT INTO roles (role_name, slug) VALUES ('Prov Role Fill', 'prov_role_fill');
+SELECT lives_ok($$UPDATE roles SET catalog_role_code='interviewer' WHERE slug='prov_role_fill'$$, 'catalog_role_code backfill (empty -> value) is allowed');
+SELECT lives_ok($$UPDATE roles SET description='changed' WHERE slug='prov_role_wo'$$, 'unchanged-code role UPDATE is allowed');
 
 -- =====================================================
 -- GROUP 8: catalog_entity_aliases append-only (prov_e currently carries [suppliers])

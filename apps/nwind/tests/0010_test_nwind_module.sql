@@ -300,12 +300,12 @@ SELECT set_eq(
     'Order Intake should have exactly one seeded log entry (ord-evt-0001)'
 );
 
--- Test 32: the log entry is processed (20) and references order 10248
+-- Test 32: the log entry succeeded (10) and references order 10248
 SELECT ok(
-    (SELECT l.result = '20' AND l.payload @> '{"order_id": 10248}'::jsonb
-       AND l.webhook_id = l.webhook_receiver_id
+    (SELECT l.result = '10' AND l.payload @> '{"order_id": 10248}'::jsonb
+       AND l.message_id = 'msg_ord-evt-0001'
      FROM webhook_receiver_logs l WHERE l.label = 'ord-evt-0001'),
-    'Log ord-evt-0001 should have result 20, payload order_id 10248 and both FK columns set'
+    'Log ord-evt-0001 should have result 10, payload order_id 10248 and message_id msg_ord-evt-0001'
 );
 
 -- =====================================================
@@ -359,36 +359,36 @@ SELECT is(
 
 -- Test 39: result 10
 SELECT lives_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, payload, result)
-      SELECT w.id, w.id, 'enum-10', '2026-01-26 12:00:00'::timestamptz, '{}'::jsonb, '10'
+    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, label, webhook_timestamp, payload, result)
+      SELECT w.id, 'enum-10', '2026-01-26 12:00:00'::timestamptz, '{}'::jsonb, '10'
       FROM webhook_receivers w WHERE w.label = 'Order Intake'$$,
     'Should allow valid enum value "10" for result'
 );
 
 -- Test 40: result 20
 SELECT lives_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, payload, result)
-      SELECT w.id, w.id, 'enum-20', '2026-01-26 12:01:00'::timestamptz, '{}'::jsonb, '20'
+    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, label, webhook_timestamp, payload, result)
+      SELECT w.id, 'enum-20', '2026-01-26 12:01:00'::timestamptz, '{}'::jsonb, '20'
       FROM webhook_receivers w WHERE w.label = 'Order Intake'$$,
     'Should allow valid enum value "20" for result'
 );
 
--- Test 41: result 90
+-- Test 41: result 60 (the highest code the webhook receiver writes)
 SELECT lives_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, payload, result)
-      SELECT w.id, w.id, 'enum-90', '2026-01-26 12:02:00'::timestamptz, '{}'::jsonb, '90'
+    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, label, webhook_timestamp, payload, result)
+      SELECT w.id, 'enum-60', '2026-01-26 12:02:00'::timestamptz, '{}'::jsonb, '60'
       FROM webhook_receivers w WHERE w.label = 'Order Intake'$$,
-    'Should allow valid enum value "90" for result'
+    'Should allow valid enum value "60" for result'
 );
 
--- Test 42: invalid result
+-- Test 42: invalid result (90 is not a code the webhook receiver writes)
 SELECT throws_ok(
-    $$INSERT INTO webhook_receiver_logs (webhook_id, webhook_receiver_id, label, webhook_timestamp, payload, result)
-      SELECT w.id, w.id, 'enum-99', '2026-01-26 12:03:00'::timestamptz, '{}'::jsonb, '99'
+    $$INSERT INTO webhook_receiver_logs (webhook_receiver_id, label, webhook_timestamp, payload, result)
+      SELECT w.id, 'enum-90', '2026-01-26 12:03:00'::timestamptz, '{}'::jsonb, '90'
       FROM webhook_receivers w WHERE w.label = 'Order Intake'$$,
     '23514',
     NULL,
-    'Should reject invalid enum value "99" for result'
+    'Should reject invalid enum value "90" for result'
 );
 
 -- Test 43: the three valid inserts landed on the seeded receiver
@@ -396,7 +396,7 @@ SELECT set_eq(
     $$SELECT l.label FROM webhook_receiver_logs l
       JOIN webhook_receivers w ON w.id = l.webhook_receiver_id
       WHERE w.label = 'Order Intake' AND l.label LIKE 'enum-%'$$,
-    ARRAY['enum-10', 'enum-20', 'enum-90'],
+    ARRAY['enum-10', 'enum-20', 'enum-60'],
     'The three valid result inserts should be attached to Order Intake'
 );
 

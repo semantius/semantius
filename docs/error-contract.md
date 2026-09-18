@@ -406,6 +406,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90203` | `90203` | `roles.origin is set on INSERT and cannot be changed` | - | - | Platform rule on `roles`. Provenance is decided when the role is created. |
 | `90204` | `90204` | `system role slugs cannot be changed after creation` | - | - | Platform rule on `roles`. A system role's slug is referenced by name elsewhere. |
 | `90205` | `90205` | `permission_hierarchy.origin is set on INSERT and cannot be changed` | - | - | Platform rule on `permission_hierarchy`, as 90203. |
+| `90206` | `90206` | `catalog_role_code is write-once: it cannot be changed once set` | - | - | Platform rule on `roles`, as 90201. |
 | `90210` | `90210` | `Cannot add permission hierarchy: would create a cycle. Permission ${including} cannot be both ancestor and descendant of permission ${included}` | - | `including`, `included` | Permission inclusion has to stay a DAG. |
 | `90211` | `90211` | `Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be ${depth}` | - | `depth` | The depth bound the resolver is written against. |
 | `90212` | `90212` | `Referenced table ${table} not found in entities` | - | `table` | A `reference` or `parent` field naming an entity that does not exist. Raised from three sites. |
