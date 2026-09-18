@@ -657,6 +657,19 @@ BEGIN
     SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
     
     IF NOT v_is_managed THEN
+        -- No DDL, but a column that already exists still gets its comment, as the
+        -- update path does for unmanaged tables: the comment is what PostgREST shows.
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name   = NEW.table_name
+              AND column_name  = NEW.field_name
+        ) THEN
+            v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
+            IF v_comment IS NOT NULL THEN
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
+            END IF;
+        END IF;
         RAISE NOTICE 'Skipping field addition for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
         RETURN NEW;
     END IF;

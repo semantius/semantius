@@ -76,10 +76,7 @@ COMMENT ON TABLE public.audit_record_logs IS
 'Stores DML audit records for entity tables with audit_log enabled.
 Each row captures the operation type, the full record (new/old), and metadata.';
 
-COMMENT ON COLUMN public.audit_record_logs.record_pk IS 'Primary key value of the affected record for easy lookup';
-COMMENT ON COLUMN public.audit_record_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context.';
-
--- The three columns below describe the CONNECTION that wrote the row, as
+-- db_role, is_superuser and client_addr describe the CONNECTION that wrote the row, as
 -- opposed to user_id, which describes the authenticated principal inside it.
 -- They exist because user_id cannot distinguish "no JWT" from "no JWT and a
 -- superuser psql session": both log 0. A write through the API carries
@@ -96,7 +93,7 @@ COMMENT ON COLUMN public.audit_record_logs.user_id IS 'Internal user id from JWT
 -- What they do NOT survive is a superuser who sets session_replication_role to
 -- 'replica' before writing, which skips these triggers outright. They raise the
 -- cost of an undocumented write; they do not make one impossible.
-COMMENT ON COLUMN public.audit_record_logs.db_role IS 'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.';
+--
 -- is_superuser is read from the GUC here, and 0290_owner_hardening reads
 -- pg_roles.rolsuper instead, deliberately: the GUC reports the OUTER user, so
 -- under a SECURITY DEFINER function - which every one of these triggers is - it
@@ -104,8 +101,6 @@ COMMENT ON COLUMN public.audit_record_logs.db_role IS 'session_user: the role th
 -- whether the EFFECTIVE user can create a BYPASSRLS role, so the GUC is wrong
 -- for it. This column wants the session, which is exactly what the GUC still
 -- reports, and reading it costs no catalog access.
-COMMENT ON COLUMN public.audit_record_logs.is_superuser IS 'Whether the writing session had superuser privileges. True on a data row means RLS was bypassed. Read from the is_superuser GUC, which reports the session rather than the SECURITY DEFINER owner - the opposite of what 0290_owner_hardening needs, which is why that file reads rolsuper instead.';
-COMMENT ON COLUMN public.audit_record_logs.client_addr IS 'inet_client_addr(): the connecting address, or NULL for a unix-socket connection - which means a shell on the database host rather than a client on the network.';
 
 -- Indexes for efficient querying
 CREATE INDEX IF NOT EXISTS audit_record_logs_record_id
@@ -154,8 +149,6 @@ CREATE TABLE IF NOT EXISTS public.audit_ddl_logs (
 
 COMMENT ON TABLE public.audit_ddl_logs IS
 'Stores schema change events captured by two event triggers: creations and alterations from ddl_command_end, drops from sql_drop, which is the only mechanism that reports them.';
-
-COMMENT ON COLUMN public.audit_ddl_logs.user_id IS 'Internal user id from JWT (rbac.user_id). 0 when no JWT context (e.g. migrations).';
 
 CREATE INDEX IF NOT EXISTS audit_ddl_logs_event_time
     ON public.audit_ddl_logs
@@ -857,9 +850,9 @@ VALUES
     ('audit_record_logs', 'op',            'Operation',     'DML operation type: INSERT, UPDATE, DELETE, TRUNCATE',               'text',      FALSE, 30,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'ts',            'Timestamp',     'When the operation occurred',                                        'date-time', FALSE, 40,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'user_id',       'User Id',       'Internal user id from JWT context (0 when unavailable)',             'int32',     FALSE, 50,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'db_role',       'DB Role',       'Role that authenticated the writing connection (session_user)',      'text',      FALSE, 52,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'client_addr',   'Client Addr',   'Connecting client address; NULL for a unix-socket connection',       'text',      FALSE, 56,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'db_role',       'DB Role',       'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.',      'text',      FALSE, 52,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges. TRUE on a data row means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'client_addr',   'Client Addr',   'Connecting client address (inet_client_addr()); NULL for a unix-socket connection, which means a shell on the database host rather than a client on the network',       'text',      FALSE, 56,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'table_oid',     'Table OID',     'PostgreSQL internal object identifier for the table',                'int32',     FALSE, 60,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'table_schema',  'Table Schema',  'Schema containing the table',                                       'text',      FALSE, 70,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_record_logs', 'table_name',    'Table Name',    'Name of the affected table',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE,  '', ''),
@@ -871,7 +864,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, f
 VALUES
     ('audit_ddl_logs', 'id',              'Id',              '',                                                                'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
     ('audit_ddl_logs', 'event_time',      'Event Time',      'When the DDL command completed',                                  'date-time', FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_ddl_logs', 'user_id',         'User Id',         'Internal user id from JWT context (0 when unavailable)',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_ddl_logs', 'user_id',         'User Id',         'Internal user id from JWT context (0 when unavailable, e.g. during migrations)',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_ddl_logs', 'command_tag',     'Command Tag',     'DDL command type (e.g. CREATE TABLE, ALTER TABLE)',                'text',      FALSE, 30,  'readonly', 'default', 'label', TRUE,  '', ''),
     ('audit_ddl_logs', 'object_type',     'Object Type',     'Type of database object affected',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'object_identity', 'Object Identity', 'Fully qualified name of the affected object',                     'text',      FALSE, 50,  'readonly', 'w',       'core',  TRUE,  '', ''),
