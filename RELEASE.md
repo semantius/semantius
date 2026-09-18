@@ -11,8 +11,8 @@ GHCR database image built from it. They always move together at one version.
 ## The rule: the highest version is mutable, everything below it is frozen
 
 A version stays **mutable while it is the highest version built**. It may be
-regenerated, re-tagged and re-released as often as needed. It becomes **frozen the moment a
-higher version is committed** to `extension/versions.json`.
+regenerated, re-tagged and re-released as often as needed. It becomes **frozen
+the moment a higher version is committed** to `extension/versions.json`.
 
 This is deliberate. `0.5.0` is a fresh start: the 0.1.0/0.3.0/0.4.0 lineage was
 cut off on 2026-09-03 and its version history discarded from the manifest, so
@@ -126,9 +126,9 @@ place it would make the generator refuse the target.
 
 From the moment a higher version is in the manifest, the lower one is frozen for
 the generator too, and **only migrations added in the higher version may
-be edited**. Editing one an earlier version already shipped fails the build, because
-the upgrade script carries only migrations *added* since the previous version -
-so such an edit could never reach an existing installation.
+be edited**. Editing one an earlier version already shipped fails the build,
+because the upgrade script carries only migrations *added* since the previous
+version - so such an edit could never reach an existing installation.
 `--allow-edited-migrations` waives it for a deliberate hot-patch.
 
 ## Pre-releases
