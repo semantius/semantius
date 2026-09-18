@@ -42,4 +42,4 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode)
 VALUES
     ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
-    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
+    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard, by name', 'permissions', 'clear');

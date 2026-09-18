@@ -54,8 +54,8 @@ WHERE table_name = 'queues' AND field_name = 'queue_name';
 -- delete.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
 VALUES
-    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
-    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
+    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read), by name. Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
+    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue, by name.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
 
 -- reference columns default to nullable in the DD model; both are mandatory
 ALTER TABLE queues ALTER COLUMN view_permission SET NOT NULL;

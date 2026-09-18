@@ -345,6 +345,29 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION dd_field_comment IS
 'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
 
+-- The core tables (0020, 0060) are seeded before the field triggers exist, so their columns
+-- have no comment yet. Give them the one the triggers would have written. PostgREST shows a
+-- column comment as the column description in its OpenAPI output, so this keeps the DD
+-- description the only source there too; later changes to a field reach the comment through
+-- the update trigger.
+DO $$
+DECLARE
+    r RECORD;
+    v_comment TEXT;
+BEGIN
+    FOR r IN
+        SELECT f.table_name, f.field_name, f.title, f.format, f.description, f.enum_values
+        FROM fields f
+        JOIN information_schema.columns c
+          ON c.table_schema = 'public' AND c.table_name = f.table_name AND c.column_name = f.field_name
+    LOOP
+        v_comment := dd_field_comment(r.title, r.format, r.description, r.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', r.table_name, r.field_name, v_comment);
+        END IF;
+    END LOOP;
+END $$;
+
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
 -- =====================================================
@@ -490,12 +513,14 @@ BEGIN
     -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
     -- The label column is marked as searchable=TRUE for full-text search.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, description)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', '',
+         'Internal identifier, assigned automatically'),
+        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '',
+         'Name that identifies this ' || COALESCE(NULLIF(lower(NEW.singular_label), ''), 'record')),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '');
 
     -- entities.searchable needs no write here. The INSERT above is a statement
     -- of its own even inside this trigger, so handle_field_searchable_insert_trigger

@@ -37,9 +37,6 @@ CREATE TABLE modules (
 -- Matches the format the DDL triggers apply (plural label + blank line + description),
 -- so this bootstrap comment stays identical to what update_dd_table_comment would regenerate.
 COMMENT ON TABLE modules IS E'Modules\n\nGroups of related tables and permissions';
-COMMENT ON COLUMN modules.module_slug IS 'URL-safe unique identifier for module';
-COMMENT ON COLUMN modules.domain_code IS 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).';
-COMMENT ON COLUMN modules.access_scope IS 'Access tier: basic for simple read/edit; full for role tiers, approvals & gating.';
 
 -- =====================================================
 -- PERMISSIONS AND ROLES
@@ -82,8 +79,6 @@ CREATE TABLE permissions (
 );
 
 COMMENT ON TABLE permissions IS 'System permissions that can be assigned to roles and organized via hierarchy';
-COMMENT ON COLUMN permissions.permission_name IS 'The permission, and the key: colon-separated segments over the same alphabet module_slug uses, each starting with a letter or digit. Referenced by name from every table that grants or requires it.';
-COMMENT ON COLUMN permissions.module_id IS 'Required reference to the module this permission belongs to';
 
 -- Roles: Groups of permissions
 CREATE TABLE roles (
@@ -103,9 +98,6 @@ CREATE TABLE roles (
 );
 
 COMMENT ON TABLE roles IS 'Groups of permissions that can be assigned to users';
-COMMENT ON COLUMN roles.module_id IS 'Optional reference to a module for logical grouping';
-COMMENT ON COLUMN roles.slug IS 'Snake_case unique identifier for role. Auto-generated from role_name if not provided.';
-COMMENT ON COLUMN roles.origin IS 'How this role was created: system (platform built-ins), model (domain module scaffold), model_master (master module scaffold), or user (admin-created).';
 
 -- =====================================================
 -- AUTO-SET ROLE SLUG TRIGGER
@@ -175,9 +167,6 @@ CREATE TABLE users (
 );
 
 COMMENT ON TABLE users IS 'Users and agents';
-COMMENT ON COLUMN users.external_id IS 'Identity: the JWT sub claim. Users bring theirs from the authentication provider; an agent saved without one gets agent:<uuid>. Never empty.';
-COMMENT ON COLUMN users.is_agent IS
-'When TRUE, this user is a service principal (agent) rather than a human. Default FALSE — zero behavior change for existing rows.';
 
 -- User-Role mapping
 CREATE TABLE user_roles (
@@ -233,9 +222,6 @@ CREATE TABLE permission_hierarchy (
 );
 
 COMMENT ON TABLE permission_hierarchy IS 'Defines permission inclusion (including permission implies included permissions)';
-COMMENT ON COLUMN permission_hierarchy.including_permission_name IS 'The broader permission that includes other permissions';
-COMMENT ON COLUMN permission_hierarchy.included_permission_name IS 'The narrower permission that is included by the broader one';
-COMMENT ON COLUMN permission_hierarchy.origin IS 'How this hierarchy entry was created: system (platform-seeded), model (model file), model_master (promotion/wire-up), or user (admin-created).';
 
 -- =====================================================
 -- ADD FK COLUMNS TO MODULES (after roles and permissions exist)
@@ -255,13 +241,6 @@ ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id
 -- later ALTER TABLE past. Adding the constraint after the first module is
 -- seeded avoids ever queuing one - see 0040_rbac_seed.sql, where it is created
 -- and the reasoning is written out.
-
-COMMENT ON COLUMN modules.module_type IS 'Module type: domain (normal) or master (promoted for sharing).';
-COMMENT ON COLUMN modules.manage_permission IS 'Name of this module''s manage permission (FK to permissions).';
-COMMENT ON COLUMN modules.admin_permission IS 'Name of this module''s admin permission (FK to permissions).';
-COMMENT ON COLUMN modules.default_viewer_role_id IS 'FK to this module''s default viewer role.';
-COMMENT ON COLUMN modules.default_manager_role_id IS 'FK to this module''s default manager role.';
-COMMENT ON COLUMN modules.default_admin_role_id IS 'FK to this module''s default admin role.';
 
 -- =====================================================
 -- TRIGGERS FOR updated_at AUTOMATION

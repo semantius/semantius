@@ -256,10 +256,11 @@ SELECT is(
     'roles.slug has field metadata'
 );
 
+-- Editable in the UI: only a system role's slug is locked, and rule 90204 enforces that.
 SELECT is(
     (SELECT input_type FROM fields WHERE table_name = 'roles' AND field_name = 'slug'),
-    'readonly',
-    'roles.slug field metadata has input_type=readonly'
+    'default',
+    'roles.slug field metadata has input_type=default'
 );
 
 SELECT is(

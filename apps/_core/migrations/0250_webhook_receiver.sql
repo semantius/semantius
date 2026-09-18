@@ -52,12 +52,6 @@ VALUES
     ('webhook_receivers', 'header_value', 'Header Value',       'text',      FALSE, 46, 'default', 'default', 'Expected value for custom header authentication',         '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'jsonata',      'JSONata Expression', 'jsonata',   FALSE, 50, 'default', 'w',       'Optional JSONata expression to transform incoming data',  '',     NULL,                          '',         '',        '');
 
--- id and label are auto-created by the DD trigger, without a description.
-UPDATE fields SET description = 'Internal identifier, assigned automatically'
- WHERE table_name = 'webhook_receivers' AND field_name = 'id';
-UPDATE fields SET description = 'Name that identifies this webhook receiver'
- WHERE table_name = 'webhook_receivers' AND field_name = 'label';
-
 -- =====================================================
 -- CREATE webhook_receiver_logs TABLE
 -- =====================================================
@@ -101,10 +95,6 @@ VALUES
     ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       'Webhook payload data',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error', '10', '["10", "20", "30", "40", "50", "60"]'::jsonb, NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       'Error message if processing failed',               '',                   NULL,                        NULL, '',                  '',        '');
-
--- id is auto-created by the DD trigger, without a description.
-UPDATE fields SET description = 'Internal identifier, assigned automatically'
- WHERE table_name = 'webhook_receiver_logs' AND field_name = 'id';
 
 -- =====================================================
 -- ADD INDEX
