@@ -1,13 +1,15 @@
--- Test module_slug validation
+-- Test module_slug derivation and validation
 --
--- module_slug must be explicitly provided. The format is validated by a
--- JsonLogic rule on the modules entity (rule 90702, 0060_dd_schema.sql).
+-- An empty module_slug is derived from module_name by auto_set_module_slug
+-- (0020_rbac_schema.sql). The format is validated by a JsonLogic rule on the
+-- modules entity (rule 90702, 0060_dd_schema.sql).
 -- Allowed: lowercase a-z, 0-9, '-', '_'. First character must be a-z or 0-9.
--- Empty string is allowed (column default).
+-- Empty string is allowed (column default), and is what a name with no ASCII
+-- letter or digit derives.
 
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(27);
 
 -- =====================================================
 -- TEST: Seeded modules have correct module_slug values
@@ -32,17 +34,64 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST: No auto-generation — slug stays empty when not provided
+-- TEST: Empty module_slug is derived from module_name
 -- =====================================================
--- Empty is allowed by validation. Only one row can hold the empty string
--- because the column is UNIQUE; this row consumes it for the test scope.
 
 INSERT INTO modules (module_name, description) VALUES ('No Slug Module', 'no slug provided');
 
 SELECT is(
     (SELECT module_slug FROM modules WHERE module_name = 'No Slug Module'),
+    'no-slug-module',
+    'module_slug omitted on insert is derived from module_name'
+);
+
+INSERT INTO modules (module_name, module_slug) VALUES ('Sales & Marketing (EU)', '');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Sales & Marketing (EU)'),
+    'sales-marketing-eu',
+    'empty module_slug on insert is derived, each run of other characters becoming one hyphen'
+);
+
+INSERT INTO modules (module_name, module_slug) VALUES ('  __Ops Hub!__ ', '');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = '  __Ops Hub!__ '),
+    'ops-hub',
+    'derived module_slug has leading and trailing hyphens and underscores trimmed'
+);
+
+UPDATE modules SET module_name = 'Renamed Module' WHERE module_name = 'No Slug Module';
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Renamed Module'),
+    'no-slug-module',
+    'renaming a module keeps its existing module_slug'
+);
+
+UPDATE modules SET module_slug = '' WHERE module_name = 'Renamed Module';
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = 'Renamed Module'),
+    'renamed-module',
+    'clearing module_slug on update derives it from the current module_name'
+);
+
+-- Only one row can hold the empty string because the column is UNIQUE; this
+-- row consumes it for the test scope.
+INSERT INTO modules (module_name) VALUES ('日本');
+
+SELECT is(
+    (SELECT module_slug FROM modules WHERE module_name = '日本'),
     '',
-    'module_slug stays empty when not provided (no auto-generation)'
+    'a module_name with no ASCII letter or digit derives an empty module_slug'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO modules (module_name) VALUES ('Custom_Slug')$$,
+    '23505',
+    NULL,
+    'a derived module_slug that is already taken raises a unique constraint error'
 );
 
 -- =====================================================

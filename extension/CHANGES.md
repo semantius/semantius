@@ -30,6 +30,23 @@ installs the core schema as ordinary objects.
   does not fail with 23505. Callable by holders of the entity's
   `edit_permission`; never lowers a sequence; answers `90232` (retry) when the
   table stays locked by another writer for 2 s.
+- `modules.module_slug` is optional: a module saved with an empty slug gets
+  one derived from `module_name` (lowercase, each run of other characters
+  becoming one hyphen), on insert and on an update that clears it. A slug that
+  is set is never rewritten, so renaming a module keeps its URLs.
+- The field metadata of the core tables now carries the same defaults as their
+  columns, so a record created through the generated UI gets the column's
+  default instead of an empty value: `modules.access_scope` (`basic`, now
+  required), `modules.home_page` (`/`), `modules.module_type` (`domain`),
+  `modules.view_permission` (`user:read`), `roles.origin` and
+  `permission_hierarchy.origin` (`user`), `entities.computed_fields` and
+  `entities.validation_rules` (`[]`). Creating a module in the UI failed with
+  `valid_access_scope` before.
+- `get_schema()` no longer gives a reference to a text-keyed entity
+  (`permissions`, `entities`) the empty string as its default. The column is
+  nullable and `''` names no row, so a form that saved it failed the foreign
+  key: creating a module with `manage_permission` left empty failed with
+  `modules_manage_permission_fkey`.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.

@@ -13,7 +13,7 @@
 -- Module/role/permission ids are never hard-coded (the nwind module reuses the id the old CRM module had).
 BEGIN;
 
-SELECT plan(156);
+SELECT plan(160);
 
 -- =====================================================
 -- SETUP (user3): resolve the nwind module id, create the ephemeral probe
@@ -657,6 +657,35 @@ SELECT throws_ok(
 SELECT lives_ok(
     'UPDATE fields SET title = ''Record ID'', description = ''Unique identifier'' WHERE table_name = ''customers'' AND field_name = ''id''',
     'Updating title and description of core field should succeed'
+);
+
+-- =====================================================
+-- TEST: A form seeded from get_schema('modules') saves
+-- =====================================================
+-- A client fills every field it does not show from the schema default and
+-- sends it, so each default has to be a value the column accepts.
+
+SELECT is(
+    (public.get_schema('modules')::jsonb)->'properties'->'access_scope'->>'default',
+    'basic',
+    'modules.access_scope defaults to basic, the column default, not the empty string its CHECK rejects'
+);
+
+SELECT is(
+    (public.get_schema('modules')::jsonb)->'properties'->'access_scope'->>'inputMode',
+    'required',
+    'modules.access_scope is required, so a form cannot clear it to the empty string'
+);
+
+SELECT ok(
+    NOT ((public.get_schema('modules')::jsonb)->'properties'->'manage_permission' ? 'default'),
+    'a reference to a text-keyed entity with no default gets no schema default (the empty string fails its foreign key)'
+);
+
+SELECT is(
+    (public.get_schema('modules')::jsonb)->'properties'->'view_permission'->>'default',
+    'user:read',
+    'a reference to a text-keyed entity keeps an explicit default'
 );
 
 -- =====================================================

@@ -371,8 +371,12 @@ BEGIN
                         -- For strings, trim quotes if present (handles SQL literal strings like 'active')
                         ELSE jsonb_build_object('default', trim(both '''' from default_value))
                     END
-                -- For string types without explicit default, add empty string default
-                WHEN json_type::text = '"string"' THEN jsonb_build_object('default', '')
+                -- For string types without explicit default, add empty string default. Not for a
+                -- reference to a text-keyed entity (permissions, entities): its column is nullable
+                -- and '' names no row, so a client that saves the default fails the foreign key.
+                -- With no default the client starts it empty and leaves it out of the write, as it
+                -- does for a reference to an integer-keyed entity.
+                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent') THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
                 WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb

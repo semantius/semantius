@@ -35,6 +35,41 @@ CREATE TABLE modules (
 );
 
 -- =====================================================
+-- AUTO-SET MODULE SLUG TRIGGER
+-- =====================================================
+-- A module saved with an empty module_slug gets one derived from module_name,
+-- on INSERT and on an UPDATE that clears it. A slug that is set is never
+-- rewritten, so renaming a module does not move its URLs or break a client
+-- that looks it up by slug (get_module_cubes matches on it).
+
+CREATE OR REPLACE FUNCTION auto_set_module_slug()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
+        -- Every run of characters outside the slug alphabet becomes one hyphen,
+        -- and the ends are trimmed because rule 90702 wants a letter or digit
+        -- first. A name with no ASCII letter or digit derives '', which leaves
+        -- the column default in place.
+        NEW.module_slug := trim(both '-_' from regexp_replace(lower(NEW.module_name), '[^a-z0-9_-]+', '-', 'g'));
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_module_slug IS
+'Trigger function that derives module_slug from module_name when it is empty';
+
+CREATE TRIGGER auto_set_module_slug_trigger
+    BEFORE INSERT OR UPDATE ON modules
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_module_slug();
+
+COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
+'Derives module_slug from module_name when it is empty';
+
+REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
+
+-- =====================================================
 -- PERMISSIONS AND ROLES
 -- =====================================================
 

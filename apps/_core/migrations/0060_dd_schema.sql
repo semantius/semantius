@@ -352,7 +352,8 @@ CREATE TRIGGER enforce_catalog_aliases_append_only_trigger
 -- This seed runs before the entity_type-watching triggers (0145); the label-function backfill at the
 -- end of 0145 then builds the junction-shaped labels for all entities.
 --
--- Rule 90702 accepts an empty module_slug: it is the column default and not every flow sets a slug.
+-- Rule 90702 accepts an empty module_slug: the trigger in 0020 derives one from module_name, and a
+-- name with no ASCII letter or digit derives nothing, which leaves the column default.
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
@@ -705,8 +706,8 @@ VALUES
     ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'audit_log',      'Audit Log',      'When TRUE, DML operations on this table are logged to audit_record_logs', 'false', 'boolean', FALSE, 122, 'default', 'default', 'core', FALSE, '', '', 'has', NULL),
-    ('entities', 'computed_fields','Computed Fields', 'Ordered list of {name, jsonlogic, description?} entries, evaluated and stored on every insert and update: each entry derives the named field from the same record before the write',        '',             'jsonlogic', FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
-    ('entities', 'validation_rules','Validation Rules','Ordered list of {code, message, jsonlogic, description?} entries; each must evaluate truthy for the write to succeed','',     'jsonlogic', FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'computed_fields','Computed Fields', 'Ordered list of {name, jsonlogic, description?} entries, evaluated and stored on every insert and update: each entry derives the named field from the same record before the write',        '[]',           'jsonlogic', FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'validation_rules','Validation Rules','Ordered list of {code, message, jsonlogic, description?} entries; each must evaluate truthy for the write to succeed','[]',   'jsonlogic', FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
     ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule evaluated per row for the FOR SELECT RLS policy: true = the current user may see the record. Empty = no per-row rule.',         '',             'jsonlogic', FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
     ('entities', 'entity_type',    'Entity Type',    'What kind of data this entity holds. operational_workflow: records move through a gated lifecycle (even one gated step such as draft to submitted counts). operational_record: everyday business records without such a lifecycle. catalog: reference or lookup data maintained by admins. junction: a pure link between entities with no fields of its own; the platform labels its rows by the records they link. computed: every field is derived and never written directly. unclassified: not classified yet (the default).', 'unclassified', 'enum', FALSE, 122, 'required', 'default', 'core', FALSE, '', '', '', '["operational_workflow", "operational_record", "catalog", "junction", "computed", "unclassified"]'::jsonb),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', '', NULL),
@@ -732,44 +733,44 @@ VALUES
     ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, 60, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE);
 
 -- Insert fields metadata for modules table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, enum_values)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, enum_values, default_value)
 VALUES
-    ('modules', 'id', 'Id', 'Internal identifier, assigned automatically', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL),
-    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', '', NULL),
-    ('modules', 'description', 'Description', 'What the module covers', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', '', NULL),
-    ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '["domain", "master"]'::jsonb),
-    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module, by name', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict', NULL),
-    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for the module: lowercase, starting with a letter or digit, using only a-z, 0-9, - and _.', 'text', FALSE, 38, 'required', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'access_scope', 'Access Scope', 'Access tier: basic (simple read/edit) or full (role tiers, approvals and gating)', 'enum', FALSE, 46, 'default', 'default', 'core', FALSE, '', '', '["basic", "full"]'::jsonb),
-    ('modules', 'manage_permission', 'Manage Permission', 'Manage permission of this module, by name', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL),
-    ('modules', 'admin_permission', 'Admin Permission', 'Admin permission of this module, by name', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL),
-    ('modules', 'default_viewer_role_id', 'Default Viewer Role', 'Default viewer role of this module', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL),
-    ('modules', 'default_manager_role_id', 'Default Manager Role', 'Default manager role of this module', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL),
-    ('modules', 'default_admin_role_id', 'Default Admin Role', 'Default admin role of this module', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', '', NULL),
-    ('modules', 'dashboard_config', 'Dashboard Configuration', 'Layout and widgets of the module dashboard', 'json', FALSE, 60, 'default', 'w', 'core', FALSE, '', '', NULL),
-    ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '', NULL),
-    ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', 'audit', FALSE, '', '', NULL),
-    ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', 'audit', FALSE, '', '', NULL);
+    ('modules', 'id', 'Id', 'Internal identifier, assigned automatically', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL, ''),
+    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', '', NULL, ''),
+    ('modules', 'description', 'Description', 'What the module covers', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', '', NULL, ''),
+    ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '["domain", "master"]'::jsonb, 'domain'),
+    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module, by name', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict', NULL, 'user:read'),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL, '/'),
+    ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for the module: lowercase, starting with a letter or digit, using only a-z, 0-9, - and _. Derived from the module name when left empty.', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'access_scope', 'Access Scope', 'Access tier: basic (simple read/edit) or full (role tiers, approvals and gating)', 'enum', FALSE, 46, 'required', 'default', 'core', FALSE, '', '', '["basic", "full"]'::jsonb, 'basic'),
+    ('modules', 'manage_permission', 'Manage Permission', 'Manage permission of this module, by name', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
+    ('modules', 'admin_permission', 'Admin Permission', 'Admin permission of this module, by name', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
+    ('modules', 'default_viewer_role_id', 'Default Viewer Role', 'Default viewer role of this module', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'default_manager_role_id', 'Default Manager Role', 'Default manager role of this module', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'default_admin_role_id', 'Default Admin Role', 'Default admin role of this module', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'dashboard_config', 'Dashboard Configuration', 'Layout and widgets of the module dashboard', 'json', FALSE, 60, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', 'audit', FALSE, '', '', NULL, ''),
+    ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', 'audit', FALSE, '', '', NULL, '');
 
 -- Insert fields metadata for roles table (slug's unique_value matches the UNIQUE constraint on the table)
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, unique_value, enum_values)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, unique_value, enum_values, default_value)
 VALUES
-    ('roles', 'id',          'Id',          'Internal identifier, assigned automatically',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL),
-    ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      '', FALSE, NULL),
-    ('roles', 'slug',        'Slug',        'Snake_case unique identifier for the role, derived from role_name when omitted. Cannot be changed on a system role.', 'text', FALSE, 15, 'default', 'default', 'core', FALSE, '', '', '', TRUE, NULL),
-    ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', '', FALSE, NULL),
-    ('roles', 'description', 'Description', 'What the role is for',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      '', FALSE, NULL),
-    ('roles', 'origin',      'Origin',      'How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed.', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE, '["system", "model", "model_master", "user"]'::jsonb),
-    ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains', FALSE, NULL),
-    ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL),
-    ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL);
+    ('roles', 'id',          'Id',          'Internal identifier, assigned automatically',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'slug',        'Slug',        'Snake_case unique identifier for the role, derived from role_name when omitted. Cannot be changed on a system role.', 'text', FALSE, 15, 'default', 'default', 'core', FALSE, '', '', '', TRUE, NULL, ''),
+    ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', '', FALSE, NULL, ''),
+    ('roles', 'description', 'Description', 'What the role is for',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'origin',      'Origin',      'How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed.', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE, '["system", "model", "model_master", "user"]'::jsonb, 'user'),
+    ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains', FALSE, NULL, ''),
+    ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL, '');
 
 -- Insert fields metadata for permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label)
@@ -812,13 +813,13 @@ VALUES
     ('user_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted', '', '');
 
 -- Insert fields metadata for permission_hierarchy table
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent, enum_values)
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent, enum_values, default_value)
 VALUES
-    ('permission_hierarchy', 'id',                        'Id',                        'Generated identifier (including_permission_name.included_permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        '', '', '', NULL),
-    ('permission_hierarchy', 'including_permission_name', 'Including Permission Name', 'The broader permission, by name: holding it implies the included permission (e.g. crm:manage includes crm:read).',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes', 'Includes', 'Includes', NULL),
-    ('permission_hierarchy', 'included_permission_name',  'Included Permission Name',  'The narrower permission that is included by the broader one, by name',       'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in', 'Included in', 'Included in', NULL),
-    ('permission_hierarchy', 'origin',                'Origin',                'How the hierarchy entry was created: system (platform built-in), model (declared in the model of a domain module), model_master (created by the deployer for a master module, inside it or between it and other modules) or user (added by an admin). Set on insert and never changed.', 'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        '', '', '', '["system", "model", "model_master", "user"]'::jsonb),
-    ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '', '', '', NULL);
+    ('permission_hierarchy', 'id',                        'Id',                        'Generated identifier (including_permission_name.included_permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        '', '', '', NULL, ''),
+    ('permission_hierarchy', 'including_permission_name', 'Including Permission Name', 'The broader permission, by name: holding it implies the included permission (e.g. crm:manage includes crm:read).',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes', 'Includes', 'Includes', NULL, ''),
+    ('permission_hierarchy', 'included_permission_name',  'Included Permission Name',  'The narrower permission that is included by the broader one, by name',       'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in', 'Included in', 'Included in', NULL, ''),
+    ('permission_hierarchy', 'origin',                'Origin',                'How the hierarchy entry was created: system (platform built-in), model (declared in the model of a domain module), model_master (created by the deployer for a master module, inside it or between it and other modules) or user (added by an admin). Set on insert and never changed.', 'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        '', '', '', '["system", "model", "model_master", "user"]'::jsonb, 'user'),
+    ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '', '', '', NULL, '');
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
