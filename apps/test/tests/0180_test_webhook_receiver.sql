@@ -1,7 +1,7 @@
 -- Test webhook_receivers and webhook_receiver_logs tables
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(33);
 
 -- =====================================================
 -- TEST: webhook_receivers table exists and has correct structure
@@ -230,12 +230,6 @@ SELECT ok(
 SELECT ok(
     (SELECT COUNT(*) >= 1 FROM webhook_receiver_logs),
     'At least 1 sample webhook receiver log should exist'
-);
-
--- Test 33: Verify auth_type description mentions custom header
-SELECT ok(
-    (SELECT description LIKE '%custom header%' FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'auth_type'),
-    'auth_type field description should mention custom header'
 );
 
 -- Test 34: a log carrying a real sender id (never a number) is stored and found again by

@@ -75,7 +75,7 @@ SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_records'
 SELECT is((SELECT plural         FROM entities WHERE table_name = 'tdef_records'), 'tdef_records', 'full insert: plural auto-set to table_name');
 SELECT is((SELECT label_column   FROM entities WHERE table_name = 'tdef_records'), 'record_no',    'full insert: provided label_column preserved');
 
-SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'record_no'),  'Record',     'full insert: name field title = provided singular_label');
+SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'record_no'),  'Record No',  'full insert: name field title from label_column, not the provided singular_label');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'id'),         'Id',         'full insert: id field title');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'created_at'), 'Created At', 'full insert: created_at field title');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'updated_at'), 'Updated At', 'full insert: updated_at field title');

@@ -44,10 +44,10 @@ ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL 
 -- Add fields to webhook_receivers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('webhook_receivers', 'table_name',   'Table',              'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data',                           '',     NULL,                          'entities', 'cascade', 'has receivers'),
-    ('webhook_receivers', 'description',  'Description',        'text',      FALSE, 20, 'default', 'w',       'Description of webhook receiver purpose',                 '',     NULL,                          '',         '',        ''),
-    ('webhook_receivers', 'auth_type',    'Authentication Type','enum',      FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)',   'none', '["none", "hmac", "header"]'::jsonb, '', '',   ''),
-    ('webhook_receivers', 'secret',       'Secret',             'text',      FALSE, 40, 'default', 'default', 'Secret for webhook authentication',                       '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'table_name',   'Entity',              'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data',                           '',     NULL,                          'entities', 'cascade', 'has receivers'),
+    ('webhook_receivers', 'description',  'Description',        'text',      FALSE, 20, 'default', 'w',       '',                 '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'auth_type',    'Authentication Type','enum',      FALSE, 30, 'default', 'default', 'hmac = HMAC signature over the body; header = expected value in a named header',   'none', '["none", "hmac", "header"]'::jsonb, '', '',   ''),
+    ('webhook_receivers', 'secret',       'Secret',             'text',      FALSE, 40, 'default', 'default', '',                       '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'header_name',  'Header Name',        'text',      FALSE, 45, 'default', 'default', 'Custom header name for authentication',                   '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'header_value', 'Header Value',       'text',      FALSE, 46, 'default', 'default', 'Expected value for custom header authentication',         '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'jsonata',      'JSONata Expression', 'jsonata',   FALSE, 50, 'default', 'w',       'Optional JSONata expression to transform incoming data',  '',     NULL,                          '',         '',        '');
@@ -88,13 +88,13 @@ VALUES (
 -- receiver and message_id already succeeded, the delivery is acknowledged and skipped.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', 'Parent webhook receiver this log belongs to',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
-    ('webhook_receiver_logs', 'message_id',          'Message Id',          'text',      FALSE, 10, 'default', 'default', 'The sender''s webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.', '', NULL, NULL, '', '', ''),
+    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', '',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
+    ('webhook_receiver_logs', 'message_id',          'Message',          'text',      FALSE, 10, 'default', 'default', 'The sender''s webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.', '', NULL, NULL, '', '', ''),
     ('webhook_receiver_logs', 'webhook_timestamp',   'Webhook Timestamp',   'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source',                    NULL,                 NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', 'Timestamp when webhook was received',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       'Webhook payload data',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', '',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       '',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error', '10', '["10", "20", "30", "40", "50", "60"]'::jsonb, NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       'Error message if processing failed',               '',                   NULL,                        NULL, '',                  '',        '');
+    ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       '',               '',                   NULL,                        NULL, '',                  '',        '');
 
 -- =====================================================
 -- ADD INDEX

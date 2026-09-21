@@ -4824,18 +4824,18 @@ BEGIN
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, enum_values, reference_table, reference_delete_mode, relationship_label, input_type_rule)
   VALUES
       ('fields', 'id',                   'Id',                   'Generated identifier (table_name.field_name)',                           '',         'text',      TRUE,  10,     'readonly', 'default', 'id',    FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
-      ('fields', 'table_name',           'Table Name',           'Entity this field belongs to',                                                                       '',         'parent',    FALSE, 20,     'default',  'default', 'core',  TRUE,  NULL,                            'entities',  'cascade', 'has fields', '{}'::jsonb),
-      ('fields', 'field_name',           'Field Name',           'Physical column name in database: lowercase letters, digits and _. Names starting with _ are reserved for generated system columns such as _label.',                                       '',         'text',      FALSE, 30,     'required', 'default', 'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
-      ('fields', 'format',               'Format',               'JSON Schema format or primitive type',                                   'text',     'enum',      FALSE, 40,     'required', 'default', 'core',  FALSE, to_jsonb(format_values),         '',          '',        '', '{}'::jsonb),
-      ('fields', 'title',                'Title',                'Human-readable display name for the field',                              '',         'text',      FALSE, 50,     'required', 'default', 'label', TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
-      ('fields', 'description',          'Description',          'What the field represents. Also written into the column comment, which PostgREST shows in its OpenAPI output.',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
-      ('fields', 'is_pk',                'Is Primary Key',       'Whether this field is the primary key; cannot change after the field is created',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'table_name',           'Entity',           '',                                                                       '',         'parent',    FALSE, 20,     'default',  'default', 'core',  TRUE,  NULL,                            'entities',  'cascade', 'has fields', '{}'::jsonb),
+      ('fields', 'field_name',           'Field Name',           'Physical column name in database',                                       '',         'text',      FALSE, 30,     'required', 'default', 'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'format',               'Format',               '',                                   'text',     'enum',      FALSE, 40,     'required', 'default', 'core',  FALSE, to_jsonb(format_values),         '',          '',        '', '{}'::jsonb),
+      ('fields', 'title',                'Title',                '',                              '',         'text',      FALSE, 50,     'required', 'default', 'label', TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'is_pk',                'Is Primary Key',       'Cannot change after the field is created',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'default_value',        'Default Value',        'Column default: a literal value or an SQL expression such as CURRENT_TIMESTAMP',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'::jsonb),
-      ('fields', 'field_order',          'Field Order',          'Display order of the field within its entity',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
+      ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type',           'Input Type',           'How the UI presents the field for input; input_type_rule can override it per record',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        '', '{}'::jsonb),
-      ('fields', 'width',                'Width',                'Display width of the field in the UI: default (automatic), s (small), m (medium) or w (wide)',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, to_jsonb(width_values),          '',          '',        '', '{}'::jsonb),
-      ('fields', 'ctype',                'Column Type',          'Marks a DD-managed core column: empty (normal user field), id (primary key), label (display field), audit (record-versioning columns such as created_at and updated_at) or core (other system columns). A core column cannot be deleted or renamed (the label column may be renamed), and its format and default value cannot change. Set by the DD only and never changed.',                                  '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, to_jsonb(ctype_values),          '',          '',        '', '{}'::jsonb),
-      ('fields', 'searchable',           'Searchable',           'Whether field is included in full-text search',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'::jsonb),
+      ('fields', 'width',                'Width',                'default (automatic), s (small), m (medium), w (wide)',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, to_jsonb(width_values),          '',          '',        '', '{}'::jsonb),
+      ('fields', 'ctype',                'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, to_jsonb(ctype_values),          '',          '',        '', '{}'::jsonb),
+      ('fields', 'searchable',           'Searchable',           '',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'::jsonb),
       ('fields', 'enum_values',          'Enum Values',          'JSON array of the allowed values of an enum field, e.g. ["active", "inactive", "pending"]',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'::jsonb),
       ('fields', 'precision',            'Precision',            'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'::jsonb),
       ('fields', 'reference_table',      'Reference Table',      'Entity this field references, by table name. Required for reference and parent fields, empty for all others, and must name an existing entity.',                               '',         'text',      FALSE, 180,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
@@ -4843,7 +4843,7 @@ BEGIN
       ('fields', 'relationship_label',   'Relationship Label',   'Verb describing what the referenced entity does to/with this entity (e.g. employs, heads). Used for ER diagram and navigation labels.', 'has',      'text',      FALSE, 200,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
       ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity when format is parent; overrides the singular_label of the parent entity when set','',        'text',      FALSE, 210,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
       ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity when format is parent; overrides the plural_label of the parent entity when set', '',         'text',      FALSE, 220,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
-      ('fields', 'unique_value',         'Unique Value',         'When TRUE, enforces a partial unique index on this column. For string types, NULL and empty string values are excluded from the uniqueness check.', '', 'boolean', FALSE, 230, 'hidden',  'default', 'core', FALSE, NULL,                           '',          '',        '', '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","jsonlogic","object","array"]]},"hidden","default"]}'::jsonb),
+      ('fields', 'unique_value',         'Unique Value',         'When enabled, values in this column must be unique. NULL and empty strings are not checked.', '', 'boolean', FALSE, 230, 'hidden',  'default', 'core', FALSE, NULL,                           '',          '',        '', '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","jsonlogic","object","array"]]},"hidden","default"]}'::jsonb),
       ('fields', 'cube_type',            'Cube Type',            'Role of the field in the generated OLAP cube (dimension or measure); auto lets the platform choose, disabled leaves the field out',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', 'core',  FALSE, to_jsonb(cube_type_values),      '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic rule evaluated client-side against the record being edited. It returns an input_type (default, required, readonly, disabled or hidden) that replaces the static input_type. Empty = no rule.', '',         'jsonlogic', FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'catalog_field_code',   'Catalog Field Code',   'Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', '', 'text', FALSE, 260, 'default', 'default', 'core', FALSE, NULL,           '',          '',        '', '{}'::jsonb),
@@ -4853,8 +4853,8 @@ BEGIN
   -- Insert edit_mode field metadata for entities table (uses edit_mode_values defined above)
   INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, enum_values, reference_table, reference_delete_mode, relationship_label)
   VALUES
-      ('entities', 'edit_mode', 'Edit Mode', 'UI edit mode for records of this table: auto, sidebar, modal, or page', 'auto', 'enum', FALSE, 119, 'default', 'default', 'core', FALSE, to_jsonb(edit_mode_values), '', '', ''),
-      ('entities', 'cube_mode', 'Cube Mode', 'Cube mode for OLAP cube generation', 'auto', 'enum', FALSE, 121, 'default', 'default', 'core', FALSE, to_jsonb(cube_mode_values), '', '', '');
+      ('entities', 'edit_mode', 'Edit Mode', '', 'auto', 'enum', FALSE, 119, 'default', 'default', 'core', FALSE, to_jsonb(edit_mode_values), '', '', ''),
+      ('entities', 'cube_mode', 'Cube Mode', '', 'auto', 'enum', FALSE, 121, 'default', 'default', 'core', FALSE, to_jsonb(cube_mode_values), '', '', '');
 
 END $$;
 
@@ -4863,27 +4863,27 @@ END $$;
 -- CREATE TABLE entities (exactly 6 values).
 INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values)
 VALUES
-    ('entities', 'table_name',     'Table Name',     'Physical table name in database: lowercase letters, digits and _, starting with a letter or _',                       '',             'text',      TRUE,  1,   'required', 'default', 'id',   TRUE,  '', '',        '', NULL),
+    ('entities', 'table_name',     'Table Name',     'Physical table name in database',                       '',             'text',      TRUE,  1,   'required', 'default', 'id',   TRUE,  '', '',        '', NULL),
     ('entities', 'singular',       'Singular',       'Singular form of table name (auto-derived from table_name when blank)', '', 'text',      FALSE, 10,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
     ('entities', 'plural',         'Plural',         'Plural form of table name, auto-assigned to table_name','',             'text',      FALSE, 20,  'readonly', 'default', 'core', TRUE,  '', '',        '', NULL),
     ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports (e.g. Customer)',          '',             'text',      FALSE, 30,  'default',  'default', 'label',TRUE,  '', '',        '', NULL),
     ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports (e.g. Customers)',            '',             'text',      FALSE, 40,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
-    ('entities', 'icon_url',       'Icon URL',       'Optional URL or path to icon for this table',           '',             'url',       FALSE, 50,  'default',  'w',       'core', FALSE, '', '',        '', NULL),
-    ('entities', 'description',    'Description',    'What the entity represents',                                                       '',             'text',      FALSE, 60,  'default',  'w',       'core', TRUE,  '', '',        '', NULL),
-    ('entities', 'module_id',      'Module Id',      'Module this entity belongs to',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains', NULL),
-    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table, by name', 'public:read',  'reference', FALSE, 80,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
-    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table, by name', 'admin', 'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
-    ('entities', 'id_column',      'Id Column',      'Name of the primary key column, created automatically',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'label_column',   'Label Column',   'Name of the label/display column, created automatically',                          'label',        'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'label_parent',   'Label Parent',   'Reference or parent field of this entity whose record label the composed _label is built from (the identity spine). Empty = self-identifying: the composed label is the local label. Not allowed on a junction entity, and the spine must stay acyclic.', '', 'text', FALSE, 111, 'default', 'default', 'core', FALSE, '', '', '', NULL),
-    ('entities', 'order_column',   'Order Column',   'Name of an integer column that stores a fixed row order. Setting it creates the column, and a record inserted without a value gets MAX + 10. Empty = no fixed order.',                '',             'text',      FALSE, 112, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'managed',        'Managed',        'When false, automatic DDL execution for table and field changes is disabled',       'true',         'boolean',   FALSE, 115, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'searchable',     'Searchable',     'Whether table is included in full-text search (auto-computed)', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'is_child',       'Is Child',       'Whether table has any parent relationships (auto-computed)', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'audit_log',      'Audit Log',      'When TRUE, DML operations on this table are logged to audit_record_logs', 'false', 'boolean', FALSE, 122, 'default', 'default', 'core', FALSE, '', '', 'has', NULL),
-    ('entities', 'computed_fields','Computed Fields', 'Ordered list of {name, jsonlogic, description?} entries, evaluated and stored on every insert and update: each entry derives the named field from the same record before the write',        '[]',           'jsonlogic', FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
-    ('entities', 'validation_rules','Validation Rules','Ordered list of {code, message, jsonlogic, description?} entries; each must evaluate truthy for the write to succeed','[]',   'jsonlogic', FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
-    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule evaluated per row for the FOR SELECT RLS policy: true = the current user may see the record. Empty = no per-row rule.',         '',             'jsonlogic', FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'icon_url',       'Icon URL',       '',           '',             'url',       FALSE, 50,  'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 60,  'default',  'w',       'core', TRUE,  '', '',        '', NULL),
+    ('entities', 'module_id',      'Module',      '',                                                       '',             'reference', FALSE, 70,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains', NULL),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table', 'public:read',  'reference', FALSE, 80,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
+    ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 100, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 111, 'default', 'default', 'core', FALSE, '', '', '', NULL),
+    ('entities', 'order_column',   'Order Column',   'Store a fixed row order in this column',                '',             'text',      FALSE, 112, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'managed',        'Managed',        'When disabled, changes to this entity and its fields no longer run DDL',       'true',         'boolean',   FALSE, 115, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'searchable',     'Searchable',     'Auto-computed from the label field', '',    'boolean',   FALSE, 117, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'is_child',       'Is Child',       'Auto-computed from the parent fields', '',       'boolean',   FALSE, 118, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'audit_log',      'Audit Log',      'When enabled, DML operations on this table are logged to audit_record_logs', 'false', 'boolean', FALSE, 122, 'default', 'default', 'core', FALSE, '', '', 'has', NULL),
+    ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '[]',           'jsonlogic', FALSE, 123, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','[]',   'jsonlogic', FALSE, 124, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'jsonlogic', FALSE, 125, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
     ('entities', 'entity_type',    'Entity Type',    'What kind of data this entity holds. operational_workflow: records move through a gated lifecycle (even one gated step such as draft to submitted counts). operational_record: everyday business records without such a lifecycle. catalog: reference or lookup data maintained by admins. junction: a pure link between entities with no fields of its own; the platform labels its rows by the records they link. computed: every field is derived and never written directly. unclassified: not classified yet (the default).', 'unclassified', 'enum', FALSE, 122, 'required', 'default', 'core', FALSE, '', '', '', '["operational_workflow", "operational_record", "catalog", "junction", "computed", "unclassified"]'::jsonb),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (uber-model code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', '', 'text', FALSE, 126, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 127, 'default', 'default', 'core', FALSE, '', '', '', NULL),
@@ -4894,56 +4894,56 @@ VALUES
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
 VALUES
-    ('users', 'id', 'Id', 'Internal identifier, assigned automatically', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
-    ('users', 'external_id', 'External Id', 'Identity: the JWT sub claim from the authentication provider. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
-    ('users', 'email', 'Email', 'Email address of the user', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', '', '', FALSE),
-    ('users', 'first_name', 'First Name', 'First name from JWT given_name claim', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
-    ('users', 'last_name', 'Last Name', 'Last name from JWT family_name claim', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
-    ('users', 'display_name', 'Display Name', 'Display name from the JWT name claim', 'text', FALSE, 25, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
-    ('users', 'is_disabled', 'Is Disabled', 'When TRUE, the user account is disabled', 'boolean', FALSE, 30, 'default', 'default', 'core', FALSE, '', '', '', FALSE),
-    ('users', 'settings', 'Settings', 'User-specific settings and preferences', 'json', FALSE, 35, 'default', 'w', 'core', FALSE, '', '', '', FALSE),
-    ('users', 'is_agent', 'Is Agent', 'When TRUE this user is a service principal (agent)', 'boolean', FALSE, 100, 'default', 'default', '', FALSE, '', '', 'false', FALSE),
+    ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
+    ('users', 'external_id', 'External Identity', 'Identity: the JWT sub claim from the authentication provider. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
+    ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', '', '', FALSE),
+    ('users', 'first_name', 'First Name', '', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
+    ('users', 'last_name', 'Last Name', '', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
+    ('users', 'display_name', 'Display Name', '', 'text', FALSE, 25, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
+    ('users', 'is_disabled', 'Is Disabled', '', 'boolean', FALSE, 30, 'default', 'default', 'core', FALSE, '', '', '', FALSE),
+    ('users', 'settings', 'Settings', '', 'json', FALSE, 35, 'default', 'w', 'core', FALSE, '', '', '', FALSE),
+    ('users', 'is_agent', 'Is Agent', 'A service principal (agent) rather than a person', 'boolean', FALSE, 100, 'default', 'default', '', FALSE, '', '', 'false', FALSE),
     ('users', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '', '', '', FALSE),
     ('users', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '', '', '', FALSE),
-    ('users', 'last_seen', 'Last Seen', 'Timestamp when user was last active', 'date-time', FALSE, 60, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE);
+    ('users', 'last_seen', 'Last Seen', '', 'date-time', FALSE, 60, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE);
 
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, enum_values, default_value)
 VALUES
-    ('modules', 'id', 'Id', 'Internal identifier, assigned automatically', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL, ''),
-    ('modules', 'module_name', 'Module Name', 'Unique module name', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', '', NULL, ''),
-    ('modules', 'description', 'Description', 'What the module covers', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', '', NULL, ''),
-    ('modules', 'module_type', 'Module Type', 'Module type: domain (normal) or master (promoted for sharing)', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '["domain", "master"]'::jsonb, 'domain'),
-    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module, by name', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict', NULL, 'user:read'),
-    ('modules', 'logo_color', 'Logo Color', 'Hex color code for module logo', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
-    ('modules', 'icon_name', 'Icon Name', 'Icon or logo name identifier', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
-    ('modules', 'home_page', 'Home Page', 'Default home page path for module', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL, '/'),
+    ('modules', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL, ''),
+    ('modules', 'module_name', 'Module Name', '', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', '', NULL, ''),
+    ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', '', NULL, ''),
+    ('modules', 'module_type', 'Module Type', 'domain = normal module; master = promoted for sharing', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '["domain", "master"]'::jsonb, 'domain'),
+    ('modules', 'view_permission', 'View Permission', 'Permission required to view this module', 'reference', FALSE, 30, 'default', 'default', 'core', FALSE, 'permissions', 'restrict', NULL, 'user:read'),
+    ('modules', 'logo_color', 'Logo Color', 'Hex color code', 'text', FALSE, 36, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'icon_name', 'Icon Name', '', 'text', FALSE, 37, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'home_page', 'Home Page', '', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL, '/'),
     ('modules', 'module_slug', 'Module Slug', 'URL-safe unique identifier for the module: lowercase, starting with a letter or digit, using only a-z, 0-9, - and _. Derived from the module name when left empty.', 'text', FALSE, 38, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
-    ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'catalog_module_code', 'Catalog Module Code', 'Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield.', 'text', FALSE, 44, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'domain_code', 'Domain Code', 'Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM)', 'text', FALSE, 45, 'default', 'default', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'access_scope', 'Access Scope', 'Access tier: basic (simple read/edit) or full (role tiers, approvals and gating)', 'enum', FALSE, 46, 'required', 'default', 'core', FALSE, '', '', '["basic", "full"]'::jsonb, 'basic'),
-    ('modules', 'manage_permission', 'Manage Permission', 'Manage permission of this module, by name', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
-    ('modules', 'admin_permission', 'Admin Permission', 'Admin permission of this module, by name', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
-    ('modules', 'default_viewer_role_id', 'Default Viewer Role', 'Default viewer role of this module', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
-    ('modules', 'default_manager_role_id', 'Default Manager Role', 'Default manager role of this module', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
-    ('modules', 'default_admin_role_id', 'Default Admin Role', 'Default admin role of this module', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
-    ('modules', 'settings', 'Settings', 'Module-specific settings and configuration', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'manage_permission', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
+    ('modules', 'admin_permission', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
+    ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'settings', 'Settings', '', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'dashboard_config', 'Dashboard Configuration', 'Layout and widgets of the module dashboard', 'json', FALSE, 60, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', '', NULL, ''),
-    ('modules', 'version_date', 'Version Date', 'Timestamp of last version change', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '', NULL, ''),
+    ('modules', 'version_date', 'Version Date', '', 'date-time', FALSE, 86, 'readonly', 'default', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'created_at', 'Created At', '', 'date-time', FALSE, 90, 'disabled', 'default', 'audit', FALSE, '', '', NULL, ''),
     ('modules', 'updated_at', 'Updated At', '', 'date-time', FALSE, 100, 'disabled', 'default', 'audit', FALSE, '', '', NULL, '');
 
 -- Insert fields metadata for roles table (slug's unique_value matches the UNIQUE constraint on the table)
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, unique_value, enum_values, default_value)
 VALUES
-    ('roles', 'id',          'Id',          'Internal identifier, assigned automatically',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL, ''),
-    ('roles', 'role_name',   'Role Name',   'Unique role name',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'role_name',   'Role Name',   '',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      '', FALSE, NULL, ''),
     ('roles', 'slug',        'Slug',        'Snake_case unique identifier for the role, derived from role_name when omitted. Cannot be changed on a system role.', 'text', FALSE, 15, 'default', 'default', 'core', FALSE, '', '', '', TRUE, NULL, ''),
     ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', '', FALSE, NULL, ''),
-    ('roles', 'description', 'Description', 'What the role is for',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      '', FALSE, NULL, ''),
     ('roles', 'origin',      'Origin',      'How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed.', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE, '["system", "model", "model_master", "user"]'::jsonb, 'user'),
-    ('roles', 'module_id',   'Module Id',   'Module this role belongs to',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains', FALSE, NULL, ''),
+    ('roles', 'module_id',   'Module',   '',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains', FALSE, NULL, ''),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL, ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL, '');
 
@@ -4955,8 +4955,8 @@ VALUES
     -- whoever creates the permission, and readonly would make a permission
     -- impossible to create from the UI.
     ('permissions', 'permission_name', 'Permission Name', 'The permission itself, and the key other tables use to name it. Colon-separated segments of a-z, 0-9, - and _, each starting with a letter or digit, e.g. crm:read or service-catalog:view. No spaces, commas or dots: scope strings are split on commas and whitespace, and a dot would make permission_hierarchy ids ambiguous.',              'text',      TRUE,  1,  'required', 'default', 'id',    TRUE,  '',        '',      ''),
-    ('permissions', 'description',     'Description',     'What the permission allows',                                    'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      ''),
-    ('permissions', 'module_id',       'Module Id',       'Module this permission belongs to',   'reference', FALSE, 30, 'required', 'default', 'core',  FALSE, 'modules', 'cascade', 'contains'),
+    ('permissions', 'description',     'Description',     '',                                    'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      ''),
+    ('permissions', 'module_id',       'Module',       '',   'reference', FALSE, 30, 'required', 'default', 'core',  FALSE, 'modules', 'cascade', 'contains'),
     ('permissions', 'created_at',      'Created At',      '',                                    'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      ''),
     ('permissions', 'updated_at',      'Updated At',      '',                                    'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '');
 
@@ -4964,36 +4964,36 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
 VALUES
     ('user_roles', 'id',          'Id',          'Generated identifier (user_id.role_id)',  'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',      '',        '', '', ''),
-    ('user_roles', 'user_id',     'User Id',     'User this role is assigned to',           'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users', 'cascade', 'has roles', 'Role', 'Roles'),
-    ('user_roles', 'role_id',     'Role Id',     'Role assigned to the user',               'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'roles', 'cascade', 'assigned to', 'User', 'Users'),
-    ('user_roles', 'assigned_at', 'Assigned At', 'Timestamp when role was assigned',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',      '',        '', '', ''),
-    ('user_roles', 'assigned_by', 'Assigned By', 'User who assigned this role',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users', 'clear',   'has assigned', '', '');
+    ('user_roles', 'user_id',     'User',     '',           'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users', 'cascade', 'has roles', 'Role', 'Roles'),
+    ('user_roles', 'role_id',     'Role',     '',               'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'roles', 'cascade', 'assigned to', 'User', 'Users'),
+    ('user_roles', 'assigned_at', 'Assigned At', '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',      '',        '', '', ''),
+    ('user_roles', 'assigned_by', 'Assigned By', '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users', 'clear',   'has assigned', '', '');
 
 -- Insert fields metadata for role_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
 VALUES
     ('role_permissions', 'id',              'Id',              'Generated identifier (role_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',            '',        '', '', ''),
-    ('role_permissions', 'role_id',         'Role Id',         'Role this permission is granted to',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions', 'Permission', 'Permissions'),
-    ('role_permissions', 'permission_name', 'Permission Name', 'Permission granted to the role, by name',        'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to', 'Permission', 'Permissions'),
-    ('role_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        '', '', ''),
-    ('role_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted', '', '');
+    ('role_permissions', 'role_id',         'Role',         '',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions', 'Permission', 'Permissions'),
+    ('role_permissions', 'permission_name', 'Permission', '',        'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to', 'Permission', 'Permissions'),
+    ('role_permissions', 'granted_at',    'Granted At',    '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        '', '', ''),
+    ('role_permissions', 'granted_by',    'Granted By',    '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted', '', '');
 
 -- Insert fields metadata for user_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
 VALUES
     ('user_permissions', 'id',              'Id',              'Generated identifier (user_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        '', '', ''),
-    ('user_permissions', 'user_id',         'User Id',         'User this permission is granted to',             'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions', 'Permission', 'Permissions'),
-    ('user_permissions', 'permission_name', 'Permission Name', 'Permission granted to the user, by name',        'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to', 'User', 'Users'),
-    ('user_permissions', 'granted_at',    'Granted At',    'Timestamp when permission was granted',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',              '',        '', '', ''),
-    ('user_permissions', 'granted_by',    'Granted By',    'User who granted this permission',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted', '', '');
+    ('user_permissions', 'user_id',         'User',         '',             'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions', 'Permission', 'Permissions'),
+    ('user_permissions', 'permission_name', 'Permission', '',        'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to', 'User', 'Users'),
+    ('user_permissions', 'granted_at',    'Granted At',    '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',              '',        '', '', ''),
+    ('user_permissions', 'granted_by',    'Granted By',    '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted', '', '');
 
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent, enum_values, default_value)
 VALUES
     ('permission_hierarchy', 'id',                        'Id',                        'Generated identifier (including_permission_name.included_permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',             '',        '', '', '', NULL, ''),
-    ('permission_hierarchy', 'including_permission_name', 'Including Permission Name', 'The broader permission, by name: holding it implies the included permission (e.g. crm:manage includes crm:read).',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes', 'Includes', 'Includes', NULL, ''),
-    ('permission_hierarchy', 'included_permission_name',  'Included Permission Name',  'The narrower permission that is included by the broader one, by name',       'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in', 'Included in', 'Included in', NULL, ''),
-    ('permission_hierarchy', 'origin',                'Origin',                'How the hierarchy entry was created: system (platform built-in), model (declared in the model of a domain module), model_master (created by the deployer for a master module, inside it or between it and other modules) or user (added by an admin). Set on insert and never changed.', 'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        '', '', '', '["system", "model", "model_master", "user"]'::jsonb, 'user'),
+    ('permission_hierarchy', 'including_permission_name', 'Including Permission', 'The broader permission: holding it implies the included permission (e.g. crm:manage includes crm:read).',                     'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'includes', 'Includes', 'Includes', NULL, ''),
+    ('permission_hierarchy', 'included_permission_name',  'Included Permission',  'The narrower permission that is included by the broader one',       'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in', 'Included in', 'Included in', NULL, ''),
+    ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created', 'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        '', '', '', '["system", "model", "model_master", "user"]'::jsonb, 'user'),
     ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '', '', '', NULL, '');
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
@@ -5014,7 +5014,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', 'd0e66efe280422baf82fbf8b90856521a4b2d1289bb5fe3d90953df6b32f30d1');
+      VALUES ('_core.0060_dd_schema', '120f836116fc6275fdbdad19493423cc6739b04a69fa542a4ddb1538f916a5cd');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -5550,14 +5550,12 @@ BEGIN
     -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
     -- The label column is marked as searchable=TRUE for full-text search.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, description)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', '',
-         'Internal identifier, assigned automatically'),
-        (NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '',
-         'Name that identifies this ' || COALESCE(NULLIF(lower(NEW.singular_label), ''), 'record')),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '');
+        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
+        (NEW.table_name, NEW.label_column, public.snake_to_label(NEW.label_column), 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
 
     -- entities.searchable needs no write here. The INSERT above is a statement
     -- of its own even inside this trigger, so handle_field_searchable_insert_trigger
@@ -7078,7 +7076,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '9308c7165bca57f17afe650a8398ec9dda7836bc50825ae1c644c231c97f9778');
+      VALUES ('_core.0070_dd_functions', 'd8d7c1079d2e316d8fb1981e7aadfadf51d18e69e65d9a072a9ac619953ce980');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9480,14 +9478,12 @@ BEGIN
     -- ── Insert core field records if they were never created ─────────────
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, description)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', '',
-           'Internal identifier, assigned automatically'
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, description)
-    SELECT NEW.table_name, NEW.label_column, NEW.singular_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '',
-           'Name that identifies this ' || COALESCE(NULLIF(lower(NEW.singular_label), ''), 'record')
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    SELECT NEW.table_name, NEW.label_column, public.snake_to_label(NEW.label_column), 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -10108,7 +10104,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', '59f227e422d28de2b1818d00714c01212b433094210180f2dd28ca3e60a93f63');
+      VALUES ('_core.0145_managed_enable', 'af537b9f93879ee509ba478bf21d88eaa09c01ce6eea2cc007b894162726d2e6');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10948,6 +10944,35 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
+-- FUNCTION: snake_to_label
+-- =====================================================
+-- Convert a snake_case identifier into a human-readable Title Case label.
+--   'tenant_name'     -> 'Tenant Name'
+--   'city'            -> 'City'
+--   'address_line_1'  -> 'Address Line 1'
+-- Collapses runs of underscores and trims leading/trailing ones.
+-- Defined here, not in 0230: create_dd_table (0070) titles the label field with
+-- it and 0150/0170/0210 insert entities before 0230 runs, so it has to exist by
+-- now. It sits AFTER the event triggers above and BEFORE the first entity insert
+-- below, so its own CREATE is audited like any other static function - 0301
+-- asserts exactly that, because its _label suffix once got it skipped.
+
+CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
+$$;
+
+COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
+'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
+
+REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
+
+-- =====================================================
 -- STEP 8: Register audit tables as entities (managed=false)
 -- =====================================================
 -- These are core system tables. managed=false means no DDL triggers fire
@@ -10963,18 +10988,18 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
 VALUES
     ('audit_record_logs', 'id',            'Id',            '',                                                                  'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
-    ('audit_record_logs', 'record_id',     'Record Id',     'Deterministic UUID computed from table OID and primary key values', 'uuid',      FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'old_record_id', 'Old Record Id', 'Record id before update/delete',                                   'uuid',      FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'record_pk',     'Record PK',     'Primary key value of the affected record',                          'text',      FALSE, 25,  'readonly', 'default', 'core',  TRUE,  '', ''),
+    ('audit_record_logs', 'record_id',     'Record UUID',     'Deterministic UUID computed from table OID and primary key values', 'uuid',      FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'old_record_id', 'Old Record UUID', 'Record id before update/delete',                                   'uuid',      FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'record_pk',     'Record Primary Key',     '',                          'text',      FALSE, 25,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_record_logs', 'op',            'Operation',     'DML operation type: INSERT, UPDATE, DELETE, TRUNCATE',               'text',      FALSE, 30,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'ts',            'Timestamp',     'When the operation occurred',                                        'date-time', FALSE, 40,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'user_id',       'User Id',       'Internal user id from JWT context (0 when unavailable)',             'int32',     FALSE, 50,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'ts',            'Timestamp',     '',                                        'date-time', FALSE, 40,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'user_id',       'User',       'From the JWT context; 0 when unavailable',             'int32',     FALSE, 50,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'db_role',       'DB Role',       'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.',      'text',      FALSE, 52,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges. TRUE on a data row means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges. On a data row that means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'client_addr',   'Client Addr',   'Connecting client address (inet_client_addr()); NULL for a unix-socket connection, which means a shell on the database host rather than a client on the network',       'text',      FALSE, 56,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'table_oid',     'Table OID',     'PostgreSQL internal object identifier for the table',                'int32',     FALSE, 60,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'table_schema',  'Table Schema',  'Schema containing the table',                                       'text',      FALSE, 70,  'readonly', 'default', 'core',  TRUE,  '', ''),
-    ('audit_record_logs', 'table_name',    'Table Name',    'Name of the affected table',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE,  '', ''),
+    ('audit_record_logs', 'table_schema',  'Table Schema',  '',                                       'text',      FALSE, 70,  'readonly', 'default', 'core',  TRUE,  '', ''),
+    ('audit_record_logs', 'table_name',    'Table Name',    '',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE,  '', ''),
     ('audit_record_logs', 'record',        'Record',        'Full record after INSERT/UPDATE (JSONB)',                            'json',      FALSE, 90,  'readonly', 'w',       'core',  FALSE, '', ''),
     ('audit_record_logs', 'old_record',    'Old Record',    'Previous record before UPDATE/DELETE (JSONB)',                       'json',      FALSE, 100, 'readonly', 'w',       'core',  FALSE, '', '');
 
@@ -10982,10 +11007,10 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
 VALUES
     ('audit_ddl_logs', 'id',              'Id',              '',                                                                'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
-    ('audit_ddl_logs', 'event_time',      'Event Time',      'When the DDL command completed',                                  'date-time', FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_ddl_logs', 'user_id',         'User Id',         'Internal user id from JWT context (0 when unavailable, e.g. during migrations)',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_ddl_logs', 'event_time',      'Event Finish Time',      '',                                  'date-time', FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_ddl_logs', 'user_id',         'User',         'From the JWT context; 0 when unavailable, e.g. during migrations',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_ddl_logs', 'command_tag',     'Command Tag',     'DDL command type (e.g. CREATE TABLE, ALTER TABLE)',                'text',      FALSE, 30,  'readonly', 'default', 'label', TRUE,  '', ''),
-    ('audit_ddl_logs', 'object_type',     'Object Type',     'Type of database object affected',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
+    ('audit_ddl_logs', 'object_type',     'Object Type',     '',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'object_identity', 'Object Identity', 'Fully qualified name of the affected object',                     'text',      FALSE, 50,  'readonly', 'w',       'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       'core',  FALSE, '', '');
 
@@ -11224,7 +11249,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', 'fb3a072f6a5b5a7b99e8cc41bd2297644d22361060f5bc1084f81bc78150599c');
+      VALUES ('_core.0150_audit_log', '0a64daadb926a4b2a737981aad3ca8c98665869a0f1eb0c3f4bf79ce24e3b1ce');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -13440,8 +13465,8 @@ WHERE table_name = 'queues' AND field_name = 'queue_name';
 -- delete.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
 VALUES
-    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read), by name. Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
-    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue, by name.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
+    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
+    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
 
 -- reference columns default to nullable in the DD model; both are mandatory
 ALTER TABLE queues ALTER COLUMN view_permission SET NOT NULL;
@@ -13554,8 +13579,8 @@ ALTER TABLE queue_table_events ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL
 
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
 VALUES
-    ('queue_table_events', 'queue_id',      'Queue',         'parent',    FALSE,  5, 'default',  'default', 'Parent queue this event belongs to',           NULL, NULL,                                                          NULL, 'queues',   'cascade', 'has events', FALSE),
-    ('queue_table_events', 'table_name',    'Table',         'reference', FALSE, 10, 'required', 'default', 'Table whose DML events are captured',          '',   NULL,                                                          NULL, 'entities', 'cascade', 'has queue events', TRUE),
+    ('queue_table_events', 'queue_id',      'Queue',         'parent',    FALSE,  5, 'default',  'default', '',           NULL, NULL,                                                          NULL, 'queues',   'cascade', 'has events', FALSE),
+    ('queue_table_events', 'table_name',    'Entity',         'reference', FALSE, 10, 'required', 'default', 'Table whose DML events are captured',          '',   NULL,                                                          NULL, 'entities', 'cascade', 'has queue events', TRUE),
     ('queue_table_events', 'event_handler', 'Event Handler', 'enum',      FALSE, 20, 'required', 'default', 'Which DML operations trigger a queue message', '',   '["insert", "update", "upsert", "delete", "change"]'::jsonb,  NULL, '',         '',        '', FALSE);
 
 -- =====================================================
@@ -14025,7 +14050,7 @@ $pgsem__core_0170_queue$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', 'ab9fb875446fe878a5e896373c2d364f69321a2232bd897eaf672284a15a7639');
+      VALUES ('_core.0170_queue', '738f929680392b1f8725d2399f6bf56736a80e566fa52860c7faa030ca3f81c9');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -14826,17 +14851,17 @@ INSERT INTO entities (
 );
 
 UPDATE fields
-   SET title = 'Name', field_order = 10, description = 'Display name of the process'
+   SET title = 'Name', field_order = 10, description = ''
  WHERE table_name = 'processes' AND field_name = 'name';
 
 INSERT INTO fields (
     table_name, field_name, title, format, field_order, input_type,
     description, reference_table, reference_delete_mode
 ) VALUES
-    ('processes', 'module_id',   'Module',      'reference', 20, 'default',  'Owning module. NULL = cross-module or unowned process',                                      'modules', 'clear'),
+    ('processes', 'module_id',   'Module',      'reference', 20, 'default',  'Owning module',                                      'modules', 'clear'),
     ('processes', 'process_key', 'Process Key', 'text',      30, 'required', 'Stable snake_case identifier, unique within module', '', ''),
-    ('processes', 'description', 'Description', 'multiline', 40, 'default',  'Detailed description of the process',                '', ''),
-    ('processes', 'ordering',    'Ordering',    'integer',   50, 'default',  'Optional display ordering',                          '', '');
+    ('processes', 'description', 'Description', 'multiline', 40, 'default',  '',                '', ''),
+    ('processes', 'ordering',    'Ordering',    'integer',   50, 'default',  '',                          '', '');
 
 ALTER TABLE processes ADD CONSTRAINT valid_process_key
     CHECK (process_key = '' OR process_key ~ '^[a-z_][a-z0-9_]*$');
@@ -14880,9 +14905,9 @@ INSERT INTO fields (
     table_name, field_name, title, format, field_order, input_type,
     description, default_value, enum_values, reference_table, reference_delete_mode
 ) VALUES
-    ('raci_assignments', 'process_id',   'Process',      'parent',    10, 'required', 'The governed process',                        '',     NULL,                                                          'processes', 'cascade'),
+    ('raci_assignments', 'process_id',   'Process',      'parent',    10, 'required', '',                        '',     NULL,                                                          'processes', 'cascade'),
     ('raci_assignments', 'role_id',      'Role',         'reference', 20, 'required', 'The persona role assigned this letter',       '',     NULL,                                                          'roles', 'cascade'),
-    ('raci_assignments', 'raci',         'RACI',         'enum',      30, 'required', 'Responsibility letter',                       '',     '["responsible","accountable","consulted","informed"]'::jsonb, '', ''),
+    ('raci_assignments', 'raci',         'RACI',         'enum',      30, 'required', '',                       '',     '["responsible","accountable","consulted","informed"]'::jsonb, '', ''),
     ('raci_assignments', 'consult_mode', 'Consult Mode', 'enum',      40, 'default',  'How a consulted actor takes part: read (passive), notify (push) or block (gate). Applies only when raci is consulted.', 'read', '["read","notify","block"]'::jsonb,                            '', ''),
     ('raci_assignments', 'origin',       'Origin',       'enum',      50, 'default',  'How this row was created: system (generated by the platform) or user (created or edited by a user)',                    'user', '["system","user"]'::jsonb,                                    '', '');
 
@@ -14934,12 +14959,12 @@ INSERT INTO fields (
     table_name, field_name, title, format, field_order, input_type,
     description, default_value, enum_values, reference_table, reference_delete_mode
 ) VALUES
-    ('process_gates', 'process_id',   'Process',      'parent',  10, 'required', 'The governed process',                                       '',       NULL,                                                                 'processes', 'cascade'),
-    ('process_gates', 'entity',       'Entity',       'text',    20, 'required', 'Governed table name (mirrors entities.table_name)',          '',       NULL,                                                                 '', ''),
-    ('process_gates', 'gate_kind',    'Gate Kind',    'enum',    30, 'required', 'Type of governance gate',                                    '',       '["approval","submit_lock","ownership","create","transition"]'::jsonb, '', ''),
+    ('process_gates', 'process_id',   'Process',      'parent',  10, 'required', '',                                       '',       NULL,                                                                 'processes', 'cascade'),
+    ('process_gates', 'entity',       'Entity',       'text',    20, 'required', '',          '',       NULL,                                                                 '', ''),
+    ('process_gates', 'gate_kind',    'Gate Kind',    'enum',    30, 'required', '',                                    '',       '["approval","submit_lock","ownership","create","transition"]'::jsonb, '', ''),
     ('process_gates', 'to_state',     'To State',     'text',    40, 'default',  'Target lifecycle state (empty for non-state-targeted gates)','',       NULL,                                                                 '', ''),
     ('process_gates', 'state_column', 'State Column', 'text',    50, 'default',  'Column that holds the lifecycle state in the governed table','status', NULL,                                                                 '', ''),
-    ('process_gates', 'emits_events', 'Emits Events', 'boolean', 60, 'default',  'When TRUE, entering to_state inserts raci_events for the consulted and informed actors',           '',       NULL,                                                                 '', '');
+    ('process_gates', 'emits_events', 'Emits Events', 'boolean', 60, 'default',  'When enabled, entering to_state inserts raci_events for the consulted and informed actors',           '',       NULL,                                                                 '', '');
 
 ALTER TABLE process_gates
     ADD CONSTRAINT process_gates_process_entity_gate_state_key
@@ -14968,7 +14993,7 @@ INSERT INTO entities (
 );
 
 UPDATE fields
-   SET title = 'Record Id', field_order = 30,
+   SET title = 'Record', field_order = 30,
        description = 'Governed record PK (text for non-integer PKs)'
  WHERE table_name = 'raci_events' AND field_name = 'record_id';
 
@@ -14976,8 +15001,8 @@ INSERT INTO fields (
     table_name, field_name, title, format, field_order, input_type,
     description, default_value, enum_values, reference_table, reference_delete_mode
 ) VALUES
-    ('raci_events', 'process_id',     'Process',     'parent',    10, 'required', 'The governed process',                                 '',        NULL,                                'processes', 'cascade'),
-    ('raci_events', 'entity',         'Entity',      'text',      20, 'required', 'Governed table name',                                  '',        NULL,                                '', ''),
+    ('raci_events', 'process_id',     'Process',     'parent',    10, 'required', '',                                 '',        NULL,                                'processes', 'cascade'),
+    ('raci_events', 'entity',         'Entity',      'text',      20, 'required', '',                                  '',        NULL,                                '', ''),
     ('raci_events', 'raci',           'RACI',        'enum',      40, 'required', 'RACI role of the actor. Only consulted and informed actors generate events, so these are the only values.',                                '',        '["consulted","informed"]'::jsonb,   '', ''),
     ('raci_events', 'target_role_id', 'Target Role', 'reference', 50, 'required', 'Role to be notified or consulted',                     '',        NULL,                                'roles', 'cascade'),
     ('raci_events', 'status',         'Status',      'enum',      60, 'required', 'pending → sent → acted; acted = the consultation input was received',                               'pending', '["pending","sent","acted"]'::jsonb, '', ''),
@@ -15510,7 +15535,7 @@ $pgsem__core_0210_raci$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', 'b07e1b5ba89ff3c930da87a86abfbd87efa73cc82d05b27143fc821a95d82b19');
+      VALUES ('_core.0210_raci', '4f4e01fd3a7caa9a79d6b5b79fb81670c8b58a1359461e9a120531b9fc177945');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15543,30 +15568,8 @@ $pgsem__core_0210_raci$;
 -- Additive only (no objects removed), so a single forward migration covers both
 -- fresh and existing/production databases.
 
--- =====================================================
--- FUNCTION: snake_to_label
--- =====================================================
--- Convert a snake_case identifier into a human-readable Title Case label.
---   'tenant_name'     -> 'Tenant Name'
---   'city'            -> 'City'
---   'address_line_1'  -> 'Address Line 1'
--- Collapses runs of underscores and trims leading/trailing ones.
-
-CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
-RETURNS TEXT
-LANGUAGE sql
-IMMUTABLE
-SET search_path = public
-AS $$
-    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
-$$;
-
-COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
-'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
-
-REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
-
+-- snake_to_label() lives in 0070_dd_functions.sql: create_dd_table titles the
+-- label field with it, and 0150/0170/0210 insert entities before this file runs.
 -- =====================================================
 -- TRIGGER FUNCTION: set_entity_defaults
 -- =====================================================
@@ -15628,7 +15631,7 @@ $pgsem__core_0230_entity_insert_defaults$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0230_entity_insert_defaults', '9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a');
+      VALUES ('_core.0230_entity_insert_defaults', 'b854e90231e409c8969d7090352439764be0c87dc892e8a60ffb447cb61f3451');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15683,10 +15686,10 @@ ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL 
 -- Add fields to webhook_receivers table
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('webhook_receivers', 'table_name',   'Table',              'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data',                           '',     NULL,                          'entities', 'cascade', 'has receivers'),
-    ('webhook_receivers', 'description',  'Description',        'text',      FALSE, 20, 'default', 'w',       'Description of webhook receiver purpose',                 '',     NULL,                          '',         '',        ''),
-    ('webhook_receivers', 'auth_type',    'Authentication Type','enum',      FALSE, 30, 'default', 'default', 'Type of authentication (none, hmac, or custom header)',   'none', '["none", "hmac", "header"]'::jsonb, '', '',   ''),
-    ('webhook_receivers', 'secret',       'Secret',             'text',      FALSE, 40, 'default', 'default', 'Secret for webhook authentication',                       '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'table_name',   'Entity',              'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data',                           '',     NULL,                          'entities', 'cascade', 'has receivers'),
+    ('webhook_receivers', 'description',  'Description',        'text',      FALSE, 20, 'default', 'w',       '',                 '',     NULL,                          '',         '',        ''),
+    ('webhook_receivers', 'auth_type',    'Authentication Type','enum',      FALSE, 30, 'default', 'default', 'hmac = HMAC signature over the body; header = expected value in a named header',   'none', '["none", "hmac", "header"]'::jsonb, '', '',   ''),
+    ('webhook_receivers', 'secret',       'Secret',             'text',      FALSE, 40, 'default', 'default', '',                       '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'header_name',  'Header Name',        'text',      FALSE, 45, 'default', 'default', 'Custom header name for authentication',                   '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'header_value', 'Header Value',       'text',      FALSE, 46, 'default', 'default', 'Expected value for custom header authentication',         '',     NULL,                          '',         '',        ''),
     ('webhook_receivers', 'jsonata',      'JSONata Expression', 'jsonata',   FALSE, 50, 'default', 'w',       'Optional JSONata expression to transform incoming data',  '',     NULL,                          '',         '',        '');
@@ -15727,13 +15730,13 @@ VALUES (
 -- receiver and message_id already succeeded, the delivery is acknowledged and skipped.
 INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label)
 VALUES
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', 'Parent webhook receiver this log belongs to',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
-    ('webhook_receiver_logs', 'message_id',          'Message Id',          'text',      FALSE, 10, 'default', 'default', 'The sender''s webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.', '', NULL, NULL, '', '', ''),
+    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', '',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
+    ('webhook_receiver_logs', 'message_id',          'Message',          'text',      FALSE, 10, 'default', 'default', 'The sender''s webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.', '', NULL, NULL, '', '', ''),
     ('webhook_receiver_logs', 'webhook_timestamp',   'Webhook Timestamp',   'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source',                    NULL,                 NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', 'Timestamp when webhook was received',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       'Webhook payload data',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', '',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
+    ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       '',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
     ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error', '10', '["10", "20", "30", "40", "50", "60"]'::jsonb, NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       'Error message if processing failed',               '',                   NULL,                        NULL, '',                  '',        '');
+    ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       '',               '',                   NULL,                        NULL, '',                  '',        '');
 
 -- =====================================================
 -- ADD INDEX
@@ -15757,7 +15760,7 @@ $pgsem__core_0250_webhook_receiver$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0250_webhook_receiver', 'f31cbe5f6b5dca6470e69c6ed6c88ad5637b255b7a5f9c0ba6782d17093cea72');
+      VALUES ('_core.0250_webhook_receiver', 'd82c34847a430ca0a2fcb4a55ff989855cbb7257b43dfe8c12b6505506f02aaa');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15804,13 +15807,13 @@ VALUES (
 -- Add fields to dashboards table
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
 VALUES
-    ('dashboards', 'config',   'Configuration', 'json',  10, 'default', 'w', 'Dashboard layout and widget configuration', '', '', ''),
-    ('dashboards', 'position', 'Position',      'int32', 20, 'default', 'default', 'Display order position', '0', '', '');
+    ('dashboards', 'config',   'Configuration', 'json',  10, 'default', 'w', '', '', '', ''),
+    ('dashboards', 'position', 'Position',      'int32', 20, 'default', 'default', '', '0', '', '');
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode)
 VALUES
-    ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', 'Module this dashboard belongs to',     'modules',     'cascade'),
-    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard, by name', 'permissions', 'clear');
+    ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', '',     'modules',     'cascade'),
+    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
 $pgsem__core_0260_dashboard$;
     EXCEPTION WHEN OTHERS THEN
       -- Without this the whole embedded migration is reported as CONTEXT.
@@ -15827,7 +15830,7 @@ $pgsem__core_0260_dashboard$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0260_dashboard', '652b266e74785495a3d8bca4fbcb52b1ea01a2b8ea73a6d20d24129a7bba3e8e');
+      VALUES ('_core.0260_dashboard', 'd4a0fadefe9e969aac7f1e56f2859cd370d8aad491f751a9f639618386996ab2');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16089,9 +16092,9 @@ VALUES (
 INSERT INTO fields (table_name, field_name, title, description, format, field_order, input_type, width, searchable, reference_table, reference_delete_mode)
 VALUES
     ('user_bookmarks', 'user_id',     'User',      'Owner of this bookmark (auto-assigned to current user)',        'reference', 10, 'hidden',  'default', FALSE, 'users', 'cascade'),
-    ('user_bookmarks', 'url',         'URL',        'Bookmark URL',                                                 'text',      30, 'default', 'w',       FALSE, '',      ''),
-    ('user_bookmarks', 'entity_name', 'Entity',     'Name of the related entity table',                             'text',      40, 'default', 'default', FALSE, '',      ''),
-    ('user_bookmarks', 'entity_id',   'Entity ID',  'ID of the related record in the entity table (0 = no record)', 'int32',     50, 'default', 'default', FALSE, '',      '');
+    ('user_bookmarks', 'url',         'URL',        '',                                                 'text',      30, 'default', 'w',       FALSE, '',      ''),
+    ('user_bookmarks', 'entity_name', 'Entity',     '',                             'text',      40, 'default', 'default', FALSE, '',      ''),
+    ('user_bookmarks', 'entity_id',   'Record',  'ID of the related record in the entity table (0 = no record)', 'int32',     50, 'default', 'default', FALSE, '',      '');
 
 -- =====================================================
 -- STEP 3: Auto-assign user_id on INSERT and UPDATE
@@ -16158,7 +16161,7 @@ $pgsem__core_0280_user_bookmarks$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0280_user_bookmarks', '5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367');
+      VALUES ('_core.0280_user_bookmarks', '77d92fc42a24b49a8f964e385b852133735715825955c7874f2f9925c104a40d');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16704,7 +16707,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"e350ccf3a5e1470b08ae20eb92e53a5f979472c5335e5ff7ea897a1d9bbe54e0","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"d0e66efe280422baf82fbf8b90856521a4b2d1289bb5fe3d90953df6b32f30d1","_core.0070_dd_functions":"9308c7165bca57f17afe650a8398ec9dda7836bc50825ae1c644c231c97f9778","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"3c67d0a53305cd19134e070425024d209eb091d4bc13bd7e9bf58fa4a1fc4623","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"59f227e422d28de2b1818d00714c01212b433094210180f2dd28ca3e60a93f63","_core.0150_audit_log":"fb3a072f6a5b5a7b99e8cc41bd2297644d22361060f5bc1084f81bc78150599c","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"ab9fb875446fe878a5e896373c2d364f69321a2232bd897eaf672284a15a7639","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"b07e1b5ba89ff3c930da87a86abfbd87efa73cc82d05b27143fc821a95d82b19","_core.0230_entity_insert_defaults":"9e907de10aa1be62e0a50003b3ed385587f84c7383b2d3549927dc2baac7ca3a","_core.0250_webhook_receiver":"f31cbe5f6b5dca6470e69c6ed6c88ad5637b255b7a5f9c0ba6782d17093cea72","_core.0260_dashboard":"652b266e74785495a3d8bca4fbcb52b1ea01a2b8ea73a6d20d24129a7bba3e8e","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"5fd1bc82115034a73be59d152aa02d774d915a77869ad90801e9609a0f3cd367","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"e350ccf3a5e1470b08ae20eb92e53a5f979472c5335e5ff7ea897a1d9bbe54e0","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"120f836116fc6275fdbdad19493423cc6739b04a69fa542a4ddb1538f916a5cd","_core.0070_dd_functions":"d8d7c1079d2e316d8fb1981e7aadfadf51d18e69e65d9a072a9ac619953ce980","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"3c67d0a53305cd19134e070425024d209eb091d4bc13bd7e9bf58fa4a1fc4623","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"af537b9f93879ee509ba478bf21d88eaa09c01ce6eea2cc007b894162726d2e6","_core.0150_audit_log":"0a64daadb926a4b2a737981aad3ca8c98665869a0f1eb0c3f4bf79ce24e3b1ce","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"738f929680392b1f8725d2399f6bf56736a80e566fa52860c7faa030ca3f81c9","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"4f4e01fd3a7caa9a79d6b5b79fb81670c8b58a1359461e9a120531b9fc177945","_core.0230_entity_insert_defaults":"b854e90231e409c8969d7090352439764be0c87dc892e8a60ffb447cb61f3451","_core.0250_webhook_receiver":"d82c34847a430ca0a2fcb4a55ff989855cbb7257b43dfe8c12b6505506f02aaa","_core.0260_dashboard":"d4a0fadefe9e969aac7f1e56f2859cd370d8aad491f751a9f639618386996ab2","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"77d92fc42a24b49a8f964e385b852133735715825955c7874f2f9925c104a40d","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

@@ -1192,8 +1192,8 @@ SELECT is(
     (SELECT elem->>'title'
      FROM jsonb_array_elements((public.get_schema('users')::jsonb)->'children') elem
      WHERE elem->>'id' = 'user_roles.user_id'),
-    'User Id',
-    'get_schema(users) children user_roles.user_id should have title "User Id"'
+    (SELECT title FROM fields WHERE table_name = 'user_roles' AND field_name = 'user_id'),
+    'get_schema(users) children user_roles.user_id title should match its DD field title'
 );
 
 -- Test children entry for user_roles.user_id has correct singular_label

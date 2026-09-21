@@ -829,6 +829,35 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
+-- FUNCTION: snake_to_label
+-- =====================================================
+-- Convert a snake_case identifier into a human-readable Title Case label.
+--   'tenant_name'     -> 'Tenant Name'
+--   'city'            -> 'City'
+--   'address_line_1'  -> 'Address Line 1'
+-- Collapses runs of underscores and trims leading/trailing ones.
+-- Defined here, not in 0230: create_dd_table (0070) titles the label field with
+-- it and 0150/0170/0210 insert entities before 0230 runs, so it has to exist by
+-- now. It sits AFTER the event triggers above and BEFORE the first entity insert
+-- below, so its own CREATE is audited like any other static function - 0301
+-- asserts exactly that, because its _label suffix once got it skipped.
+
+CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
+$$;
+
+COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
+'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
+
+REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
+
+-- =====================================================
 -- STEP 8: Register audit tables as entities (managed=false)
 -- =====================================================
 -- These are core system tables. managed=false means no DDL triggers fire
@@ -844,18 +873,18 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
 VALUES
     ('audit_record_logs', 'id',            'Id',            '',                                                                  'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
-    ('audit_record_logs', 'record_id',     'Record Id',     'Deterministic UUID computed from table OID and primary key values', 'uuid',      FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'old_record_id', 'Old Record Id', 'Record id before update/delete',                                   'uuid',      FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'record_pk',     'Record PK',     'Primary key value of the affected record',                          'text',      FALSE, 25,  'readonly', 'default', 'core',  TRUE,  '', ''),
+    ('audit_record_logs', 'record_id',     'Record UUID',     'Deterministic UUID computed from table OID and primary key values', 'uuid',      FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'old_record_id', 'Old Record UUID', 'Record id before update/delete',                                   'uuid',      FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'record_pk',     'Record Primary Key',     '',                          'text',      FALSE, 25,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_record_logs', 'op',            'Operation',     'DML operation type: INSERT, UPDATE, DELETE, TRUNCATE',               'text',      FALSE, 30,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'ts',            'Timestamp',     'When the operation occurred',                                        'date-time', FALSE, 40,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'user_id',       'User Id',       'Internal user id from JWT context (0 when unavailable)',             'int32',     FALSE, 50,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'ts',            'Timestamp',     '',                                        'date-time', FALSE, 40,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'user_id',       'User',       'From the JWT context; 0 when unavailable',             'int32',     FALSE, 50,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'db_role',       'DB Role',       'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.',      'text',      FALSE, 52,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges. TRUE on a data row means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges. On a data row that means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'client_addr',   'Client Addr',   'Connecting client address (inet_client_addr()); NULL for a unix-socket connection, which means a shell on the database host rather than a client on the network',       'text',      FALSE, 56,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_record_logs', 'table_oid',     'Table OID',     'PostgreSQL internal object identifier for the table',                'int32',     FALSE, 60,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'table_schema',  'Table Schema',  'Schema containing the table',                                       'text',      FALSE, 70,  'readonly', 'default', 'core',  TRUE,  '', ''),
-    ('audit_record_logs', 'table_name',    'Table Name',    'Name of the affected table',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE,  '', ''),
+    ('audit_record_logs', 'table_schema',  'Table Schema',  '',                                       'text',      FALSE, 70,  'readonly', 'default', 'core',  TRUE,  '', ''),
+    ('audit_record_logs', 'table_name',    'Table Name',    '',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE,  '', ''),
     ('audit_record_logs', 'record',        'Record',        'Full record after INSERT/UPDATE (JSONB)',                            'json',      FALSE, 90,  'readonly', 'w',       'core',  FALSE, '', ''),
     ('audit_record_logs', 'old_record',    'Old Record',    'Previous record before UPDATE/DELETE (JSONB)',                       'json',      FALSE, 100, 'readonly', 'w',       'core',  FALSE, '', '');
 
@@ -863,10 +892,10 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
 VALUES
     ('audit_ddl_logs', 'id',              'Id',              '',                                                                'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
-    ('audit_ddl_logs', 'event_time',      'Event Time',      'When the DDL command completed',                                  'date-time', FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_ddl_logs', 'user_id',         'User Id',         'Internal user id from JWT context (0 when unavailable, e.g. during migrations)',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_ddl_logs', 'event_time',      'Event Finish Time',      '',                                  'date-time', FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
+    ('audit_ddl_logs', 'user_id',         'User',         'From the JWT context; 0 when unavailable, e.g. during migrations',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
     ('audit_ddl_logs', 'command_tag',     'Command Tag',     'DDL command type (e.g. CREATE TABLE, ALTER TABLE)',                'text',      FALSE, 30,  'readonly', 'default', 'label', TRUE,  '', ''),
-    ('audit_ddl_logs', 'object_type',     'Object Type',     'Type of database object affected',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
+    ('audit_ddl_logs', 'object_type',     'Object Type',     '',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'object_identity', 'Object Identity', 'Fully qualified name of the affected object',                     'text',      FALSE, 50,  'readonly', 'w',       'core',  TRUE,  '', ''),
     ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       'core',  FALSE, '', '');
 

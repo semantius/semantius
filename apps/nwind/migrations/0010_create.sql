@@ -222,7 +222,7 @@ VALUES (
 -- (category_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype)
 VALUES
-    ('categories', 'description', 'Description', 'text', 30, 'default', 'w', 'Description of the product category', '', TRUE, '');
+    ('categories', 'description', 'Description', 'text', 30, 'default', 'w', '', '', TRUE, '');
 
 -- -----------------------------------------------------
 -- customers fields
@@ -230,7 +230,7 @@ VALUES
 -- (company_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
-    ('customers', 'customer_id',    'Customer ID',    'text', 30, 'required', 'default', 'Unique short code identifying the customer', '', TRUE,  TRUE,  ''),
+    ('customers', 'customer_id',    'Customer Code',    'text', 30, 'required', 'default', 'Short code identifying the customer', '', TRUE,  TRUE,  ''),
     ('customers', 'contact_name',   'Contact Name',   'text', 35, 'default',  'default', '',                                          '', TRUE,  FALSE, ''),
     ('customers', 'contact_title',  'Contact Title',  'text', 40, 'default',  'default', 'Job title of the primary contact',          '', FALSE, FALSE, ''),
     ('customers', 'address',        'Street Address', 'text', 50, 'default',  'w',       '',                                          '', FALSE, FALSE, ''),
@@ -262,7 +262,7 @@ VALUES
 -- title_of_courtesy: enum (optional, so '' is also accepted)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, enum_values, searchable, ctype)
 VALUES
-    ('employees', 'title_of_courtesy', 'Title of Courtesy', 'enum', 40, 'default', 'default', 'Courtesy title (Mr., Ms., Dr., etc.)', '', '["Mr.", "Mrs.", "Ms.", "Dr."]'::jsonb, FALSE, '');
+    ('employees', 'title_of_courtesy', 'Title of Courtesy', 'enum', 40, 'default', 'default', '', '', '["Mr.", "Mrs.", "Ms.", "Dr."]'::jsonb, FALSE, '');
 
 -- birth_date: nullable (no sensible default)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, searchable, ctype)
@@ -278,7 +278,7 @@ VALUES
 -- reports_to of their reports is set to NULL (ON DELETE SET NULL)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('employees', 'reports_to', 'Reports To', 'reference', 150, 'default', 'default', 'Manager this employee reports to', 'employees', 'clear', FALSE, 'manages');
+    ('employees', 'reports_to', 'Manager', 'reference', 150, 'default', 'default', '', 'employees', 'clear', FALSE, 'manages');
 
 -- Rename the employees.last_name field title
 UPDATE fields SET title = 'Last Name' WHERE table_name = 'employees' AND field_name = 'last_name';
@@ -298,7 +298,7 @@ VALUES
     ('suppliers', 'country',       'Country',       'text', 80,  'default',  'default', '',                               '', TRUE,  ''),
     ('suppliers', 'phone',         'Phone',         'text', 90,  'default',  'default', 'Primary phone number',           '', FALSE, ''),
     ('suppliers', 'fax',           'Fax',           'text', 100, 'default',  'default', '',                               '', FALSE, ''),
-    ('suppliers', 'homepage',      'Homepage',      'url',  110, 'default',  'default', 'Supplier website URL',           '', FALSE, '');
+    ('suppliers', 'homepage',      'Homepage',      'url',  110, 'default',  'default', '',           '', FALSE, '');
 
 -- -----------------------------------------------------
 -- products fields
@@ -306,17 +306,17 @@ VALUES
 -- (product_name is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES
-    ('products', 'quantity_per_unit', 'Quantity Per Unit',  'text',    50, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
+    ('products', 'quantity_per_unit', 'Quantity per Unit',  'text',    50, 'default',  'default', 'Quantity and unit of measure per package',    '',      FALSE, '', 'auto'),
     ('products', 'unit_price',        'Unit Price',         'number',  60, 'default',  'default', '',                                            '0.0',   FALSE, '', 'auto'),
-    ('products', 'units_in_stock',    'Units In Stock',     'int32',   70, 'default',  'default', 'Current stock quantity',                      '0',     FALSE, '', 'measure'),
-    ('products', 'units_on_order',    'Units On Order',     'int32',   80, 'readonly',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
+    ('products', 'units_in_stock',    'Units in Stock',     'int32',   70, 'default',  'default', '',                      '0',     FALSE, '', 'measure'),
+    ('products', 'units_on_order',    'Units on Order',     'int32',   80, 'readonly',  'default', 'Quantity currently on order from supplier',   '0',     FALSE, '', 'measure'),
     ('products', 'reorder_level',     'Reorder Level',      'int32',   90, 'default',  'default', 'Minimum stock level before reordering',       '0',     FALSE, '', 'measure'),
-    ('products', 'discontinued',      'Discontinued',       'boolean', 100, 'default',  'default', 'Whether the product is discontinued',         'FALSE', FALSE, '', 'auto');
+    ('products', 'discontinued',      'Discontinued',       'boolean', 100, 'default',  'default', '',         'FALSE', FALSE, '', 'auto');
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('products', 'supplier_id', 'Supplier', 'reference', 40, 'default', 'default', 'Supplier providing this product', 'suppliers', 'restrict', FALSE, 'supplies'),
-    ('products', 'category_id', 'Category', 'reference', 30, 'default', 'default', 'Category this product belongs to', 'categories', 'restrict', FALSE, 'contains');
+    ('products', 'supplier_id', 'Supplier', 'reference', 40, 'default', 'default', '', 'suppliers', 'restrict', FALSE, 'supplies'),
+    ('products', 'category_id', 'Category', 'reference', 30, 'default', 'default', '', 'categories', 'restrict', FALSE, 'contains');
 
 -- -----------------------------------------------------
 -- regions fields
@@ -358,14 +358,14 @@ VALUES
 -- status: lifecycle state (required enum with default; '' is rejected)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, enum_values, searchable, ctype)
 VALUES
-    ('orders', 'status', 'Status', 'enum', 25, 'required', 'default', 'Order lifecycle state', 'pending', '["pending", "shipped"]'::jsonb, FALSE, '');
+    ('orders', 'status', 'Status', 'enum', 25, 'required', 'default', '', 'pending', '["pending", "shipped"]'::jsonb, FALSE, '');
 
 -- FK references on orders (not parent: orders is not a junction/child table)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('orders', 'customer_id',  'Customer',    'reference', 30, 'required', 'default', 'Customer who placed the order',  'customers', 'restrict', FALSE, 'places'),
-    ('orders', 'employee_id',  'Employee',    'reference', 34, 'default', 'default', 'Employee who handled the order', 'employees', 'restrict', FALSE, 'handles'),
-    ('orders', 'ship_via',     'Shipped Via', 'reference', 38, 'default', 'default', 'Shipper used for this order',    'shippers',  'restrict', FALSE, 'ships');
+    ('orders', 'customer_id',  'Customer',    'reference', 30, 'required', 'default', '',  'customers', 'restrict', FALSE, 'places'),
+    ('orders', 'employee_id',  'Employee',    'reference', 34, 'default', 'default', '', 'employees', 'restrict', FALSE, 'handles'),
+    ('orders', 'ship_via',     'Shipper', 'reference', 38, 'default', 'default', '',    'shippers',  'restrict', FALSE, 'ships');
 
 -- -----------------------------------------------------
 -- territories fields
@@ -373,11 +373,11 @@ VALUES
 -- (territory_description is auto-created as the label_column)
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, unique_value, ctype)
 VALUES
-    ('territories', 'territory_id', 'Territory ID', 'text', 10, 'required', 'default', 'Unique code identifying the territory', '', TRUE, TRUE, '');
+    ('territories', 'territory_id', 'Territory Code', 'text', 10, 'required', 'default', 'Code identifying the territory', '', TRUE, TRUE, '');
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', 'Region this territory belongs to', 'regions', 'restrict', FALSE, 'contains');
+    ('territories', 'region_id', 'Region', 'reference', 30, 'default', 'default', '', 'regions', 'restrict', FALSE, 'contains');
 
 -- Composed label: "Eastern > Westboro" (must be set after the FK field exists)
 UPDATE entities SET label_parent = 'region_id' WHERE table_name = 'territories';
@@ -387,8 +387,8 @@ UPDATE entities SET label_parent = 'region_id' WHERE table_name = 'territories';
 -- -----------------------------------------------------
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', 'Reference to the employee',  'employees',   'restrict', FALSE, 'assigned to'),
-    ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', 'Reference to the territory', 'territories', 'restrict', FALSE, 'staffed by');
+    ('employee_territories', 'employee_id',  'Employee',  'parent', 10, 'required', 'default', '',  'employees',   'restrict', FALSE, 'assigned to'),
+    ('employee_territories', 'territory_id', 'Territory', 'parent', 20, 'required', 'default', '', 'territories', 'restrict', FALSE, 'staffed by');
 
 -- Pure junction (two parent legs, no payload): its _label composes from both legs
 UPDATE entities SET entity_type = 'junction' WHERE table_name = 'employee_territories';
@@ -398,8 +398,8 @@ UPDATE entities SET entity_type = 'junction' WHERE table_name = 'employee_territ
 -- -----------------------------------------------------
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode, searchable, relationship_label)
 VALUES
-    ('order_details', 'order_id',   'Order',   'parent', 10, 'required', 'default', 'Reference to the order',   'orders',   'restrict', FALSE, 'contains'),
-    ('order_details', 'product_id', 'Product', 'parent', 20, 'required', 'default', 'Reference to the product', 'products', 'restrict', FALSE, 'ordered in');
+    ('order_details', 'order_id',   'Order',   'parent', 10, 'required', 'default', '',   'orders',   'restrict', FALSE, 'contains'),
+    ('order_details', 'product_id', 'Product', 'parent', 20, 'required', 'default', '', 'products', 'restrict', FALSE, 'ordered in');
 
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, searchable, ctype, cube_type)
 VALUES

@@ -55,9 +55,9 @@ VALUES (
 INSERT INTO fields (table_name, field_name, title, description, format, field_order, input_type, width, searchable, reference_table, reference_delete_mode)
 VALUES
     ('user_bookmarks', 'user_id',     'User',      'Owner of this bookmark (auto-assigned to current user)',        'reference', 10, 'hidden',  'default', FALSE, 'users', 'cascade'),
-    ('user_bookmarks', 'url',         'URL',        'Bookmark URL',                                                 'text',      30, 'default', 'w',       FALSE, '',      ''),
-    ('user_bookmarks', 'entity_name', 'Entity',     'Name of the related entity table',                             'text',      40, 'default', 'default', FALSE, '',      ''),
-    ('user_bookmarks', 'entity_id',   'Entity ID',  'ID of the related record in the entity table (0 = no record)', 'int32',     50, 'default', 'default', FALSE, '',      '');
+    ('user_bookmarks', 'url',         'URL',        '',                                                 'text',      30, 'default', 'w',       FALSE, '',      ''),
+    ('user_bookmarks', 'entity_name', 'Entity',     '',                             'text',      40, 'default', 'default', FALSE, '',      ''),
+    ('user_bookmarks', 'entity_id',   'Record',  'ID of the related record in the entity table (0 = no record)', 'int32',     50, 'default', 'default', FALSE, '',      '');
 
 -- =====================================================
 -- STEP 3: Auto-assign user_id on INSERT and UPDATE
