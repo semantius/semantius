@@ -22,8 +22,29 @@
 -- Additive only (no objects removed), so a single forward migration covers both
 -- fresh and existing/production databases.
 
--- snake_to_label() lives in 0070_dd_functions.sql: create_dd_table titles the
--- label field with it, and 0150/0170/0210 insert entities before this file runs.
+-- =====================================================
+-- FUNCTION: snake_to_label
+-- =====================================================
+-- Convert a snake_case identifier into a human-readable Title Case label.
+--   'tenant_name'     -> 'Tenant Name'
+--   'city'            -> 'City'
+--   'address_line_1'  -> 'Address Line 1'
+-- Collapses runs of underscores and trims leading/trailing ones.
+
+CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
+$$;
+
+COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
+'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
+
+REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
 -- =====================================================
 -- TRIGGER FUNCTION: set_entity_defaults
 -- =====================================================

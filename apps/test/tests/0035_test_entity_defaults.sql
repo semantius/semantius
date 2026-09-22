@@ -39,8 +39,8 @@ SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_items'),
 SELECT is((SELECT plural         FROM entities WHERE table_name = 'tdef_items'), 'tdef_items', 'bare insert: plural auto-set to table_name');
 SELECT is(
     (SELECT title FROM fields WHERE table_name = 'tdef_items' AND field_name = 'label'),
-    'Label',
-    'bare insert: name field title seeded from derived singular_label'
+    'Name',
+    'bare insert: label field title is the constant Name'
 );
 
 -- De-pluralize '...ies' branch.
@@ -58,8 +58,8 @@ SELECT is((SELECT singular       FROM entities WHERE table_name = 'tdef_tenants'
 SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_tenants'), 'Tenant Name', 'derived: singular_label from provided label_column tenant_name');
 SELECT is(
     (SELECT title FROM fields WHERE table_name = 'tdef_tenants' AND field_name = 'tenant_name'),
-    'Tenant Name',
-    'derived: name field "tenant_name" gets title "Tenant Name"'
+    'Name',
+    'derived: label field title is Name regardless of the label_column name'
 );
 
 -- =====================================================
@@ -75,7 +75,7 @@ SELECT is((SELECT singular_label FROM entities WHERE table_name = 'tdef_records'
 SELECT is((SELECT plural         FROM entities WHERE table_name = 'tdef_records'), 'tdef_records', 'full insert: plural auto-set to table_name');
 SELECT is((SELECT label_column   FROM entities WHERE table_name = 'tdef_records'), 'record_no',    'full insert: provided label_column preserved');
 
-SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'record_no'),  'Record No',  'full insert: name field title from label_column, not the provided singular_label');
+SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'record_no'),  'Name',       'full insert: label field title is Name, not the provided singular_label');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'id'),         'Id',         'full insert: id field title');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'created_at'), 'Created At', 'full insert: created_at field title');
 SELECT is((SELECT title FROM fields WHERE table_name = 'tdef_records' AND field_name = 'updated_at'), 'Updated At', 'full insert: updated_at field title');

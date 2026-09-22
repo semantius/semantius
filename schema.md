@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-09-21T20:37:38.742Z
+**Generated:** 2026-09-21T20:42:40.234Z
 
 ---
 
@@ -151,7 +151,7 @@ User-configured dashboard layouts and configurations
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `config` | json | Configuration | - | json | false | - | 10 | default | w | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `position` | int32 | Position | - | integer | false | 0 | 20 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `label` (label) | text | Label | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `label` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `module_id` | reference | Module | - | integer | false | - | 30 | default | default | - | false | - | 2 | modules | cascade | has | - | - | false | auto | - | - |
 | `view_permission` | reference | View Permission | Permission required to view this dashboard | string | false | - | 40 | default | default | - | false | - | 2 | permissions | clear | has | - | - | false | auto | - | - |
 
@@ -576,7 +576,7 @@ Message queues backed by pgmq
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `queue_name` (label) | text | Queue Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | - | - |
+| `queue_name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | - | - |
 | `view_permission` | reference | View Permission | Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue. | string | false | admin | 30 | default | default | - | false | - | 2 | permissions | restrict | gates reading | - | - | false | auto | - | - |
 | `manage_permission` | reference | Manage Permission | Permission required to pop, archive or delete messages from this queue. | string | false | admin | 40 | default | default | - | false | - | 2 | permissions | restrict | gates managing | - | - | false | auto | - | - |
 
@@ -624,7 +624,7 @@ Maps table DML events to queues
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `table_name` | reference | Entity | Table whose DML events are captured | string | false | - | 10 | required | default | - | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | - | - |
 | `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | - | 20 | required | default | - | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | - | - |
-| `event_name` (label) | text | Event Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `event_name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 
 ---
 
@@ -859,7 +859,7 @@ Manage and order your facorites for quick access to frequently used apps and rec
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `user_id` | reference | User | Owner of this bookmark (auto-assigned to current user) | integer | false | - | 10 | hidden | default | - | false | - | 2 | users | cascade | has | - | - | false | auto | - | - |
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `title` (label) | text | Title | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `title` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `url` | text | URL | - | string | false | - | 30 | default | w | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `entity_name` | text | Entity | - | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `entity_id` | int32 | Record | ID of the related record in the entity table (0 = no record) | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
@@ -1050,7 +1050,7 @@ Log of webhook receiver events
 | `webhook_receiver_id` | parent | Webhook Receiver | - | integer | false | - | 5 | default | default | - | false | - | 2 | webhook_receivers | cascade | has logs | - | - | false | auto | - | - |
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `message_id` | text | Message | The sender's webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped. | string | false | - | 10 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
-| `label` (label) | text | Label | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `label` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `webhook_timestamp` | date-time | Webhook Timestamp | Timestamp from webhook source | string | false | - | 30 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `received_timestamp` | date-time | Received Timestamp | - | string | false | CURRENT_TIMESTAMP | 40 | disabled | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `payload` | json | Payload | - | json | false | - | 50 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
@@ -1100,7 +1100,7 @@ Configuration for webhook endpoints
 | `table_name` | reference | Entity | Target table for webhook data | string | false | - | 10 | default | default | - | false | - | 2 | entities | cascade | has receivers | - | - | false | auto | - | - |
 | `id` 🔑 (id) | int32 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `description` | text | Description | - | string | false | - | 20 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
-| `label` (label) | text | Label | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `label` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `auth_type` | enum | Authentication Type | hmac = HMAC signature over the body; header = expected value in a named header | string | false | none | 30 | default | default | - | false | ["none","hmac","header"] | 2 | - | - | - | - | - | false | auto | - | - |
 | `secret` | text | Secret | - | string | false | - | 40 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `header_name` | text | Header Name | Custom header name for authentication | string | false | - | 45 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |

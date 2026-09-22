@@ -5553,7 +5553,7 @@ BEGIN
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
     VALUES
         (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, public.snake_to_label(NEW.label_column), 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
+        (NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
 
@@ -7076,7 +7076,7 @@ $pgsem__core_0070_dd_functions$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', 'd8d7c1079d2e316d8fb1981e7aadfadf51d18e69e65d9a072a9ac619953ce980');
+      VALUES ('_core.0070_dd_functions', '8dd8a4b0627e9974fd9bd6dd45f5a109a7181e398a487d08ed492b0c70fc6270');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -9483,7 +9483,7 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, public.snake_to_label(NEW.label_column), 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -10104,7 +10104,7 @@ $pgsem__core_0145_managed_enable$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', 'af537b9f93879ee509ba478bf21d88eaa09c01ce6eea2cc007b894162726d2e6');
+      VALUES ('_core.0145_managed_enable', 'd90dbe504d3d304bd80c43827cc855a39411f323ae8b72e462b3fde47e3a6015');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -10944,35 +10944,6 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
--- FUNCTION: snake_to_label
--- =====================================================
--- Convert a snake_case identifier into a human-readable Title Case label.
---   'tenant_name'     -> 'Tenant Name'
---   'city'            -> 'City'
---   'address_line_1'  -> 'Address Line 1'
--- Collapses runs of underscores and trims leading/trailing ones.
--- Defined here, not in 0230: create_dd_table (0070) titles the label field with
--- it and 0150/0170/0210 insert entities before 0230 runs, so it has to exist by
--- now. It sits AFTER the event triggers above and BEFORE the first entity insert
--- below, so its own CREATE is audited like any other static function - 0301
--- asserts exactly that, because its _label suffix once got it skipped.
-
-CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
-RETURNS TEXT
-LANGUAGE sql
-IMMUTABLE
-SET search_path = public
-AS $$
-    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
-$$;
-
-COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
-'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
-
-REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
-
--- =====================================================
 -- STEP 8: Register audit tables as entities (managed=false)
 -- =====================================================
 -- These are core system tables. managed=false means no DDL triggers fire
@@ -11249,7 +11220,7 @@ $pgsem__core_0150_audit_log$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '0a64daadb926a4b2a737981aad3ca8c98665869a0f1eb0c3f4bf79ce24e3b1ce');
+      VALUES ('_core.0150_audit_log', '6170e6837efec7f42ac3f4c7b83578f34c98d8e14162780c2de6795b729f9f2d');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -15568,8 +15539,29 @@ $pgsem__core_0210_raci$;
 -- Additive only (no objects removed), so a single forward migration covers both
 -- fresh and existing/production databases.
 
--- snake_to_label() lives in 0070_dd_functions.sql: create_dd_table titles the
--- label field with it, and 0150/0170/0210 insert entities before this file runs.
+-- =====================================================
+-- FUNCTION: snake_to_label
+-- =====================================================
+-- Convert a snake_case identifier into a human-readable Title Case label.
+--   'tenant_name'     -> 'Tenant Name'
+--   'city'            -> 'City'
+--   'address_line_1'  -> 'Address Line 1'
+-- Collapses runs of underscores and trims leading/trailing ones.
+
+CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
+$$;
+
+COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
+'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
+
+REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
 -- =====================================================
 -- TRIGGER FUNCTION: set_entity_defaults
 -- =====================================================
@@ -15631,7 +15623,7 @@ $pgsem__core_0230_entity_insert_defaults$;
                        split_part(coalesce(v_ctx, ''), E'\n', 1));
     END;
     INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0230_entity_insert_defaults', 'b854e90231e409c8969d7090352439764be0c87dc892e8a60ffb447cb61f3451');
+      VALUES ('_core.0230_entity_insert_defaults', '07f90c9547ead8fd005717f7d8ae2987683ad8e4255330be4f9c0f9828808c2f');
     v_applied := v_applied + 1;
   ELSE
     v_skipped := v_skipped + 1;
@@ -16707,7 +16699,7 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"e350ccf3a5e1470b08ae20eb92e53a5f979472c5335e5ff7ea897a1d9bbe54e0","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"120f836116fc6275fdbdad19493423cc6739b04a69fa542a4ddb1538f916a5cd","_core.0070_dd_functions":"d8d7c1079d2e316d8fb1981e7aadfadf51d18e69e65d9a072a9ac619953ce980","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"3c67d0a53305cd19134e070425024d209eb091d4bc13bd7e9bf58fa4a1fc4623","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"af537b9f93879ee509ba478bf21d88eaa09c01ce6eea2cc007b894162726d2e6","_core.0150_audit_log":"0a64daadb926a4b2a737981aad3ca8c98665869a0f1eb0c3f4bf79ce24e3b1ce","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"738f929680392b1f8725d2399f6bf56736a80e566fa52860c7faa030ca3f81c9","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"4f4e01fd3a7caa9a79d6b5b79fb81670c8b58a1359461e9a120531b9fc177945","_core.0230_entity_insert_defaults":"b854e90231e409c8969d7090352439764be0c87dc892e8a60ffb447cb61f3451","_core.0250_webhook_receiver":"d82c34847a430ca0a2fcb4a55ff989855cbb7257b43dfe8c12b6505506f02aaa","_core.0260_dashboard":"d4a0fadefe9e969aac7f1e56f2859cd370d8aad491f751a9f639618386996ab2","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"77d92fc42a24b49a8f964e385b852133735715825955c7874f2f9925c104a40d","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"e350ccf3a5e1470b08ae20eb92e53a5f979472c5335e5ff7ea897a1d9bbe54e0","_core.0030_rbac_functions":"dead7d06a7fa8eb42145bc9b7e923ca442332a213b442e0f55c89315de1c41b7","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"120f836116fc6275fdbdad19493423cc6739b04a69fa542a4ddb1538f916a5cd","_core.0070_dd_functions":"8dd8a4b0627e9974fd9bd6dd45f5a109a7181e398a487d08ed492b0c70fc6270","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"3c67d0a53305cd19134e070425024d209eb091d4bc13bd7e9bf58fa4a1fc4623","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"d90dbe504d3d304bd80c43827cc855a39411f323ae8b72e462b3fde47e3a6015","_core.0150_audit_log":"6170e6837efec7f42ac3f4c7b83578f34c98d8e14162780c2de6795b729f9f2d","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"738f929680392b1f8725d2399f6bf56736a80e566fa52860c7faa030ca3f81c9","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"4f4e01fd3a7caa9a79d6b5b79fb81670c8b58a1359461e9a120531b9fc177945","_core.0230_entity_insert_defaults":"07f90c9547ead8fd005717f7d8ae2987683ad8e4255330be4f9c0f9828808c2f","_core.0250_webhook_receiver":"d82c34847a430ca0a2fcb4a55ff989855cbb7257b43dfe8c12b6505506f02aaa","_core.0260_dashboard":"d4a0fadefe9e969aac7f1e56f2859cd370d8aad491f751a9f639618386996ab2","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"77d92fc42a24b49a8f964e385b852133735715825955c7874f2f9925c104a40d","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
