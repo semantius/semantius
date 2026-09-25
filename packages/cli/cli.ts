@@ -204,7 +204,7 @@ function showHelp(): void {
     "test --tap",
     "test --failfast",
     "test 0010*",
-    "test 0015_test_jsonlogic.sql",
+    "test 0100_test_jsonlogic.sql",
     "test --coverage",
     "test --coverage --coverage-min 80",
     "test --apps nwind",
@@ -283,7 +283,7 @@ ${checkoutCommands}    migrate          Process and validate app folders (requir
     docgen           Generate schema.md documentation from entities metadata
     drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
     kyselygen        Generate Kysely type definitions (a single types file with the DB interface) from the catalog
-    testgen_jsonlogic Generate 0015_test_jsonlogic.sql from 0015_test_jsonlogic.json
+    testgen_jsonlogic Generate 0100_test_jsonlogic.sql from 0100_test_jsonlogic.json
 
 EXAMPLES:
 ${examples}
