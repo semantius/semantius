@@ -1,7 +1,7 @@
 -- =====================================================
 -- CLEANUP: Reset test user state after all tests
 -- =====================================================
--- This test runs last (990) to ensure all test users have
+-- This test runs last (9900) to ensure all test users have
 -- their last_seen cleared, preventing unintended admin role
 -- assignments in subsequent test runs.
 -- =====================================================

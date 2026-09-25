@@ -141,7 +141,7 @@ slowly, which is why they are written down here rather than regenerated:
   `pg_dump`/single-pass `pg_restore`, `DROP EXTENSION`, schema pinning and the
   refusals.
 - **Eleven files run as the RLS-exempt owner** (`0100`, `0120`, `0420`, `0560`,
-  `0680`, `0830`, `0870`, `0900`, `0910`, `0930`, `0990`), so their table access
+  `0680`, `0830`, `0870`, `0900`, `0910`, `0930`, `9900`), so their table access
   exercises no policy. A test that must prove a policy has to authenticate.
   `0680` is owner-run deliberately: it sweeps generated functions that are
   REVOKEd from PUBLIC, and a `select_rule` policy would reduce its value

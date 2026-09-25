@@ -398,7 +398,7 @@ class PgTest {
    * Run every *.sql file in each directory, directories in the given order.
    * Files are collected and sorted explicitly: Deno.readDir yields filesystem
    * order (hash order on ext4), while the suite relies on numeric prefixes
-   * (e.g. 0990_cleanup must run last in apps/test/tests). A tests/ directory is
+   * (e.g. 9900_cleanup must run last in apps/test/tests). A tests/ directory is
    * flat, so there is nothing to recurse into. Missing directories are
    * skipped.
    */
