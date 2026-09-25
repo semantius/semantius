@@ -720,7 +720,7 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
 VALUES
     ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
-    ('users', 'external_id', 'External Identity', 'Identity: the JWT sub claim from the authentication provider. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
+    ('users', 'external_id', 'External Identity', 'Identity: the JWT sub claim from the authentication provider, or entra.<tenant id>.<object id> for a Microsoft Entra ID token. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
     ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', '', '', FALSE),
     ('users', 'first_name', 'First Name', '', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
     ('users', 'last_name', 'Last Name', '', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '', '', FALSE),

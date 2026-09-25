@@ -384,6 +384,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90006` | `42501` | `User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.` | - | `external_id` | The claims are well formed but no `users` row matches yet. |
 | `90007` | `90007` | `external_id cannot be null or empty` | - | - | An argument guard, not a refusal, so it answers 400. |
 | `90008` | `90008` | `Failed to create or find user: external_id = ${external_id}` | - | `external_id` | `get_userinfo` upserted the user and got nothing back. |
+| `90009` | `42501` | `Authentication required: Microsoft Entra ID token is missing the tid or oid claim` | - | - | The token's `iss` is an Entra issuer, whose user is identified by `entra.<tid>.<oid>`, and one of the two is absent. Falling back to `sub` would create a second identity for the same person. |
 | `90010` | `90010` | `Unexpected error: unable to build user info JSON for user_id = ${user_id}` | - | `user_id` | As 90008, at the end of `get_userinfo`. |
 
 ### 901xx - permissions, roles and lockout guards

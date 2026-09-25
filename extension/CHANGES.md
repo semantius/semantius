@@ -25,6 +25,11 @@ installs the core schema as ordinary objects.
   database role from that same array (`jwt-role-claim-key = .roles[0]`), so both
   ends of one token read the same thing. A `role` claim holding any other value
   is still refused.
+- A token from Microsoft Entra ID, recognized by its `iss` claim, identifies its
+  user as `entra.<tid>.<oid>` rather than by `sub`. Entra's `sub` is pairwise:
+  each app registration receives a different one for the same person, so a
+  second client or a re-created registration would have produced a second
+  user. An Entra token without `tid` or `oid` is refused (`90009`).
 - New `public.fix_id_sequence(p_table)`: after an import that wrote explicit
   ids, moves the table's id sequence past `max(id)` so the next ordinary insert
   does not fail with 23505. Callable by holders of the entity's

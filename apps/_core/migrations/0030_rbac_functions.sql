@@ -155,6 +155,9 @@ DECLARE
     v_system_user TEXT;
     v_roles_claim TEXT;
     v_roles_json JSONB;
+    v_iss TEXT;
+    v_tid TEXT;
+    v_oid TEXT;
 BEGIN
     -- Step 1: Try Neon format (fastest path — individual claim settings)
     v_role := current_setting('request.jwt.claim.role', true);
@@ -245,6 +248,41 @@ BEGIN
         END IF;
     END IF;
 
+    -- Step 4: Microsoft Entra ID subjects. Entra's `sub` is pairwise: the same
+    -- person gets a different `sub` in every app registration, so a second
+    -- client (UI, CLI, MCP) or a re-created registration would arrive as a new
+    -- user with no roles. `oid` is the user's object id, the same for every
+    -- app in the tenant, but unique only within that tenant - hence
+    -- entra.<tid>.<oid>. Both are GUIDs, so the dots cannot be ambiguous, and
+    -- the prefix keeps the value apart from any other issuer's plain `sub`.
+    --
+    -- Detected by `iss`, not by the mere presence of tid/oid: any issuer can
+    -- name a claim `oid`, but only Entra signs these issuer URLs, and the token
+    -- layer has already refused issuers it does not trust. v2 tokens, v1
+    -- tokens and External ID (CIAM) tenants respectively.
+    --
+    -- The result is written back into request.jwt.claim.sub because every
+    -- warm-path cache test in this file compares against that setting; a
+    -- second call recomputes the same value from tid/oid, never from `sub`.
+    -- An Entra token without tid or oid is refused rather than falling back to
+    -- `sub`: the fallback would silently create a second identity for a user
+    -- who already exists under entra.<tid>.<oid>.
+    v_iss := current_setting('request.jwt.claim.iss', true);
+    IF v_iss ~ '^https://login\.microsoftonline\.com/[^/]+/v2\.0$'
+       OR v_iss ~ '^https://sts\.windows\.net/[^/]+/$'
+       OR v_iss ~ '^https://[^/]+\.ciamlogin\.com/[^/]+/v2\.0$'
+    THEN
+        v_tid := current_setting('request.jwt.claim.tid', true);
+        v_oid := current_setting('request.jwt.claim.oid', true);
+        IF v_tid IS NULL OR v_tid = '' OR v_oid IS NULL OR v_oid = '' THEN
+            RAISE EXCEPTION 'Authentication required: Microsoft Entra ID token is missing the tid or oid claim'
+                USING ERRCODE = 'insufficient_privilege',
+                      HINT = jsonb_build_object('code', '90009')::text;
+        END IF;
+        sub_value := 'entra.' || v_tid || '.' || v_oid;
+        PERFORM set_config('request.jwt.claim.sub', sub_value, true);
+    END IF;
+
     -- PostgreSQL 18 native OAuth hardening. With direct (non-PostgREST)
     -- connections the client can overwrite request.jwt.claims to spoof another
     -- subject. system_user holds the identity PostgreSQL validated from the
@@ -332,7 +370,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 COMMENT ON FUNCTION rbac.uid IS
-'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
+'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. A token whose iss is a Microsoft Entra ID issuer returns entra.<tid>.<oid> instead of sub (Entra sub differs per app registration), written back into request.jwt.claim.sub; such a token without tid or oid is refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
 
 -- =====================================================
 -- USER MANAGEMENT

@@ -146,7 +146,7 @@ The code reads these settings from the session:
 | Setting | Set by |
 |---|---|
 | `request.jwt.claims` | PostgREST or your app tier, per request |
-| `request.jwt.claim.sub`, `request.jwt.claim.email`, `request.jwt.claim.role`, `request.jwt.claim.name`, `request.jwt.claim.given_name`, `request.jwt.claim.family_name`, `request.jwt.claim.aud` | the same, one GUC per claim (Neon/Supabase style) |
+| `request.jwt.claim.sub`, `request.jwt.claim.email`, `request.jwt.claim.role`, `request.jwt.claim.name`, `request.jwt.claim.given_name`, `request.jwt.claim.family_name`, `request.jwt.claim.aud`, `request.jwt.claim.iss`, `request.jwt.claim.tid`, `request.jwt.claim.oid` | the same, one GUC per claim (Neon/Supabase style) |
 | `app.current_user_id`, `app.user_permissions`, `app.oauth_scopes`, `app.current_external_id`, `app.context_initialized`, `app.bumping_module_version`, `app.bearer_cache_notice` | the RBAC code itself, per transaction |
 | `dd.table_rename` | the data dictionary, during a table rename |
 
@@ -164,6 +164,15 @@ more than one audience is minted from your issuer.
 `semantius.status().jwt_aud_set` reports whether it is set. The trust model this
 sits inside is in `SECURITY.md`, under "Session mode trusts the application
 tier".
+
+A token from Microsoft Entra ID is identified by its `iss` claim
+(`login.microsoftonline.com/<tenant>/v2.0`, `sts.windows.net/<tenant>/` or
+`<tenant>.ciamlogin.com`), and its user is `entra.<tid>.<oid>`, not its
+`sub`: Entra issues a different `sub` to every app registration, so two
+clients of one database would otherwise see the same person as two users.
+`users.external_id` holds that value, so a user created ahead of time must
+be given it. An app tier that sets the per-claim GUCs instead of
+`request.jwt.claims` must set `iss`, `tid` and `oid` too.
 
 ## Errors
 

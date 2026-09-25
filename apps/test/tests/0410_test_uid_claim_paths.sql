@@ -4,7 +4,8 @@
 -- authenticate_as() always sets Neon-style request.jwt.claim.* settings, so
 -- the suite never exercised the Supabase-style single JSON blob path of
 -- rbac.uid() (0030_rbac_functions.sql, "Step 2") nor the JSON-scalar audience
--- form, nor the `roles`-array stand-in for a missing `role` claim ("Step 3").
+-- form, nor the `roles`-array stand-in for a missing `role` claim ("Step 3"),
+-- nor the entra.<tid>.<oid> subject of a Microsoft Entra ID token ("Step 4").
 -- 0250 covers plain-string and JSON-array audiences, 0390 covers the no-claims
 -- session. This file fills the remaining branches.
 --
@@ -13,7 +14,7 @@
 -- All settings are transaction-local and vanish with the ROLLBACK.
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(33);
 
 SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
@@ -25,6 +26,9 @@ CREATE FUNCTION pg_temp.blank_neon_claims() RETURNS void LANGUAGE sql AS $$
     SELECT set_config('request.jwt.claim.sub', '', true);
     SELECT set_config('request.jwt.claim.email', '', true);
     SELECT set_config('request.jwt.claim.aud', '', true);
+    SELECT set_config('request.jwt.claim.iss', '', true);
+    SELECT set_config('request.jwt.claim.tid', '', true);
+    SELECT set_config('request.jwt.claim.oid', '', true);
 $$;
 
 -- =====================================================
@@ -121,12 +125,94 @@ SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
     'uid: a roles array without a sub is rejected');
 
 -- =====================================================
--- GROUP 4: JSON-scalar audience (jwt_aud configured in _settings)
+-- GROUP 4: a Microsoft Entra ID token is identified as entra.<tid>.<oid>
+-- =====================================================
+-- Entra's sub is pairwise per app registration, so the issuer URL selects the
+-- tenant-wide object id instead. Also before the audience group, for the same
+-- reason as group 3.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"pairwise-sub-app-a","roles":["authenticated"],'
+    '"iss":"https://login.microsoftonline.com/7d0f4c1e-2b1a-4c3e-9f00-0000000000aa/v2.0",'
+    '"tid":"7d0f4c1e-2b1a-4c3e-9f00-0000000000aa","oid":"3f9e2d10-8c4b-4a7e-b1d2-0000000000bb"}', true);
+SELECT is(rbac.uid(),
+    'entra.7d0f4c1e-2b1a-4c3e-9f00-0000000000aa.3f9e2d10-8c4b-4a7e-b1d2-0000000000bb',
+    'uid: a v2 Entra token is identified by entra.<tid>.<oid>, not by sub');
+SELECT is(current_setting('request.jwt.claim.sub', true),
+    'entra.7d0f4c1e-2b1a-4c3e-9f00-0000000000aa.3f9e2d10-8c4b-4a7e-b1d2-0000000000bb',
+    'uid: the Entra subject is written back into request.jwt.claim.sub');
+SELECT is(rbac.uid(),
+    'entra.7d0f4c1e-2b1a-4c3e-9f00-0000000000aa.3f9e2d10-8c4b-4a7e-b1d2-0000000000bb',
+    'uid: a second call on the normalized settings yields the same subject');
+
+-- The same person through a second app registration: a different sub, the
+-- same tid and oid, and therefore the same user.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"pairwise-sub-app-b","roles":["authenticated"],'
+    '"iss":"https://login.microsoftonline.com/7d0f4c1e-2b1a-4c3e-9f00-0000000000aa/v2.0",'
+    '"tid":"7d0f4c1e-2b1a-4c3e-9f00-0000000000aa","oid":"3f9e2d10-8c4b-4a7e-b1d2-0000000000bb"}', true);
+SELECT is(rbac.uid(),
+    'entra.7d0f4c1e-2b1a-4c3e-9f00-0000000000aa.3f9e2d10-8c4b-4a7e-b1d2-0000000000bb',
+    'uid: another app registration''s sub for the same person resolves to the same subject');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"x","roles":["authenticated"],"iss":"https://sts.windows.net/tenant-1/",'
+    '"tid":"tenant-1","oid":"object-1"}', true);
+SELECT is(rbac.uid(), 'entra.tenant-1.object-1', 'uid: a v1 Entra issuer is recognized');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"x","roles":["authenticated"],"iss":"https://tenant-1.ciamlogin.com/tenant-1/v2.0",'
+    '"tid":"tenant-1","oid":"object-1"}', true);
+SELECT is(rbac.uid(), 'entra.tenant-1.object-1', 'uid: an Entra External ID (CIAM) issuer is recognized');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"x","roles":["authenticated"],"iss":"https://login.microsoftonline.com/tenant-1/v2.0",'
+    '"tid":"tenant-1"}', true);
+SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
+    'uid: an Entra token without oid is refused rather than falling back to sub');
+
+-- Only the issuer URL selects the Entra identity: other issuers keep sub even
+-- when they send claims named tid and oid, and a look-alike host is not Entra.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"authenticated","iss":"https://issuer.example",'
+    '"tid":"tenant-1","oid":"object-1"}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a non-Entra issuer with tid and oid claims keeps its sub');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"authenticated",'
+    '"iss":"https://login.microsoftonline.com.evil.example/tenant-1/v2.0",'
+    '"tid":"tenant-1","oid":"object-1"}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a look-alike Entra host is not treated as Entra');
+
+-- End to end: the warm-path caches compare against request.jwt.claim.sub, so
+-- the rewritten subject must find the user and stay warm on the next call.
+RESET ROLE;
+INSERT INTO users (id, external_id, email)
+VALUES (9410, 'entra.tenant-1.object-1', 'entra-user@test.com');
+SET ROLE semantius_user;
+SELECT set_config('search_path', 'pgtap, public', true);
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"x","roles":["authenticated"],"iss":"https://login.microsoftonline.com/tenant-1/v2.0",'
+    '"tid":"tenant-1","oid":"object-1"}', true);
+SELECT is(rbac.user_id(), 9410, 'user_id: an Entra token finds the user stored as entra.<tid>.<oid>');
+SELECT is(current_setting('app.current_external_id', true), 'entra.tenant-1.object-1',
+    'user_id: the context caches the Entra subject, which the warm path then matches');
+
+-- =====================================================
+-- GROUP 5: JSON-scalar audience (jwt_aud configured in _settings)
 -- =====================================================
 RESET ROLE;
 INSERT INTO _settings (name, value) VALUES ('jwt_aud', 'myapp');
 SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
+SELECT pg_temp.blank_neon_claims();
 SELECT set_config('request.jwt.claim.role', 'authenticated', true);
 SELECT set_config('request.jwt.claim.sub', 'user1', true);
 
