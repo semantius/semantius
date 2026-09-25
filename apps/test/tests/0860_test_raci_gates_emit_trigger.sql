@@ -3,7 +3,7 @@
 -- raci_emit_on_<entity> trigger on the governed table while any gate for that
 -- entity has emits_events = TRUE, and drops it when none do.
 --
--- 0350 covers the emit trigger's runtime behavior; this file covers the
+-- 0850 covers the emit trigger's runtime behavior; this file covers the
 -- INSTALLER: install, idempotent reinstall, keep-while-another-gate-needs-it,
 -- entity-move rerouting, drop-on-delete, and the missing-table branch.
 --

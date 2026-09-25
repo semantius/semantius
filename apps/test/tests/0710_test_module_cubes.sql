@@ -1,12 +1,23 @@
+-- The Cube model readers: public.get_module_cubes() and
+-- public.get_user_cubes().
+--
+-- Each part sets up its own fixtures; a part after the first starts by
+-- restoring the connection's role and the runner's search_path. Parts:
+--   1. get_module_cubes()
+--   2. get_user_cubes()
+BEGIN;
+
+SELECT plan(12);
+
+-- =====================================================
+-- PART 1: get_module_cubes()
+-- =====================================================
 -- Test public.get_module_cubes() function
 --
 -- Part 1 uses the persisted nwind module (slug 'nwind', 11 entities; every
 -- reference_table points inside the module) as user2 (nwind:view).
 -- Part 2 creates an in-transaction module 'cube_probe' with two entities, the
 -- second referencing the first, to pin down dedup and exact cardinality.
-BEGIN;
-
-SELECT plan(10);
 
 select authenticate_as('user2');
 
@@ -122,6 +133,46 @@ SELECT is(
     (SELECT COUNT(*)::integer FROM public.get_module_cubes('cube_probe')),
     2,
     'user1 should see both cube_probe schemas (module and entities are public:read)'
+);
+
+-- =====================================================
+-- PART 2: get_user_cubes()
+-- =====================================================
+-- Test public.get_user_cubes() function
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- =====================================================
+-- TEST 1: user1 cannot see role_permissions
+-- user1 has user:read and public:read permissions only.
+-- role_permissions requires 'admin' permission, so it must not appear.
+-- =====================================================
+
+SELECT authenticate_as('user1');
+
+SELECT ok(
+    NOT EXISTS (
+        SELECT 1 FROM public.get_user_cubes() AS s
+        WHERE s->'table'->>'table_name' = 'role_permissions'
+    ),
+    'user1 should not see role_permissions (requires admin permission)'
+);
+
+-- =====================================================
+-- TEST 2: user3 can see role_permissions
+-- user3 has the Administrator role which includes 'admin' permission.
+-- role_permissions requires 'admin', so it must appear.
+-- =====================================================
+
+SELECT authenticate_as('user3');
+
+SELECT ok(
+    EXISTS (
+        SELECT 1 FROM public.get_user_cubes() AS s
+        WHERE s->'table'->>'table_name' = 'role_permissions'
+    ),
+    'user3 should see role_permissions (has admin permission)'
 );
 
 SELECT * FROM finish();

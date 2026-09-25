@@ -1,5 +1,5 @@
 -- =====================================================
--- public.fix_id_sequence (0475)
+-- public.fix_id_sequence (0730)
 -- =====================================================
 -- Pins the RPC an importer calls after writing explicit ids: it moves the id
 -- sequence past max(id), never lowers it, answers NULL for keys without a

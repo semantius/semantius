@@ -1,5 +1,5 @@
 -- =====================================================
--- Extension membership invariants (0440)
+-- Extension membership invariants (0980)
 -- =====================================================
 -- The pg_semantius extension is a THIN INSTALLER: `CREATE EXTENSION` creates
 -- only the cluster roles, the `semantius` schema and that schema's functions,

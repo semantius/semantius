@@ -434,7 +434,7 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- The reserved JsonLogic variables that do not vary within a statement. RLS
 -- quals reach this through an uncorrelated sub-select so the planner turns it
 -- into an InitPlan and evaluates it once per statement instead of once per row;
--- 0445_test_policy_subselect_form.sql pins that shape against a well-meaning
+-- 0940_test_policy_subselect_form.sql pins that shape against a well-meaning
 -- edit to a bare call.
 --
 -- rbac.uid() is called directly and first. It is what refuses a session with no
@@ -578,8 +578,8 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name
 
     -- Both overloads need their own grants and comment: privileges and comments
     -- attach to a signature, not to a name, so an overload left out is callable
-    -- by any role and undocumented. 0060_test_security.sql and
-    -- 0240_test_no_unsafe_functions.sql sweep for exactly that.
+    -- by any role and undocumented. 0900_test_security.sql and
+    -- 0910_test_no_unsafe_functions.sql sweep for exactly that.
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
     EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
     EXECUTE format(

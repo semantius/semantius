@@ -1,5 +1,5 @@
 -- =====================================================
--- Owner hardening (0430)
+-- Owner hardening (0970)
 -- =====================================================
 -- 9900_owner_hardening moves every Semantius core object to the dedicated
 -- semantius_owner role (NOLOGIN, NOSUPERUSER, BYPASSRLS) when the installer

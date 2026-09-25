@@ -54,7 +54,7 @@ day; renumbered 2026-09-05.
   the DDL audit is scoped to the five
   Semantius schemas, `audit.log_ddl_event()` is `SECURITY DEFINER`,
   `query_text` is bounded to 8192 characters, and both `pgrst_*` watches carry
-  the schema filter. Pinned by `apps/test/tests/0301_test_audit_ddl_scope.sql`
+  the schema filter. Pinned by `apps/test/tests/0810_test_audit_ddl_scope.sql`
   (17 assertions) and `pg-ext-lifecycle.sh` step 11 (14 assertions, including
   the NOTIFY probe the pgTAP suite cannot run). What the change could not reach
   was closed on 2026-09-07: the tag allowlist is gone, and a second event
@@ -76,7 +76,7 @@ day; renumbered 2026-09-05.
   check. Detail, method and the two things the owning plan asked for that were
   deliberately not done are in `plans/ext-solved-items.md`. It carried the
   separator half of **S12** with it (the rest of S12 was postponed with bearer
-  mode on 2026-09-07, its record is `docs/bearer-mode-status.md` step 5), and `0060_test_security.sql` did **not**
+  mode on 2026-09-07, its record is `docs/bearer-mode-status.md` step 5), and `0900_test_security.sql` did **not**
   have to be weakened. No residue.
 - **P13 and P4 closed 2026-09-05, both restated.** The audit and queue triggers
   are statement-level and the request context is resolved once per statement
@@ -217,7 +217,7 @@ day; renumbered 2026-09-05.
   now deletes upgrade scripts whose endpoints `versions.json` does not know,
   pinned by `scripts/check-prune-orphans.sh` on every pull request (**B17**), and
   `0445_test_policy_initplan_form.sql` became
-  `0445_test_policy_subselect_form.sql`, which is what it checks - the
+  `0940_test_policy_subselect_form.sql`, which is what it checks - the
   InitPlan-against-SubPlan discriminator was deliberately not built, because the
   generators cannot emit a correlated sub-select and the one hand-written
   correlated policy is accepted at its size (**R10**). **R6**: the scratch
@@ -238,7 +238,7 @@ file or shipped README, `tooling` to the harnesses and CI.
 
 | ID | Priority | Area | Where | Problem | Fix | Done when |
 |---|---|---|---|---|---|---|
-| R8 | Low | tooling | a new `pgdocker/pg-ext-portability.sh` | Two restore scenarios that need a **second container**, so they do not belong in `pg-ext-lifecycle.sh` on the per-PR path. (a) *Fresh cluster*: the step-2 dump restored into a second `postgres18-ext:local` without the init mounts - with `POSTGRES_USER=postgres` it should be clean and tests 0430, 0060, 0240 green there; with `POSTGRES_USER=admin` every error should match `role "postgres" does not exist`, `status()` should report the ownership and default-ACL drift and `harden()` should clear it. (b) *Dump taken after `DROP EXTENSION`*, restored on a fresh cluster: should fail only on role references, and succeed once `pg_dumpall --globals-only` has been applied first, with the `pg_auth_members` rows for the four roles equal to the source. Neither gates the three requirements, which lifecycle steps 1, 2 and 4 prove directly, and the in-principle case is now covered - step 5 (restore where the extension is not installed at all) landed 2026-09-05. | Write the script; run it from `extension-release.yml` only, not from `test.yml`, so a second container does not cost every contributor pull request. | Both scenarios asserted, green on a release tag. |
+| R8 | Low | tooling | a new `pgdocker/pg-ext-portability.sh` | Two restore scenarios that need a **second container**, so they do not belong in `pg-ext-lifecycle.sh` on the per-PR path. (a) *Fresh cluster*: the step-2 dump restored into a second `postgres18-ext:local` without the init mounts - with `POSTGRES_USER=postgres` it should be clean and tests 0970, 0900, 0910 green there; with `POSTGRES_USER=admin` every error should match `role "postgres" does not exist`, `status()` should report the ownership and default-ACL drift and `harden()` should clear it. (b) *Dump taken after `DROP EXTENSION`*, restored on a fresh cluster: should fail only on role references, and succeed once `pg_dumpall --globals-only` has been applied first, with the `pg_auth_members` rows for the four roles equal to the source. Neither gates the three requirements, which lifecycle steps 1, 2 and 4 prove directly, and the in-principle case is now covered - step 5 (restore where the extension is not installed at all) landed 2026-09-05. | Write the script; run it from `extension-release.yml` only, not from `test.yml`, so a second container does not cost every contributor pull request. | Both scenarios asserted, green on a release tag. |
 | R9 | Low | tooling | a new `pgdocker/pg-ext-upgrade.sh` | The `ALTER EXTENSION ... UPDATE` path, untested because **there has only ever been one version**: `extension/versions.json` holds `0.5.0-beta1` and nothing else, so there is no real upgrade to exercise and the test has to fabricate one. Three scenarios, all needing a generated `<v+1>` bundle built from a temp copy of `apps/_core` with a dummy migration appended plus a copy of `versions.json` (without it no upgrade script is written): (a) *upgrade* - `ALTER EXTENSION pg_semantius UPDATE`, then `pending()` returns exactly the dummy, `migrate()` applies only it, `version()` is `<v+1>`, and the function ACL checks of lifecycle step 8 still hold; (b) *cross-version* - the step-2 dump restored on the `<v+1>` server lists the dummy as pending, and a `<v+1>` dump restored on the `<v>` server has `pending()` empty with `status()` listing the dummy as unknown; (c) *failure atomicity* - a `<v+1>` bundle whose dummy fails midway makes `migrate()` raise with the migration name, the original SQLSTATE and message, leaves `_versions` unchanged, still lists the dummy as pending, and leaves no schema `common` on a fresh database. | Write the script; run it on the release tag. It is synthetic today and becomes load-bearing at the second release, which is the first time a real upgrade path ships - promote it to a hard gate then. | All three scenarios asserted, and the second release cannot be cut without them passing. |
 
 Linter context. plpgsql_check reported 122 warnings on 63 functions at the

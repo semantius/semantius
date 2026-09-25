@@ -18,7 +18,7 @@
 -- last_seen, and no role-2 row exists yet), but the identity does not lean on
 -- that. The Administrator row is written explicitly below. A seed that gets its
 -- administrator from a security trigger turns every change to that trigger into
--- an unexplained failure three files away, and 0110_test_first_user_get_userinfo
+-- an unexplained failure three files away, and 0210_test_first_user_get_userinfo
 -- deletes role-2 rows to test the trigger properly.
 INSERT INTO users (id, external_id, email, display_name, first_name, last_name, last_seen) VALUES
     (1001, 'user1', 'user@test.com',  'Test User',    'Test',  'User',   NULL),

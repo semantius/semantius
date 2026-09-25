@@ -1,5 +1,5 @@
 -- =====================================================
--- fields.default_value hardening (0425)
+-- fields.default_value hardening (0530)
 -- =====================================================
 -- Regression test for the default-value SQL injection (release review S1):
 -- quote_default_value() used to return any value containing "(" or "::"

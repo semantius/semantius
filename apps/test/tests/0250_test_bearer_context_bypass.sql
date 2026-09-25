@@ -1,5 +1,5 @@
 -- =====================================================
--- Bearer-session context bypass and derived user id (0435)
+-- Bearer-session context bypass and derived user id (0250)
 -- =====================================================
 -- Release review S2: the transaction-scoped context cache (the app.* settings
 -- written by rbac.ensure_context_initialized) is client-writable. Behind

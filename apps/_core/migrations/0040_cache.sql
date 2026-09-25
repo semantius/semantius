@@ -116,7 +116,7 @@ END $$;
 -- `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
 -- 0020_settings.once.sql does not prevent it - see the comment there for why it cannot. An
 -- explicit per-function REVOKE is the only form that holds, and
--- 0060_test_security.sql fails if one is ever missed.
+-- 0900_test_security.sql fails if one is ever missed.
 REVOKE EXECUTE ON FUNCTION common.cache_get(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.cache_set(TEXT, TEXT, INTEGER) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.cache_delete(TEXT) FROM PUBLIC;

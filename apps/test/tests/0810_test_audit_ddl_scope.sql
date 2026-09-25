@@ -1,10 +1,10 @@
 -- Tests for the SCOPE of the DDL audit (audit.log_ddl_event / track_ddl_changes).
 --
--- 0300 proves the DDL audit records what it should. This file proves it does
+-- 0800 proves the DDL audit records what it should. This file proves it does
 -- NOT record what it should not, and that it no longer blocks the request role:
 --
 --   1. DDL in a schema Semantius does not own produces no audit row
---   2. DDL in public still does                     (regression guard for 0300)
+--   2. DDL in public still does                     (regression guard for 0800)
 --   3. CREATE TEMP TABLE produces no audit row
 --   4. CREATE TEMP TABLE succeeds as the request role (S15)
 --   5. audit.log_ddl_event is SECURITY DEFINER, which is what makes 4 true
@@ -43,7 +43,7 @@ SELECT is(
 -- =====================================================
 -- TEST 2: DDL in public is still logged
 -- =====================================================
--- The regression guard for 0300's three count(*) > 0 assertions.
+-- The regression guard for 0800's three count(*) > 0 assertions.
 
 CREATE TABLE public.audit_scope_owned (id int);
 CREATE INDEX audit_scope_owned_idx ON public.audit_scope_owned (id);

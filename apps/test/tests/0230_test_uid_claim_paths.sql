@@ -1,12 +1,12 @@
 -- =====================================================
--- rbac.uid() claim-normalization paths (0410)
+-- rbac.uid() claim-normalization paths (0230)
 -- =====================================================
 -- authenticate_as() always sets Neon-style request.jwt.claim.* settings, so
 -- the suite never exercised the Supabase-style single JSON blob path of
 -- rbac.uid() (0080_rbac_functions.sql, "Step 2") nor the JSON-scalar audience
 -- form, nor the `roles`-array stand-in for a missing `role` claim ("Step 3"),
 -- nor the entra.<tid>.<oid> subject of a Microsoft Entra ID token ("Step 4").
--- 0250 covers plain-string and JSON-array audiences, 0390 covers the no-claims
+-- 0240 covers plain-string and JSON-array audiences, 0270 covers the no-claims
 -- session. This file fills the remaining branches.
 --
 -- Every group starts from a semantius_user session whose Neon-style role/sub

@@ -128,7 +128,7 @@ deno run --allow-net test_oauth_security.ts   # forged sub claim ignored
 deno run --allow-net test_bearer_cache.ts     # forged app.* cache ignored, WARNING once
 ```
 
-`apps/test/tests/0435_test_bearer_context_bypass.sql` pins the parts pgTAP can
+`apps/test/tests/0250_test_bearer_context_bypass.sql` pins the parts pgTAP can
 reach (pgTAP cannot open an OAuth session). The whole suite was also run once
 with the detector forced on; everything passed except the assertions that say
 the session is not a bearer session.
@@ -213,7 +213,7 @@ This function is the only thing that must never be callable by the request
 role; with it, a client could sign any payload. The explicit REVOKE is
 required because the default privileges in `0060_rbac_schema.once.sql` grant
 every new `rbac` function to `semantius_user`. The guard test
-`0060_test_security.sql` requires SECURITY DEFINER functions to call
+`0900_test_security.sql` requires SECURITY DEFINER functions to call
 `rbac.uid()`; add `context_mac` and `write_context` to its exception list and
 add an assertion that neither is executable by `semantius_user`.
 
@@ -317,7 +317,7 @@ everywhere" this step originally asked for - it needs no writer to have
 normalized first, and it stays correct when the entry point below later
 normalizes on write. Before it, two readers split on commas and one on spaces,
 so a list written in the other convention silently confined the session to
-nothing. Pinned by `apps/test/tests/0405_test_rbac_helpers.sql` GROUP 6.
+nothing. Pinned by `apps/test/tests/0310_test_rbac_helpers.sql` GROUP 6.
 
 **Not done: the binding half.** Scopes become part of the signed payload.
 `set_request_context` was removed on 2026-09-03, because it let a caller
@@ -367,7 +367,7 @@ Extend `0435`:
 - the secret row deleted: state `absent` on every call, results still correct;
 - a scoped session calling the scope entry point with an empty or wider list: scopes unchanged.
 
-Move the scope groups of `0405_test_rbac_helpers.sql` from `set_config` to
+Move the scope groups of `0310_test_rbac_helpers.sql` from `set_config` to
 the scope entry point. `pgdocker/test_bearer_cache.ts` must stay green minus
 its WARNING assertion, which flips to "no WARNING".
 

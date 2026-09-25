@@ -43,7 +43,7 @@ table was never in the rebuild's scope.
 |---|---|---|---|
 | B2 | extension | **CLOSED** | `schema = public` + `encoding = 'UTF8'`, no `requires`. lifecycle step 6 (both halves), test 0440. |
 | B4 | migration | **CLOSED, one gap** | Fail-fast in 0160 and in migrate()'s pre-flight, both 55000; dead guard removed. lifecycle step 7. GAP: migrate()'s pre-flight fires first, so 0160's own header guard is only reachable on the CLI path, which has no test. |
-| B5 | migration | **CLOSED 2026-09-04** | Scoped audit: `audit.log_ddl_event()` skips `in_extension` objects, `pg_temp*` and every schema outside `public/common/rbac/audit/pgmq`; both `pgrst_ddl_watch` and `pgrst_drop_watch` carry the same schema filter. `0301_test_audit_ddl_scope.sql` + lifecycle step 11 (CREATE and DROP in a foreign schema and a temp table produce neither an audit row nor a NOTIFY; `public` still produces both). The row's own Problem text about the `pgrst_*` watches was wrong: they already filtered by tag and by `pg_temp`, only the schema filter was missing. Residue in **S18**. |
+| B5 | migration | **CLOSED 2026-09-04** | Scoped audit: `audit.log_ddl_event()` skips `in_extension` objects, `pg_temp*` and every schema outside `public/common/rbac/audit/pgmq`; both `pgrst_ddl_watch` and `pgrst_drop_watch` carry the same schema filter. `0810_test_audit_ddl_scope.sql` + lifecycle step 11 (CREATE and DROP in a foreign schema and a temp table produce neither an audit row nor a NOTIFY; `public` still produces both). The row's own Problem text about the `pgrst_*` watches was wrong: they already filtered by tag and by `pg_temp`, only the schema filter was missing. Residue in **S18**. |
 | B6 | extension | **CLOSED, boundary pinned** | DROP EXTENSION needs no CASCADE and touches nothing. lifecycle steps 4, 4b, test 0440 group 8. Two things survive the recipe BY DESIGN and are now asserted rather than assumed: one cosmetic `pg_default_acl` row (equal to the built-in default) and the `authenticated`->`semantius_user` membership, which only the recipe's conditional final `DROP ROLE` clears. pgcrypto is left installed on purpose (optional last step). |
 | B7 | extension | **CLOSED** | Guard, both suites, the lifecycle script and the META checks all run before anything is packaged, released or pushed, and `--strict` is now passed by both `extension-release.yml` and `test.yml` (closed 2026-09-03: it is structurally inert while `versions.json` holds one build, since the check sits inside `if (prev)`, and becomes protective automatically at the second release). Contributor PRs get the same checks via `test.yml`; the maintainer pushes directly to `main` and verifies locally, then the tag gate re-checks everything. |
 | B8 | extension | **CLOSED** | Consumer README generated; its own done-when now passes literally: all 18 GUCs the migrations read appear verbatim (the brace shorthand was expanded because a literal grep is the criterion). No repo-only paths. |
@@ -85,15 +85,15 @@ The new limits of the scoped audit were tracked as **S18** and closed on
 
 | ID | What was changed | Verified by (claimed) |
 |---|---|---|
-| B2 | `schema = public` + `encoding = 'UTF8'` in `buildControlFile`; no `requires` (CASCADE would misplace pgcrypto); `migrate()` pins `search_path = public`. | `pg-ext-lifecycle.sh` step 6; `0440_test_extension_membership.sql` (extnamespace/relocatable) |
+| B2 | `schema = public` + `encoding = 'UTF8'` in `buildControlFile`; no `requires` (CASCADE would misplace pgcrypto); `migrate()` pins `search_path = public`. | `pg-ext-lifecycle.sh` step 6; `0980_test_extension_membership.sql` (extnamespace/relocatable) |
 | B4 | Fail-fast at the top of `0160_pgmq.sql` and in `migrate()`'s pre-flight, both SQLSTATE 55000; the dead `extname = 'pgmq'` guard and the stale config-dump comment deleted. | `pg-ext-lifecycle.sh` step 7 |
-| B6 | `DROP EXTENSION` removes only the `semantius` schema and its functions, never needs CASCADE; ordered uninstall recipe in the generated README. | `pg-ext-lifecycle.sh` steps 4 and 4b; `0440_test_extension_membership.sql` group 8 |
+| B6 | `DROP EXTENSION` removes only the `semantius` schema and its functions, never needs CASCADE; ordered uninstall recipe in the generated README. | `pg-ext-lifecycle.sh` steps 4 and 4b; `0980_test_extension_membership.sql` group 8 |
 | B7 | `extension-release.yml` now runs a `git status --porcelain extension/` guard, both suites, the lifecycle script and META validation before packaging/releasing/pushing; `--strict` added to the generator. | not executable locally - the workflow only runs on a tag push |
 | B9 | `encoding = 'UTF8'` in the control file plus an explicit `pg_encoding_to_char` check in the script and in `migrate()` (55000), so SQL_ASCII is refused too. | `pg-ext-lifecycle.sh` steps 9 and 9b |
 | B10 | `https://` repository URL, maintainer email, `release_status: 'testing'`, `extension/CHANGES.md` added and copied into the archive, META validated in the release job. | `pg-ext-lifecycle.sh` step 0 (partial); the release job's META validation |
 | B11 | 0010 and 0012 skip their `GRANT ... TO CURRENT_USER` for a superuser; 0050's BYPASSRLS `ASSERT` became `RAISE EXCEPTION`. | `pg-ext-lifecycle.sh` step 1b; tests 0430 and 0060 |
 | B13 | The generator LF-normalizes every embedded migration before hashing and every emitted file. | two consecutive generator runs are byte-identical; `file` reports no CRLF on any emitted file |
-| B15 | `superuser = true` kept; the three refusal texts are quoted in the generated README. | `pg-ext-lifecycle.sh` step 8; `0440_test_extension_membership.sql` group 6 |
+| B15 | `superuser = true` kept; the three refusal texts are quoted in the generated README. | `pg-ext-lifecycle.sh` step 8; `0980_test_extension_membership.sql` group 6 |
 | B16 | Core-entity fields are ordinary data now that no table is an extension member. | `pg-ext-lifecycle.sh` step 2 (custom column on `users` + its `fields` row survive dump/restore) |
 | R1 | `pgdocker/pg-ext-lifecycle.sh` written; 76 assertions. | the script itself: 76 passed, 0 failed |
 | R2 | Folded into B7 by owner decision (no PRs, no separate test workflow): the suites run in the release job on the tag. | same as B7 |
@@ -237,7 +237,7 @@ Call counts per 20,000 warm checks, which is the part that cannot be timing nois
 
 | What changed | Where | Verified by |
 |---|---|---|
-| The cache test is inlined into `has_permission` and `has_any_permission`, which now read the three settings themselves and call `ensure_context_initialized()` only on a miss. A warm check enters one PL/pgSQL frame instead of two; the second frame was most of what the call cost, because a SECURITY DEFINER plpgsql entry with a `SET search_path` save/restore is expensive relative to a `current_setting` read. | `0030_rbac_functions.sql` | `0446_test_rbac_hot_path.sql`: both checkers mention `app.context_initialized` in `prosrc`. Before the change neither did, so this is the assertion that fails on revert. |
+| The cache test is inlined into `has_permission` and `has_any_permission`, which now read the three settings themselves and call `ensure_context_initialized()` only on a miss. A warm check enters one PL/pgSQL frame instead of two; the second frame was most of what the call cost, because a SECURITY DEFINER plpgsql entry with a `SET search_path` save/restore is expensive relative to a `current_setting` read. | `0030_rbac_functions.sql` | `0320_test_rbac_hot_path.sql`: both checkers mention `app.context_initialized` in `prosrc`. Before the change neither did, so this is the assertion that fails on revert. |
 | The bearer-session test is the bare `system_user LIKE 'oauth:%'` rather than a call to `rbac.is_bearer_session()`. That function pins `search_path`, which stops PostgreSQL inlining it, so it cost a real function call on every check. The function stays: `whoami` reports through it and `0435` pins it. | `0030_rbac_functions.sql` | `0446`: `is_bearer_session` still exists and is false in a SCRAM session |
 | `ensure_context_initialized` no longer opens with a redundant `PERFORM rbac.uid()`. Both of its branches fell through to `v_external_id := rbac.uid()` regardless, so the leading call was pure duplication rather than something to be moved. | `0030_rbac_functions.sql` | measured: `uid` calls per 20,000 checks fell from 40,005 to 3 |
 | The warm shortcut now also requires `app.current_external_id` to be non-empty and to equal `request.jwt.claim.sub`. This is **not** a fix for the client-writable cache (S2) and buys nothing in a supported deployment, where the client never runs SQL and cannot write `app.*` at all. It replaces a side effect of the removed `rbac.uid()` calls: those refused a session carrying no valid claims, and the comparison keeps that refusal. Sound because both settings are transaction-local and written by the same cold pass - the Neon path returns the setting verbatim, the Supabase fan-out writes it before re-reading, the PG18 override rewrites it, and both `get_userinfo` prefills assign `rbac.uid()`. | `0030_rbac_functions.sql` | `0446`: a cache naming another subject is rebuilt and denied, by `has_permission` and `has_any_permission`, with a genuine warm hit as the positive control; and a session with no claims plus a hand-written cache raises 42501 |
@@ -247,7 +247,7 @@ Call counts per 20,000 warm checks, which is the part that cannot be timing nois
 **Two things the owning plan asked for and did not get, deliberately.**
 
 - The plan wanted `PERFORM rbac.uid()` deleted outright from the checkers, which
-  costs the `0060_test_security.sql` guard: it would have had to accept
+  costs the `0900_test_security.sql` guard: it would have had to accept
   `rbac.ensure_context_initialized()` as a substitute for a direct `rbac.uid()`
   call, for every SECURITY DEFINER function in `public` and `rbac`, forever -
   and that substitute is weaker after this change, because
@@ -301,11 +301,11 @@ exposed that its recursion was not landing on itself.
 
 | What changed | Where | Verified by |
 |---|---|---|
-| Operator identification is one non-SPI expression. `jsonb_path_query_first(rule, '$.keyvalue().key')` reads the key in the same order `jsonb_object_keys` returned it, and `rule - op` leaves `'{}'` exactly when that key was the only one. It replaces `SELECT key INTO op FROM jsonb_object_keys(rule) LIMIT 1` plus a second `SELECT count(*)` over the same set-returning function: both had a FROM clause, which disqualified them from PL/pgSQL's simple-expression path, so each went to the SQL engine to be planned and executed - four executions per row for a two-node rule. | `0210_raci.sql` and `0015_jsonlogic.sql` | the 290-case corpus, `0016_test_jsonlogic_ext.sql`, `0350_test_raci.sql` |
+| Operator identification is one non-SPI expression. `jsonb_path_query_first(rule, '$.keyvalue().key')` reads the key in the same order `jsonb_object_keys` returned it, and `rule - op` leaves `'{}'` exactly when that key was the only one. It replaces `SELECT key INTO op FROM jsonb_object_keys(rule) LIMIT 1` plus a second `SELECT count(*)` over the same set-returning function: both had a FROM clause, which disqualified them from PL/pgSQL's simple-expression path, so each went to the SQL engine to be planned and executed - four executions per row for a two-node rule. | `0210_raci.sql` and `0015_jsonlogic.sql` | the 290-case corpus, `0110_test_jsonlogic_ext.sql`, `0850_test_raci.sql` |
 | An explicit NULL guard for the zero-key rule. `{}` yields no key, and without the guard the next line evaluates `rule -> NULL`. Verified load-bearing rather than assumed: rebuilt without it, `{}` raises `Unrecognized operation: <NULL>` instead of passing through. | both copies | new corpus case `[{}, {}, {}]` |
 | The 12 operators that must run before the depth-first argument evaluation - the ones that short-circuit or bind their own scope - are wrapped in a single `op = ANY(ARRAY[...])` guard. The dispatch is 44 separate `IF op = '...'` statements, not an ELSIF chain, so every ordinary operator used to evaluate 12 dead statements before it could match, on every node of every rule on every row. No operator moved and no body changed. This is what took the figure from 25-29% to ~30%. | both copies | all 12 guarded operators have coverage (10 in the corpus, `let` and `set_record` in `0016`/`0350`), so one dropped from the list fails as `Unrecognized operation` |
 | Both copies were fixed, not just the installed one. `0015` creates the function and `0210` replaces it with an extended version, so only `0210` runs - but leaving `0015` slow is a trap for whoever reads or measures the wrong one. | `0015_jsonlogic.sql` | n/a |
-| A multi-key passthrough case was added alongside the `{}` one. The change swaps "count the keys" for "remove the key and see what is left", and multi-key is where those differ most in kind. Neither case existed anywhere in the 288-case corpus, which is now 290. | `0015_test_jsonlogic.json` | regenerated with `deno task testgen_jsonlogic` |
+| A multi-key passthrough case was added alongside the `{}` one. The change swaps "count the keys" for "remove the key and see what is left", and multi-key is where those differ most in kind. Neither case existed anywhere in the 288-case corpus, which is now 290. | `0100_test_jsonlogic.json` | regenerated with `deno task testgen_jsonlogic` |
 
 **Measured and declined.** Reordering the operators within the dispatch: 0-2%,
 inside the noise, against a diff that churns the whole file. The owning plan
@@ -349,8 +349,8 @@ Caught in review, before it was committed.
 | What changed | Where | Verified by |
 |---|---|---|
 | Migration text is normalized to LF as it is read, so every path that feeds SQL to PostgreSQL agrees. `extension.ts` already did this at `toLf`, added earlier so a local build and CI would hash identically; the other two loaders did not. | `packages/cli/commands/migrate.ts`, `scripts/bundle-sql.ts` | 129 -> 0 carriage returns in `pg_proc.prosrc` after a full migrate; 17,362 -> 0 CR bytes in the generated bundles |
-| A guard so it cannot come back: no function body in the Semantius schemas may contain a carriage return. It runs on both install paths, which is what makes it meaningful - the property it asserts is that the two agree. | `0240_test_no_unsafe_functions.sql` | green on `pg-cli-retest.sh` and `pg-ext-retest.sh`, 2130 assertions |
-| The scope readers keep their own tripwire regardless: tab, CRLF and trailing-carriage-return inputs, and the `validate_oauth_scopes` row count that actually diverged. | `0405_test_rbac_helpers.sql` | the trailing-CR assertion returns 1 row under the fixed code and returned 2 under the old LF build |
+| A guard so it cannot come back: no function body in the Semantius schemas may contain a carriage return. It runs on both install paths, which is what makes it meaningful - the property it asserts is that the two agree. | `0910_test_no_unsafe_functions.sql` | green on `pg-cli-retest.sh` and `pg-ext-retest.sh`, 2130 assertions |
+| The scope readers keep their own tripwire regardless: tab, CRLF and trailing-carriage-return inputs, and the `validate_oauth_scopes` row count that actually diverged. | `0310_test_rbac_helpers.sql` | the trailing-CR assertion returns 1 row under the fixed code and returned 2 under the old LF build |
 
 **Both halves, and why neither alone is enough.** `.gitattributes` pins the
 working tree - `* text=auto eol=lf`, with `.cmd`/`.bat`/`.ps1` kept at CRLF
@@ -499,7 +499,7 @@ total. It needs its own measurement and its own decision.
 
 | What | Why it is accepted |
 |---|---|
-| An upsert's audit rows no longer interleave by id. `INSERT ... ON CONFLICT DO UPDATE` writes its UPDATE rows during execution and its INSERT rows at end of statement. | Content is preserved and both ops are logged; only the ordering within one statement changes. Pinned by `0300_test_audit_log.sql`. |
+| An upsert's audit rows no longer interleave by id. `INSERT ... ON CONFLICT DO UPDATE` writes its UPDATE rows during execution and its INSERT rows at end of statement. | Content is preserved and both ops are logged; only the ordering within one statement changes. Pinned by `0800_test_audit_log.sql`. |
 | Audit rows for a *nested* statement carry lower ids than the rows for the statement that caused them, because `ts` defaults to `now()` (transaction start) and a row trigger fires before a statement trigger. | Reordering the evidence table means changing `ts` to `clock_timestamp()`, a schema change with its own trade-offs. Recorded, not fixed. |
 | `enable_tracking` skips a trigger that already exists by name, so changing the shape of `audit_i`, `audit_d` or `audit_t` reaches only tables that do not yet carry it. | Fresh installs only; this project ships no upgrade scripts. An existing table needs `disable_tracking()` first, and the function says so. |
 | A statement trigger on a *leaf* partition does not fire for rows routed through the root. | Audit the root. The limitation an earlier draft was going to record - that transition tables are rejected on partitions - is **false** for statement triggers, and was removed rather than written down. |
@@ -515,7 +515,7 @@ total. It needs its own measurement and its own decision.
   the text, and a delete guard such as `{"!=":[{"var":"$mode"},"delete"]}`
   silently began permitting deletes. `$mode` is now always built, and an
   object-valued `var` counts as an `$old` reference. Pinned by four assertions in
-  `0448_test_statement_triggers.sql`.
+  `0820_test_statement_triggers.sql`.
 - **A pre-existing leak in queue teardown.** The old delete path dropped only the
   trigger named for the mapping's current handler, so narrowing a handler from
   `change` to `delete` and then deleting the mapping stranded a live trigger
@@ -524,10 +524,10 @@ total. It needs its own measurement and its own decision.
 
 ### Pinned by
 
-`0447_test_request_context.sql` (16 assertions, new),
-`0448_test_statement_triggers.sql` (25, new),
-`0445_test_policy_subselect_form.sql` (extended to sweep for a bare
-`jl_request_context`), `0300_test_audit_log.sql`, `0310_test_queue.sql`,
+`0640_test_request_context.sql` (16 assertions, new),
+`0820_test_statement_triggers.sql` (25, new),
+`0940_test_policy_subselect_form.sql` (extended to sweep for a bare
+`jl_request_context`), `0800_test_audit_log.sql`, `0840_test_queue.sql`,
 `apps/nwind/tests/0020_test_nwind_schema.sql`, and a check in
 `pgdocker/pg-ext-retest.sh` that audit rows written after `0270` carry
 `order_column` - the single-transaction install being the only place a column is
@@ -727,8 +727,8 @@ The rows as they stood in the open items:
 
 | ID | Priority | Area | Where | Problem | Fix | Done when |
 |---|---|---|---|---|---|---|
-| B20 | Medium (REST) | migration | `0015_jsonlogic.sql` (`jl_to_number`, the timestamp fallback) | Comparing two non-numeric strings **raises** instead of returning a value: `{">":["b","a"]}` gives `ERROR: invalid input syntax for type timestamp: "b"`. `jl_to_number` tries `txt::numeric`, then `extract(epoch FROM txt::timestamp)`, and catches only `invalid_text_representation` and `datetime_field_overflow`; `'b'::timestamp` raises **22007 `invalid_datetime_format`**, which is not caught and escapes. Reachable from user data, not just from the rule: a rule comparing a text column to a constant crashes on any row whose value is not numeric or date-like. Blast radius differs by caller - computed and validation rules re-raise with context (`0180:130-135`, `:162-167`), but a `select_rule` swallows it in `EXCEPTION WHEN OTHERS THEN RETURN FALSE` (`0180:443-446`), so the rule silently evaluates false for that row and hides it with no error anywhere. | Catch `invalid_datetime_format` alongside the two already handled, or narrow the fallback to values that look like dates before attempting the cast. Fixing B21 properly subsumes this for the string/string case, but the guard is worth having on its own because `jl_to_number` is reached from twelve operators, not only the comparisons. | `{">":["b","a"]}` returns a value instead of raising, with corpus cases in `0015_test_jsonlogic.json` covering non-numeric strings on both sides. |
-| B21 | Medium (REST) | migration | `0210_raci.sql` (`>`, `>=`, `<`, `<=` at :754-790) and the same block in `0015_jsonlogic.sql` | The four comparison operators coerce **both** operands through `jl_to_number` unconditionally, so two strings are compared numerically: `{">":["10","9"]}` returns **true**, where JsonLogic returns false (the reference implementation is JavaScript's own `>`, which compares two strings lexicographically and only coerces when one side is a number). Verified 2026-09-05 that the rest of the loose-comparison surface is faithful - `null < 5` true, `null == 0` false, `null != "x"` true, `5 === "5"` false all match the reference - so this is the divergence, not a family of them. Not caught by the 290-case corpus because **every comparison case in the official JsonLogic suite has at least one numeric operand** (`{">":["2",1]}`, `{"<":["1",2]}`); string-vs-string is untested upstream. In a `select_rule` a wrong comparison is a wrong visibility answer, so this is correctness-adjacent to security, though it needs an admin to write a text comparison rule. See **B20** for the same code path crashing. | Compare lexicographically when both operands are strings and neither is numeric; keep numeric coercion when either side is a number, which is what the reference does and what the corpus pins. Both copies (`0015` creates the function, `0210` replaces it) or they drift. Note the three-argument between form of `<` and `<=` (`0210:768-790`) takes the same rule. | `{">":["10","9"]}` is false and `{">":["b","a"]}` is true, with corpus cases for string/string on all four operators added to `0015_test_jsonlogic.json` and regenerated with `deno task testgen_jsonlogic`. |
+| B20 | Medium (REST) | migration | `0015_jsonlogic.sql` (`jl_to_number`, the timestamp fallback) | Comparing two non-numeric strings **raises** instead of returning a value: `{">":["b","a"]}` gives `ERROR: invalid input syntax for type timestamp: "b"`. `jl_to_number` tries `txt::numeric`, then `extract(epoch FROM txt::timestamp)`, and catches only `invalid_text_representation` and `datetime_field_overflow`; `'b'::timestamp` raises **22007 `invalid_datetime_format`**, which is not caught and escapes. Reachable from user data, not just from the rule: a rule comparing a text column to a constant crashes on any row whose value is not numeric or date-like. Blast radius differs by caller - computed and validation rules re-raise with context (`0180:130-135`, `:162-167`), but a `select_rule` swallows it in `EXCEPTION WHEN OTHERS THEN RETURN FALSE` (`0180:443-446`), so the rule silently evaluates false for that row and hides it with no error anywhere. | Catch `invalid_datetime_format` alongside the two already handled, or narrow the fallback to values that look like dates before attempting the cast. Fixing B21 properly subsumes this for the string/string case, but the guard is worth having on its own because `jl_to_number` is reached from twelve operators, not only the comparisons. | `{">":["b","a"]}` returns a value instead of raising, with corpus cases in `0100_test_jsonlogic.json` covering non-numeric strings on both sides. |
+| B21 | Medium (REST) | migration | `0210_raci.sql` (`>`, `>=`, `<`, `<=` at :754-790) and the same block in `0015_jsonlogic.sql` | The four comparison operators coerce **both** operands through `jl_to_number` unconditionally, so two strings are compared numerically: `{">":["10","9"]}` returns **true**, where JsonLogic returns false (the reference implementation is JavaScript's own `>`, which compares two strings lexicographically and only coerces when one side is a number). Verified 2026-09-05 that the rest of the loose-comparison surface is faithful - `null < 5` true, `null == 0` false, `null != "x"` true, `5 === "5"` false all match the reference - so this is the divergence, not a family of them. Not caught by the 290-case corpus because **every comparison case in the official JsonLogic suite has at least one numeric operand** (`{">":["2",1]}`, `{"<":["1",2]}`); string-vs-string is untested upstream. In a `select_rule` a wrong comparison is a wrong visibility answer, so this is correctness-adjacent to security, though it needs an admin to write a text comparison rule. See **B20** for the same code path crashing. | Compare lexicographically when both operands are strings and neither is numeric; keep numeric coercion when either side is a number, which is what the reference does and what the corpus pins. Both copies (`0015` creates the function, `0210` replaces it) or they drift. Note the three-argument between form of `<` and `<=` (`0210:768-790`) takes the same rule. | `{">":["10","9"]}` is false and `{">":["b","a"]}` is true, with corpus cases for string/string on all four operators added to `0100_test_jsonlogic.json` and regenerated with `deno task testgen_jsonlogic`. |
 
 **Both closed.** One change to the interpreter, in both of its copies, plus the
 coercion helper and 21 corpus cases.
@@ -758,7 +758,7 @@ coercion helper and 21 corpus cases.
   `format_to_json_type` were checked and are false alarms (generic operators
   applied to constants).
 - Corpus: 21 cases under "String comparison (B20, B21)" in
-  `apps/test/tests/0015_test_jsonlogic.json`, regenerated with
+  `apps/test/tests/0100_test_jsonlogic.json`, regenerated with
   `deno task testgen_jsonlogic` (290 to 311). One of the 21 was written wrong
   on the first pass: `{">=":["2",1,3]}` was expected false, on the assumption
   that `>=` had a between form. It does not, in the reference or here; the
@@ -819,7 +819,7 @@ migration revoking PUBLIC per function with `ALTER FUNCTION ... SET
 search_path` (would also have cleared the 75 linter warnings).
 
 What changed: nothing in the migrations. Guard test
-`0240_test_no_unsafe_functions.sql` keeps `pgmq` in its exclusion lists and
+`0910_test_no_unsafe_functions.sql` keeps `pgmq` in its exclusion lists and
 now says in a comment that this is a decision, not an oversight. If
 the reachability changes, because `pgmq` is added to `PGRST_DB_SCHEMAS` or
 the request role gains SELECT on queue tables, this decision has to be
@@ -863,7 +863,7 @@ a protection that a restore can lose.
   `INSERT, UPDATE` is revoked. UPDATE was dead only because no policy existed
   for it; revoked so a future policy cannot resurrect it. **DELETE stays**,
   with its admin-only policies: it is how an operator prunes the log and
-  `0300_test_audit_log.sql` exercises it. The first draft of the plan revoked
+  `0800_test_audit_log.sql` exercises it. The first draft of the plan revoked
   it and would have broken that.
 - **S6, the cache primitives.** Explicit `REVOKE EXECUTE ... FROM PUBLIC` on
   `common.cache_get/set/delete/cleanup/stats` and on
@@ -915,18 +915,18 @@ reachable by the request role. Fixed here rather than left as new rows:
 `ensure_context_initialized` only ever asks about `rbac.uid()`, so it takes the
 self branch and never reaches the admin test. The guards are written with
 `rbac.uid()` inline rather than behind a helper for a second reason: guard test
-2.3 in `0060_test_security.sql` requires every non-trigger definer to name
+2.3 in `0900_test_security.sql` requires every non-trigger definer to name
 `rbac.uid()` in its own source, and it refuses allowlists and indirect chains.
 
 The admin test runs through `rbac.has_permission`, so it honors
 `app.oauth_scopes`: a session confined to scopes that do not name `admin` cannot
 ask about another subject even when the principal behind it is an
 administrator. That is deliberate, and it is why the cross-user assertions in
-`0405_test_rbac_helpers.sql` now name `admin` in their scope lists.
+`0310_test_rbac_helpers.sql` now name `admin` in their scope lists.
 
 ### Pins
 
-- `0060_test_security.sql` grew from 3 assertions to 9. Test 2.2 (PUBLIC
+- `0900_test_security.sql` grew from 3 assertions to 9. Test 2.2 (PUBLIC
   EXECUTE) now covers `common` and `audit` as well as `public` and `rbac`.
   Tests 2.1 and 2.3 stay scoped, and the file now says why: 2.1 would flag
   `common._cache`, whose RLS-without-policies is the design, and 2.3 would flag
@@ -934,15 +934,15 @@ administrator. That is deliberate, and it is why the cross-user assertions in
   check, which would mean adding them all to the exclusion list that 2.3 exists
   to avoid. Six new assertions read the catalog directly, because a grant comes
   back by accident long after the behavior test that covered it was written.
-- `0405_test_rbac_helpers.sql` grew from 58 to 77: GROUP 7 pins the
+- `0310_test_rbac_helpers.sql` grew from 58 to 77: GROUP 7 pins the
   self-or-admin rule on all four helpers from both sides, GROUP 8 the two
   outright revokes and that `get_userinfo()` still provisions, GROUP 9 the
   schema-reload revoke.
-- `0300_test_audit_log.sql` grew from 39 to 43: a plain user's forged row is
+- `0800_test_audit_log.sql` grew from 39 to 43: a plain user's forged row is
   refused with 42501 (a row valid on its merits, so the refusal is the privilege
   check and not a malformed statement), the definer trigger still writes its
   row, and an administrator can still prune.
-- `0010_test_rls.sql` no longer asserts that an unknown subject returns NULL to
+- `0300_test_rls.sql` no longer asserts that an unknown subject returns NULL to
   a plain user; it asserts the refusal, and the NULL-for-unknown answer moved to
   the administrator's assertions in 0405.
 
@@ -996,7 +996,7 @@ point is a SECURITY DEFINER function, not a grant.
 
 ### Pins
 
-- Guard test 2.2 in `0060_test_security.sql` loses its exception, so
+- Guard test 2.2 in `0900_test_security.sql` loses its exception, so
   `validate_api_key` is now covered by the same rule as every other function in
   `public`. It stays in test 2.3's exclusion list: it is still a definer with no
   `rbac.uid()`, and that is by construction.
@@ -1061,19 +1061,19 @@ Three details the shape forces:
   matched nothing, so a plain user's `DELETE FROM users` - which RLS silently
   reduces to zero rows - reaches the trigger too, and their view of `user_roles`
   is empty because reading it needs `admin`. Counting from that view would refuse
-  a statement that did nothing; `0081_test_user_table_write_protection.sql`
+  a statement that did nothing; `0390_test_rbac_write_protection.sql`
   caught exactly that on the first attempt.
 
 The exemption is a BYPASSRLS caller, matching `fields_ctype_lock` in 0070: a
 direct superuser or owner connection may still empty the set, which is how a
-database is repaired by hand and how `0110_test_first_user_get_userinfo.sql`
+database is repaired by hand and how `0210_test_first_user_get_userinfo.sql`
 builds a system that has never had an administrator. It gives nothing away -
 such a connection already holds everything the extension protects.
 
-Pinned by `0091_test_last_administrator.sql`, 13 assertions: each of the four
+Pinned by `0370_test_last_administrator.sql`, 13 assertions: each of the four
 routes refused, the floor following whoever the last holder is, a disabled holder
 not counting, ordinary user updates unaffected, and the exemption working.
-`0090_test_user_role_assignment.sql` moved its "other roles can be deleted" case
+`0360_test_role_assignment.sql` moved its "other roles can be deleted" case
 off user3, who is the only administrator, onto a second holder.
 
 ### What the lock is for, and why the marker was declined
@@ -1109,13 +1109,13 @@ again.
 
 ### Pins
 
-- `0110_test_first_user_get_userinfo.sql` rewritten, 17 assertions to 22. It
+- `0210_test_first_user_get_userinfo.sql` rewritten, 17 assertions to 22. It
   builds the empty state properly now: clearing `last_seen` is no longer enough,
   because user3 holds role 2 from the seed, so the setup deletes role-2 rows as
   the installer. Tests 19 to 21 reproduce the exact state the old gate misread -
   an administrator exists and not one user has a `last_seen` - and assert the
   next principal is not elected. Test 22 pins re-bootstrap.
-- `0341_test_read_helper_completeness.sql` carried the hole as a passing
+- `0620_test_read_helpers.sql` carried the hole as a passing
   assertion: "the genuine first-accessing user (created with last_seen) still
   becomes Administrator", written after `UPDATE users SET last_seen = NULL` while
   user3 held the role. It now asserts the opposite, which is the fix.
@@ -1271,7 +1271,7 @@ plan does not degrade but *improves*, `role_permissions` going from an Index
 Scan to an Index Only Scan because the composite carries `permission_id` as
 well. With the duplicates put back, `user_roles` is read sequentially.
 
-**Pinned by a new `apps/test/tests/0450_test_rbac_indexes.sql`** (9 assertions).
+**Pinned by a new `apps/test/tests/0330_test_rbac_indexes.sql`** (9 assertions).
 It sweeps `pg_index` for the shape rather than naming index names, so a
 duplicate reintroduced under any name fails it; it asserts the unique indexes
 that make them redundant are still present, so the sweep cannot pass vacuously;
@@ -1352,11 +1352,11 @@ body and nothing raises.
 on bulk inserts, (a) and (b) met the target, and it would add a seventh trigger
 function the linter cannot parse (**Q6**).
 
-**Pinned by** `0370_test_composed_labels.sql` (five new assertions: a plain
+**Pinned by** `0670_test_composed_labels.sql` (five new assertions: a plain
 scalar field does not move the `_label` function's OID and the composed label
 still answers; a reference field does move it and its companion exists; a plain
 field on a two-leg junction does; a colliding field drops the companion) and
-`0448_test_statement_triggers.sql` (three new: two audit rows per plain field,
+`0820_test_statement_triggers.sql` (three new: two audit rows per plain field,
 none of them on `entities`, and no label-rebuild DDL). The OID is the check
 rather than the output, because a rebuild drops and recreates.
 
@@ -1406,7 +1406,7 @@ response. Fixed there.
 
 `apps/test/migrations/0020_ext.sql` writes `app.*` with `is_local => false` too.
 That is the test harness setting up a session, not a defect, and
-`0451_test_volatility_contract.sql` asserts it deliberately so a later reader
+`0950_test_volatility_contract.sql` asserts it deliberately so a later reader
 does not "fix" it.
 
 **The contract is written down** above `rbac.uid()` and
@@ -1429,7 +1429,7 @@ and what a cold session costs (about 1 ms against 0.025 ms warm).
   overpromises about it is **R10**, and it is still open.
 - **Bearer mode still pays every per-row site cold.** Known and accepted.
 
-**Pinned by a new `apps/test/tests/0451_test_volatility_contract.sql`**
+**Pinned by a new `apps/test/tests/0950_test_volatility_contract.sql`**
 (8 assertions): no function in `rbac`/`public`/`audit`/`common` writes a
 session-scoped setting; `pgtap.authenticate_as` does, deliberately; no policy
 `USING` clause calls a subject reader next to a column; a policy-guarded
@@ -1461,7 +1461,7 @@ needs repeated calls inside one query, and plan-time folding needs
 `col <op> fn(const)`, while an RPC arrives as a targetlist entry.
 
 **The pin is a catalog assertion plus a live GET.** What PostgREST's GET gate
-reads is `pg_proc.provolatile`, so `0451_test_volatility_contract.sql` asserts
+reads is `pg_proc.provolatile`, so `0950_test_volatility_contract.sql` asserts
 each named function is `s` and that `get_userinfo` is `v`. The end-to-end half
 went into `docker-compose/api-test.sh` as step 7 rather than
 `pgdocker/pg-ext-lifecycle.sh`, which runs a bare PostgreSQL container with no
@@ -1518,9 +1518,9 @@ field edits invisible to every consumer of that version.
 nothing is not an error, since a cascading entity DELETE removes the entities row
 first and the entity's own DELETE has already bumped.
 
-**Pinned by** `0385_test_module_version.sql` (three new assertions: a `fields`
+**Pinned by** `0420_test_module_version.sql` (three new assertions: a `fields`
 insert, update and delete each move the version) and, for the per-caller gate,
-the existing case in `0341_test_read_helper_completeness.sql`, which still
+the existing case in `0620_test_read_helpers.sql`, which still
 passes. **There is no timing assertion in the suite**, deliberately: a wall-clock
 threshold on a shared runner is a flaky test, and the measurement above is the
 record. Re-measure with a `DO` block timing `get_user_cubes()` inside the server,
@@ -1580,7 +1580,7 @@ Also touched: the comments in `0020` and `0190`, the field description in
 `0060`, and the SECURITY.md bullet that had documented the blank state as a
 legal one.
 
-**Pinned by** GROUP 3 of `0450_test_rbac_indexes.sql`, rewritten from two
+**Pinned by** GROUP 3 of `0330_test_rbac_indexes.sql`, rewritten from two
 assertions to seven: a user with an empty `external_id` is refused (23514), a
 user without one is refused (23502), an existing identity cannot be blanked
 (23514); three agents inserted without an identity or with an empty one all
@@ -1842,7 +1842,7 @@ what it checks and what it does not, nothing is left overpromising.
 What changed:
 
 - `apps/test/tests/0445_test_policy_initplan_form.sql` is now
-  `0445_test_policy_subselect_form.sql`. The number stays; `0446`, `0447` and
+  `0940_test_policy_subselect_form.sql`. The number stays; `0446`, `0447` and
   `0448` follow it and nothing refers to it by number.
 - The header is rewritten. It states the rule (the call goes inside a scalar
   sub-select), then separates the form from its consequence under a heading of
@@ -1938,15 +1938,15 @@ the old owner is grantee or grantor onto the new owner and merges duplicates, so
   copy of the migration rather than the migration.
 - **Both harnesses and the lifecycle.** `pg-cli-retest.sh` and
   `pg-ext-retest.sh`, 2,287 passing on each; `pg-ext-lifecycle.sh`, 112 passed,
-  0 failed. The function-ACL guards (`0060_test_security.sql`,
-  `0390_test_unauthenticated_access.sql`, `0440_test_extension_membership.sql`,
-  `0447_test_request_context.sql`) pass unchanged - they are what would notice a
+  0 failed. The function-ACL guards (`0900_test_security.sql`,
+  `0270_test_unauthenticated_access.sql`, `0980_test_extension_membership.sql`,
+  `0640_test_request_context.sql`) pass unchanged - they are what would notice a
   leaked grant.
 - **What it costs.** A full migrate writes **1,955** `audit_ddl_logs` rows
   against **1,748** before, all 207 of the difference `GRANT`. They are the
   identity-less GRANT rows **S18(a)** describes, whose count was refreshed with
   this measurement. No test asserts an install-time total;
-  `0301_test_audit_ddl_scope.sql` counts by object identity only.
+  `0810_test_audit_ddl_scope.sql` counts by object identity only.
 
 ### A note for whoever runs the lifecycle next
 
@@ -1994,7 +1994,7 @@ columns are named after the key they reference, following `fields.table_name` ->
 
 The four generated junction keys and `fields.id` became `TEXT` instead of
 `VARCHAR` in the same pass; that was the whole of the "normalize VARCHAR to
-TEXT" half, and `apps/test/tests/0042_test_no_varchar_columns.sql` now sweeps
+TEXT" half, and `apps/test/tests/0920_test_catalog_hygiene.sql` now sweeps
 the catalog so it cannot come back. Only the vendored `pgmq` still has VARCHAR
 columns.
 
@@ -2103,7 +2103,7 @@ the schema RPC's `required` list and nothing the UI demands changed.
 
 ### What proves it
 
-- **`apps/test/tests/0455_test_permission_name_key.sql`**, 31 assertions:
+- **`apps/test/tests/0340_test_permission_name_key.sql`**, 31 assertions:
   deleting a permission an entity, a module or a queue names is refused; a
   module delete still cascades through its own permissions and entities and
   drops the physical table; a rename propagates into `entities.view_permission`
@@ -2119,7 +2119,7 @@ the schema RPC's `required` list and nothing the UI demands changed.
   `dashboards.view_permission` and `queues.view_permission` are TEXT columns
   with foreign keys that `get_schema` reports as `string` while a reference to
   `users` is still `integer`.
-- **`apps/test/tests/0042_test_no_varchar_columns.sql`**, 2 assertions, from the
+- **`apps/test/tests/0920_test_catalog_hygiene.sql`**, 2 assertions, from the
   catalog rather than from the documentation: no VARCHAR column in `public`,
   `common`, `rbac` or `audit`, and the five generated keys are TEXT.
 - **RESTRICT and NO ACTION report different SQLSTATEs**, which the test records
@@ -2297,7 +2297,7 @@ user.
 
 ### What proves it
 
-`apps/test/tests/0460_test_public_grants.sql`, thirteen assertions: no
+`apps/test/tests/0960_test_public_grants.sql`, thirteen assertions: no
 `pg_default_acl` row in `public` for tables or sequences reaches the request
 role, for any grantor and by any grantee that carries it (PUBLIC and
 `authenticated` included); **every** table and sequence in `public` is reachable,
@@ -2310,10 +2310,10 @@ RLS nor a privilege beforehand ends with RLS enabled, the four named policies
 present, an operator's own policy still there, and the four privileges plus the
 sequence granted.
 
-`0060_test_security.sql` 2.1 (every table in `public` has RLS) and the two
+`0900_test_security.sql` 2.1 (every table in `public` has RLS) and the two
 audit-table privilege assertions stay green unchanged, as do
-`0300_test_audit_log.sql`'s forge tests and
-`0430_test_owner_hardening.sql`'s privilege assertion. Both harnesses are green:
+`0800_test_audit_log.sql`'s forge tests and
+`0970_test_owner_hardening.sql`'s privilege assertion. Both harnesses are green:
 `pg-cli-retest.sh` and `pg-ext-retest.sh` at 2339 assertions each,
 `pg-ext-lifecycle.sh` at 114.
 
@@ -2394,7 +2394,7 @@ leave no evidence.
 
 ### What proves it
 
-`apps/test/tests/0301_test_audit_ddl_scope.sql`, seventeen assertions (was
+`apps/test/tests/0810_test_audit_ddl_scope.sql`, seventeen assertions (was
 twelve). Test 6 is inverted - `evttags IS NULL`, "fires for every command type".
 Test 9 issues a `CREATE STATISTICS`, a type the old list never named, and finds
 its row. Test 10 drops a table and asserts that the log gained exactly one row -
@@ -2410,7 +2410,7 @@ control proving there was a companion to drop. Test 13 pins `log_drop_event` as
 was twelve): a `DROP TABLE` in `public` leaves exactly one audit row and nothing
 else, and a `DROP TABLE` in a foreign schema leaves none. Step 4's inert-drop
 signature and step 4b's "no event triggers left" both stay green.
-`0440_test_extension_membership.sql`'s event-trigger count comparison is
+`0980_test_extension_membership.sql`'s event-trigger count comparison is
 unaffected: the new trigger is on both sides.
 
 `deno task dropall` against a fully migrated database was run by hand, which is
@@ -2418,7 +2418,7 @@ the path the teardown guard exists for and which no harness covers: it empties
 the database with no table-drop failure, and `deno task migrate` afterwards
 succeeds.
 
-`0448_test_statement_triggers.sql`'s bound of two DDL rows per plain field
+`0820_test_statement_triggers.sql`'s bound of two DDL rows per plain field
 insert is the guard that would catch the label filter going missing from the
 drop side, and it stays green.
 
@@ -2475,7 +2475,7 @@ and pinned by an assertion rather than left to be found again.
 
 ### What proves it
 
-`apps/test/tests/0250_test_jwt_aud.sql`, four new assertions (nine, was five).
+`apps/test/tests/0240_test_jwt_aud.sql`, four new assertions (nine, was five).
 `status()` is `REVOKE ... FROM PUBLIC` and exists only on the extension path, so
 they run as the installer between the `RESET ROLE` and the `SET ROLE`, through
 `pg_temp` wrapper functions: a literal `semantius.status()` is resolved at parse
@@ -2655,7 +2655,7 @@ renormalizing it is a separate decision.
 
 **Not a test binding - a repeatable invocation.** The row's first idea was to
 bind `raci_emit_trigger_fn` in a test. It already is bound in one:
-`0350_test_raci.sql` flips `emits_events` and `raci_install_or_drop_emit_trigger`
+`0850_test_raci.sql` flips `emits_events` and `raci_install_or_drop_emit_trigger`
 creates the trigger, inside a transaction that rolls back. The linter runs
 against the installed schema, after the suite, where no trigger binds the
 function. A binding inside a test can never help the linter. What helps is the

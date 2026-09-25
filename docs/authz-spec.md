@@ -5,37 +5,40 @@ D1–D11. Amendments require explicit review (note the change in this header).
 **Amended 2026-09-06 (references):** two pointers into a deleted plan file were replaced by the
 status they were pointing at. No invariant, decision or premise changed. This file is permanent
 and may not cite anything under `plans/`, which is disposable by design.
+**Amended 2026-09-25 (references):** the test numbers cited below follow the renumbered
+`apps/test/tests` suite; where two cited tests were merged into one file, both now cite that
+file. No invariant, decision or premise changed.
 **Amended 2026-06-12:** I6 corrected — the label-column rename restriction was *intentionally
 lifted*; renaming the label column is a feature, not a DD-integrity violation.
 **Amended 2026-06-12 (b-impl):** b1/b2/b4 implemented & validated — the read bypass, the I2/A4
 write-delete bypass, and the `user_process_raci` view leak are FIXED. The `/rpc/evaluate_json_logic`
 revoke was declined (read bypass closed at the helper instead).
 **Amended 2026-06-12 (b5/b8):** I7 FIXED — the record-logic trigger gained a DELETE arm with
-`$mode`/`$old`; validation_rules now govern deletes (test `0337`). I-roles backstopped by a
-catalog guard (`0336`): no public RLS policy targets a role ≠ `semantius_user`; every public
+`$mode`/`$old`; validation_rules now govern deletes (test `0660`). I-roles backstopped by a
+catalog guard (`0930`): no public RLS policy targets a role ≠ `semantius_user`; every public
 view is `security_invoker`.
 **Amended 2026-06-12 (b7):** I6 FIXED — `is_core` dropped; core identity is the single
 un-tamperable marker `ctype <> ''` (enum adds `audit`/`core`), with a privilege-locked, immutable
 `ctype` (`fields_ctype_lock`) and all guards re-keyed off it; is_core derived in `get_schema`.
-Tests `0339`/`0342`. Protected-set verified unchanged vs the pre-b7 `is_core` set. Client-artifact
+Test `0570`. Protected-set verified unchanged vs the pre-b7 `is_core` set. Client-artifact
 regen pending (plan §7 b7.8).
 **Amended 2026-06-12 (b3/b6/b9):** b3 — `enable_dd_table` builds the select_rule policy
-deterministically on the managed F→T toggle (`0145`, test `0338`). b6 — `created_at`/`updated_at`
-carry `ctype` (`0060`/`0070`/`0145`/`0240`, test `0339`), completing the `core = ctype <> ''`
+deterministically on the managed F→T toggle (`0145`, test `0630`). b6 — `created_at`/`updated_at`
+carry `ctype` (`0060`/`0070`/`0145`/`0240`, test `0570`), completing the `core = ctype <> ''`
 identity for the timestamps. b9 — read-helper completeness FIXED: `build_schema_for_table`
 self-gates by view_permission, `has_consultation` is caller-scoped, first-user bootstrap over-grant
-closed (test `0341`).
+closed (test `0620`).
 **Amended 2026-06-12 (b complete):** the whole remediation batch b1-b9 is done and validated,
 including the client-artifact regeneration (drizzle, kysely and docgen rebuilt from a clean
 `_core`-only database, and the extension reissued as a fresh-install-only build because the
-generated upgrade script was a no-op). Pinned by tests `0336` (b8), `0337` (b5), `0338` (b3),
-`0339` (b6 and the b7 audit), `0341` (b9) and `0342` (the b7 ctype lock and protection).
+generated upgrade script was a no-op). Pinned by tests `0930` (b8), `0660` (b5), `0630` (b3),
+`0570` (b6, the b7 audit and the b7 ctype lock and protection) and `0620` (b9).
 **Amended 2026-09-05 (first-user bootstrap):** I5's bootstrap exception is re-keyed. The gate is no longer
 "no other user has a `last_seen`" but "no user holds role 2", taken under
 `pg_advisory_xact_lock`. The old form was a heuristic that drifted: pre-provisioned users keep
 `last_seen` NULL forever, so once the administrator was itself pre-provisioned or its `last_seen`
 was cleared, the test stayed true after the election and every subsequent first login was elected
-too. Tests `0110`/`0341`, and the concurrency half in `pgdocker/pg-ext-lifecycle.sh` step 1e,
+too. Tests `0210`/`0620`, and the concurrency half in `pgdocker/pg-ext-lifecycle.sh` step 1e,
 which no pgTAP file can express. Paired with it, an enabled holder of role 2 is now an
 invariant rather than an expectation: I5's bootstrap exception can no longer be reached twice,
 and the system cannot be left unadministrable through the API.
@@ -163,7 +166,7 @@ core of the remediation — today it is not):
   structurally altered (format/default/pk) by any non-migration subject, via any op/shape/role;
   they cannot be renamed EXCEPT the label column (`ctype='label'`), whose rename is
   *intentionally allowed* and cascades to `entities.label_column` (pinned by
-  `0292_test_label_column_rename.sql`). The core marker cannot be set/cleared to trap or free a
+  `0460_test_ddl_rename.sql`). The core marker cannot be set/cleared to trap or free a
   field. Enforced by an all-roles trigger keyed on `ctype` (NOT the mutable `is_core` flag).
 - **I7 · Rule completeness** — `validation_rules`/`computed_fields` evaluate for every
   affected row on INSERT/UPDATE/**DELETE** regardless of shape, with correct `$mode`/`$old`.
@@ -243,7 +246,7 @@ core of the remediation — today it is not):
 
 **FIXED (b1/b2/b4, validated 2026-06-12 — kept for history):** the read bypass (b1), the I2/A4
 write-delete bypass (b2), and the `user_process_raci` view leak (b4) below are RESOLVED; their
-red-first tests (0331/0332/0334) are now green. Items NOT marked FIXED remain open.
+red-first tests (0610/0620/0850) are now green. Items NOT marked FIXED remain open.
 
 **CONFIRMED (stage-2 panel, evidence cited):**
 - **CRITICAL — I1/I-jsonlogic [FIXED b1]:** `get_record_by_id` checks only `view_permission`, never
@@ -254,10 +257,10 @@ red-first tests (0331/0332/0334) are now green. Items NOT marked FIXED remain op
   helpers honor only `view_permission` — the disagreement IS the bypass.
 - **I2/A4:** "qualified ⇒ protected" is wrong; `DELETE FROM t WHERE true` / `UPDATE … SET
   c=const` bypass the rule (read no column); some bare statements ARE protected. Fix = USING
-  gating. (`0070:289-309`, `0180:302`; test `0331` cases B/D.)
+  gating. (`0070:289-309`, `0180:302`; test `0610` cases B/D.)
 - **I7 [FIXED b5]:** the record-logic trigger is now `BEFORE INSERT OR UPDATE OR DELETE` (`0180`)
   with `$mode`/`$old` injected and the rules evaluated against OLD on DELETE → validation_rules
-  govern deletes; was previously `BEFORE INSERT OR UPDATE` only. (test `0337`.)
+  govern deletes; was previously `BEFORE INSERT OR UPDATE` only. (test `0660`.)
 - **I6 [FIXED b7]:** the mutable `is_core` flag was dropped; core identity is now the single
   marker `ctype <> ''` (`['', 'id', 'label', 'audit', 'core']`). All protection guards (delete
   `0070`, rename + format `0140`, format/default `0145`) re-key on `coalesce(OLD.ctype,'')<>''`,
@@ -265,7 +268,7 @@ red-first tests (0331/0332/0334) are now green. Items NOT marked FIXED remain op
   DD/migration caller may set/change it (user INSERT → forced '', user UPDATE changing it →
   rejected). So the marker can no longer be set/cleared to trap or free a field. is_core is
   derived (`ctype<>''`) in `get_schema`. (Label-column rename remains the one allowed exception.)
-  Tests `0339`/`0342`. (Client artifact regen pending — plan §7 b7.8.)
+  Test `0570`. (Client artifact regen pending — plan §7 b7.8.)
 - **I-roles:** `user_process_raci` view lacks `security_invoker` (`0210:329`) → non-admins read
   the whole RBAC/RACI assignment graph.
 - **I3/D8:** `check_rule` is entirely unimplemented (no column/logic).
@@ -290,9 +293,9 @@ constraint existence oracle (I8) as a LOW residual (closing it needs a definer I
 
 **FIXED (b9, validated 2026-06-12 — kept for history):**
 - `has_consultation` [FIXED b9]: now caller-scoped (`0210`) — only a participant in the governing
-  process gets the real answer; non-participants fail closed. (test `0341`.)
+  process gets the real answer; non-participants fail closed. (test `0620`.)
 - `build_schema_for_table` [FIXED b9]: now self-gates by view_permission with the same
   `undefined_table` existence-hiding as `get_schema` (`0080`), so the direct `/rpc` call no longer
-  bypasses the wrappers. (test `0341`.)
+  bypasses the wrappers. (test `0620`.)
 - first-user→Administrator [FIXED b9, LOW]: bootstrap now also requires `NEW.last_seen IS NOT NULL`
   (`0050`), closing the pre-login batch over-grant. Residual concurrency window accepted LOW.

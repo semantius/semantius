@@ -123,7 +123,7 @@ CREATE OR REPLACE TRIGGER prevent_permission_hierarchy_cycle
 -- also lets the planner run the call while estimating selectivity, so never
 -- write `col <op> rbac.uid()` in a policy USING clause or a view: EXPLAIN would
 -- raise on a session with no claims. Pinned by
--- 0451_test_volatility_contract.sql.
+-- 0950_test_volatility_contract.sql.
 CREATE OR REPLACE FUNCTION rbac.uid()
 RETURNS TEXT AS $$
 DECLARE
@@ -832,7 +832,7 @@ DECLARE
 BEGIN
     -- Validate permission_name. rbac.uid() runs on this cold branch only: it is
     -- what makes an unauthenticated caller raise 42501 instead of receiving
-    -- FALSE, and keeping it here means guard test 0060_test_security.sql still
+    -- FALSE, and keeping it here means guard test 0900_test_security.sql still
     -- sees a direct rbac.uid() call in this function.
     IF p_permission_name IS NULL OR trim(p_permission_name) = '' THEN
         PERFORM rbac.uid();
@@ -848,7 +848,7 @@ BEGIN
     -- call is.
     --
     -- The copies must stay in step. has_any_permission, ensure_context_initialized
-    -- and rbac.user_id() carry the same test, and 0446_test_rbac_hot_path.sql
+    -- and rbac.user_id() carry the same test, and 0320_test_rbac_hot_path.sql
     -- asserts the ordering below in all four.
     --
     -- The bearer test stays ahead of the cache read, and must. The app.*
@@ -1096,7 +1096,7 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- owner (semantius_owner, BYPASSRLS, or the installing role on managed
 -- platforms, which 0100_rbac_rls.sql requires to be BYPASSRLS; no table here carries FORCE
 -- ROW LEVEL SECURITY) regardless of this function's own label. That keeps it
--- outside guard test 0060_test_security.sql's rule that every definer calls
+-- outside guard test 0900_test_security.sql's rule that every definer calls
 -- rbac.uid(): an internal helper with no identity of its own to authenticate
 -- should not satisfy that rule by pretense.
 CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id INTEGER)
@@ -1291,7 +1291,7 @@ BEGIN
            OR v_external_id = ''
            OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
         THEN
-            -- Cold: the direct call is the authentication gate 0060_test_security.sql requires
+            -- Cold: the direct call is the authentication gate 0900_test_security.sql requires
             -- of a definer the request role can execute, and what turns a
             -- session with no claims into 42501 rather than a NULL id.
             PERFORM rbac.uid();

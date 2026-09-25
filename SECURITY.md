@@ -66,7 +66,7 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   a function you add there is PUBLIC-executable *and* automatically exposed to
   the request role over RPC. This is a property of any install, restored or not.
   The extension's own functions are revoked explicitly instead, and guard test
-  `0060_test_security.sql` fails if one is missed; a function you add needs its
+  `0900_test_security.sql` fails if one is missed; a function you add needs its
   own `REVOKE`, whether or not it is SECURITY DEFINER.
 - **Session mode trusts the application tier.** When an application connects
   as `semantius_authenticator`, switches to the request role and writes the

@@ -9,7 +9,7 @@
 --   * the public.has_permission() caller contract (the public:read answer
 --     follows the User role's grant, not stale cached state)
 --   * the GRANT layer beneath RLS: a role outside semantius_user has neither
---     table SELECT nor EXECUTE on the public RPCs (0060 checks the REVOKEs
+--     table SELECT nor EXECUTE on the public RPCs (0900 checks the REVOKEs
 --     statically; this checks the resulting ACLs behaviorally)
 --
 --   * an unknown subject (JWT sub with no users row) is rejected with 42501

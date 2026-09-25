@@ -213,7 +213,7 @@ deno task migrate --apps nwind --env staging
 # Run pgTAP tests (apps/test/tests first, then every other apps/*/tests, sorted by filename)
 deno task test
 deno task test --tap   # plain TAP output
-deno task test 0160*   # only files whose name matches the prefix
+deno task test 03*     # only files whose name matches the prefix (here the RBAC range)
 
 # Same suite with coverage: which core functions, PL/pgSQL statements and tables
 # the tests execute. Statement-level data needs the plpgsql_check extension on

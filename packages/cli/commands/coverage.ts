@@ -441,7 +441,7 @@ export class CoverageCollector {
     this.caps.superuser = id.superuser;
 
     // plpgsql_check: available? install into `extensions` (skipped by dropall
-    // and by the 0240_test_no_unsafe_functions.sql guard test), then resolve
+    // and by the 0910_test_no_unsafe_functions.sql guard test), then resolve
     // where it actually lives.
     const avail = await this.rows<
       { installed_version: string | null; default_version: string }

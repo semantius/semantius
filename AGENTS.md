@@ -27,7 +27,7 @@ This document provides essential information for AI agents working with the Sema
     Write the reasoning into the comment. This is the comment-level case of
     the lifetime rule above, which applies to every file, not only to code.
     Cross-references to other SQL or test files
-    (`pinned by 0405_test_rbac_helpers.sql`) are fine - they live in the
+    (`pinned by 0310_test_rbac_helpers.sql`) are fine - they live in the
     repository and survive.
   - **Describe the code, not the change that produced it.** "One expression
     instead of two queries", "no longer calls uid() twice", "the old count(*)
@@ -214,7 +214,7 @@ The permission readers - `rbac.uid`, `user_id`, `has_permission`,
   per request and has no `db-pre-request` hook, so every check would run
   permanently cold.
 
-`apps/test/tests/0451_test_volatility_contract.sql` pins all of it.
+`apps/test/tests/0950_test_volatility_contract.sql` pins all of it.
 
 ### Project Structure
 ```
@@ -523,6 +523,8 @@ Tests are written in pgTAP and stored in `apps/test/tests/` (platform suite) and
 3. Comprehensive test execution via `test` command
 
 **Test conventions**
+- Platform test files are numbered by subject, in ranges of 100 that roughly follow the migration order: `01xx` core and JsonLogic, `02xx` identity and auth (userinfo, JWT claims, `rbac.uid()`, API keys, unauthenticated access), `03xx` RBAC, `04xx` data dictionary catalog and DDL, `05xx` fields and formats, `06xx` record logic and row security (`select_rule`, read helpers, computed/validation rules, labels), `07xx` public read API (`get_schema`, cubes, search), `08xx` audit, queue and app entities (RACI, webhooks, dashboards, bookmarks), `09xx` schema-wide guards and hardening, and `0990_cleanup.sql` last. Files start 10 apart; a new test takes a free number next to its closest relative (e.g. `0315`), or joins that file as a new part when it tests the same thing. Test numbers are independent of migration numbers. A range is a subset: `deno task test 03*` runs the RBAC tests.
+- A file that merges several topics runs them as `-- PART n:` sections in one transaction; every part after the first starts with `RESET ROLE;` and `SET LOCAL search_path TO public, pgtap;` (the runner's session value), and sets up its own fixtures.
 - Every test file is `BEGIN; SELECT plan(N); ... SELECT * FROM finish(); ROLLBACK;` with an exact plan count.
 - Persisted data comes ONLY from the Northwind module: readers of nwind tables must be `user2` (Northwind Sales) or `user3` (admin); `user1` has no `nwind:view`.
 - Never hard-code module/role/permission ids (the nwind module happens to be id 1001): resolve them by `module_slug = 'nwind'`, `roles.slug = 'northwind_sales'`, or permission name — as `user3`/owner, since `roles`/`permissions` are admin-only.

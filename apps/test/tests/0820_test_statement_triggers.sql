@@ -17,7 +17,7 @@
 -- the trigger bodies can use plain static statements instead of dynamic SQL.
 --
 -- Fixtures: user3 = Administrator. shippers and regions are also mapped by
--- 0310_test_queue.sql, which is harmless: each test file runs in its own
+-- 0840_test_queue.sql, which is harmless: each test file runs in its own
 -- transaction and rolls back, so the unique constraint on
 -- queue_table_events.table_name is never seen by both at once.
 BEGIN;

@@ -294,7 +294,7 @@ not obvious and were each established the hard way; the rest is bookkeeping.
 
 - a branch in `evaluate_json_logic` (`0050_jsonlogic.sql`)
 - native emission in `build_select_rule_policy` (`0210_computed_validation.sql`)
-- corpus cases in `apps/test/tests/0015_test_jsonlogic.json`, regenerated with
+- corpus cases in `apps/test/tests/0100_test_jsonlogic.json`, regenerated with
   `deno task testgen_jsonlogic`
 - a test that the interpreted and native forms agree, including on NULL
 

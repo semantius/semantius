@@ -1,6 +1,18 @@
+-- What a .jsonc migration runs on (0290_ensure_entities.sql): ensure_entities
+-- and the jsonc_to_jsonb parser.
+--
+-- Each part sets up its own fixtures; a part after the first starts by
+-- restoring the connection's role and the runner's search_path. Parts:
+--   1. ensure_entities
+--   2. jsonc_to_jsonb
+BEGIN;
+
+SELECT plan(48);
+
+-- =====================================================
+-- PART 1: ensure_entities
 -- =====================================================
 -- ensure_entities (0290_ensure_entities.sql)
--- =====================================================
 -- What a .jsonc migration relies on: a first apply creates the module
 -- sections, entities, fields and records; applying the same definition again
 -- writes nothing at all (checked by row position, ctid, which every UPDATE
@@ -12,9 +24,6 @@
 --
 -- Runs as the installing superuser, like a migration; everything is rolled
 -- back.
-BEGIN;
-
-SELECT plan(38);
 
 CREATE TEMP TABLE ee_doc (doc JSONB);
 INSERT INTO ee_doc VALUES (jsonc_to_jsonb($jsonc$
@@ -252,6 +261,69 @@ SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items"}, "records": [{"id": 40, "label": "neg", "zeta": "", "alpha": "", "mid": 0, "price": -1}]}]}')$$,
     '99101', 'price must not be negative',
     'records are written under the validation rules');
+
+-- =====================================================
+-- PART 2: jsonc_to_jsonb
+-- =====================================================
+-- jsonc_to_jsonb (0290_ensure_entities.sql)
+-- The parser every runner hands a .jsonc migration to. What it must get right
+-- is what a naive comment stripper gets wrong: markers and commas inside
+-- strings, escaped quotes and backslashes, a comment that ends the file, CRLF
+-- line ends, a byte order mark, and a trailing comma with a comment between it
+-- and the bracket. Invalid JSON must still fail.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT is(
+    jsonc_to_jsonb('{"a": 1, "b": [true, null]}'),
+    '{"a": 1, "b": [true, null]}'::jsonb,
+    'plain JSON passes through unchanged');
+
+SELECT is(
+    jsonc_to_jsonb('{"url": "https://example.com/a//b", "c": "/* not a comment */", "d": "x // y"}'),
+    '{"url": "https://example.com/a//b", "c": "/* not a comment */", "d": "x // y"}'::jsonb,
+    'comment markers inside strings are kept');
+
+SELECT is(
+    jsonc_to_jsonb(E'{"q": "say \\"hi\\" // still a string", "b": "back\\\\"} // after'),
+    jsonb_build_object('q', 'say "hi" // still a string', 'b', E'back\\'),
+    'escaped quotes and backslashes do not end a string early');
+
+SELECT is(
+    jsonc_to_jsonb(E'// leading\n{"a": /* inline */ 1}\n// trailing comment, no newline at the end'),
+    '{"a": 1}'::jsonb,
+    'line and block comments are removed, including one that ends the text');
+
+SELECT is(
+    jsonc_to_jsonb(E'{\r\n  "a": 1, // x\r\n  "b": 2\r\n}\r\n'),
+    '{"a": 1, "b": 2}'::jsonb,
+    'CRLF line ends');
+
+SELECT is(
+    jsonc_to_jsonb(chr(65279) || '{"a": 1}'),
+    '{"a": 1}'::jsonb,
+    'a byte order mark is dropped');
+
+SELECT is(
+    jsonc_to_jsonb(E'{"a": [1, 2, ], "b": {"c": 3, /* x */ }, "d": [4, // y\n ], }'),
+    '{"a": [1, 2], "b": {"c": 3}, "d": [4]}'::jsonb,
+    'trailing commas are dropped, also with a comment before the bracket');
+
+SELECT is(
+    jsonc_to_jsonb('{"s": "a, ]", "t": "b,}"}'),
+    '{"s": "a, ]", "t": "b,}"}'::jsonb,
+    'a comma and a bracket inside a string are not a trailing comma');
+
+SELECT throws_ok(
+    $$SELECT jsonc_to_jsonb('{"a": }')$$,
+    '22P02', NULL,
+    'invalid JSON is refused by the jsonb cast');
+
+SELECT throws_ok(
+    $$SELECT jsonc_to_jsonb('{"a": "unterminated}')$$,
+    '22P02', NULL,
+    'an unterminated string is refused');
 
 SELECT * FROM finish();
 ROLLBACK;

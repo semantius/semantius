@@ -2,7 +2,7 @@
 --
 -- Identity fixtures: user1 (User), user2 (User + Northwind Sales -> nwind:view),
 -- user3 (User + Administrator). The modules arm uses the same ladder as
--- 0020_test_modules: two in-tx modules inserted as user3 ('Ladder Users' ->
+-- 0410_test_modules: two in-tx modules inserted as user3 ('Ladder Users' ->
 -- user:read, 'Ladder Public' -> public:read) plus the persisted Northwind
 -- (nwind:view) and _core (admin) modules.
 BEGIN;

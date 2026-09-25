@@ -223,12 +223,12 @@ triggers do not exist when 0060 runs).
 - `0150:805-812` and the catch-up loop comment (B4).
 - `0180:299` (example "entities.order_column added in 0270 then set here").
 - `0270:180-199` section headers go with the removed code.
-- `apps/test/tests/0025_test_module_slug.sql:4`.
+- `apps/test/tests/0410_test_modules.sql:4`.
 - `docs/error-contract.md:49`, `docs/bearer-mode-status.md:245`,
   `docs/jsonlogic-optimization-candidates.md:7,295-297,399-400` (the interpreter is only
   in 0015).
 - `0280:110-117` step comment (the column is provisioned by the INSERT).
-- `apps/test/tests/0336_test_iroles_catalog_guard.sql:15` (mentions the `tables` view).
+- `apps/test/tests/0930_test_iroles_catalog_guard.sql:15` (mentions the `tables` view).
 - `RELEASE.md:96` ("34 `_core` migrations" becomes 28).
 - `AGENTS.md:374` (remove `'null'` from the primitive list), `AGENTS.md:425` ("format
   field: always included"), `AGENTS.md:294-295` (the `tables` view no longer exists),
@@ -240,13 +240,13 @@ triggers do not exist when 0060 runs).
 
 | File | Lines | Today | Becomes |
 |---|---|---|---|
-| `apps/test/tests/0110_test_get_schema.sql` | 370-373 | `ok(NOT ... 'ratio' ? 'format')` | `is(... 'ratio'->>'format', 'double')` |
+| `apps/test/tests/0700_test_get_schema.sql` | 370-373 | `ok(NOT ... 'ratio' ? 'format')` | `is(... 'ratio'->>'format', 'double')` |
 | same | 415-419 | `ok(NOT ... 'id' ? 'format')` | `is(... 'id'->>'format', 'int32')` |
 | same | 421-424 | `ok(NOT ... 'units_in_stock' ? 'format')` | `is(... ->>'format', 'int32')` |
 | same | 448-452 | `ok(NOT ... 'status' ? 'format')` | `is(... 'status'->>'format', 'enum')` |
 | `apps/nwind/tests/0050_test_nwind_features.sql` | 136-140 | `ok(NOT ... 'status' ? 'format')` | `is(... 'status'->>'format', 'enum')` |
 
-### New `apps/test/tests/0470_test_field_formats.sql`
+### New `apps/test/tests/0500_test_field_formats.sql`
 
 `BEGIN; SELECT plan(N); ... SELECT * FROM finish(); ROLLBACK;`, exact N, derived facts
 only:

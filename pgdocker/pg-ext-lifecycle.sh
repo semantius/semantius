@@ -837,7 +837,7 @@ fi
 # ------------------------------------------------------------ 11 event noise
 step "[11] Event-trigger noise: the DDL audit and NOTIFY pgrst are scoped (B5, P6, S15)"
 # life1 is the fresh install from step 1 and is untouched by the steps between.
-# The pgTAP suite proves the audit half of this (0301_test_audit_ddl_scope.sql);
+# The pgTAP suite proves the audit half of this (0810_test_audit_ddl_scope.sql);
 # the NOTIFY half can only be proved here, because a notification is queued at
 # COMMIT and the suite runs inside a transaction that rolls back.
 psqlrun life1 "CREATE SCHEMA lifecycle_foreign" >/dev/null

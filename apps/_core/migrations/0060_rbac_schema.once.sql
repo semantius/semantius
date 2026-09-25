@@ -192,7 +192,7 @@ ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id
 -- =====================================================
 -- A column a unique index already covers - whole key or leading columns of a
 -- composite - gets no plain index of its own. Swept by
--- 0450_test_rbac_indexes.sql.
+-- 0330_test_rbac_indexes.sql.
 
 CREATE INDEX idx_permissions_module ON permissions(module_id);
 

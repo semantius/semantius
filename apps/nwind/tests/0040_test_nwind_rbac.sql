@@ -246,7 +246,7 @@ SELECT ok(
 -- ON DELETE RESTRICT raises 23001 (restrict_violation) on PostgreSQL 18, but
 -- 23503 (foreign_key_violation) on PG<=17 (Neon/Supabase). Match the FK-violation
 -- message common to both codes so the test is valid on either version
--- (same approach as apps/test/tests/0160_test_foreign_keys.sql).
+-- (same approach as apps/test/tests/0550_test_foreign_keys.sql).
 SELECT throws_like(
     $$DELETE FROM employees WHERE id = 1$$,
     '%foreign key constraint%',

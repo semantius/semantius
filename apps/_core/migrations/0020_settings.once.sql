@@ -24,7 +24,7 @@
 -- per function or per schema; 0080_rbac_functions.sql does the whole rbac schema
 -- at once, which is
 -- the real reason nothing there is PUBLIC-executable. Guard test
--- 0060_test_security.sql fails the moment one is missing.
+-- 0900_test_security.sql fails the moment one is missing.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 

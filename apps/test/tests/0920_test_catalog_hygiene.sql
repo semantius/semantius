@@ -1,3 +1,18 @@
+-- Catalog hygiene guards, checked against the live catalog after every
+-- migration has run.
+--
+-- Each part sets up its own fixtures; a part after the first starts by
+-- restoring the connection's role and the runner's search_path. Parts:
+--   1. No unmanaged out-of-the-box entities
+--   2. No VARCHAR columns
+--   3. _core comments match the data dictionary
+BEGIN;
+
+SELECT plan(10);
+
+-- =====================================================
+-- PART 1: No unmanaged out-of-the-box entities
+-- =====================================================
 -- Guard: out-of-the-box entities must not be registered managed=FALSE.
 --
 -- managed=FALSE silently disables the DD machinery (create_table_trigger /
@@ -10,9 +25,6 @@
 -- trigger-populated system logs (int64 ids, computed uuid columns) that
 -- intentionally sit outside the managed DD model. If a new table legitimately
 -- needs to be unmanaged, add it to the allowlist below together with a reason.
-BEGIN;
-
-SELECT plan(6);
 
 SELECT authenticate_as('user3');
 
@@ -69,6 +81,110 @@ SELECT lives_ok(
 SELECT lives_ok(
     $$UPDATE entities SET managed = FALSE WHERE table_name = 'audit_record_logs'$$,
     'writing managed = FALSE over FALSE is not a flip and is allowed'
+);
+
+-- =====================================================
+-- PART 2: No VARCHAR columns
+-- =====================================================
+-- Guard: no VARCHAR / character varying column in a Semantius-owned schema.
+--
+-- TEXT and VARCHAR without a length limit are the same type in PostgreSQL, so a
+-- stray VARCHAR costs nothing at runtime - but it does leak: format_type() puts
+-- "character varying" into every catalog readout, the reference-type resolver in
+-- add_dd_field copies the referenced key's catalog type verbatim into the column
+-- it creates, and the data dictionary has no `varchar` format to describe it
+-- with. One spelling for string columns keeps all three honest. A column that
+-- genuinely needs a length limit is a business rule and needs an entry here
+-- together with its reason.
+--
+-- pgmq is excluded, and this test must never be "fixed" by editing it: it is
+-- vendored upstream code, kept byte-identical to the release it came from, and
+-- whatever it declares is not ours to change. The sweep below names the four
+-- schemas Semantius owns rather than excluding pgmq, so a new vendored schema
+-- is out of scope by default instead of by remembering to list it.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT is_empty(
+    $$SELECT
+        jsonb_build_object(
+            'schema', n.nspname,
+            'table', c.relname,
+            'column', a.attname,
+            'type', format_type(a.atttypid, a.atttypmod)
+        ) AS metadata
+    FROM pg_catalog.pg_attribute a
+    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname IN ('public', 'common', 'rbac', 'audit')
+      AND c.relkind IN ('r', 'p', 'v', 'm')
+      AND a.attnum > 0
+      AND NOT a.attisdropped
+      AND a.atttypid = 'pg_catalog.varchar'::regtype$$,
+    'No VARCHAR column in public, common, rbac or audit'
+);
+
+-- The five generated key columns are the ones this guard was written for: they
+-- were VARCHAR until the type was normalized, and they are the only string
+-- primary keys the DDL declares by hand rather than through the dictionary.
+SELECT is(
+    (SELECT COALESCE(array_agg(c.relname || '.' || a.attname ORDER BY c.relname), ARRAY[]::text[])
+       FROM pg_catalog.pg_attribute a
+       JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relname IN ('user_roles', 'role_permissions', 'user_permissions',
+                          'permission_hierarchy', 'fields')
+        AND a.attname = 'id'
+        AND a.attnum > 0
+        AND NOT a.attisdropped
+        AND format_type(a.atttypid, a.atttypmod) = 'text'),
+    ARRAY['fields.id', 'permission_hierarchy.id', 'role_permissions.id',
+          'user_permissions.id', 'user_roles.id'],
+    'The five generated key columns are TEXT'
+);
+
+-- =====================================================
+-- PART 3: _core comments match the data dictionary
+-- =====================================================
+-- The table and column comments of the _core tables are generated from the DD
+-- (dd_table_comment / dd_field_comment), in 0240_dd_bootstrap_complete.once.sql
+-- for the tables seeded before the
+-- triggers exist and by the triggers for the rest. PostgREST shows these comments
+-- as descriptions in its OpenAPI output, so the DD description has to stay their
+-- only source. A COMMENT ON statement in a migration overwrites the generated text
+-- and drifts from the DD the moment either side changes; both checks list every
+-- table or column that no longer matches.
+--
+-- The two audit tables keep their longer table comments on purpose (what the
+-- event triggers capture and why), so they are left out of the table check. Their
+-- column comments come from the DD like every other and are checked.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT is_empty(
+    $$SELECT f.id
+      FROM fields f
+      JOIN entities e ON e.table_name = f.table_name
+      JOIN modules m ON m.id = e.module_id AND m.module_name = '_core'
+      JOIN pg_attribute a
+        ON a.attrelid = format('public.%I', f.table_name)::regclass
+       AND a.attname = f.field_name AND NOT a.attisdropped
+      WHERE col_description(a.attrelid, a.attnum)
+            IS DISTINCT FROM dd_field_comment(f.title, f.format, f.description, f.enum_values)$$,
+    'every _core column comment equals the comment generated from its DD field'
+);
+
+SELECT is_empty(
+    $$SELECT e.table_name
+      FROM entities e
+      JOIN modules m ON m.id = e.module_id AND m.module_name = '_core'
+      WHERE e.table_name NOT IN ('audit_record_logs', 'audit_ddl_logs')
+        AND obj_description(format('public.%I', e.table_name)::regclass, 'pg_class')
+            IS DISTINCT FROM dd_table_comment(e.plural_label, e.description)$$,
+    'every _core table comment except the audit tables equals the comment generated from its entity'
 );
 
 SELECT * FROM finish();

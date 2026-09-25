@@ -74,7 +74,7 @@ CREATE POLICY versions_select_policy ON _versions
 -- bound it. The two ON ALL statements in 0110_rbac_grants.once.sql are not a
 -- default: they cover the tables that exist at that point of the migration
 -- order, every one of them ours and every one of them with RLS (pinned by
--- 0060_test_security.sql 2.1).
+-- 0900_test_security.sql 2.1).
 
 -- =====================================================
 -- TRIGGER: Auto-assign role 1 (User) to new users

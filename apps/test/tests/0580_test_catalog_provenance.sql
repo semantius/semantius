@@ -1,5 +1,5 @@
 -- =====================================================
--- Catalog provenance tests (0360)
+-- Catalog provenance tests (0580)
 -- =====================================================
 -- Validates the v0.1.2 provenance/lineage columns on entities/fields/modules/roles:
 --   • existence + DD registration (ctype='core', is_core derives true)

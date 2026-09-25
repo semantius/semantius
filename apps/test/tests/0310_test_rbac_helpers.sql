@@ -1,5 +1,5 @@
 -- =====================================================
--- RBAC helper functions (0405)
+-- RBAC helper functions (0310)
 -- =====================================================
 -- The first coverage run (docs/pg_semantius-test-coverage.md) showed these
 -- rbac helpers were never executed by the suite: has_any_permission,

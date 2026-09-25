@@ -428,7 +428,7 @@ It replaced `pg-ext-dump-restore.sh`, which existed only to drive the old
 three-pass restore. That procedure is gone: because `migrate()` creates the
 core schema as ordinary objects rather than extension members, a plain
 `pg_dump` and a single `pg_restore` round-trip everything, and
-`apps/test/tests/0440_test_extension_membership.sql` pins the membership
+`apps/test/tests/0980_test_extension_membership.sql` pins the membership
 invariants the round trip depends on.
 
 ### Just deploy a module (no reset, no tests)

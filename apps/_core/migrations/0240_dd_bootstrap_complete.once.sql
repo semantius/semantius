@@ -12,7 +12,7 @@
 -- neither they nor their columns have a comment yet. Give them the ones the triggers would
 -- have written. PostgREST shows these comments as descriptions in its OpenAPI output, so this
 -- keeps the DD description the only source there too; later changes reach the comments through
--- the update triggers. 0480_test_core_comments_match_dd.sql fails if a migration overwrites one.
+-- the update triggers. 0920_test_catalog_hygiene.sql fails if a migration overwrites one.
 DO $$
 DECLARE
     r RECORD;

@@ -1,5 +1,5 @@
 -- =====================================================
--- Explicit table grants in public (0460)
+-- Explicit table grants in public (0960)
 -- =====================================================
 -- There is no ALTER DEFAULT PRIVILEGES on tables or sequences in `public`, so a
 -- table the data dictionary did not create is unreachable by the request role.

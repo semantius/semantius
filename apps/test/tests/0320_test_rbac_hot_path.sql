@@ -1,5 +1,5 @@
 -- =====================================================
--- RBAC warm-path permission checks (0446)
+-- RBAC warm-path permission checks (0320)
 -- =====================================================
 -- A warm permission check used to enter two PL/pgSQL frames and
 -- resolve the caller's identity twice: rbac.has_permission called rbac.uid(),
@@ -101,7 +101,7 @@ SELECT is(
 );
 
 -- The helper is no longer called on the hot path but must still exist: whoami
--- reports through it and 0435 pins its result.
+-- reports through it and 0250 pins its result.
 SELECT is(rbac.is_bearer_session(), false,
     'is_bearer_session: still present and false in a SCRAM session');
 

@@ -1,4 +1,4 @@
--- The system must always keep an enabled Administrator (0091)
+-- The system must always keep an enabled Administrator (0370)
 -- =====================================================
 -- With no enabled holder of role 2 there is no way back in through the API:
 -- granting a role, enabling a user and creating a user all require `admin`, and
@@ -161,7 +161,7 @@ SELECT lives_ok(
 -- The operator escape hatch
 -- =====================================================
 -- A direct superuser or owner connection is exempt, which is how a database is
--- repaired and how 0110_test_first_user_get_userinfo.sql builds a system that
+-- repaired and how 0210_test_first_user_get_userinfo.sql builds a system that
 -- has never had an Administrator.
 RESET ROLE;
 

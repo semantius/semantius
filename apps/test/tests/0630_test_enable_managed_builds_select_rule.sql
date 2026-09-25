@@ -61,7 +61,7 @@ BEGIN
     VALUES ('for user1', v_u1), ('for user2', v_u2), ('unassigned', NULL);
 END $$;
 
--- (admin-sees-all and the visible-row label value are covered by 0330_test_select_rule.)
+-- (admin-sees-all and the visible-row label value are covered by 0600_test_select_rule.)
 SELECT authenticate_as('user1');
 
 SELECT is(

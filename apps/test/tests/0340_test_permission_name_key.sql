@@ -24,7 +24,7 @@ SELECT authenticate_as('user3');
 -- An entity: every nwind entity names nwind:view. entities.view_permission is
 -- ON DELETE RESTRICT, which raises 23001 (restrict_violation) on PostgreSQL 18
 -- but 23503 (foreign_key_violation) on PG<=17 (Neon/Supabase) - the same
--- version split apps/test/tests/0160_test_foreign_keys.sql and
+-- version split apps/test/tests/0550_test_foreign_keys.sql and
 -- apps/nwind/tests/0040_test_nwind_rbac.sql work around, and the same fix:
 -- match the FK-violation message common to both codes instead of a SQLSTATE
 -- that names only one of them. RESTRICT and NO ACTION (modules.view_permission,

@@ -687,7 +687,7 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 -- enable_dd_table (0180_managed_enable.sql) add the standard INSERT/UPDATE policies and grant, so
 -- anyone holding edit_permission could forge or rewrite entries. The flip is
 -- refused here, so enable_dd_table needs no exception for these two tables.
--- 0041_test_no_unmanaged_ootb.sql pins them as the only unmanaged entities.
+-- 0920_test_catalog_hygiene.sql pins them as the only unmanaged entities.
 CREATE OR REPLACE FUNCTION audit.assert_audit_entity_stays_unmanaged()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -804,7 +804,7 @@ COMMENT ON TRIGGER manage_audit_log_trigger ON entities IS
 -- in. UPDATE is revoked for the same reason - it has no policy today, and
 -- without the revoke a future policy would silently reopen the hole.
 --
--- Reading and deleting stay with the administrator: 0300_test_audit_log.sql
+-- Reading and deleting stay with the administrator: 0800_test_audit_log.sql
 -- exercises the deletes, which is how an operator prunes the log.
 DROP POLICY IF EXISTS audit_record_logs_select ON public.audit_record_logs;
 CREATE POLICY audit_record_logs_select ON public.audit_record_logs
@@ -844,7 +844,7 @@ GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
 -- blanket grant added anywhere later in the migration order would silently
 -- hand the request role the ability to forge and rewrite audit rows, and this
 -- is the one place where that must be impossible rather than merely unlikely.
--- Pinned by 0060_test_security.sql and 0300_test_audit_log.sql.
+-- Pinned by 0900_test_security.sql and 0800_test_audit_log.sql.
 REVOKE INSERT, UPDATE ON public.audit_record_logs FROM semantius_user;
 REVOKE INSERT, UPDATE ON public.audit_ddl_logs FROM semantius_user;
 

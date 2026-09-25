@@ -108,13 +108,13 @@ against these two groups before treating an entry as a gap:
 What is left after those two is the real list.
 
 **Generated functions are no longer in that category.**
-`apps/test/tests/0371_test_label_generator_sweep.sql` calls every `_label`,
+`apps/test/tests/0680_test_label_generator_sweep.sql` calls every `_label`,
 `<fk>_label` and single-argument `select_rule` function the data dictionary
 generated for the entities this deployment ships. Calling all of them is not
 metric-chasing: it is the only test that catches a generated function that fails
 to compile, or raises at runtime, on a shape nobody wrote a fixture for - a
 junction, a self-reference, a spine chain, an unmanaged audit table.
-`0370_test_composed_labels.sql` cannot replace it, because pgTAP files roll back
+`0670_test_composed_labels.sql` cannot replace it, because pgTAP files roll back
 and a test's own entities take their generated functions with them; only shipped
 shapes survive to be measured. The sweep found a real defect on its first run:
 the single-argument `select_rule` overload raised `Authentication required` for
@@ -132,7 +132,7 @@ slowly, which is why they are written down here rather than regenerated:
 - **Event triggers** (`pgrst_ddl_watch`, `pgrst_drop_watch`,
   `track_ddl_changes`) fire during the suite but are never asserted on.
 - **Scope-confined sessions** (`app.oauth_scopes`) and `anon` / no-role sessions
-  beyond `0390_test_unauthenticated_access.sql`.
+  beyond `0270_test_unauthenticated_access.sql`.
 - **Large inputs**: deep JsonLogic, huge enum sets, long text, a dictionary
   operation failing halfway.
 - **Concurrency.** pgTAP runs one session, so races - the first-user election,
@@ -140,10 +140,10 @@ slowly, which is why they are written down here rather than regenerated:
   `pgdocker/pg-ext-lifecycle.sh`, which also covers install,
   `pg_dump`/single-pass `pg_restore`, `DROP EXTENSION`, schema pinning and the
   refusals.
-- **Eleven files run as the RLS-exempt owner** (`0015`, `0060`, `0130`, `0180`,
-  `0200`, `0240`, `0305`, `0336`, `0371`, `0385`, `0990`), so their table access
+- **Eleven files run as the RLS-exempt owner** (`0100`, `0120`, `0420`, `0560`,
+  `0680`, `0830`, `0870`, `0900`, `0910`, `0930`, `0990`), so their table access
   exercises no policy. A test that must prove a policy has to authenticate.
-  `0371` is owner-run deliberately: it sweeps generated functions that are
+  `0680` is owner-run deliberately: it sweeps generated functions that are
   REVOKEd from PUBLIC, and a `select_rule` policy would reduce its value
   comparisons to zero rows and pass vacuously.
 

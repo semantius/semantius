@@ -2,8 +2,8 @@
 -- deployment actually ships: _label, the <fk>_label companions, and the
 -- single-argument select_rule overloads.
 --
--- Why this exists next to 0370_test_composed_labels.sql, which already tests
--- labels thoroughly: 0370 builds its own entity shapes and ends in ROLLBACK,
+-- Why this exists next to 0670_test_composed_labels.sql, which already tests
+-- labels thoroughly: 0670 builds its own entity shapes and ends in ROLLBACK,
 -- like every pgTAP file here, so the functions it exercised no longer exist by
 -- the time anything looks at the database again. Only the shipped entities'
 -- generated functions survive, and none of their <fk>_label companions had ever

@@ -3189,7 +3189,7 @@ BEGIN
     -- emits DDL per reference field, on every field insert. Miss a case and
     -- nothing raises - a stale <fk>_label keeps answering with the old body.
     -- The parent-leg count is dd_is_junction(), which reads every field.
-    -- Pinned by 0370_test_composed_labels.sql.
+    -- Pinned by 0670_test_composed_labels.sql.
     IF TG_OP = 'INSERT' AND NOT (
             dd_is_fk_format(NEW.format)
          OR EXISTS (SELECT 1 FROM entities e

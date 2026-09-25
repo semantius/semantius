@@ -234,7 +234,7 @@ Today two objects break the rule; both move into metadata:
   predicate, which today is `view_permission = 'admin'` for `modules`, so a user
   who holds a module's own `view_permission` sees the row through RLS but gets
   NULL from them. With the rule they return what RLS returns.
-  `0016_test_jsonlogic_ext.sql` is already corrected to expect that (user2,
+  `0110_test_jsonlogic_ext.sql` is already corrected to expect that (user2,
   holding `nwind:view`, reads the Northwind module) and fails until this change.
 
 The 40 hand-written policies of the 10 bootstrap tables (0050, 0060) use DD
@@ -363,7 +363,7 @@ New:
   another user's `user_id` (it is forced to their own), also after
   `edit_permission` changes; a non-admin sees exactly the modules whose
   `view_permission` they hold, an admin sees all, through RLS and through
-  `get_record_by_id` alike (`0016_test_jsonlogic_ext.sql`); the 10 core tables' policies
+  `get_record_by_id` alike (`0110_test_jsonlogic_ext.sql`); the 10 core tables' policies
   are unchanged in `pg_policies` (except `modules`); a bookmark write without
   claims raises (the validation rule), as it does today.
 - **Runner tests** (CLI, extension, bundle): duplicate numbers rejected; `.once.`
@@ -379,15 +379,15 @@ New:
   installing superuser, and the original error is the one reported.
 - **Bundles are current**: `deno task bundle-sql --check` in `test.yml` fails when a
   `migrations-bundle.ts` differs from `apps/` (ignoring its `Generated:` line).
-- **Security per conversion step**: `0060_test_security` and `0460` (rbac not
+- **Security per conversion step**: `0900_test_security` and `0460` (rbac not
   executable by PUBLIC) run after every step.
 
 Existing tests and scripts to change:
 - Renamed files: `extension_test.ts:47,61`,
-  `0050_test_rls_fields_versions.sql:136,139,148`,
+  `0300_test_rls.sql:256,259,268`,
   `scripts/extract-functions.ts:14-16`, `pg-ext-lifecycle.sh:507`,
   `docker-postgres/test-image.sh:170-185` (ledger names, "N applied" text).
-- `SELECT semantius.migrate()` → `CALL`: `0440_test_extension_membership.sql`,
+- `SELECT semantius.migrate()` → `CALL`: `0980_test_extension_membership.sql`,
   `pg-ext-lifecycle.sh` (incl. :152 output grep, :549 `ON PROCEDURE`),
   `README.md:110`, `extension-release.yml:314`, `docker-compose/README.md:16`,
   `docker-postgres/README.md:19`, `docker-postgres/initdb/10-install-extension.sql:24`,
@@ -398,15 +398,15 @@ Existing tests and scripts to change:
 - Readiness gates waiting for any `_core.%` row now see a half-migrated
   database: `pgdocker/pg-ext-retest.sh:76-80`, `docker-compose/test.sh:158-161`
   → wait for the `9900_owner_hardening.sql` row.
-- `0380_test_user_bookmarks.sql:233-243`: the two assertions that the removed
+- `0890_test_user_bookmarks.sql:233-243`: the two assertions that the removed
   trigger and function exist become assertions on the `user_id` computed field
   and the `compute_validate_user_bookmarks` trigger (plan count unchanged); its
-  behaviour tests stay as they are. Comments only: `0445_test_policy_subselect_form.sql:24-27`
+  behaviour tests stay as they are. Comments only: `0940_test_policy_subselect_form.sql:24-27`
   (`modules_select_policy` is no longer the one hand-written correlated policy)
-  and `0451_test_volatility_contract.sql:29` (the insert policy no longer carries
+  and `0950_test_volatility_contract.sql:29` (the insert policy no longer carries
   `user_id = rbac.user_id()`).
-- `0240_test_no_unsafe_functions` (new functions), coverage threshold,
-  `0480_test_core_comments_match_dd` (comment step moved), `migrate.sql` `cmp`
+- `0910_test_no_unsafe_functions` (new functions), coverage threshold,
+  `0920_test_catalog_hygiene` (comment step moved), `migrate.sql` `cmp`
   gates (`test.yml:200-211`, `extension-release.yml:94,152`).
 
 ## 8. References and docs
@@ -429,7 +429,7 @@ Existing tests and scripts to change:
 1. Runner changes (section 5) with runner tests; old files keep their names.
 2. Section 4 in the old files: `create_entity_policies`, bookmarks computed
    field, `modules` select_rule; the existing suite (including the corrected
-   `0016_test_jsonlogic_ext.sql`, red until this step) and the behaviour tests
+   `0110_test_jsonlogic_ext.sql`, red until this step) and the behaviour tests
    pass.
 3. `jsonc_to_jsonb` + `ensure_entities` as a new old-style file.
 4. The **baseline** is the previous version, `5404cdd`; do NOT commit (see

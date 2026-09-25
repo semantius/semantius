@@ -203,7 +203,7 @@ function showHelp(): void {
     "connect --database-url postgresql://user:pass@host:5432/db",
     "test --tap",
     "test --failfast",
-    "test 0010*",
+    "test 03*",
     "test 0100_test_jsonlogic.sql",
     "test --coverage",
     "test --coverage --coverage-min 80",
@@ -259,7 +259,7 @@ OPTIONS:
 COMMANDS:
 ${initCommand}    connect          Test database connection
     test             Run pgTAP tests
-    test <PATTERN>   Run only tests matching PATTERN (glob-like, e.g. 0010*)
+    test <PATTERN>   Run only tests matching PATTERN (glob-like, e.g. 03*)
     lint-sql         Run plpgsql_check over every PL/pgSQL function in a
                      migrated database and write coverage/lint.txt. Reports the
                      functions it could not check; never fails the build.

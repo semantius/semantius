@@ -271,7 +271,7 @@ class TapSpecReporter implements TapReporter {
  * Match a filename against a glob-like filter pattern.
  * Supports * (any characters) and ? (single character) wildcards.
  * The pattern anchors at the start but not the end, so a bare prefix like
- * "0010" matches "0010_test_rls.sql" as a convenience (same as "0010*").
+ * "0300" matches "0300_test_rls.sql" as a convenience (same as "0300*").
  */
 function matchesFilter(filename: string, filter: string): boolean {
   const escaped = filter.replace(/[.+^${}()|[\]\\]/g, "\\$&");
