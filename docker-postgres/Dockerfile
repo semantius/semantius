@@ -40,7 +40,7 @@ RUN chmod 0755 /docker-entrypoint-initdb.d/*.sh
 #     The migrations are copied in UNMERGED and UNMODIFIED, and 40-nwind.sh
 #     applies them the way the CLI does - one transaction per file, each file
 #     recorded in _versions with its checksum in that same transaction - but
-#     only when NWIND is set. Neither file redeclares _core (that is the
+#     only when NWIND is set. No file redeclares _core (that is the
 #     extension).
 #
 #     The whole directory, not a list of filenames: the previous build named

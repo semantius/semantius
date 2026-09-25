@@ -185,9 +185,9 @@ interface UniverseTable {
 
 const CORE_SCHEMAS = ["public", "common", "rbac", "audit", "pgmq"];
 // pgmq v1.11.1 is third-party code that happens to be inlined into
-// 0160_pgmq.sql rather than installed as an extension, so schema membership is
+// 0310_pgmq.once.sql rather than installed as an extension, so schema membership is
 // the only thing that marks it. It stays in the universe - the queue RPCs in
-// 0170_queue.sql depend on it behaving, and a version bump lands here as a
+// 0340_queue.sql depend on it behaving, and a version bump lands here as a
 // migration edit that coverage should notice - but it is reported on its own
 // line: counting code we neither wrote nor can fix inside the headline ratio
 // buries the one number that means something, which is that every hand-written
@@ -441,7 +441,8 @@ export class CoverageCollector {
     this.caps.superuser = id.superuser;
 
     // plpgsql_check: available? install into `extensions` (skipped by dropall
-    // and by the 0240 guard test), then resolve where it actually lives.
+    // and by the 0240_test_no_unsafe_functions.sql guard test), then resolve
+    // where it actually lives.
     const avail = await this.rows<
       { installed_version: string | null; default_version: string }
     >(
@@ -1058,7 +1059,7 @@ export function renderUncoveredMarkdown(s: CoverageSummary): string {
             fmtPct(vt.statements.pct)
           })`
           : "statements not measured"
-      }, ${vt.tables.touched}/${vt.tables.total} tables. It is third-party code inlined into a migration, exercised through the queue RPCs in 0170_queue.sql; the parts Semantius never calls are not a gap in our tests.`,
+      }, ${vt.tables.touched}/${vt.tables.total} tables. It is third-party code inlined into a migration, exercised through the queue RPCs in 0340_queue.sql; the parts Semantius never calls are not a gap in our tests.`,
     );
   }
   if (s.threshold.min !== undefined) {

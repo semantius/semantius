@@ -133,10 +133,10 @@ DECLARE
     v_rows_affected INTEGER;
 BEGIN
     -- Verify the record exists
-    SELECT name INTO STRICT v_original_name FROM _versions WHERE name = '_core.0010_create_core';
+    SELECT name INTO STRICT v_original_name FROM _versions WHERE name = '_core.0010_core.sql';
     
     -- Try to update (should be blocked by RLS)
-    UPDATE _versions SET name = 'modified_name' WHERE name = '_core.0010_create_core';
+    UPDATE _versions SET name = 'modified_name' WHERE name = '_core.0010_core.sql';
     GET DIAGNOSTICS v_rows_affected = ROW_COUNT;
     
     -- Verify RLS blocked the update (0 rows affected)
@@ -145,7 +145,7 @@ BEGIN
     END IF;
     
     -- Verify name is unchanged
-    IF NOT EXISTS (SELECT 1 FROM _versions WHERE name = '_core.0010_create_core') THEN
+    IF NOT EXISTS (SELECT 1 FROM _versions WHERE name = '_core.0010_core.sql') THEN
         RAISE EXCEPTION 'Name was modified when it should not have been';
     END IF;
 END $$;

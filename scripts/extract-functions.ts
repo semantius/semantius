@@ -11,9 +11,9 @@ import { resolve } from "node:path";
 
 const MIGRATIONS_DIR = resolve(import.meta.dir, "..", "apps", "_core", "migrations");
 const SOURCES = [
-  "0070_dd_functions.sql",
-  "0140_dd_rename.sql",
-  "0145_managed_enable.sql",
+  "0160_dd_functions.sql",
+  "0170_dd_rename.sql",
+  "0180_managed_enable.sql",
 ];
 const OUTPUT = resolve(import.meta.dir, "..", "rename.sql");
 

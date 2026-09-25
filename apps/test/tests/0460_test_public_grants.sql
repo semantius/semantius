@@ -21,8 +21,9 @@ SELECT plan(17);
 -- =====================================================
 -- TEST 1: no default privilege on tables or sequences in public
 -- =====================================================
--- Grantor-agnostic on purpose: 0050 wrote these for the installing role and
--- 0290 reproduced them for semantius_owner, and neither may come back.
+-- Grantor-agnostic on purpose: earlier releases created these both for the
+-- installing role and for semantius_owner (0110_rbac_grants.once.sql and
+-- 9900_owner_hardening.sql revoke both), and neither may come back.
 
 -- The grantee test is deliberately wider than semantius_user itself: a default
 -- granted to PUBLIC (grantee 0) or to `authenticated`, which holds

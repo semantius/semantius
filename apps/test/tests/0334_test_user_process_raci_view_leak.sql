@@ -1,6 +1,6 @@
 -- Test (RED-FIRST): the user_process_raci view must not leak the RBAC/RACI graph to non-admins.
 --
--- The view (0210_raci.sql:329) is created WITHOUT security_invoker, so it executes as its
+-- The view (user_process_raci in 0370_raci.sql) is created WITHOUT security_invoker, so it executes as its
 -- owner (the BYPASSRLS migration role) and bypasses the admin-gated RLS on user_roles /
 -- raci_assignments / processes. It is GRANTed to semantius_user, so any authenticated user
 -- reads the entire user→role→raci→process graph. (spec v2 I-roles; fix = security_invoker=true.)

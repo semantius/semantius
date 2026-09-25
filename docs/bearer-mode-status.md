@@ -211,7 +211,7 @@ field boundaries unambiguous.
 
 This function is the only thing that must never be callable by the request
 role; with it, a client could sign any payload. The explicit REVOKE is
-required because the default privileges in `0030_rbac_functions.sql` grant
+required because the default privileges in `0060_rbac_schema.once.sql` grant
 every new `rbac` function to `semantius_user`. The guard test
 `0060_test_security.sql` requires SECURITY DEFINER functions to call
 `rbac.uid()`; add `context_mac` and `write_context` to its exception list and
@@ -241,8 +241,8 @@ REVOKE EXECUTE ON FUNCTION rbac.write_context(TEXT, INTEGER, TEXT, TEXT)
 ```
 
 Replace the hand-rolled writers with a call to it: the tail of
-`ensure_context_initialized` in `0030` and the `get_userinfo` body in
-`0080` (it pre-fills the cache
+`ensure_context_initialized` in `0080_rbac_functions.sql` and the
+`get_userinfo` body in `0250_public_functions.sql` (it pre-fills the cache
 because a just-created user is not yet visible to the STABLE checkers in the
 same statement).
 

@@ -1,8 +1,9 @@
 -- Test pgmq install: a direct smoke test of the pgmq schema, its metadata
 -- table, the core message functions, and the semantius_user grant. pgmq is
--- otherwise only exercised *indirectly* through the queues entity (0310); this
--- file asserts the install itself so a broken/missing 0160_pgmq surfaces here,
--- before 0310, independent of the queue wiring in 0170.
+-- otherwise only exercised *indirectly* through the queues entity
+-- (0310_test_queue.sql); this file asserts the install itself so a
+-- broken/missing 0310_pgmq.once.sql surfaces here, before 0310_test_queue.sql,
+-- independent of the queue wiring in 0340_queue.sql.
 BEGIN;
 
 SELECT plan(7);
@@ -62,7 +63,7 @@ SELECT ok(
     'pgmq.drop_queue function should exist'
 );
 
--- Test 7: semantius_user has USAGE on the pgmq schema (granted by 0170_queue),
+-- Test 7: semantius_user has USAGE on the pgmq schema (granted by 0340_queue.sql),
 -- which the public.queue_* RPC wrappers rely on.
 SELECT ok(
     has_schema_privilege('semantius_user', 'pgmq', 'USAGE'),

@@ -5,7 +5,7 @@
 -- Also pins:
 --   * malformed-claims variants (missing sub, wrong role claim)
 --   * the authenticated -> semantius_user inheritance chain production
---     clients rely on (pgdocker/init/10-roles.sql, 0011_session_authenticator)
+--     clients rely on (pgdocker/init/10-roles.sql, 0030_session_authenticator.sql)
 --   * the public.has_permission() caller contract (the public:read answer
 --     follows the User role's grant, not stale cached state)
 --   * the GRANT layer beneath RLS: a role outside semantius_user has neither
@@ -142,7 +142,7 @@ SELECT ok(
 );
 
 -- =====================================================
--- GROUP 5: unknown subject — claims are well-formed but no users row exists
+-- GROUP 5: unknown subject ï¿½ claims are well-formed but no users row exists
 -- =====================================================
 -- The role claim is still 'authenticated' from authenticate_as('user1') above;
 -- only the subject is swapped for one that does not exist in users.

@@ -2,7 +2,7 @@
 -- Queue RPC mutators (0415)
 -- =====================================================
 -- 0310 only calls queue_read. The first coverage run showed queue_pop,
--- queue_archive and queue_delete (0170_queue.sql, the PostgREST /rpc surface
+-- queue_archive and queue_delete (0340_queue.sql, the PostgREST /rpc surface
 -- over pgmq) were never executed. This file pins their behavior for an
 -- administrator on a queue registered through the queues entity.
 --

@@ -49,7 +49,7 @@ fi
 # a directory, not as a list of filenames: naming them here meant a migration
 # added to the app also had to be added to this check and to the Dockerfile, and
 # forgetting either shipped an image missing part of the module.
-if ! ls apps/nwind/migrations/*.sql >/dev/null 2>&1; then
+if ! ls apps/nwind/migrations/*.sql apps/nwind/migrations/*.jsonc >/dev/null 2>&1; then
   echo "No migrations in apps/nwind/migrations (needed to bake the optional nwind module)." >&2
   exit 1
 fi

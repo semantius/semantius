@@ -5,7 +5,7 @@
 -- is_raci_actor, has_consultation, the generated select_rule_*) are declared
 -- STABLE and they write, through rbac.ensure_context_initialized. That is
 -- deliberate and the full reasoning sits above rbac.uid() in
--- 0030_rbac_functions.sql. This file pins the two properties that make it safe.
+-- 0080_rbac_functions.sql. This file pins the two properties that make it safe.
 --
 -- GROUP 1: every setting written on a read path is transaction-local. A
 -- session-scoped write outlives the transaction that made it, so on a pooled
@@ -26,7 +26,7 @@
 -- does run rbac.user_id() there, and rbac.uid() refuses a session with no
 -- subject. A WITH CHECK expression is exempt: it is a per-row test applied
 -- after the fact, never a scan qual, so no estimator sees it - which is why
--- user_bookmarks_insert_policy may carry `user_id = rbac.user_id()`.
+-- a WITH CHECK could carry `user_id = rbac.user_id()` safely.
 --
 -- GROUP 3: the labels themselves. The read-only RPCs are STABLE so PostgREST
 -- serves them over GET in a read-only transaction; public.get_userinfo upserts

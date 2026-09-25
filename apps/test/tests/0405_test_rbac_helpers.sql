@@ -282,7 +282,7 @@ SELECT ok((SELECT server_time FROM public.ping()) BETWEEN now() - interval '1 mi
 -- =====================================================
 -- GROUP 7: the subject parameter is confined to self, or to an admin
 -- =====================================================
--- Four helpers in 0030 take the subject to answer about as a parameter, are
+-- Four helpers in 0080_rbac_functions.sql take the subject to answer about as a parameter, are
 -- SECURITY DEFINER, and are reachable over PostgREST RPC. Authenticating the
 -- caller is not enough on its own: it leaves any logged-in session able to read
 -- another principal's full permission set, which RLS otherwise hides completely.
@@ -346,7 +346,7 @@ SELECT is((SELECT is_valid FROM rbac.validate_oauth_scopes('user1', 'admin')), f
 -- rather than guarded: it writes the users table and takes the subject as a
 -- parameter, which would let any session create a principal that never
 -- authenticated or refresh a foreign last_seen - the column the first-user
--- bootstrap in 0050 reads. Asserted as user3, the administrator: this is a
+-- bootstrap in 0100_rbac_rls.sql reads. Asserted as user3, the administrator: this is a
 -- missing grant, not a missing permission, so admin does not help.
 
 SELECT throws_ok(

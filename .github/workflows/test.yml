@@ -51,13 +51,23 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Testing pg_semantius $V"
 
+      # The run rules (repeatable vs .once. files, the 9900 rule, the lock,
+      # duplicate numbers, the extension's guards over released files) as unit
+      # tests: no database, seconds, and the first thing a broken runner fails.
+      - name: Runner unit tests
+        run: >-
+          deno test -A packages/core/src/migrate_test.ts
+          packages/cli/commands/migrate_build_test.ts
+          packages/cli/commands/extension_test.ts
+
       - name: Regenerate the extension
         run: deno task extension "${{ steps.ver.outputs.version }}"
         # No --strict: the released-migration check is on by default now. A
-        # migration a PREVIOUS version shipped may not be edited in place or
-        # deleted - such a change is invisible to the upgrade script, so an
-        # existing installation would never receive it. Only migrations ADDED
-        # in this version are editable. To hot-patch an inherited one on
+        # run-once (.once.) migration a PREVIOUS version shipped may not be
+        # edited in place, and no shipped migration may be deleted or renamed:
+        # a .once. file never runs again on an existing installation, and a
+        # renamed one runs a second time. Repeatable .sql/.jsonc files stay
+        # editable. To hot-patch an inherited .once. file on
         # purpose, add --allow-edited-migrations for that one release.
 
       # The generator must delete an upgrade script whose endpoints versions.json

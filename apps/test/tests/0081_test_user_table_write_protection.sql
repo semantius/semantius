@@ -1,7 +1,8 @@
 -- Verify that a regular (non-admin) user cannot write the users table directly.
 --
 -- Only admins (the `user:manage` permission) may INSERT/UPDATE/DELETE users via
--- RLS (see 0050_rbac_rls.sql). First-login provisioning happens through the
+-- RLS (the policies create_entity_policies in 0160_dd_functions.sql generates
+-- from users.edit_permission). First-login provisioning happens through the
 -- SECURITY DEFINER rbac.upsert_user_from_jwt(), which bypasses RLS but only ever
 -- touches the caller's OWN row. A regular user must NOT be able to change any
 -- user row (their own or someone else's) by writing the table directly.

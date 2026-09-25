@@ -133,7 +133,7 @@ SELECT ok(
 -- current_query() is the whole migration script for script-driven DDL, stored
 -- once per event. Unbounded it was 85 MB after a full migrate. This is an
 -- upper-bound guard: on the migrate path rows sit at exactly 8192, but on the
--- extension path every install row is the short 'SELECT semantius.migrate()',
+-- extension path every install row is the short 'CALL semantius.migrate()',
 -- so the assertion is only non-vacuous on the migrate path. The exact
 -- truncation is pinned in pg-ext-lifecycle.sh step 11, which issues a
 -- deliberately over-long statement.
@@ -146,7 +146,7 @@ SELECT ok(
 -- =====================================================
 -- TEST 8: generated label companions are not logged
 -- =====================================================
--- rebuild_entity_label_functions (0145) drops and recreates the whole set of
+-- rebuild_entity_label_functions (0180_managed_enable.sql) drops and recreates the whole set of
 -- <name>_label(rowtype) functions on any field edit. The migrations create
 -- dozens of them; none may appear in the audit log.
 --
@@ -270,7 +270,7 @@ SELECT is(
 -- =====================================================
 -- TEST 12: the label churn's DROP FUNCTION half is not audited
 -- =====================================================
--- rebuild_entity_label_functions (0145) drops every label companion of an
+-- rebuild_entity_label_functions (0180_managed_enable.sql) drops every label companion of an
 -- entity before recreating it, on every field edit. TEST 8 keeps that churn out
 -- of the log on the create side; without the same filter on the drop side it
 -- would all come back in through the sql_drop trigger.

@@ -1,0 +1,325 @@
+// Northwind sample module: module, permissions, role and the eleven Northwind
+// entities with their fields. The dictionary creates the tables from these
+// rows; the sample data is in 0020_nwind_data.jsonc.
+{
+  "version": 1,
+  "module": {
+    "module_name": "Northwind",
+    "module_slug": "nwind",
+    "description": "Northwind Sample Database",
+    "view_permission": "nwind:view",
+    "manage_permission": "nwind:manage",
+    "home_page": "/nwind",
+    "icon_name": "compass",
+    "default_manager_role_slug": "northwind_sales"
+  },
+  "permissions": [
+    {"permission_name": "nwind:view", "description": "View Northwind data"},
+    {"permission_name": "nwind:manage", "description": "Manage Northwind data"}
+  ],
+  // nwind:manage implies nwind:view
+  "permission_hierarchy": [
+    {"including_permission_name": "nwind:manage", "included_permission_name": "nwind:view"}
+  ],
+  // Northwind Sales reads and manages Northwind data. Administrator receives
+  // nwind:* automatically through the permissions auto-grant trigger, so it
+  // needs no grant here.
+  "roles": [
+    {"slug": "northwind_sales", "role_name": "Northwind Sales", "description": "Read and manage Northwind data", "origin": "model"}
+  ],
+  "role_permissions": [
+    {"role_slug": "northwind_sales", "permission_name": "nwind:view"},
+    {"role_slug": "northwind_sales", "permission_name": "nwind:manage"}
+  ],
+  "entities": [
+    {
+      "entity": {
+        "table_name": "categories",
+        "module_name": "Northwind",
+        "singular": "category",
+        "singular_label": "Category",
+        "plural_label": "Categories",
+        "description": "Product categories",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "category_name",
+        // a physical INTEGER column sort_order is provisioned with an
+        // auto-assign trigger (10, 20, 30, ...) for manual ordering
+        "order_column": "sort_order",
+        // category_name is created as the label column
+        "fields": [
+          {"field_name": "description", "title": "Description", "format": "text", "field_order": 30, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": true, "ctype": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "customers",
+        "module_name": "Northwind",
+        "singular": "customer",
+        "singular_label": "Customer",
+        "plural_label": "Customers",
+        "description": "Customer information and contact details",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "company_name",
+        // DML audit logging
+        "audit_log": true,
+        // company_name is created as the label column
+        "fields": [
+          {"field_name": "customer_id", "title": "Customer Code", "format": "text", "field_order": 30, "input_type": "required", "width": "default", "description": "Short code identifying the customer", "default_value": "", "searchable": true, "unique_value": true, "ctype": ""},
+          {"field_name": "contact_name", "title": "Contact Name", "format": "text", "field_order": 35, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "unique_value": false, "ctype": ""},
+          {"field_name": "contact_title", "title": "Contact Title", "format": "text", "field_order": 40, "input_type": "default", "width": "default", "description": "Job title of the primary contact", "default_value": "", "searchable": false, "unique_value": false, "ctype": ""},
+          {"field_name": "address", "title": "Street Address", "format": "text", "field_order": 50, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "unique_value": false, "ctype": ""},
+          {"field_name": "city", "title": "City", "format": "text", "field_order": 60, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "unique_value": false, "ctype": ""},
+          {"field_name": "region", "title": "Region", "format": "text", "field_order": 70, "input_type": "default", "width": "default", "description": "State or province", "default_value": "", "searchable": false, "unique_value": false, "ctype": ""},
+          {"field_name": "postal_code", "title": "Postal Code", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "Postal or ZIP code", "default_value": "", "searchable": false, "unique_value": false, "ctype": ""},
+          {"field_name": "country", "title": "Country", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "unique_value": false, "ctype": ""},
+          {"field_name": "phone", "title": "Phone", "format": "text", "field_order": 100, "input_type": "default", "width": "default", "description": "Primary phone number", "default_value": "", "searchable": false, "unique_value": false, "ctype": ""},
+          {"field_name": "fax", "title": "Fax", "format": "text", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "unique_value": false, "ctype": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "employees",
+        "module_name": "Northwind",
+        "singular": "employee",
+        "singular_label": "Employee",
+        "plural_label": "Employees",
+        "description": "Employee records and contact information",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "last_name",
+        "fields": [
+          {"field_name": "first_name", "title": "First Name", "format": "text", "field_order": 20, "input_type": "required", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "title", "title": "Title", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "Job title", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "address", "title": "Street Address", "format": "text", "field_order": 60, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "city", "title": "City", "format": "text", "field_order": 70, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "region", "title": "Region", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "State or province", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "postal_code", "title": "Postal Code", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "Postal or ZIP code", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "country", "title": "Country", "format": "text", "field_order": 100, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "home_phone", "title": "Home Phone", "format": "text", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "extension", "title": "Extension", "format": "text", "field_order": 120, "input_type": "default", "width": "default", "description": "Phone extension", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "notes", "title": "Notes", "format": "text", "field_order": 130, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "photo_path", "title": "Photo Path", "format": "text", "field_order": 140, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          // The label column, created with the entity. Listing an existing field
+          // ends a batch of new fields, and ensure_entities rebuilds search_vector
+          // after each batch, so this entry places search_vector between the
+          // fields above and those below in the physical column order.
+          {"field_name": "last_name", "title": "Last Name"},
+          // optional enum, so '' is also accepted
+          {"field_name": "title_of_courtesy", "title": "Title of Courtesy", "format": "enum", "field_order": 40, "input_type": "default", "width": "default", "description": "", "default_value": "", "enum_values": ["Mr.", "Mrs.", "Ms.", "Dr."], "searchable": false, "ctype": ""},
+          // nullable: no sensible default
+          {"field_name": "birth_date", "title": "Birth Date", "format": "date", "field_order": 50, "input_type": "default", "width": "default", "description": "", "searchable": false, "ctype": ""},
+          // not nullable, with a default
+          {"field_name": "hire_date", "title": "Hire Date", "format": "date", "field_order": 55, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
+          // self-reference, nullable; 'clear': when a manager is deleted, the
+          // reports_to of their reports is set to NULL (ON DELETE SET NULL)
+          {"field_name": "reports_to", "title": "Manager", "format": "reference", "field_order": 150, "input_type": "default", "width": "default", "description": "", "reference_table": "employees", "reference_delete_mode": "clear", "searchable": false, "relationship_label": "manages"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "suppliers",
+        "module_name": "Northwind",
+        "singular": "supplier",
+        "singular_label": "Supplier",
+        "plural_label": "Suppliers",
+        "description": "Supplier information and contact details",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "company_name",
+        // company_name is created as the label column
+        "fields": [
+          {"field_name": "contact_name", "title": "Contact Name", "format": "text", "field_order": 20, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "contact_title", "title": "Contact Title", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "Job title of the primary contact", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "address", "title": "Street Address", "format": "text", "field_order": 40, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "city", "title": "City", "format": "text", "field_order": 50, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "region", "title": "Region", "format": "text", "field_order": 60, "input_type": "default", "width": "default", "description": "State or province", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "postal_code", "title": "Postal Code", "format": "text", "field_order": 70, "input_type": "default", "width": "default", "description": "Postal or ZIP code", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "country", "title": "Country", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "phone", "title": "Phone", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "Primary phone number", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "fax", "title": "Fax", "format": "text", "field_order": 100, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "homepage", "title": "Homepage", "format": "url", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "products",
+        "module_name": "Northwind",
+        "singular": "product",
+        "singular_label": "Product",
+        "plural_label": "Products",
+        "description": "Product catalog and inventory",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "product_name",
+        // DML audit logging
+        "audit_log": true,
+        // product_name is created as the label column
+        "fields": [
+          {"field_name": "quantity_per_unit", "title": "Quantity per Unit", "format": "text", "field_order": 50, "input_type": "default", "width": "default", "description": "Quantity and unit of measure per package", "default_value": "", "searchable": false, "ctype": "", "cube_type": "auto"},
+          {"field_name": "unit_price", "title": "Unit Price", "format": "number", "field_order": 60, "input_type": "default", "width": "default", "description": "", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
+          {"field_name": "units_in_stock", "title": "Units in Stock", "format": "int32", "field_order": 70, "input_type": "default", "width": "default", "description": "", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
+          {"field_name": "units_on_order", "title": "Units on Order", "format": "int32", "field_order": 80, "input_type": "readonly", "width": "default", "description": "Quantity currently on order from supplier", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
+          {"field_name": "reorder_level", "title": "Reorder Level", "format": "int32", "field_order": 90, "input_type": "default", "width": "default", "description": "Minimum stock level before reordering", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
+          {"field_name": "discontinued", "title": "Discontinued", "format": "boolean", "field_order": 100, "input_type": "default", "width": "default", "description": "", "default_value": "FALSE", "searchable": false, "ctype": "", "cube_type": "auto"},
+          {"field_name": "supplier_id", "title": "Supplier", "format": "reference", "field_order": 40, "input_type": "default", "width": "default", "description": "", "reference_table": "suppliers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "supplies"},
+          {"field_name": "category_id", "title": "Category", "format": "reference", "field_order": 30, "input_type": "default", "width": "default", "description": "", "reference_table": "categories", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "contains"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "regions",
+        "module_name": "Northwind",
+        "singular": "region",
+        "singular_label": "Region",
+        "plural_label": "Regions",
+        "description": "Sales territories and geographic regions",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "region_description",
+        // region_description is created as the label column; no other fields
+        "fields": []
+      }
+    },
+    {
+      "entity": {
+        "table_name": "shippers",
+        "module_name": "Northwind",
+        "singular": "shipper",
+        "singular_label": "Shipper",
+        "plural_label": "Shippers",
+        "description": "Shipping companies and carriers",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "company_name",
+        // company_name is created as the label column
+        "fields": [
+          {"field_name": "phone", "title": "Phone", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "orders",
+        "module_name": "Northwind",
+        "singular": "order",
+        "singular_label": "Order",
+        "plural_label": "Orders",
+        "description": "Customer orders and shipping details",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "ship_name",
+        // ship_name is created as the label column
+        "fields": [
+          {"field_name": "ship_address", "title": "Ship Address", "format": "text", "field_order": 50, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "ship_city", "title": "Ship City", "format": "text", "field_order": 60, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "ship_region", "title": "Ship Region", "format": "text", "field_order": 70, "input_type": "default", "width": "default", "description": "State or province for shipment", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "ship_postal_code", "title": "Ship Postal Code", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          {"field_name": "ship_country", "title": "Ship Country", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
+          {"field_name": "freight", "title": "Freight", "format": "number", "field_order": 100, "input_type": "default", "width": "default", "description": "Freight cost for the order", "default_value": "0.0", "searchable": false, "ctype": ""},
+          // The label column, unchanged. Listing an existing field ends a batch
+          // of new fields, and ensure_entities rebuilds search_vector after each
+          // batch, so this entry places search_vector between the fields above
+          // and those below in the physical column order.
+          {"field_name": "ship_name"},
+          // not nullable, with defaults
+          {"field_name": "order_date", "title": "Order Date", "format": "date", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
+          {"field_name": "required_date", "title": "Required Date", "format": "date", "field_order": 120, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
+          // nullable: the order may not be shipped yet
+          {"field_name": "shipped_date", "title": "Shipped Date", "format": "date", "field_order": 130, "input_type": "default", "width": "default", "description": "", "searchable": false, "ctype": ""},
+          // lifecycle state: required enum with a default ('' is rejected)
+          {"field_name": "status", "title": "Status", "format": "enum", "field_order": 25, "input_type": "required", "width": "default", "description": "", "default_value": "pending", "enum_values": ["pending", "shipped"], "searchable": false, "ctype": ""},
+          // references, not parent: orders is not a junction or child table
+          {"field_name": "customer_id", "title": "Customer", "format": "reference", "field_order": 30, "input_type": "required", "width": "default", "description": "", "reference_table": "customers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "places"},
+          {"field_name": "employee_id", "title": "Employee", "format": "reference", "field_order": 34, "input_type": "default", "width": "default", "description": "", "reference_table": "employees", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "handles"},
+          {"field_name": "ship_via", "title": "Shipper", "format": "reference", "field_order": 38, "input_type": "default", "width": "default", "description": "", "reference_table": "shippers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ships"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "territories",
+        "module_name": "Northwind",
+        "singular": "territory",
+        "singular_label": "Territory",
+        "plural_label": "Territories",
+        "description": "Sales territories within regions",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "territory_description",
+        // composed label: "Eastern > Westboro"
+        "label_parent": "region_id",
+        // territory_description is created as the label column
+        "fields": [
+          {"field_name": "territory_id", "title": "Territory Code", "format": "text", "field_order": 10, "input_type": "required", "width": "default", "description": "Code identifying the territory", "default_value": "", "searchable": true, "unique_value": true, "ctype": ""},
+          // The label column, unchanged. Listing an existing field ends a batch
+          // of new fields, and ensure_entities rebuilds search_vector after each
+          // batch, so this entry places search_vector before region_id in the
+          // physical column order.
+          {"field_name": "territory_description"},
+          {"field_name": "region_id", "title": "Region", "format": "reference", "field_order": 30, "input_type": "default", "width": "default", "description": "", "reference_table": "regions", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "contains"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "employee_territories",
+        "module_name": "Northwind",
+        "singular": "employee_territory",
+        "singular_label": "Employee Territory",
+        "plural_label": "Employee Territories",
+        "description": "Links employees to their assigned territories",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "label",
+        // pure junction (two parent legs, no payload): its label composes
+        // from both legs
+        "entity_type": "junction",
+        "fields": [
+          {"field_name": "employee_id", "title": "Employee", "format": "parent", "field_order": 10, "input_type": "required", "width": "default", "description": "", "reference_table": "employees", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "assigned to"},
+          {"field_name": "territory_id", "title": "Territory", "format": "parent", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "territories", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "staffed by"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "order_details",
+        "module_name": "Northwind",
+        "singular": "order_detail",
+        "singular_label": "Order Detail",
+        "plural_label": "Order Details",
+        "description": "Individual line items within an order",
+        "view_permission": "nwind:view",
+        "edit_permission": "nwind:manage",
+        "id_column": "id",
+        "label_column": "label",
+        // composed label: an order line is labeled by its order (the local
+        // label is empty)
+        "label_parent": "order_id",
+        "fields": [
+          {"field_name": "order_id", "title": "Order", "format": "parent", "field_order": 10, "input_type": "required", "width": "default", "description": "", "reference_table": "orders", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "contains"},
+          {"field_name": "product_id", "title": "Product", "format": "parent", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "products", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ordered in"},
+          {"field_name": "unit_price", "title": "Unit Price", "format": "number", "field_order": 30, "input_type": "default", "width": "default", "description": "Actual price per unit charged on this order", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
+          {"field_name": "quantity", "title": "Quantity", "format": "int32", "field_order": 40, "input_type": "default", "width": "default", "description": "Number of units ordered", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
+          {"field_name": "discount", "title": "Discount", "format": "number", "field_order": 50, "input_type": "default", "width": "default", "description": "Discount rate applied to this line item", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"}
+        ]
+      }
+    }
+  ]
+}

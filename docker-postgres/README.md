@@ -16,7 +16,7 @@ volume the image, driven by a few env vars, sets up:
 
 | Baked-in step (`initdb/`) | Does |
 |---|---|
-| `10-install-extension.sql` | `CREATE EXTENSION pg_semantius` then `SELECT semantius.migrate()` → roles (NOLOGIN), schemas, data dictionary. No `CASCADE`: pgcrypto is created by `migrate()`, in `public`. |
+| `10-install-extension.sql` | `CREATE EXTENSION pg_semantius` then `CALL semantius.migrate()` → roles (NOLOGIN), schemas, data dictionary. No `CASCADE`: pgcrypto is created by `migrate()`, in `public`. |
 | `20-authenticator-login.sh` | flips `semantius_authenticator` to **LOGIN** + sets its password from `$SEMANTIUS_AUTHENTICATOR_PASSWORD` (the one secret-injecting shell step) |
 | `30-postgrest-anon.sql` | adds the PostgREST `anon` role (schema USAGE only) |
 | `40-nwind.sh` | **optional** — loads the Northwind demo module when `$NWIND` is set |
@@ -49,10 +49,13 @@ major later is the ambiguity the suffix removes.
 
 The Dockerfile copies [`apps/nwind/migrations/`](../apps/nwind/migrations/) into
 the image unmerged and unmodified —
-[`0010_create.sql`](../apps/nwind/migrations/0010_create.sql) (registers the
-module/entities into the dictionary; triggers auto-create the tables) and
-[`0020_load_data.sql`](../apps/nwind/migrations/0020_load_data.sql) (the sample
-rows). Neither redeclares `_core` (that is the extension).
+[`0010_nwind.jsonc`](../apps/nwind/migrations/0010_nwind.jsonc) (registers the
+module/entities into the dictionary; triggers auto-create the tables),
+[`0020_nwind_data.jsonc`](../apps/nwind/migrations/0020_nwind_data.jsonc) (the
+sample rows) and
+[`0030_nwind_platform.once.sql`](../apps/nwind/migrations/0030_nwind_platform.once.sql)
+(sample rows of the platform features: queue, webhook receiver, dashboard,
+RACI). None redeclares `_core` (that is the extension).
 
 `40-nwind.sh` then applies them **exactly as `deno task migrate --apps nwind`
 would**: files in name order, one transaction per file, each recorded in

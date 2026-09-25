@@ -46,7 +46,8 @@ two classes PostgreSQL leaves empty:
 - **Class 99 is custom.** Errors a rule author raises, from `throw_error` or
   from a failing validation rule, carry a `99xxx` code minted by that author.
   A validation rule that core itself ships, marked `"source_module":
-  "platform"` in `0060_dd_schema.sql`,
+  "platform"` in `0150_dd_bootstrap.once.sql` or in a core `.jsonc` entity
+  definition,
   is not custom: it fails with a class 90 catalog code like every other error
   of ours. The split between the two classes is a naming convention that
   keeps admin-minted numbers clear of the catalog's, not a trust boundary:
@@ -355,12 +356,15 @@ not.
 
 Errors raised while installing or operating the database are not
 client-reachable and keep RAISE's ordinary form and their existing SQLSTATE,
-and get no catalog number: the BYPASSRLS check in `0050_rbac_rls.sql`, the
-pgmq conflict check in `0160_pgmq.sql`, and the preflight and `migrate()`
+and get no catalog number: the BYPASSRLS check in `0100_rbac_rls.sql`, the
+pgmq conflict check in `0310_pgmq.once.sql`, and the preflight and `migrate()`
 errors of the extension build in `packages/cli/commands/extension.ts`, which
-the extension archive's README already lists for the operator who hits one.
+the extension archive's README already lists for the operator who hits one,
+and the definition errors of `ensure_entities` in `0290_ensure_entities.sql`
+(22023 for a malformed `.jsonc` definition, 0A000 for a change that is not
+additive), which only a migration reaches.
 The administrator lockout guard and the User-role guard in
-`0050_rbac_rls.sql` are not exempt: a client reaches both by editing
+`0100_rbac_rls.sql` are not exempt: a client reaches both by editing
 `user_roles` or `users`, so they are 901xx errors like every other refusal.
 
 ## The numbers
@@ -408,6 +412,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90204` | `90204` | `system role slugs cannot be changed after creation` | - | - | Platform rule on `roles`. A system role's slug is referenced by name elsewhere. |
 | `90205` | `90205` | `permission_hierarchy.origin is set on INSERT and cannot be changed` | - | - | Platform rule on `permission_hierarchy`, as 90203. |
 | `90206` | `90206` | `catalog_role_code is write-once: it cannot be changed once set` | - | - | Platform rule on `roles`, as 90201. |
+| `90207` | `90207` | `A bookmark can only be written by an authenticated user` | - | - | Platform rule on `user_bookmarks`. Its computed `user_id` is the writer's `$user_id`, which is null in a session without claims; the rule refuses that insert or update instead of storing a bookmark without an owner. Deletes are exempt. |
 | `90210` | `90210` | `Cannot add permission hierarchy: would create a cycle. Permission ${including} cannot be both ancestor and descendant of permission ${included}` | - | `including`, `included` | Permission inclusion has to stay a DAG. |
 | `90211` | `90211` | `Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be ${depth}` | - | `depth` | The depth bound the resolver is written against. |
 | `90212` | `90212` | `Referenced table ${table} not found in entities` | - | `table` | A `reference` or `parent` field naming an entity that does not exist. Raised from three sites. |
@@ -428,7 +433,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90228` | `90228` | `label_parent ${label_parent} must not be self-referential (the identity spine must be acyclic)` | - | `label_parent` | |
 | `90229` | `90229` | `label_parent ${label_parent} must not target junction entity ${table}` | - | `label_parent`, `table` | |
 | `90230` | `90230` | `label_parent on ${table} via ${label_parent} would create a cycle in the identity spine` | - | `table`, `label_parent` | |
-| `90231` | `90231` | `Table ${table} is not an entity` | - | `table` | `fix_id_sequence` on a name no entity has. The answer an administrator gets; everyone else gets 90106. |
+| `90231` | `90231` | `Table ${table} is not an entity` | - | `table` | `fix_id_sequence` on a name no entity has. The answer an administrator gets; everyone else gets 90106. Also `create_entity_policies`, which only dictionary code and migrations call. |
 | `90232` | `90232` | `Table ${table} is busy, try again` | `Another transaction is writing to ${table}. Retry when it has finished.` | `table` | `fix_id_sequence` waited 2 s for its table lock. Safe to retry. |
 
 ### 903xx - schema and record RPCs

@@ -3,15 +3,15 @@
 -- The three checks below are scoped differently on purpose, and the scopes are
 -- not an oversight to be tidied up:
 --   2.1 (RLS) covers public and rbac. It cannot cover common: common._cache has
---       RLS enabled with no policies BY DESIGN (0012), which is how a table is
+--       RLS enabled with no policies BY DESIGN (0040_cache.sql), which is how a table is
 --       made unreachable through the Data API, and 2.1 reads that shape as a
 --       failure.
 --   2.2 (PUBLIC EXECUTE) covers public, rbac, common and audit - every schema
 --       whose functions this project writes. PostgreSQL grants EXECUTE to PUBLIC
 --       on every new function and the schema-wide ALTER DEFAULT PRIVILEGES in
---       0010 does not stop it (see the comment there), so an explicit REVOKE is
+--       0020_settings.once.sql does not stop it (see the comment there), so an explicit REVOKE is
 --       the only defense and this is what proves one was written. `pgmq` is
---       excluded although 0160 creates its functions here too: they are vendored
+--       excluded although 0310_pgmq.once.sql creates its functions here too: they are vendored
 --       upstream code kept byte-identical to it, they are not reachable from
 --       PostgREST, which exposes `public` only, and what they expose to a
 --       DB-only caller is queue names, metrics and topic bindings. Revisit if

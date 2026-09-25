@@ -1,8 +1,8 @@
 -- Test: select_rule must gate UPDATE and DELETE, not only SELECT.
 --
 -- A select_rule is the ABAC row-visibility mechanism (FOR SELECT RLS policy, see
--- 0180_computed_validation.sql). The INSERT/UPDATE/DELETE policies, however, are
--- keyed only on edit_permission (see update_entity_policies in 0070_dd_functions.sql).
+-- 0210_computed_validation.sql). The INSERT/UPDATE/DELETE policies, however, are
+-- keyed only on edit_permission (see update_entity_policies in 0160_dd_functions.sql).
 -- This test verifies the security invariant a user would reasonably expect:
 --
 --     a user who holds edit_permission but CANNOT SEE a row (because select_rule

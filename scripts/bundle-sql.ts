@@ -14,6 +14,14 @@
  *   deno task bundle-sql
  *   # or directly:
  *   deno run --allow-read --allow-write scripts/bundle-sql.ts
+ *   # compare the bundles on disk with apps/ and write nothing (exit 1 on a
+ *   # difference; the Generated: line is ignored):
+ *   deno task bundle-sql --check
+ *
+ * Every migration file is bundled under its full file name (`0010_core.sql`,
+ * `0020_settings.once.sql`, `0300_audit_log.jsonc`): the suffix is what tells
+ * the runner in @semantius/core how the file runs, and the name is its ledger
+ * key.
  *
  * Apps listed in EXCLUDED_APPS are not bundled (e.g. the "test" app which
  * contains the pgTAP testing framework and is not needed in production).
@@ -67,12 +75,16 @@ function generateBundleSource(
     "  content: string;",
     "}",
     "",
-    "/** Returns the bundled migrations for a given app name, sorted by filename. */",
+    "/**",
+    " * Returns the bundled migrations for a given app name, in byte order of the",
+    " * file names - the order every runner uses (not localeCompare, which may",
+    " * order `_` and digits differently).",
+    " */",
     "export function getBundledMigrations(appName: string): MigrationFile[] {",
     "  const appMigrations = MIGRATIONS_BUNDLE[appName];",
     "  if (!appMigrations) return [];",
     "  return Object.entries(appMigrations)",
-    "    .sort(([a], [b]) => a.localeCompare(b))",
+    "    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))",
     "    .map(([name, content]) => ({ name, content }));",
     "}",
     "",
@@ -116,7 +128,17 @@ function toLf(text: string): string {
   return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-async function bundleSql(): Promise<void> {
+/** Byte order of two file names, the order every migration runner uses. */
+function byteOrder(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** The generated source minus its `Generated:` timestamp line. */
+function withoutTimestamp(source: string): string {
+  return source.replace(/^ \* Generated: .*$/m, "");
+}
+
+async function bundleSql(check: boolean): Promise<void> {
   const appsDir = "./apps";
 
   console.log("Bundling SQL migration files...");
@@ -162,7 +184,10 @@ async function bundleSql(): Promise<void> {
     let sqlFiles: string[] = [];
     try {
       for await (const entry of Deno.readDir(migrationsPath)) {
-        if (entry.isFile && entry.name.endsWith(".sql")) {
+        if (
+          entry.isFile &&
+          (entry.name.endsWith(".sql") || entry.name.endsWith(".jsonc"))
+        ) {
           sqlFiles.push(entry.name);
         }
       }
@@ -174,7 +199,7 @@ async function bundleSql(): Promise<void> {
       throw error;
     }
 
-    sqlFiles.sort();
+    sqlFiles.sort(byteOrder);
 
     if (sqlFiles.length === 0) {
       continue;
@@ -186,9 +211,8 @@ async function bundleSql(): Promise<void> {
     for (const fileName of sqlFiles) {
       const filePath = join(migrationsPath, fileName);
       const content = toLf(await Deno.readTextFile(filePath));
-      const migrationName = fileName.replace(/\.sql$/, "");
-      bundle[appName][migrationName] = content;
-      console.log(`    - ${migrationName} (${content.length} chars)`);
+      bundle[appName][fileName] = content;
+      console.log(`    - ${fileName} (${content.length} chars)`);
     }
   }
 
@@ -199,6 +223,7 @@ async function bundleSql(): Promise<void> {
   );
 
   // Write bundle to all output paths
+  const stale: string[] = [];
   for (const outputPath of OUTPUT_PATHS) {
     // Derive a package name from the path for the bundle header comment
     const packageMatch = outputPath.match(/packages\/([^/]+)\//);
@@ -206,8 +231,30 @@ async function bundleSql(): Promise<void> {
       ? `@semantius/${packageMatch[1]}`
       : outputPath;
     const output = generateBundleSource(packageName, bundle);
+    if (check) {
+      let current = "";
+      try {
+        current = await Deno.readTextFile(outputPath);
+      } catch (error) {
+        if (!(error instanceof Deno.errors.NotFound)) throw error;
+      }
+      if (withoutTimestamp(current) !== withoutTimestamp(output)) {
+        stale.push(outputPath);
+      }
+      continue;
+    }
     await Deno.writeTextFile(outputPath, output);
     console.log(`\nBundle written to: ${outputPath}`);
+  }
+
+  if (check) {
+    if (stale.length > 0) {
+      console.error("\nStale or missing bundles (run: deno task bundle-sql):");
+      for (const p of stale) console.error(`  ${p}`);
+      Deno.exit(1);
+    }
+    console.log("\nAll bundles match apps/.");
+    return;
   }
 
   console.log(
@@ -215,4 +262,4 @@ async function bundleSql(): Promise<void> {
   );
 }
 
-await bundleSql();
+await bundleSql(Deno.args.includes("--check"));

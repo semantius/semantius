@@ -9,7 +9,8 @@
 # (so the role is LOGIN before the extension's migrations run).
 #
 # semantius_authenticator is the SESSION-mode login role (the Supabase/Neon
-# "authenticator" pattern). The core migrations (apps/_core/migrations/0011)
+# "authenticator" pattern). The core migrations
+# (apps/_core/migrations/0030_session_authenticator.sql)
 # create it NOLOGIN NOSUPERUSER NOINHERIT and GRANT it `authenticated`; here we
 # flip it to LOGIN and set its password — exactly how 10-roles.sql flips
 # `authenticated` to LOGIN. We also create it up-front (idempotently) so it can

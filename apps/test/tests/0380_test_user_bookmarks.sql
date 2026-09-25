@@ -1,18 +1,19 @@
 -- =====================================================
--- TEST: user_bookmarks (migration 0280)
+-- TEST: user_bookmarks (migration 0410_user_bookmarks.jsonc)
 -- =====================================================
 -- Covers:
 --   • Table and field metadata are registered correctly.
 --   • user_id is auto-assigned to the current user on INSERT.
---   • user_id is always forced back to the current user on UPDATE
---     (aaa_ trigger prevents reassigning ownership).
+--   • user_id is always forced back to the current user on INSERT and UPDATE,
+--     whatever the caller supplies, also after edit_permission changes (the
+--     computed field user_id = $user_id).
+--   • A write without claims is refused (platform rule 90207); a delete is not.
 --   • SELECT is restricted to own rows (select_rule / RLS).
 --   • UPDATE and DELETE are restricted to own rows (select_rule / RLS).
---   • INSERT policy rejects attempts to create records for another user.
 --   • row_order is auto-assigned and the order_column is registered.
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(30);
 
 -- =====================================================
 -- GROUP 1: Schema — entity and field metadata
@@ -83,12 +84,43 @@ SELECT ok(
 );
 
 -- =====================================================
+-- GROUP 1b: a session without claims
+-- =====================================================
+-- A fresh transaction carries no claims. $user_id is then null, so the
+-- computed user_id would be null; rule 90207 refuses the write instead.
+
+SELECT throws_ok(
+    $$INSERT INTO user_bookmarks (title, url) VALUES ('No Claims', 'https://example.net')$$,
+    '90207',
+    'A bookmark can only be written by an authenticated user',
+    'a bookmark write without claims is refused (rule 90207)'
+);
+
+-- A delete is exempt, so deleting a user still cascades to their bookmarks
+-- from a maintenance session. The row is written the normal way, by user2;
+-- then the role goes back to the connecting one and the claims are cleared, so
+-- the delete runs without claims. Not with session_replication_role: setting
+-- it needs superuser, which the suite must not require (Neon, Supabase).
+SELECT authenticate_as('user2');
+INSERT INTO user_bookmarks (title) VALUES ('Orphan Probe');
+RESET ROLE;
+DO $$
+BEGIN
+    PERFORM set_config('request.jwt.claim.sub', '', true);
+    PERFORM set_config('request.jwt.claim.role', '', true);
+END $$;
+SELECT lives_ok(
+    $$DELETE FROM user_bookmarks WHERE title = 'Orphan Probe'$$,
+    'a bookmark delete without claims is allowed'
+);
+
+-- =====================================================
 -- GROUP 2: user_id auto-assignment on INSERT
 -- =====================================================
 
 SELECT authenticate_as('user1');
 
--- Test 10: INSERT without supplying user_id; aaa_ trigger sets it to current user
+-- Test 10: INSERT without supplying user_id; the computed field sets it to the current user
 INSERT INTO user_bookmarks (title, url)
 VALUES ('My Bookmark', 'https://example.com');
 
@@ -98,14 +130,22 @@ SELECT is(
     'user_id should be auto-assigned to the current user (user1 = 1001) on INSERT'
 );
 
--- Test 11: user_id is always forced to the session user (aaa_ trigger always wins)
-INSERT INTO user_bookmarks (title, url)
-VALUES ('Override Attempt', 'https://example.org');
+-- Test 11: user_id is always forced to the session user, whatever the caller supplies
+INSERT INTO user_bookmarks (title, url, user_id)
+VALUES ('Override Attempt', 'https://example.org', 1002);
 
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'Override Attempt'),
     1001,
     'user_id should always be forced to the current user, ignoring any caller value'
+);
+
+-- An UPDATE cannot hand the bookmark to another user either.
+UPDATE user_bookmarks SET user_id = 1002 WHERE title = 'Override Attempt';
+SELECT is(
+    (SELECT user_id FROM user_bookmarks WHERE title = 'Override Attempt'),
+    1001,
+    'an UPDATE of user_id is forced back to the current user'
 );
 
 -- Test 12: row_order is auto-assigned starting at 10
@@ -226,21 +266,21 @@ SELECT ok(
     'user_bookmarks entity should have a non-empty select_rule'
 );
 
--- Test 24: aaa_ trigger function exists
-SELECT ok(
-    EXISTS (SELECT 1 FROM pg_proc
-            WHERE pronamespace = 'public'::regnamespace
-              AND proname = 'assign_user_id_user_bookmarks'),
-    'assign_user_id_user_bookmarks trigger function should exist'
+-- Test 24: user_id is a computed field fed from $user_id
+SELECT is(
+    (SELECT computed_fields FROM entities WHERE table_name = 'user_bookmarks'),
+    '[{"name": "user_id", "jsonlogic": {"var": "$user_id"}}]'::jsonb,
+    'user_bookmarks derives user_id from $user_id (computed field)'
 );
 
--- Test 25: aaa_ trigger is installed on user_bookmarks
+-- Test 25: the dictionary's compute trigger is installed on user_bookmarks
 SELECT ok(
     EXISTS (SELECT 1 FROM pg_trigger
             WHERE tgrelid = 'public.user_bookmarks'::regclass
-              AND tgname = 'aaa_assign_user_id_user_bookmarks'
+              AND tgname = 'compute_validate_trigger'
+              AND tgfoid = 'public.compute_validate_user_bookmarks()'::regprocedure
               AND NOT tgisinternal),
-    'aaa_assign_user_id_user_bookmarks trigger should be installed'
+    'compute_validate_trigger (compute_validate_user_bookmarks) should be installed'
 );
 
 -- Test 26: view_permission and edit_permission are both user:read
@@ -248,6 +288,22 @@ SELECT ok(
     (SELECT view_permission = 'user:read' AND edit_permission = 'user:read'
      FROM entities WHERE table_name = 'user_bookmarks'),
     'user_bookmarks permissions should be user:read for both view and edit'
+);
+
+-- =====================================================
+-- GROUP 8: an edit_permission change keeps user_id forced
+-- =====================================================
+-- The dictionary rebuilds the write policies on such a change; the computed
+-- field lives in the compute trigger, which that rebuild does not touch.
+SELECT authenticate_as('user3');
+UPDATE entities SET edit_permission = 'public:read' WHERE table_name = 'user_bookmarks';
+
+SELECT authenticate_as('user1');
+INSERT INTO user_bookmarks (title, user_id) VALUES ('After Permission Change', 1003);
+SELECT is(
+    (SELECT user_id FROM user_bookmarks WHERE title = 'After Permission Change'),
+    1001,
+    'after an edit_permission change, user_id is still forced to the current user'
 );
 
 SELECT * FROM finish();

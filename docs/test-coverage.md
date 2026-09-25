@@ -63,9 +63,9 @@ The universe is split in two, and every ratio is reported twice.
 number worth setting a threshold on.
 
 **`pgmq` is reported separately.** It is pgmq v1.11.1, third-party code that
-happens to be inlined into `apps/_core/migrations/0160_pgmq.sql` rather than
+happens to be inlined into `apps/_core/migrations/0310_pgmq.once.sql` rather than
 installed as an extension, which is why schema membership is the only thing that
-marks it. It stays in the measurement - the queue RPCs in `0170_queue.sql` depend
+marks it. It stays in the measurement - the queue RPCs in `0340_queue.sql` depend
 on it behaving, and a version bump arrives here as a migration edit that coverage
 should notice - but it does not dilute the headline.
 

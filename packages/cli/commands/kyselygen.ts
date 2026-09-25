@@ -12,7 +12,7 @@
  * Kysely is purely type-driven: there are no runtime table objects, only types.
  *
  * The type mapping mirrors public.format_to_data_type() / public.is_nullable()
- * (apps/_core/migrations/0070_dd_functions.sql) AND the runtime value decoding
+ * (apps/_core/migrations/0160_dd_functions.sql) AND the runtime value decoding
  * the example does via node-postgres' `pg-types` (keyed by column type OID). So
  * the generated types match what a query actually returns: integers are numbers,
  * timestamps are Dates, bigint/numeric come back as strings, jsonb as objects.

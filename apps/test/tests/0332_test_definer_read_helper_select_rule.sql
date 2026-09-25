@@ -2,7 +2,7 @@
 -- view_permission. This proves the CRITICAL bypass found by the stage-2 panel:
 --
 --   get_record_by_id() is SECURITY DEFINER (bypasses RLS) and authorizes on the entity's
---   view_permission ALONE (0070_dd_functions.sql:1523). When an entity has a select_rule,
+--   view_permission ALONE (get_record_by_id in 0160_dd_functions.sql). When an entity has a select_rule,
 --   the RLS SELECT policy uses the RULE (REPLACE semantics), but get_record_by_id keeps
 --   using view_permission — so any holder of view_permission (commonly public:read, which
 --   EVERY user has) can read a row the select_rule hides, one id at a time. The set_record
@@ -14,7 +14,7 @@
 -- EXPECTED ON CURRENT main: the "bypass" assertion FAILS (get_record_by_id returns the
 -- hidden row). After b1 (get_record_by_id applies access(row)) it goes green.
 --
--- Fixtures (0030_seed.sql): user1=1001, user2=1002 (holds public:read via the User role),
+-- Fixtures (apps/test/migrations/0030_seed.once.sql): user1=1001, user2=1002 (holds public:read via the User role),
 -- user3=admin.
 BEGIN;
 

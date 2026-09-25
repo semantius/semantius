@@ -1,6 +1,6 @@
 -- Test the field format list.
 --
--- dd_formats() (0060) holds SemSchema's formats.json and is the only list of
+-- dd_formats() (0120_dd_formats.sql) holds SemSchema's formats.json and is the only list of
 -- formats in the database: valid_format, the fields.format enum_values and
 -- format_to_json_type() are all derived from it, and get_schema() reports every
 -- property's format. These assertions pin the derivations, not the list's

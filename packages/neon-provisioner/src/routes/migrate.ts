@@ -9,7 +9,7 @@ const route = new Hono<{ Bindings: Bindings }>();
  *
  * Accepts a JSON body with:
  *   - database_url: string (required)
- *   - modules: string[]   (optional, defaults to all bundled apps)
+ *   - modules: string[]   (optional, defaults to _core alone)
  *
  * Returns JSON with migration result.
  */

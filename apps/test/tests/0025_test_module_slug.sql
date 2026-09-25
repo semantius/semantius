@@ -1,8 +1,8 @@
 -- Test module_slug derivation and validation
 --
 -- An empty module_slug is derived from module_name by auto_set_module_slug
--- (0020_rbac_schema.sql). The format is validated by a JsonLogic rule on the
--- modules entity (rule 90702, 0060_dd_schema.sql).
+-- (0070_rbac_schema.sql). The format is validated by a JsonLogic rule on the
+-- modules entity (rule 90702, 0150_dd_bootstrap.once.sql).
 -- Allowed: lowercase a-z, 0-9, '-', '_'. First character must be a-z or 0-9.
 -- Empty string is allowed (column default), and is what a name with no ASCII
 -- letter or digit derives.

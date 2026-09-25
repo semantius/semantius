@@ -2,7 +2,8 @@
 -- _core comments match the data dictionary (0480)
 -- =====================================================
 -- The table and column comments of the _core tables are generated from the DD
--- (dd_table_comment / dd_field_comment), in 0070 for the tables seeded before the
+-- (dd_table_comment / dd_field_comment), in 0240_dd_bootstrap_complete.once.sql
+-- for the tables seeded before the
 -- triggers exist and by the triggers for the rest. PostgREST shows these comments
 -- as descriptions in its OpenAPI output, so the DD description has to stay their
 -- only source. A COMMENT ON statement in a migration overwrites the generated text

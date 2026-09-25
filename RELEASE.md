@@ -61,48 +61,57 @@ rather than green only on one machine. `./release.sh --help` lists the flags;
 
 PGXN is separate and manual — see below.
 
-## What a re-release does not do
+## How a change reaches an existing database
 
-**It does not reach a database that already ran this version.** `migrate()`
-records each migration by name in `public._versions` and skips any name it has
-already applied:
+Every runner (the CLI's `migrate`, the extension's `CALL semantius.migrate()`,
+the provisioners) applies the same rules, recorded per file in
+`public._versions` as `<app>.<file name>` with the file's SHA-256:
 
-```sql
-IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0070_dd_functions') THEN
-  ...
-ELSE
-  v_skipped := v_skipped + 1;
-END IF;
-```
+| File | Runs |
+|---|---|
+| `NNNN_name.sql`, `NNNN_name.jsonc` (repeatable) | when it has no ledger row, or its text changed since it last ran |
+| `NNNN_name.once.sql`, `NNNN_name.once.jsonc` | when it has no ledger row; never again, even when changed |
+| `9900_*` and above | last, and after every pass that ran anything, including a failed one |
 
-There is no checksum comparison and no re-apply, and there is no 0.5.0 -> 0.5.0
-update path, so `ALTER EXTENSION pg_semantius UPDATE` is a no-op as well. A
-database that installed 0.5.0 before the re-release keeps the old SQL, and
-`semantius.status()` lists the changed migration in `changed_versions` from then
-on - the drift is detected, it just has no remedy.
+So a fix to a function, trigger, view or policy is an edit of its repeatable
+`.sql` file, and entity metadata is an edit of its `.jsonc` file; both reach an
+existing database on its next migrate. A change to a table, a column or seed
+data is a new `.once.` file numbered after every released file.
 
-**This is accepted, not a defect.** A re-release reaches fresh installs and
-fresh containers; an existing database is rebuilt or left behind. That is the
-price of developing 0.5.0 in place instead of accreting patch versions nobody
-has consumed. `changed_versions` is the intended signal that a database predates
-the current build.
+**Through the CLI**, the next `migrate` runs whatever changed. **Through the
+extension**, the migration texts are embedded in the installed
+`semantius.migrate()`, so a database runs the texts of the version it has
+installed:
 
-The two escape hatches, in the order they become relevant:
+- A **re-release of the same version** does not reach a database that already
+  installed it: there is no `0.5.0 -> 0.5.0` update path, so
+  `ALTER EXTENSION pg_semantius UPDATE` is a no-op and `migrate()` keeps the old
+  texts. This is accepted, not a defect - it is the price of developing a
+  version in place, and a re-release reaches fresh installs and containers.
+- **A new version** ships an upgrade script that replaces `migrate()` with the
+  full new bundle. `ALTER EXTENSION pg_semantius UPDATE` followed by
+  `CALL semantius.migrate()` then runs the new files and every changed
+  repeatable one.
 
-- **When a live database first has to be updated in place**, add an opt-in
-  `semantius.reapply('<app>.<migration>')` that re-runs one named migration and
-  updates its checksum. Only the migrations a re-release actually touched need
-  to be re-runnable, and they are known - so make them re-runnable as part of
-  the edit. Blanket re-apply is not an option: across the 28 `_core` migrations
-  there are 66 `CREATE TRIGGER` against 13 `DROP TRIGGER IF EXISTS`, 36
-  `CREATE INDEX` without `IF NOT EXISTS`, 76 seed `INSERT`s and 28
-  `ALTER TABLE ... ADD COLUMN`, so re-running an arbitrary migration fails or
-  duplicates data.
-- **Once 0.5.0 is final**, stop editing migrations at all: a fix becomes a new
-  migration file. `migrate()` then picks it up by name on every install, old and
-  new, with no new machinery - and it is the only form a `0.5.0 -> 0.5.1`
-  upgrade script can carry, because upgrade scripts contain migrations *added*
-  since the previous version.
+`semantius.pending()` lists what the next migrate would run.
+`semantius.status()` also lists, in `changed_versions`, the `.once.` files whose
+text differs from what ran - that is drift, and it has no remedy by design:
+a `.once.` file that shipped is never run again.
+
+**Forward only, additive only** once a version has been released: no down
+migrations, no edits to a released `.once.` file, and no rename, drop or type
+change of a table or column - add the new one, move the data, and leave the old
+one marked deprecated in its description. This is what keeps the repeatable
+files (current state, edited in place) and the `.once.` files (history, never
+edited) consistent: every `.once.` file sees the same starting point on a
+fresh install and on an upgrade. `pgdocker/pg-compare-installs.sh --upgrade
+<previous tag>` proves it: the previous release migrated forward must equal a
+fresh install.
+
+A change to a dictionary generator (`create_dd_table`, `build_select_rule_policy`,
+`build_record_logic_trigger`, ...) replaces the generator, not the policies,
+functions and triggers it generated earlier. It therefore ships with a `.once.`
+file that rebuilds the generated objects of every affected entity.
 
 ## What the version argument selects
 
@@ -125,11 +134,19 @@ script leading to it - so it is a stale artifact rather than history, and left i
 place it would make the generator refuse the target.
 
 From the moment a higher version is in the manifest, the lower one is frozen for
-the generator too, and **only migrations added in the higher version may
-be edited**. Editing one an earlier version already shipped fails the build,
-because the upgrade script carries only migrations *added* since the previous
-version - so such an edit could never reach an existing installation.
-`--allow-edited-migrations` waives it for a deliberate hot-patch.
+the generator too. The build then refuses:
+
+- an edit of a `.once.` file an earlier version shipped - it would never run on
+  a database that already has it, so fresh installs and upgrades would diverge;
+- a removed or renamed file an earlier version shipped - the ledger key is the
+  file name, so a renamed `.once.` file would run a second time;
+- an added file that sorts before the last file an earlier version shipped
+  (9900 and above excepted) - it would run mid-sequence on a fresh install but
+  last on an upgrade.
+
+`--allow-edited-migrations` waives the first two for a deliberate hot-patch; the
+third is fixed by renaming the file, never waived. Repeatable `.sql` and `.jsonc`
+files stay editable - that is their purpose.
 
 ## Pre-releases
 

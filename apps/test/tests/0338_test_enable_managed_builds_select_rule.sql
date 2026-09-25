@@ -1,6 +1,6 @@
 -- Test (b3, determinism guard): toggling entities.managed FALSE→TRUE must install the canonical
 -- select_rule policy, not just the permission-only default policies. enable_dd_table() now calls
--- build_select_rule_policy() itself (0145), so the per-row rule is enforced regardless of the
+-- build_select_rule_policy() itself (0180_managed_enable.sql), so the per-row rule is enforced regardless of the
 -- alphabetical firing order of the separate manage_select_rule_policy AFTER-trigger (F3).
 --
 -- This pins the end-to-end invariant (I1/I10 enforcement consistency across the F→T toggle): an

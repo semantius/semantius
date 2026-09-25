@@ -1,7 +1,7 @@
 -- =====================================================
 -- Owner hardening (0430)
 -- =====================================================
--- 0290_owner_hardening moves every Semantius core object to the dedicated
+-- 9900_owner_hardening moves every Semantius core object to the dedicated
 -- semantius_owner role (NOLOGIN, NOSUPERUSER, BYPASSRLS) when the installer
 -- was a superuser, so SECURITY DEFINER dictionary code no longer runs with
 -- superuser powers. On managed platforms (installer not a superuser) the

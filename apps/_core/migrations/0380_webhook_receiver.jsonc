@@ -1,0 +1,106 @@
+// Webhook receiver entities: webhook_receivers (configuration of the webhook
+// endpoints) and webhook_receiver_logs (one row per received delivery).
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "webhook_receivers",
+        "module_name": "_core",
+        "singular": "webhook_receiver",
+        "singular_label": "Webhook Receiver",
+        "plural_label": "Webhook Receivers",
+        "description": "Configuration for webhook endpoints",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "label",
+        "fields": [
+          // A reference to entities is a TEXT column (entities.table_name is
+          // TEXT). Listed first so it keeps the column position it had when it
+          // was pre-created; its NOT NULL and DEFAULT '' are set by
+          // 0390_webhook_receiver_setup.once.sql.
+          {"field_name": "table_name", "title": "Entity", "format": "reference", "is_pk": false, "field_order": 10,
+           "input_type": "default", "width": "default", "description": "Target table for webhook data",
+           "default_value": "", "enum_values": null,
+           "reference_table": "entities", "reference_delete_mode": "cascade", "relationship_label": "has receivers"},
+          {"field_name": "description", "title": "Description", "format": "text", "is_pk": false, "field_order": 20,
+           "input_type": "default", "width": "w", "description": "",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "auth_type", "title": "Authentication Type", "format": "enum", "is_pk": false, "field_order": 30,
+           "input_type": "default", "width": "default",
+           "description": "hmac = HMAC signature over the body; header = expected value in a named header",
+           "default_value": "none", "enum_values": ["none", "hmac", "header"],
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "secret", "title": "Secret", "format": "text", "is_pk": false, "field_order": 40,
+           "input_type": "default", "width": "default", "description": "",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "header_name", "title": "Header Name", "format": "text", "is_pk": false, "field_order": 45,
+           "input_type": "default", "width": "default", "description": "Custom header name for authentication",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "header_value", "title": "Header Value", "format": "text", "is_pk": false, "field_order": 46,
+           "input_type": "default", "width": "default", "description": "Expected value for custom header authentication",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "jsonata", "title": "JSONata Expression", "format": "jsonata", "is_pk": false, "field_order": 50,
+           "input_type": "default", "width": "w", "description": "Optional JSONata expression to transform incoming data",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "webhook_receiver_logs",
+        "module_name": "_core",
+        "singular": "webhook_receiver_log",
+        "singular_label": "Webhook Receiver Log",
+        "plural_label": "Webhook Receiver Logs",
+        "description": "Log of webhook receiver events",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "label",
+        "fields": [
+          // The parent reference to webhook_receivers (ON DELETE CASCADE).
+          {"field_name": "webhook_receiver_id", "title": "Webhook Receiver", "format": "parent", "is_pk": false, "field_order": 5,
+           "input_type": "default", "width": "default", "description": "",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "webhook_receivers", "reference_delete_mode": "cascade", "relationship_label": "has logs"},
+          // What the receiver matches a new delivery against: when a log for the
+          // same receiver and message_id already succeeded, the delivery is
+          // acknowledged and skipped.
+          {"field_name": "message_id", "title": "Message", "format": "text", "is_pk": false, "field_order": 10,
+           "input_type": "default", "width": "default",
+           "description": "The sender's webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.",
+           "default_value": "", "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "webhook_timestamp", "title": "Webhook Timestamp", "format": "date-time", "is_pk": false, "field_order": 30,
+           "input_type": "default", "width": "default", "description": "Timestamp from webhook source",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "received_timestamp", "title": "Received Timestamp", "format": "date-time", "is_pk": false, "field_order": 40,
+           "input_type": "disabled", "width": "default", "description": "",
+           "default_value": "CURRENT_TIMESTAMP", "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "payload", "title": "Payload", "format": "json", "is_pk": false, "field_order": 50,
+           "input_type": "default", "width": "w", "description": "",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "result", "title": "Result", "format": "enum", "is_pk": false, "field_order": 60,
+           "input_type": "default", "width": "default",
+           "description": "Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error",
+           "default_value": "10", "enum_values": ["10", "20", "30", "40", "50", "60"], "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "error_message", "title": "Error Message", "format": "text", "is_pk": false, "field_order": 70,
+           "input_type": "default", "width": "w", "description": "",
+           "default_value": "", "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""}
+        ]
+      }
+    }
+  ]
+}

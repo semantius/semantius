@@ -19,21 +19,20 @@
 -- Both pass here. Telling them apart takes EXPLAIN on a policy-guarded query and a look for
 -- SubPlan against InitPlan, which this file does not do.
 --
--- Every policy the generators emit is uncorrelated: they interpolate the permission NAME as a
--- literal through %L, so no column reference can appear inside the sub-select. The one
--- correlated policy in the catalog is hand-written - modules_select_policy in
--- 0050_rbac_rls.sql, USING ((select rbac.has_any_permission('admin', view_permission))), where
--- the per-module view_permission column is the whole point. It is accepted as it stands:
--- modules number under twenty, and the scan costs about 0.5 ms warm.
+-- Every permission check the generators emit is uncorrelated: they interpolate the permission
+-- NAME as a literal through %L, so no column reference can appear inside the sub-select. A
+-- rule that depends on the row - modules, whose rows are visible to whoever holds the row's
+-- own view_permission - is a select_rule, evaluated by the generated select_rule_<table>
+-- predicate per row, not a correlated permission sub-select.
 --
 -- Part 1 sweeps the installed catalog: no policy in any schema may contain a bare call.
 -- Part 2 drives every policy generator on throwaway entities and re-checks, so an edit that
 -- reintroduces `USING (rbac.has_permission(%L))` in a generator fails here even though the
 -- install-time catalog stays clean:
---   create_dd_table            (0070, entity INSERT)
---   update_entity_policies     (0070, edit_permission UPDATE)
---   build_select_rule_policy   (0180, the permission-only branch and the rule branch)
---   enable_dd_table            (0145, managed FALSE -> TRUE)
+--   create_dd_table            (0160_dd_functions.sql, entity INSERT)
+--   update_entity_policies     (0160_dd_functions.sql, edit_permission UPDATE)
+--   build_select_rule_policy   (0210_computed_validation.sql, the permission-only branch and the rule branch)
+--   enable_dd_table            (0180_managed_enable.sql, managed FALSE -> TRUE)
 -- enable_dd_table and update_entity_policies hand SELECT/UPDATE/DELETE to build_select_rule_policy,
 -- so of their own emissions only the INSERT policy reaches the catalog; a bare form in one of the
 -- shadowed emissions is dead code and is not detected here (confirmed by mutating each generator in turn).
@@ -62,7 +61,8 @@ SELECT plan(14);
 SELECT authenticate_as('user3');
 
 -- ---------------------------------------------------------------------------
--- Part 1: the installed catalog (0050, 0060, 0150, 0280 and the nwind entities)
+-- Part 1: the installed catalog (0100_rbac_rls.sql, 0200_audit_log.sql and the
+-- generated policies of every core and nwind entity)
 -- ---------------------------------------------------------------------------
 SELECT is(
     (SELECT string_agg(schemaname || '.' || tablename || '.' || policyname, ', '
@@ -186,7 +186,7 @@ SELECT is(
     4,
     'select_rule cleared: all four restored policies are in the sub-select form');
 
--- enable_dd_table (0145): entity defined unmanaged, then managed
+-- enable_dd_table (0180_managed_enable.sql): entity defined unmanaged, then managed
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column, managed)
 VALUES ('p1_unmanaged', 'p1_unmanaged_item', 'P1 Unmanaged', 'P1 Unmanageds',

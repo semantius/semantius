@@ -106,7 +106,7 @@ Runs migrations against an existing database.
 | Field          | Type       | Required | Description                                        |
 | -------------- | ---------- | -------- | -------------------------------------------------- |
 | `database_url` | `string`   | ✅       | Postgres connection string to migrate.             |
-| `modules`      | `string[]` | ❌       | Migration modules. Defaults to all bundled apps.   |
+| `modules`      | `string[]` | ❌       | Migration modules. Defaults to `_core` alone.      |
 
 ## `POST /refresh_cache`
 

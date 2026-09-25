@@ -24,13 +24,17 @@
 #   * one transaction PER FILE, not per statement and not one for the whole set
 #   * the migration's own rows and its public._versions row commit TOGETHER, so
 #     a failure can never leave applied SQL that nothing has recorded
-#   * _versions.name is '<app>.<file without .sql>', _versions.checksum is the
-#     SHA-256 of the file's LF-normalized text - the extension writes that
-#     column for _core, and the release's validate check ("applied rows whose
-#     source text has changed since") skips any row where it is NULL
-#   * files are applied in byte order of their names, the same order the CLI's
-#     sqlFileNames.sort() produces
-#   * a file already recorded in _versions is skipped, not reapplied
+#   * the files are NNNN_name.sql / .jsonc (repeatable) and NNNN_name.once.sql /
+#     .once.jsonc (run once); a misnamed file or a duplicate number is refused
+#   * _versions.name is '<app>.<full file name>', _versions.checksum is the
+#     SHA-256 of the file's LF-normalized text
+#   * files are applied in byte order of their names
+#   * a file runs when it has no _versions row, a repeatable one also when its
+#     checksum differs; a file numbered 9900 or above also runs when another
+#     file ran in this pass (on a failure this script stops instead, like the
+#     CLI's script mode)
+#   * a .jsonc runs as
+#       SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$<text>$pgsem_jsonc$));
 #   * an empty migration is an error, not a silent no-op
 #   * NOTIFY pgrst inside the transaction, so a running PostgREST reloads
 #
@@ -76,34 +80,36 @@ if [ "$(psql_scalar "SELECT count(*) FROM information_schema.columns WHERE table
     exit 1
 fi
 
-# Byte order, to match the CLI's sqlFileNames.sort(); a locale-aware sort can
-# order differently and would apply migrations out of sequence.
+# Byte order, the order every runner uses; a locale-aware sort can order
+# differently and would apply migrations out of sequence.
 export LC_ALL=C
-shopt -s nullglob
+
+mapfile -t files < <(cd "$MIGRATIONS_DIR" && ls -1 | grep -E '\.(sql|jsonc)$' | sort)
 
 applied=0
 skipped=0
+ran=0
+declare -A numbers=()
 
-for file in "$MIGRATIONS_DIR"/*.sql; do
-    base="$(basename "$file")"
-    name="${base%.sql}"
-    version="${APP}.${name}"
+for base in "${files[@]}"; do
+    file="$MIGRATIONS_DIR/$base"
+    version="${APP}.${base}"
 
     # The name is interpolated into a SQL literal below. Constraining it to the
-    # characters a migration file is ever named with is what makes that safe,
-    # and it also catches a file that was never meant to be shipped.
-    case "$name" in
-        *[!A-Za-z0-9._-]*)
-            echo "40-nwind.sh: refusing migration '$base' — unexpected characters in the name." >&2
-            exit 1
-            ;;
-    esac
-
-    if [ "$(psql_scalar "SELECT EXISTS (SELECT 1 FROM public._versions WHERE name = '${version}')")" = "t" ]; then
-        echo "  Skipping ${version} - already applied"
-        skipped=$((skipped + 1))
-        continue
+    # migration naming convention is what makes that safe, and it also catches
+    # a file that was never meant to be shipped.
+    if ! [[ "$base" =~ ^([0-9]{4})_[A-Za-z0-9_-]+(\.once)?\.(sql|jsonc)$ ]]; then
+        echo "40-nwind.sh: refusing migration '$base' — not NNNN_name[.once].sql or .jsonc." >&2
+        exit 1
     fi
+    number="${BASH_REMATCH[1]}"
+    once="${BASH_REMATCH[2]}"
+    kind="${BASH_REMATCH[3]}"
+    if [ -n "${numbers[$number]:-}" ]; then
+        echo "40-nwind.sh: '${numbers[$number]}' and '$base' share the number $number." >&2
+        exit 1
+    fi
+    numbers[$number]="$base"
 
     # The CLI raises on a migration that is empty or only whitespace; silently
     # recording one as applied would make it unrepeatable.
@@ -114,23 +120,55 @@ for file in "$MIGRATIONS_DIR"/*.sql; do
 
     # SHA-256 of the LF-normalized text - byte-identical to the CLI's
     # migrationChecksum(), so a database seeded here and one migrated by the CLI
-    # record the same value and both answer the validate check the same way.
+    # record the same value and apply the same run rule.
     checksum="$(tr -d '\r' < "$file" | sha256sum | cut -d ' ' -f 1)"
+    recorded="$(psql_scalar "SELECT coalesce((SELECT coalesce(checksum, '<null>') FROM public._versions WHERE name = '${version}'), '<none>')")"
+
+    due=0
+    if [ "$recorded" = "<none>" ]; then
+        due=1
+    elif [ "$((10#$number))" -ge 9900 ] && [ "$ran" -eq 1 ]; then
+        due=1
+    elif [ -z "$once" ] && [ "$recorded" != "$checksum" ]; then
+        due=1
+    fi
+    if [ "$due" -eq 0 ]; then
+        echo "  Skipping ${version} - $([ -n "$once" ] && [ "$recorded" != "$checksum" ] && echo 'run once, changed since' || echo 'unchanged')"
+        skipped=$((skipped + 1))
+        continue
+    fi
+
+    # A .jsonc is not SQL: it runs as the ensure_entities() call every runner
+    # makes, with the raw file text dollar-quoted.
+    body="$file"
+    if [ "$kind" = "jsonc" ]; then
+        if grep -qF '$pgsem_jsonc$' "$file"; then
+            echo "40-nwind.sh: ${base} contains \$pgsem_jsonc\$, which quotes the file." >&2
+            exit 1
+        fi
+        body="$(mktemp)"
+        { printf 'SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$'
+          tr -d '\r' < "$file"
+          printf '$pgsem_jsonc$));\n'; } > "$body"
+    fi
 
     # The bookkeeping goes in its own file rather than a -c argument because
     # psql does not interpolate -v variables inside -c, and psql applies
     # multiple -f arguments in order inside the single transaction.
     record="$(mktemp)"
-    printf "INSERT INTO public._versions (name, checksum) VALUES ('%s', '%s');\nNOTIFY pgrst, 'reload schema';\n" \
+    printf "INSERT INTO public._versions (name, checksum) VALUES ('%s', '%s')\n  ON CONFLICT (name) DO UPDATE SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;\nNOTIFY pgrst, 'reload schema';\n" \
         "$version" "$checksum" > "$record"
 
     echo "  Executing migration: ${version}"
-    if ! psql_run --single-transaction -f "$file" -f "$record"; then
+    ran=1
+    if ! psql_run --single-transaction -f "$body" -f "$record"; then
         rm -f "$record"
+        [ "$body" != "$file" ] && rm -f "$body"
         echo "40-nwind.sh: migration ${version} failed — nothing from it was committed." >&2
         exit 1
     fi
     rm -f "$record"
+    [ "$body" != "$file" ] && rm -f "$body"
 
     echo "  Migration ${version} completed and recorded"
     applied=$((applied + 1))

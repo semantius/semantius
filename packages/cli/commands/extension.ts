@@ -16,9 +16,11 @@
  *
  * Versioning follows the pgTAP model: a single current full install plus an
  * accumulated chain of upgrade scripts (so `ALTER EXTENSION ... UPDATE` works).
- * Because the `_core` migrations are append-only ordered deltas, both are derived
- * automatically — the upgrade script is just the migrations added since the prior
- * version (per versions.json); editing a released migration is detected and warned.
+ * Both embed the whole migration bundle and are derived automatically: migrate()
+ * decides per file from `_versions` what to run, so an upgrade runs the files
+ * added since the prior version (per versions.json) and every changed repeatable
+ * file. Editing a released `.once.` file, removing a released file, or adding one
+ * that sorts before the last released file is refused.
  *
  * SHAPE: a THIN INSTALLER, not a concatenation of the migrations.
  *
@@ -31,10 +33,16 @@
  *
  * Install is therefore two statements:
  *   CREATE EXTENSION pg_semantius;
- *   SELECT semantius.migrate();
+ *   CALL semantius.migrate();
+ *
+ * migrate() is a PROCEDURE that commits after every migration file, the same
+ * one-transaction-per-file shape as the CLI runner, and applies the run rules
+ * documented in packages/core/src/migrate.ts: repeatable files run again when
+ * their checksum changes, `.once.` files run once, the 9900 files follow any
+ * pass that ran something.
  *
  * The migration text is embedded VERBATIM in dollar-quoted EXECUTE blocks: no
- * rewriting, no lifting of CREATE EXTENSION (0010 creates pgcrypto itself,
+ * rewriting, no lifting of CREATE EXTENSION (0010_core.sql creates pgcrypto itself,
  * inside migrate(), under a pinned `search_path = public`), no audit silencer,
  * no `pg_extension_config_dump` (there are no member tables to register).
  *
@@ -42,14 +50,18 @@
  * prefix for system schemas. The extension keeps the `pg_semantius` name.
  */
 
-import { join } from "@std/path";
-import { getVersionsTableSql } from "@semantius/core";
+import {
+  compareFileNames,
+  FINAL_MIGRATION_NUMBER,
+  getVersionsTableSql,
+  isFinal,
+  isJsonc,
+  isOnce,
+  JSONC_TAG,
+  wrapJsonc,
+} from "@semantius/core";
 import { resolveAppDir, validateAppNames } from "../assets.ts";
-
-interface MigrationFile {
-  name: string;
-  content: string;
-}
+import { loadMigrationFiles, migrationTag } from "./migrate.ts";
 
 /**
  * The schema the installer owns. NOT `pg_semantius`: PostgreSQL refuses
@@ -91,14 +103,17 @@ interface ExtensionOptions {
   name: string;
   outputDir: string;
   /**
-   * Waive the released-migration check. OFF by default: a migration an earlier
-   * version already shipped may not be edited or removed, because the
-   * prev -> version upgrade script carries only migrations ADDED since prev, so
-   * the change can never reach an existing installation. Only migrations added
-   * IN THIS version are editable, which falls out of two things that must not be
-   * "fixed": highestVersionBelow()'s strict `< 0` filter (a version is never its
-   * own prev, so regenerating the highest version skips the check entirely) and
-   * the `k in prevFiles` test in the edit detection below.
+   * Waive the released-migration check. OFF by default: a `.once.` migration an
+   * earlier version already shipped may not be edited, and no shipped migration
+   * may be removed or renamed. A `.once.` file never runs again on a database
+   * that has it, so an edit would give fresh installs and upgraded ones two
+   * different schemas; the ledger key is the file name, so a rename runs the
+   * file a second time. Repeatable `.sql`/`.jsonc` files stay editable - that
+   * is what they are for. Migrations added IN THIS version are editable, which
+   * falls out of two things that must not be "fixed": highestVersionBelow()'s
+   * strict `< 0` filter (a version is never its own prev, so regenerating the
+   * highest version skips the check entirely) and the `k in prevFiles` test in
+   * the edit detection below.
    */
   allowEditedMigrations?: boolean;
   /**
@@ -161,7 +176,7 @@ export async function extensionCommand(
     `-- DO NOT EDIT MANUALLY - regenerate after changing migrations.`,
     `--`,
     `-- Install:  CREATE EXTENSION ${name};`,
-    `--           SELECT ${INSTALLER_SCHEMA}.migrate();`,
+    `--           CALL ${INSTALLER_SCHEMA}.migrate();`,
     ``,
     ``,
   ].join("\n");
@@ -183,7 +198,13 @@ export async function extensionCommand(
       continue;
     }
 
-    const migrationFiles = await loadSqlFiles(resolved.dir, "migrations");
+    let migrationFiles;
+    try {
+      migrationFiles = await loadMigrationFiles(resolved.dir, app);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      Deno.exit(1);
+    }
 
     if (migrationFiles.length === 0) {
       console.info(`No migration files found for ${app}`);
@@ -199,14 +220,18 @@ export async function extensionCommand(
       }
       // Verbatim, only LF-normalized. Nothing is lifted or rewritten: the
       // migrations run inside migrate(), not inside an extension script, so
-      // 0010's own `CREATE EXTENSION pgcrypto` is legal there.
+      // 0010_core.sql's own `CREATE EXTENSION pgcrypto` is legal there. A `.jsonc` runs
+      // as the same ensure_entities() call every runner makes; its checksum is
+      // of the file text, as in every other runner.
       const content = toLf(migration.content);
-      lintMigration(`${app}/${migration.name}`, content);
+      if (!isJsonc(migration.name)) {
+        lintMigration(`${app}/${migration.name}`, content);
+      }
       migs.push({
         app,
         name: migration.name,
         content,
-        processed: content,
+        processed: isJsonc(migration.name) ? wrapJsonc(content) : content,
         checksum: await sha256hex(content),
       });
     }
@@ -310,9 +335,47 @@ export async function extensionCommand(
     const added = migs.filter((m) => !(`${m.app}/${m.name}` in prevFiles));
     const edited = migs.filter((m) => {
       const k = `${m.app}/${m.name}`;
-      return k in prevFiles && prevFiles[k] !== currentFiles[k];
+      return isOnce(m.name) && k in prevFiles &&
+        prevFiles[k] !== currentFiles[k];
     });
     const removed = Object.keys(prevFiles).filter((k) => !(k in currentFiles));
+
+    // A file added after a release must sort after every file that release
+    // contains, or it runs mid-sequence on a fresh install but last on an
+    // upgrade, and the two databases can differ. The 9900 files are exempt on
+    // both sides: they run last either way.
+    const lastReleased = new Map<string, string>();
+    for (const k of Object.keys(prevFiles)) {
+      const slash = k.indexOf("/");
+      const app = k.slice(0, slash);
+      const file = k.slice(slash + 1);
+      if (/^\d{4}_/.test(file) && isFinal(file)) continue;
+      const cur = lastReleased.get(app);
+      if (cur === undefined || compareFileNames(file, cur) > 0) {
+        lastReleased.set(app, file);
+      }
+    }
+    const misplaced = added.filter((m) => {
+      const last = lastReleased.get(m.app);
+      return !isFinal(m.name) && last !== undefined &&
+        compareFileNames(m.name, last) < 0;
+    });
+    if (misplaced.length > 0) {
+      console.error(
+        `Error: ${misplaced.length} migration(s) added since ${prev} sort ` +
+          `before a file ${prev} already shipped:`,
+      );
+      for (const m of misplaced) {
+        console.error(
+          `  - ${m.app}/${m.name} (last shipped: ${lastReleased.get(m.app)})`,
+        );
+      }
+      console.error(
+        `They would run mid-sequence on a fresh install but last on an ` +
+          `upgrade. Renumber them after the last shipped file (below ` +
+          `${FINAL_MIGRATION_NUMBER}).`,
+      );
+    }
 
     const enforce = options.allowEditedMigrations !== true;
     const complain = (msg: string) =>
@@ -321,21 +384,20 @@ export async function extensionCommand(
 
     if (edited.length > 0) {
       complain(
-        `${label}: ${edited.length} migration(s) that ${prev} already shipped ` +
-          `were edited in place:`,
+        `${label}: ${edited.length} run-once migration(s) that ${prev} ` +
+          `already shipped were edited in place:`,
       );
       for (const m of edited) complain(`  - ${m.app}/${m.name}`);
       complain(
-        `Only migrations ADDED in ${version} may be edited. The ` +
-          `${prev} -> ${version} upgrade carries only migrations added since ` +
-          `${prev}, so an edit to an inherited one can never reach an existing ` +
-          `installation. Add a new migration instead.`,
+        `A .once. file never runs again on a database that has it, so the ` +
+          `edit would reach fresh installs only. Add a new .once. file instead.`,
       );
     }
     if (removed.length > 0) {
       complain(
         `${label}: ${removed.length} migration(s) from ${prev} no longer ` +
-          `exist; the upgrade script cannot undo them:`,
+          `exist (removed or renamed); the upgrade cannot undo them, and a ` +
+          `renamed file runs again:`,
       );
       for (const k of removed) complain(`  - ${k}`);
     }
@@ -346,6 +408,8 @@ export async function extensionCommand(
       );
       Deno.exit(1);
     }
+    // Not waivable: a misplaced file is fixed by renaming it, never shipped.
+    if (misplaced.length > 0) Deno.exit(1);
 
     const upgradeHeader = [
       `-- ${name} extension upgrade: ${prev} -> ${version}`,
@@ -357,9 +421,9 @@ export async function extensionCommand(
     // An upgrade is the SAME installer, minus `CREATE SCHEMA` (the schema
     // already exists) and with CREATE OR REPLACE for the functions - replacing
     // a member of the same extension inside its own script is allowed. The
-    // whole bundle is embedded, not just the delta: migrate() is idempotent
-    // per migration via `_versions`, so one code path serves install, upgrade
-    // and re-run.
+    // whole bundle is embedded, not just the delta: migrate() decides per file
+    // from `_versions` (new files, changed repeatable files, the 9900 files),
+    // so one code path serves install, upgrade and re-run.
     await Deno.writeTextFile(
       `${outputDir}/${name}--${prev}--${version}.sql`,
       toLf(
@@ -431,10 +495,10 @@ export async function extensionCommand(
   }
   console.log("");
   console.log(`Install:  CREATE EXTENSION ${name};`);
-  console.log(`          SELECT ${INSTALLER_SCHEMA}.migrate();`);
+  console.log(`          CALL ${INSTALLER_SCHEMA}.migrate();`);
   if (prev) {
     console.log(`Upgrade:  ALTER EXTENSION ${name} UPDATE TO '${version}';`);
-    console.log(`          SELECT ${INSTALLER_SCHEMA}.migrate();`);
+    console.log(`          CALL ${INSTALLER_SCHEMA}.migrate();`);
   }
   console.log("Extension generation completed!");
 }
@@ -637,9 +701,10 @@ function buildControlFile(
   ];
 
   // Deliberately NO `requires`. `CREATE EXTENSION ... CASCADE` would install
-  // pgcrypto into the CALLER's default creation schema, and 0110 calls
-  // gen_random_bytes/crypt/gen_salt unqualified under `search_path = public`,
-  // so API keys would break in exactly B2's scenario. 0010 creates pgcrypto
+  // pgcrypto into the CALLER's default creation schema, and 0280_apikeys.sql
+  // calls gen_random_bytes/crypt/gen_salt unqualified under
+  // `search_path = public`, so API keys would break in exactly B2's scenario.
+  // 0010_core.sql creates pgcrypto
   // itself, from inside migrate(), under the pinned search_path; META keeps it
   // as a runtime prereq and migrate()'s pre-flight refuses a misplaced one.
   void requires;
@@ -774,8 +839,14 @@ Two statements, as a superuser, in a UTF8 database:
 
 \`\`\`sql
 CREATE EXTENSION ${name};
-SELECT ${S}.migrate();
+CALL ${S}.migrate();
 \`\`\`
+
+\`${S}.migrate()\` is a procedure that commits after every migration file, so
+run it as its own statement, not inside \`BEGIN\` / \`COMMIT\` or \`psql -1\`
+(PostgreSQL refuses that with SQLSTATE 2D000 before anything is written). If a
+file fails, the files before it stay applied, the error names the file, and the
+next \`CALL\` continues from there.
 
 Do **not** use \`CASCADE\`. \`CREATE EXTENSION\` creates only the cluster roles,
 the \`${S}\` schema and its functions. \`${S}.migrate()\` then installs the
@@ -792,31 +863,40 @@ another schema the install refuses with a hint.
 
 \`\`\`sql
 ALTER EXTENSION ${name} UPDATE;
-SELECT ${S}.migrate();
+CALL ${S}.migrate();
 \`\`\`
 
-\`ALTER EXTENSION ... UPDATE\` replaces the installer functions; \`migrate()\`
-applies whatever is new. Both are safe to re-run: \`migrate()\` is idempotent
-per migration. \`SELECT * FROM ${S}.pending()\` lists what a \`migrate()\`
-would apply; \`SELECT * FROM ${S}.status()\` reports drift.
+\`ALTER EXTENSION ... UPDATE\` replaces the installer; \`migrate()\` applies
+whatever is due. Both are safe to re-run. \`SELECT * FROM ${S}.pending()\`
+lists what a \`migrate()\` would apply; \`SELECT * FROM ${S}.status()\`
+reports drift.
 
-**A re-released build of the same version does not reach an existing install.**
-\`migrate()\` records each migration by name and skips any name it has already
-applied, so a build that changed an existing migration rather than adding a new
-one is not re-applied: the database keeps the SQL it installed, and
-\`${S}.status()\` lists that migration in \`changed_versions\` until the
-database is rebuilt from the new build. Compare
-\`${S}.status().changed_versions\` against the build you expect before assuming
-a re-download changed anything.
+What is due is decided per file from \`public._versions\`, which records each
+file's name and the SHA-256 of its text:
+
+- a file with no row runs;
+- a repeatable file (\`NNNN_name.sql\`, \`NNNN_name.jsonc\`: functions,
+  triggers, views, policies, entity definitions) runs again when its text
+  changed;
+- a run-once file (\`NNNN_name.once.sql\`: tables, columns, seed rows) never
+  runs again; if its text changed, \`${S}.status()\` lists it in
+  \`changed_versions\`;
+- the files numbered 9900 and above (ownership hardening) run after any pass
+  that ran something.
+
+So a build that changed a function reaches an existing install on the next
+\`migrate()\`. A change made by hand to an object a repeatable file creates
+stays until that file changes again; to re-apply a file anyway, clear its
+checksum: \`UPDATE public._versions SET checksum = NULL WHERE name = '...';\`.
 
 ## Functions
 
 | Function | Purpose |
 |---|---|
-| \`${S}.migrate()\` | Applies the bundled migrations. Superuser only, idempotent, one transaction. |
-| \`${S}.pending()\` | Bundled migrations not yet applied. Works before the first migrate(). |
+| \`CALL ${S}.migrate()\` | Applies the bundled migrations that are due. Superuser only, one transaction per file, fails at once while another migration runs. |
+| \`${S}.pending()\` | Bundled migrations the next migrate() would apply. Works before the first migrate(). |
 | \`${S}.version()\` | Version of the installed bundle. |
-| \`${S}.status()\` | Applied/pending counts, unknown or changed migrations, ownership and default-ACL drift, and whether \`jwt_aud\` is set. |
+| \`${S}.status()\` | Applied/pending counts, unknown migrations, changed run-once migrations, ownership and default-ACL drift, and whether \`jwt_aud\` is set. |
 
 \`\\dx\` shows the *installer's* version, which is not necessarily the state of
 the installed schema; \`${S}.status()\` is the authority.
@@ -898,8 +978,8 @@ the install refuses.
 ## Session settings the caller controls
 
 \`migrate()\` pins \`search_path\`, \`standard_conforming_strings\` and
-\`check_function_bodies\`, and forces \`session_replication_role = origin\`, so
-an unusual session cannot change what gets installed. It still fails, by
+\`check_function_bodies\`, and forces \`session_replication_role = origin\`,
+before every file, so an unusual session cannot change what gets installed. It still fails, by
 design, under \`default_transaction_read_only\`, a \`statement_timeout\` or
 \`lock_timeout\` shorter than the install, or an isolation level above read
 committed.
@@ -952,54 +1032,15 @@ be given it. An app tier that sets the per-claim GUCs instead of
 | 55000 | \`pgcrypto must be installed in schema public\` |
 | 55000 | \`existing role semantius_owner has unexpected attributes\` |
 | 55000 | \`${S}.migrate() cannot run inside a CREATE/ALTER EXTENSION script\` |
+| 55P03 | \`another migration is running\` |
+| 2D000 | \`invalid transaction termination\` (\`CALL ${S}.migrate()\` inside a transaction block) |
+| P0001 | \`migration <app>.<file> failed: <message> (SQLSTATE <code>)\` |
 
 ## Requirements
 
 PostgreSQL 18 (the only tested version), a UTF8 database, and superuser rights
 to install. Security model and reporting: see \`SECURITY.md\` in this archive.
 `;
-}
-
-/** Loads all .sql files from {appDir}/{subfolder}/ sorted ascending. */
-async function loadSqlFiles(
-  appDir: string,
-  subfolder: string,
-): Promise<MigrationFile[]> {
-  const sqlPath = join(appDir, subfolder);
-
-  try {
-    const sqlFileNames: string[] = [];
-
-    for await (const dirEntry of Deno.readDir(sqlPath)) {
-      if (dirEntry.isFile && dirEntry.name.endsWith(".sql")) {
-        sqlFileNames.push(dirEntry.name);
-      }
-    }
-
-    sqlFileNames.sort();
-
-    const migrations: MigrationFile[] = [];
-    for (const fileName of sqlFileNames) {
-      const filePath = join(sqlPath, fileName);
-      const content = await Deno.readTextFile(filePath);
-      migrations.push({
-        name: fileName.replace(/\.sql$/, ""),
-        content,
-      });
-    }
-
-    return migrations;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) {
-      console.info(`No ${subfolder} folder found at: ${sqlPath}`);
-      return [];
-    }
-    console.error(
-      `Error reading ${subfolder} folder ${sqlPath}:`,
-      error instanceof Error ? error.message : String(error),
-    );
-    return [];
-  }
 }
 
 /** Human-readable byte size. */
@@ -1016,7 +1057,8 @@ function formatBytes(bytes: number): string {
  *
  * A naive scan cannot tell a standalone `SET search_path = ...` from the
  * identically spelled ATTRIBUTE CLAUSE of a CREATE FUNCTION, which these
- * migrations write at column 0 (0060, 0145, 0170, ...).
+ * migrations write at column 0 (0140_dd_schema.sql, 0180_managed_enable.sql,
+ * 0340_queue.sql, ...).
  */
 function topLevelStatements(sql: string): string[] {
   let out = "";
@@ -1073,12 +1115,15 @@ function topLevelStatements(sql: string): string[] {
 }
 
 /**
- * Refuses constructs that are safe in the CLI's per-file transactions but not
- * in migrate(), which runs all 34 migrations in ONE transaction:
- *   - a top-level SET/RESET would leak into every later migration;
- *   - transaction control would break the all-or-nothing install;
+ * Refuses constructs that the CLI runner accepts but migrate() cannot run
+ * safely. migrate() gives every file its own transaction too, but all files run
+ * in ONE session and through EXECUTE inside a procedure:
+ *   - a top-level SET/RESET would leak into every later file of the session
+ *     (SET LOCAL is fine: it ends with the file's transaction);
+ *   - transaction control inside EXECUTE would break the per-file commit;
  *   - CREATE INDEX CONCURRENTLY and COPY ... FROM STDIN cannot run there.
- * None of these exist today; the lint keeps it that way.
+ * None of these exist today; the lint keeps it that way. `.jsonc` files are
+ * not linted: they run as one generated SELECT.
  */
 function lintMigration(label: string, content: string): void {
   const banned =
@@ -1091,19 +1136,12 @@ function lintMigration(label: string, content: string): void {
         }`,
       );
       console.error(
-        "migrate() applies every migration in one transaction, so this would " +
-          "affect the migrations that follow it.",
+        "migrate() applies every migration in one session through EXECUTE, " +
+          "so this would affect the files that follow it or cannot run there.",
       );
       Deno.exit(1);
     }
   }
-}
-
-/** The dollar tag wrapping one embedded migration. */
-function migrationTag(m: { app: string; name: string }): string {
-  return `$pgsem_${m.app.replace(/[^A-Za-z0-9_]/g, "_")}_${
-    m.name.replace(/[^A-Za-z0-9_]/g, "_")
-  }$`;
 }
 
 /**
@@ -1114,7 +1152,8 @@ function migrationTag(m: { app: string; name: string }): string {
 function assertNoTagCollisions(
   migs: { app: string; name: string; content: string }[],
 ): void {
-  const tags = [OUTER_TAG, ...migs.map(migrationTag)];
+  // JSONC_TAG quotes the text of every `.jsonc` file inside its EXECUTE.
+  const tags = [OUTER_TAG, JSONC_TAG, ...migs.map(migrationTag)];
   for (const m of migs) {
     for (const tag of tags) {
       if (m.content.includes(tag)) {
@@ -1141,6 +1180,8 @@ function renderInstaller(
     app: string;
     name: string;
     content: string;
+    /** What EXECUTE runs: the file, or the ensure_entities() call of a `.jsonc`. */
+    processed: string;
     checksum: string;
   }[],
   opts: { upgrade: boolean; removedMembers?: string[] },
@@ -1149,38 +1190,88 @@ function renderInstaller(
   const orReplace = opts.upgrade ? "CREATE OR REPLACE" : "CREATE";
   const names = migs.map((m) => `${m.app}.${m.name}`);
 
+  // One block per file, in run order, each followed by COMMIT. The session
+  // settings are set again before every file because set_config(..., true)
+  // ends with the transaction, and a procedure that commits cannot carry SET
+  // clauses. The EXCEPTION block is the file's subtransaction: a failure rolls
+  // back only that file, records the error, and lets the 9900 files run before
+  // it is raised (the same rule as executeMigrations() in @semantius/core).
+  // SET CONSTRAINTS ALL IMMEDIATE moves the deferred-constraint checks from
+  // the COMMIT, where no handler could catch them, into the block.
+  let prevApp: string | undefined;
   const steps = migs.map((m) => {
     const tag = migrationTag(m);
-    const versionName = `${m.app}.${m.name}`;
-    return `
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '${
-      escapeSqlLiteral(versionName)
-    }') THEN
-    RAISE NOTICE '${name}: applying ${escapeSqlLiteral(versionName)}';
-    BEGIN
-      EXECUTE ${tag}${m.content}${tag};
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '${escapeSqlLiteral(versionName)}', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('${escapeSqlLiteral(versionName)}', '${m.checksum}');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+    const versionName = escapeSqlLiteral(`${m.app}.${m.name}`);
+    const due = isOnce(m.name)
+      ? `NOT v_found`
+      : `(NOT v_found OR v_sum IS DISTINCT FROM '${m.checksum}')`;
+    const condition = isFinal(m.name)
+      ? `v_ran OR (v_failed_file IS NULL AND ${due})`
+      : `v_failed_file IS NULL AND ${due}`;
+    const appStart = m.app === prevApp
+      ? ""
+      : `
+  -- App ${m.app}: v_ran records whether any of its files ran in this pass.
+  v_ran := false;
+`;
+    prevApp = m.app;
+    return `${appStart}
+  -- ${m.app}.${m.name}
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '${versionName}';
+    v_found := FOUND;
+    IF ${condition} THEN
+      v_ran := true;
+      RAISE NOTICE '${name}: applying ${versionName}';
+      EXECUTE ${tag}${m.processed}${tag};
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('${versionName}', '${m.checksum}')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '${versionName}';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\\n', 1));
+    ELSE
+      v_also := v_also || format(E'\\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '${versionName}', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 `;
   }).join("");
+
+  // What pending() and status() decide from: every file with its checksum and
+  // its run rule, in run order.
+  const fileList = JSON.stringify(
+    migs.map((m) => ({
+      app: m.app,
+      name: `${m.app}.${m.name}`,
+      checksum: m.checksum,
+      once: isOnce(m.name),
+      final: isFinal(m.name),
+    })),
+  ).replace(/'/g, "''");
 
   const drops = (opts.removedMembers ?? [])
     .map((sig) => `DROP FUNCTION IF EXISTS ${sig};\n`)
@@ -1188,7 +1279,7 @@ function renderInstaller(
 
   return `-- =====================================================
 -- Thin installer. This script creates ONLY cluster roles, the ${S} schema
--- and its functions. The 52 core relations, their triggers, policies and seed
+-- and its functions and procedure. The 52 core relations, their triggers, policies and seed
 -- rows are created by ${S}.migrate(), which runs OUTSIDE any extension
 -- script, so none of them becomes an extension member. That is what makes a
 -- plain pg_dump / single-pass pg_restore work and DROP EXTENSION harmless.
@@ -1293,15 +1384,15 @@ COMMENT ON SCHEMA ${S} IS
 `
   }
 ${drops}
--- 4. The installer. Not SECURITY DEFINER: current_user, session_user and the
---    superuser check must be the CALLER's, which 0010, 0050 and 0290 rely on.
---    The SET clauses pin the settings the migrations assume, so a hostile or
+-- 4. The installer, a PROCEDURE so it can commit after every file. Not
+--    SECURITY DEFINER: current_user, session_user and the superuser check
+--    must be the CALLER's, which 0010_core.sql, 0100_rbac_rls.sql and
+--    9900_owner_hardening.sql rely on. It pins the
+--    settings the migrations assume with set_config() before every file
+--    (a procedure that commits cannot have SET clauses), so a hostile or
 --    merely unusual session cannot change what gets installed.
-${orReplace} FUNCTION ${S}.migrate() RETURNS text
+${opts.upgrade ? `DROP FUNCTION IF EXISTS ${S}.migrate();\n` : ""}${orReplace} PROCEDURE ${S}.migrate(INOUT summary jsonb DEFAULT NULL)
 LANGUAGE plpgsql
-SET search_path = public
-SET standard_conforming_strings = on
-SET check_function_bodies = on
 AS ${OUTER_TAG}
 DECLARE
   v_applied int := 0;
@@ -1309,24 +1400,24 @@ DECLARE
   v_start   timestamptz := clock_timestamp();
   v_state text; v_msg text; v_detail text; v_hint text; v_ctx text;
   v_bad   text;
+  v_sum   text;
+  v_found boolean;
+  v_ran   boolean := false;
+  v_failed_file text;
+  v_fail_state text; v_fail_msg text; v_fail_detail text; v_fail_hint text;
+  v_also  text := '';
 BEGIN
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+
   IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
     RAISE EXCEPTION '${S}.migrate() must be run by a superuser (current_user is %)', current_user
       USING ERRCODE = '42501';
   END IF;
 
-  -- A superuser session left in 'replica' would silently disable every
-  -- dictionary trigger while the seed rows are written.
-  PERFORM set_config('session_replication_role', 'origin', true);
-
   IF (SELECT pg_catalog.pg_encoding_to_char(encoding)
         FROM pg_catalog.pg_database WHERE datname = current_database()) <> 'UTF8' THEN
     RAISE EXCEPTION '${name} requires a UTF8 database' USING ERRCODE = '55000';
   END IF;
-
-  -- The CLI runner's key (packages/cli/commands/migrate.ts), so two installers
-  -- queue and an installer and the CLI conflict correctly.
-  PERFORM pg_advisory_xact_lock(hashtext('migrate'));
 
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
     RAISE EXCEPTION 'the pgmq extension is installed; ${name} vendors its own pgmq schema and would overwrite it'
@@ -1369,41 +1460,81 @@ BEGIN
     END IF;
   END;
 
-  -- Same ledger the CLI runner uses, so either path recognizes the other's work.
-${
-    getVersionsTableSql().split("\n").map((l) => (l ? "  " + l : l)).join("\n")
-  }
-${steps}
-  -- Nothing the migrations created may belong to an extension.
-  SELECT string_agg(DISTINCT e.extname, ', ') INTO v_bad
-    FROM pg_depend d
-    JOIN pg_extension e ON e.oid = d.refobjid
-    JOIN pg_class c ON c.oid = d.objid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE d.refclassid = 'pg_extension'::regclass
-     AND d.deptype = 'e'
-     AND n.nspname IN (${CORE_SCHEMAS.map((x) => `'${x}'`).join(", ")})
-     AND e.extname NOT IN (${
-    MEMBERSHIP_ALLOWLIST.map((x) => `'${x}'`).join(", ")
-  });
-  IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION 'core objects became members of extension(s): %', v_bad
-      USING ERRCODE = '55000',
-            DETAIL = 'they would be dropped with that extension and skipped by pg_dump';
+  -- The first COMMIT comes before the lock is taken. CALL inside a transaction
+  -- block (BEGIN; CALL ...; or psql -1) cannot commit, and PostgreSQL raises
+  -- 2D000 right here, with nothing locked or written.
+  COMMIT;
+
+  -- One migration at a time, across the CLI runner, this procedure and the
+  -- provisioners (same key everywhere). A SESSION lock, because a transaction
+  -- lock would end with the first per-file COMMIT. Fail at once rather than
+  -- queue: a queued run would start on a half-finished first pass.
+  IF NOT pg_catalog.pg_try_advisory_lock(pg_catalog.hashtext('migrate')) THEN
+    RAISE EXCEPTION 'another migration is running'
+      USING ERRCODE = '55P03',
+            HINT = 'wait for it to finish, then CALL ${S}.migrate() again';
   END IF;
 
+  -- Same ledger the CLI runner uses, so either path recognizes the other's work.
+  BEGIN
+    PERFORM pg_catalog.set_config('search_path', 'public', true);
+${
+    getVersionsTableSql().split("\n").map((l) => (l ? "    " + l : l)).join("\n")
+  }
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+    RAISE;
+  END;
+  COMMIT;
+${steps}
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+
+  IF v_failed_file IS NOT NULL THEN
+    PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+    RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
+          v_failed_file, v_fail_msg, v_fail_state
+      USING DETAIL = v_fail_detail || v_also,
+            HINT   = v_fail_hint;
+  END IF;
+
+  BEGIN
+    -- Nothing the migrations created may belong to an extension.
+    SELECT string_agg(DISTINCT e.extname, ', ') INTO v_bad
+      FROM pg_depend d
+      JOIN pg_extension e ON e.oid = d.refobjid
+      JOIN pg_class c ON c.oid = d.objid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE d.refclassid = 'pg_extension'::regclass
+       AND d.deptype = 'e'
+       AND n.nspname IN (${CORE_SCHEMAS.map((x) => `'${x}'`).join(", ")})
+       AND e.extname NOT IN (${
+    MEMBERSHIP_ALLOWLIST.map((x) => `'${x}'`).join(", ")
+  });
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION 'core objects became members of extension(s): %', v_bad
+        USING ERRCODE = '55000',
+              DETAIL = 'they would be dropped with that extension and skipped by pg_dump';
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+    RAISE;
+  END;
+
   NOTIFY pgrst, 'reload schema';
+  PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
 
   RAISE NOTICE '${name}: % applied, % skipped in %',
     v_applied, v_skipped, clock_timestamp() - v_start;
-  RETURN format('%s applied, %s skipped in %s',
-                v_applied, v_skipped, clock_timestamp() - v_start);
+  summary := jsonb_build_object(
+    'applied', v_applied,
+    'skipped', v_skipped,
+    'elapsed', (clock_timestamp() - v_start)::text);
 END
 ${OUTER_TAG};
 
-REVOKE EXECUTE ON FUNCTION ${S}.migrate() FROM PUBLIC;
-COMMENT ON FUNCTION ${S}.migrate() IS
-  'Applies the bundled core migrations as ordinary objects. Superuser only. Idempotent.';
+REVOKE EXECUTE ON PROCEDURE ${S}.migrate(jsonb) FROM PUBLIC;
+COMMENT ON PROCEDURE ${S}.migrate(jsonb) IS
+  'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Superuser only. CALL it outside a transaction block.';
 
 -- 5. Read-only companions.
 ${orReplace} FUNCTION ${S}.pending() RETURNS SETOF text
@@ -1411,20 +1542,41 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_all text[] := ARRAY[${names.map((n) => `'${escapeSqlLiteral(n)}'`).join(", ")}];
+  v_files jsonb := '${fileList}'::jsonb;
+  f       jsonb;
+  v_app   text;
+  v_ran   boolean := false;
+  v_has   boolean := to_regclass('public._versions') IS NOT NULL;
+  v_sum   text;
+  v_found boolean;
 BEGIN
-  -- Works before _versions exists (i.e. before the first migrate()).
-  IF to_regclass('public._versions') IS NULL THEN
-    RETURN QUERY SELECT unnest(v_all);
-  ELSE
-    RETURN QUERY SELECT x FROM unnest(v_all) AS x
-      WHERE NOT EXISTS (SELECT 1 FROM public._versions v WHERE v.name = x);
-  END IF;
+  -- The files the next migrate() would run, by the same rules: no ledger row;
+  -- a repeatable file whose checksum differs; a 9900 file after anything else
+  -- of its app. Works before _versions exists (before the first migrate()).
+  FOR f IN SELECT e FROM jsonb_array_elements(v_files) WITH ORDINALITY AS t(e, i) ORDER BY i
+  LOOP
+    IF v_app IS DISTINCT FROM f->>'app' THEN
+      v_app := f->>'app';
+      v_ran := false;
+    END IF;
+    v_found := false;
+    v_sum := NULL;
+    IF v_has THEN
+      SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = f->>'name';
+      v_found := FOUND;
+    END IF;
+    IF NOT v_found
+       OR ((f->>'final')::boolean AND v_ran)
+       OR (NOT (f->>'once')::boolean AND v_sum IS DISTINCT FROM f->>'checksum') THEN
+      v_ran := true;
+      RETURN NEXT f->>'name';
+    END IF;
+  END LOOP;
 END
 $pgsem_pending$;
 REVOKE EXECUTE ON FUNCTION ${S}.pending() FROM PUBLIC;
 COMMENT ON FUNCTION ${S}.pending() IS
-  'Bundled migrations not yet applied to this database.';
+  'Bundled migrations the next migrate() would run: new files, changed repeatable files, and the 9900 files that follow them.';
 
 ${orReplace} FUNCTION ${S}.version() RETURNS text
 LANGUAGE sql STABLE
@@ -1455,6 +1607,11 @@ SET search_path = public
 AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY[${names.map((n) => `'${escapeSqlLiteral(n)}'`).join(", ")}];
+  v_once text[] := ARRAY[${
+    migs.filter((m) => isOnce(m.name))
+      .map((m) => `'${escapeSqlLiteral(`${m.app}.${m.name}`)}'`)
+      .join(", ")
+  }]::text[];
   v_sums jsonb := '${
     JSON.stringify(
       Object.fromEntries(migs.map((m) => [`${m.app}.${m.name}`, m.checksum])),
@@ -1497,15 +1654,18 @@ BEGIN
       INTO unknown_versions
       FROM public._versions v
      WHERE v.name LIKE '%.%' AND NOT (v.name = ANY(v_all));
-    -- Applied rows whose source text has changed since (Flyway's validate).
+    -- Run-once files whose source text has changed since they were applied
+    -- (Flyway's validate). They are not re-run, so the database keeps what
+    -- the old text created. A changed repeatable file is not listed here: the
+    -- next migrate() runs it, and pending() already says so.
     SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
       INTO changed_versions
       FROM public._versions v
-     WHERE v.name = ANY(v_all)
+     WHERE v.name = ANY(v_once)
        AND v.checksum IS NOT NULL
        AND v.checksum IS DISTINCT FROM (v_sums ->> v.name);
   END IF;
-  pending := array_length(v_all, 1) - applied;
+  SELECT count(*)::int INTO pending FROM ${S}.pending();
 
   SELECT count(*)::int INTO unowned_objects
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -1527,6 +1687,6 @@ END
 $pgsem_status$;
 REVOKE EXECUTE ON FUNCTION ${S}.status() FROM PUBLIC;
 COMMENT ON FUNCTION ${S}.status() IS
-  'Install health: version drift, unknown or changed migrations, ownership and default-ACL drift after a restore, and whether the JWT audience is pinned.';
+  'Install health: version drift, pending, unknown or changed run-once migrations, ownership and default-ACL drift after a restore, and whether the JWT audience is pinned.';
 `;
 }

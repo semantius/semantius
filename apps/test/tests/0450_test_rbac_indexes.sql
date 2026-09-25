@@ -1,6 +1,6 @@
 -- The RBAC index set: what must not come back, and what must keep working.
 --
--- Every table 0020_rbac_schema.sql creates already carries a unique index over
+-- Every table 0060_rbac_schema.once.sql creates already carries a unique index over
 -- the columns its lookups filter on - either as the whole key (module_name,
 -- permission_name, role_name, roles.slug) or as the leading columns of a
 -- composite one (the four junction tables). A second plain index over the same
@@ -18,9 +18,11 @@
 -- GROUP 3 states the identity rule on users.external_id, which is a
 -- data-integrity rule rather than an index detail: the only unique index on
 -- that column is the dictionary's partial one, which excludes the empty
--- string, so the table refuses the empty string outright (0020). A user must
+-- string, so the table refuses the empty string outright
+-- (users_external_id_not_empty, 0060_rbac_schema.once.sql). A user must
 -- bring an identity - the provider's sub - and is refused without one; an
--- agent (is_agent) saved without one gets agent:<uuid> from the 0210 trigger.
+-- agent (is_agent) saved without one gets agent:<uuid> from the
+-- assign_agent_external_id trigger (0370_raci.sql).
 -- Together these make the partial index total in effect and leave no row that
 -- no session could act as. Asserted here so that weakening any of it is a
 -- visible decision.

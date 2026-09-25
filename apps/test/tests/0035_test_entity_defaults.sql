@@ -1,6 +1,6 @@
 -- Test entity insert defaults: singular, singular_label, and the name field title.
 --
--- See 0230_entity_insert_defaults.sql:
+-- See 0220_entity_insert_defaults.sql:
 --   * snake_to_label() converts snake_case -> Title Case
 --   * a BEFORE INSERT trigger derives singular (de-pluralized table_name) and
 --     singular_label (snake_to_label of label_column) when left blank

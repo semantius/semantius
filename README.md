@@ -107,7 +107,7 @@ Then, in the target database, two statements — and **no `CASCADE`**:
 
 ```sql
 CREATE EXTENSION pg_semantius;   -- roles, the `semantius` schema, its functions
-SELECT semantius.migrate();      -- pgcrypto, schemas, dictionary, seed rows
+CALL semantius.migrate();        -- pgcrypto, schemas, dictionary, seed rows
 ```
 
 `CREATE EXTENSION` is deliberately thin: it creates only the four cluster roles

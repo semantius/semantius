@@ -311,10 +311,10 @@ jobs:
 
           \`\`\`sql
           CREATE EXTENSION pg_semantius;
-          SELECT semantius.migrate();
+          CALL semantius.migrate();
           \`\`\`
 
-          \`CREATE EXTENSION\` creates only the cluster roles, the \`semantius\` schema and its functions; \`semantius.migrate()\` installs the core schema as ordinary objects, which is what makes a plain \`pg_dump\`, a single-pass \`pg_restore\` and a harmless \`DROP EXTENSION\` work.
+          \`CREATE EXTENSION\` creates only the cluster roles, the \`semantius\` schema and its functions; \`semantius.migrate()\` installs the core schema as ordinary objects, which is what makes a plain \`pg_dump\`, a single-pass \`pg_restore\` and a harmless \`DROP EXTENSION\` work. It is a procedure that commits after every migration file, so run it outside a transaction block.
 
           \`pg_semantius-$V.zip\` is also the PGXN distribution archive (contains META.json).
 

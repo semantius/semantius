@@ -13,11 +13,7 @@
  */
 
 import { neon } from "@neondatabase/serverless";
-import {
-  ensureVersionsTable,
-  executeMigrations,
-  type MigrationFile,
-} from "@semantius/core";
+import { type AppMigrations, runMigrations } from "@semantius/core";
 import {
   getBundledAppNames,
   getBundledMigrations,
@@ -87,51 +83,21 @@ export async function migrate(
     },
   };
 
-  // Acquire advisory lock to prevent concurrent migrations
-  const lockResult = await dbClient.queryObject(
-    "SELECT pg_try_advisory_lock(hashtext('migrate')) AS acquired",
+  const apps: AppMigrations[] = [];
+  for (const appName of appsToMigrate) {
+    const migrations = getBundledMigrations(appName);
+    if (migrations.length === 0) {
+      log(`No bundled migrations found for app: ${appName} - skipping`);
+      continue;
+    }
+    log(`Migrating app: ${appName} (${migrations.length} file(s))`);
+    apps.push({ app: appName, migrations });
+  }
+
+  const result = await runMigrations(dbClient, apps);
+  log(
+    `All migrations completed successfully (${result.applied} applied, ${result.skipped} skipped).`,
   );
-  const lockAcquired = (lockResult.rows[0] as { acquired: boolean }).acquired;
-
-  if (!lockAcquired) {
-    throw new Error(
-      "Failed to acquire migration lock. Another migration may already be running.",
-    );
-  }
-
-  logVerbose("Migration lock acquired");
-
-  try {
-    for (const appName of appsToMigrate) {
-      const migrations: MigrationFile[] = getBundledMigrations(appName);
-
-      if (migrations.length === 0) {
-        log(`No bundled migrations found for app: ${appName} - skipping`);
-        continue;
-      }
-
-      log(`Migrating app: ${appName} (${migrations.length} file(s))`);
-      await ensureVersionsTable(dbClient);
-      await executeMigrations(appName, migrations, dbClient);
-      log(`Completed: ${appName}`);
-    }
-
-    log("All migrations completed successfully.");
-  } finally {
-    try {
-      await dbClient.queryObject(
-        "SELECT pg_advisory_unlock(hashtext('migrate'))",
-      );
-      logVerbose("Migration lock released");
-    } catch (unlockError) {
-      console.error(
-        "[semantius/provisioning] Warning: failed to release migration lock:",
-        unlockError instanceof Error
-          ? unlockError.message
-          : String(unlockError),
-      );
-    }
-  }
 
   return {
     success: true,

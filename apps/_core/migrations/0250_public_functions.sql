@@ -1,0 +1,857 @@
+-- =====================================================
+-- PUBLIC FUNCTIONS
+-- =====================================================
+-- User-facing functions in the public schema
+-- These provide convenient access to RBAC and user information
+-- =====================================================
+
+-- =====================================================
+-- GET USER MODULES (Helper function)
+-- =====================================================
+-- Get modules the current user has permission to view
+-- This function manually filters modules by permission since it may be
+-- called from a SECURITY DEFINER context where RLS is bypassed
+-- Used internally by get_userinfo()
+CREATE OR REPLACE FUNCTION public.get_user_modules()
+RETURNS JSONB AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
+        FROM modules m
+        WHERE rbac.has_any_permission('admin', m.view_permission)),
+        '[]'::jsonb
+    );
+END;
+-- STABLE: writes no row, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_modules IS 
+'Returns modules array filtered by RLS. Used internally by get_userinfo().';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
+
+-- =====================================================
+-- GET USER INFO
+-- =====================================================
+
+-- Get current authenticated user's information
+-- Returns the user record from the users table for the current JWT as JSON
+-- IMPORTANT: This function creates/updates the user record and updates last_seen
+-- Clients should call this function when they detect a new login to initialize the user
+CREATE OR REPLACE FUNCTION public.get_userinfo()
+RETURNS JSONB AS $$
+DECLARE
+    v_external_id TEXT;
+    v_email TEXT;
+    v_display_name TEXT;
+    v_first_name TEXT;
+    v_last_name TEXT;
+    v_user_id INTEGER;
+    v_result JSONB;
+    v_roles JSONB;
+    v_permissions JSONB;
+    v_modules JSONB;
+BEGIN
+    -- Get current user from JWT
+    v_external_id := rbac.uid();
+
+    -- Get claims from JWT
+    v_email := current_setting('request.jwt.claim.email', true);
+    v_display_name := current_setting('request.jwt.claim.name', true);
+    v_first_name := current_setting('request.jwt.claim.given_name', true);
+    v_last_name := current_setting('request.jwt.claim.family_name', true);
+
+    -- Create or update user record and update last_seen
+    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
+    
+    -- Verify user was created/found successfully
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
+            USING ERRCODE = '90008',
+                  HINT = jsonb_build_object('external_id', v_external_id)::text;
+    END IF;
+
+    -- Build roles array with role details
+    SELECT COALESCE(jsonb_agg(
+        jsonb_build_object(
+            'role_id', r.id,
+            'role_name', r.role_name,
+            'description', r.description,
+            'module_id', r.module_id,
+            'assigned_at', ur.assigned_at
+        ) ORDER BY r.role_name
+    ), '[]'::jsonb)
+    INTO v_roles
+    FROM user_roles ur
+    JOIN roles r ON ur.role_id = r.id
+    WHERE ur.user_id = v_user_id;
+    
+    -- Build permissions array (all effective permissions including inherited)
+    SELECT COALESCE(jsonb_agg(
+        permission_name ORDER BY permission_name
+    ), '[]'::jsonb)
+    INTO v_permissions
+    FROM rbac.get_user_permissions_by_id(v_user_id);
+
+    -- Prime the context cache with the permissions just computed above, rather
+    -- than leaving get_user_modules() -> has_any_permission() to reach
+    -- ensure_context_initialized() and resolve the identical set a second time.
+    -- The recursive permission query is the expensive part of this function, and
+    -- on a first login it would otherwise run twice in one call.
+    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
+    PERFORM set_config('app.current_external_id', v_external_id, true);
+    PERFORM set_config('app.user_permissions', COALESCE(
+        (SELECT string_agg(p.value #>> '{}', ',' ORDER BY p.value #>> '{}')
+         FROM jsonb_array_elements(v_permissions) AS p(value)),
+        ''
+    ), true);
+    PERFORM set_config('app.context_initialized', 'true', true);
+
+    -- Build modules array (filtered by permissions via helper function)
+    v_modules := public.get_user_modules();
+    
+    -- Build the final JSON result
+    SELECT jsonb_build_object(
+        'user_id', u.id,
+        'external_id', u.external_id,
+        'email', u.email,
+        'display_name', u.display_name,
+        'first_name', u.first_name,
+        'last_name', u.last_name,
+        'is_disabled', u.is_disabled,
+        'created_at', u.created_at,
+        'updated_at', u.updated_at,
+        'last_seen', u.last_seen,
+        'roles', v_roles,
+        'permissions', v_permissions,
+        'modules', v_modules
+    )
+    INTO v_result
+    FROM users u
+    WHERE u.id = v_user_id;
+    
+    -- Final safety check (should never be NULL after previous validations)
+    IF v_result IS NULL THEN
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
+            USING ERRCODE = '90010',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
+    END IF;
+    
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_userinfo IS
+'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA CHILDREN
+-- =====================================================
+
+-- Get child relationships for a table
+-- Returns an array of fields that reference the given table with format='parent'
+-- Each child entry includes: fields.id, fields.title, entities.singular_label,
+-- entities.plural_label, entities.id_column, entities.label_column
+CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_result JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT COALESCE(
+        json_agg(
+            json_build_object(
+                'id', f.id,
+                'title', f.title,
+                'singular_label', e.singular_label,
+                'plural_label', e.plural_label,
+                'singular_label_parent', f.singular_label_parent,
+                'plural_label_parent', f.plural_label_parent,
+                'id_column', e.id_column,
+                'label_column', e.label_column
+            ) ORDER BY f.id
+        ),
+        '[]'::json
+    )
+    INTO v_result
+    FROM fields f
+    JOIN entities e ON f.table_name = e.table_name
+    WHERE f.reference_table = p_table_name
+      AND f.format = 'parent';
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_schema_children IS 
+'Returns array of child relationships (fields with format=''parent'') that reference the given table. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA FOR TABLE (Internal helper)
+-- =====================================================
+
+-- Helper that builds a schema JSON for a single table. Self-gating: it applies the
+-- view_permission check itself and raises undefined_table for a table the caller
+-- may not view, so it is safe to expose directly to the request role.
+-- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
+CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_result JSON;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+
+    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
+    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
+    -- callers — otherwise any request-role caller reads any table's full schema (including its
+    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
+    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
+    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
+    -- harmless) for them.
+    IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    -- Build properties object from fields
+    -- Each field becomes a property with JSON Schema attributes
+    WITH ordered_fields AS (
+        SELECT 
+            f.field_name,
+            f.format,
+            f.title,
+            f.description,
+            f.default_value,
+            f.input_type,
+            f.width,
+            f.field_order,
+            CASE WHEN jsonb_typeof(f.enum_values) = 'array' THEN f.enum_values ELSE NULL END AS enum_values,
+            f.reference_table,
+            f.reference_delete_mode,
+            f.ctype,
+            f.searchable,
+            f.cube_type,
+            f.singular_label_parent,
+            f.plural_label_parent,
+            f.unique_value,
+            f."precision",
+            f.relationship_label,
+            f.input_type_rule,
+            -- Join with tables to get id_column and label_column when reference_table is set
+            -- COALESCE to empty string is intentional: provides consistent output when referenced table
+            -- doesn't exist or is missing columns. The JSON assembly below emits
+            -- these four only for a field whose format is a reference and whose
+            -- reference_table is not empty, so an empty string never reaches the
+            -- output as a value.
+            COALESCE(t.id_column, '') AS reference_table_id_column,
+            COALESCE(t.label_column, '') AS reference_table_label_column,
+            COALESCE(t.singular_label, '') AS reference_table_singular_label,
+            COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- The property's JSON type. A reference takes the type of the key it
+            -- points at, so entities/permissions come out "string" and users
+            -- "integer"; a hard-coded list of text-keyed tables would go stale the
+            -- first time an entity changes its key.
+            field_json_type(f.format, f.reference_table) AS json_type
+        FROM fields f
+        LEFT JOIN entities t ON f.reference_table = t.table_name
+        WHERE f.table_name = p_table_name
+        ORDER BY f.field_order
+    ),
+    properties_with_defaults AS (
+        SELECT 
+            field_name,
+            field_order,
+            (jsonb_build_object(
+                'type', json_type,
+                'title', title,
+                'description', description,
+                'inputMode', input_type,
+                'width', width,
+                'field_order', field_order
+            ) || 
+            -- Add ctype field if present
+            CASE 
+                WHEN ctype IS NOT NULL AND ctype != ''
+                THEN jsonb_build_object('ctype', ctype)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
+            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+            -- Add searchable field
+            jsonb_build_object('searchable', searchable) ||
+            -- Add cube_type field
+            jsonb_build_object('cube_type', cube_type) ||
+            -- Add unique_value field
+            jsonb_build_object('unique_value', unique_value) ||
+            -- Add precision only for number formats
+            CASE
+                WHEN format_to_json_type(format)::text = '"number"'
+                THEN jsonb_build_object('precision', "precision")
+                ELSE '{}'::jsonb
+            END ||
+            -- Add input_type_rule only when a non-empty JsonLogic rule is set
+            CASE
+                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
+                THEN jsonb_build_object('input_type_rule', input_type_rule)
+                ELSE '{}'::jsonb
+            END ||
+            jsonb_build_object('format', format) ||
+            -- Add enum field if enum_values is present
+            CASE
+                WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
+                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
+                ELSE '{}'::jsonb
+            END ||
+            -- Add reference_table field if format is 'reference' or 'parent'
+            CASE 
+                WHEN format IN ('reference', 'parent') AND reference_table != ''
+                THEN jsonb_build_object(
+                    'reference_table', reference_table,
+                    'reference_delete_mode', reference_delete_mode,
+                    'relationship_label', relationship_label,
+                    'reference_table_id_column', reference_table_id_column,
+                    'reference_table_label_column', reference_table_label_column,
+                    'reference_table_singular_label', reference_table_singular_label,
+                    'reference_table_plural_label', reference_table_plural_label
+                )
+                ELSE '{}'::jsonb
+            END ||
+            -- Add singular_label_parent / plural_label_parent for parent fields when set
+            CASE
+                WHEN format = 'parent' AND singular_label_parent != ''
+                THEN jsonb_build_object(
+                    'singular_label_parent', singular_label_parent,
+                    'plural_label_parent', plural_label_parent
+                )
+                ELSE '{}'::jsonb
+            END ||
+            -- Add default field separately to handle type conversion properly
+            CASE
+                -- Enum: use effective default (first value when required without explicit default, else '')
+                WHEN format = 'enum' THEN
+                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
+                WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
+                    CASE
+                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
+                        -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                        ELSE jsonb_build_object('default', trim(both '''' from default_value))
+                    END
+                -- For string types without explicit default, add empty string default. Not for a
+                -- reference to a text-keyed entity (permissions, entities): its column is nullable
+                -- and '' names no row, so a client that saves the default fails the foreign key.
+                -- With no default the client starts it empty and leaves it out of the write, as it
+                -- does for a reference to an integer-keyed entity.
+                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent') THEN jsonb_build_object('default', '')
+                -- For JSON types without explicit default, add empty object default
+                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
+                ELSE '{}'::jsonb
+            END) AS property_value
+        FROM ordered_fields
+    ),
+    -- Derived composed-label columns are surfaced as ORDINARY properties, discriminated only by
+    -- ctype (_label / fk_label) and ordered so each <fk>_label sits immediately after its FK. They
+    -- are read-only computed columns (writable:false) and absent from the fields catalog / read_field.
+    label_props AS (
+        SELECT
+            '_label'::text AS field_name,
+            (COALESCE((SELECT field_order FROM fields
+                       WHERE table_name = p_table_name AND ctype = 'label'
+                       ORDER BY field_order LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            jsonb_build_object(
+                'type', 'string', 'format', 'text',
+                'title', v_table_record.singular_label,
+                'description', 'Composed, human-readable label folded from the parent chain',
+                'inputMode', 'readonly', 'width', 'default',
+                'field_order', COALESCE((SELECT field_order FROM fields
+                                         WHERE table_name = p_table_name AND ctype = 'label'
+                                         ORDER BY field_order LIMIT 1), 1),
+                'ctype', '_label', 'is_core', false, 'searchable', false,
+                'writable', false, 'selectable', true,
+                'source', NULLIF(v_table_record.label_parent, '')
+            ) AS property_value
+        UNION ALL
+        SELECT
+            f.field_name || '_label',
+            (f.field_order::numeric * 1000 + 1) AS sort_order,
+            jsonb_build_object(
+                'type', 'string', 'format', 'text',
+                'title', f.title,
+                'description', 'Composed label of the referenced '
+                               || COALESCE(e2.singular_label, f.reference_table),
+                'inputMode', 'readonly', 'width', 'default',
+                'field_order', f.field_order,
+                'ctype', 'fk_label', 'is_core', false, 'searchable', false,
+                'writable', false, 'selectable', true,
+                'reference_table', f.reference_table,
+                'source', jsonb_build_object('field', f.field_name, 'reference_table', f.reference_table)
+            )
+        FROM fields f
+        LEFT JOIN entities e2 ON e2.table_name = f.reference_table
+        WHERE f.table_name = p_table_name
+          AND public.dd_is_fk_format(f.format)
+          AND f.reference_table <> ''
+          -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
+          AND NOT EXISTS (SELECT 1 FROM fields f2
+                          WHERE f2.table_name = p_table_name
+                            AND f2.field_name = f.field_name || '_label')
+    ),
+    all_props AS (
+        SELECT field_name, (field_order::numeric * 1000) AS sort_order, property_value
+        FROM properties_with_defaults
+        UNION ALL
+        SELECT field_name, sort_order, property_value FROM label_props
+    ),
+    -- Keep this a CTE, not a statement of its own: the function runs once per
+    -- entity, so every extra statement costs an SPI round trip per entity.
+    required_fields AS (
+        SELECT field_name, field_order
+        FROM fields
+        WHERE table_name = p_table_name
+          AND is_nullable(format) = FALSE
+          AND field_name != v_table_record.id_column
+          AND field_name NOT IN ('created_at', 'updated_at')
+          AND default_value IS NULL
+          AND format NOT IN ('json', 'jsonlogic')
+        ORDER BY field_order
+    )
+    -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
+    -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
+    -- children: fields in other tables that reference this one with format='parent'.
+    SELECT json_build_object(
+        '$schema', 'https://semantius.com/meta/sem-schema/v1',
+        '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+        'title', v_table_record.singular_label,
+        'description', v_table_record.description,
+        -- module_slug rides inside `table` next to module_id because the id alone is a dead end
+        -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
+        -- only the numeric id must fetch the module list before it can ask for the rest of the
+        -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
+        -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+        -- The rest of the module row is a different matter: settings, dashboard_config, the
+        -- three permission columns and the default_*_role_ids are readable only with 'admin' or
+        -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
+        -- an entity's view_permission is often public:read. They stay in get_user_modules().
+        'table', to_jsonb(v_table_record) || jsonb_build_object(
+            'module_slug',
+            (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
+        'type', 'object',
+        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
+                                FROM all_props), '{}'::json),
+        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
+        'children', public.get_schema_children(p_table_name),
+        'additionalProperties', false
+    )
+    INTO v_result;
+
+    RETURN v_result;
+END;
+-- STABLE: it only reads the dictionary, and its callers get_schema, get_schemas,
+-- get_module_cubes and get_user_cubes are STABLE already. Raising is not a side
+-- effect, and PostgREST serves a STABLE function over GET.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.build_schema_for_table IS
+'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA
+-- =====================================================
+
+-- Get schema information for a table in extended JSON Schema format
+-- Returns JSON Schema with table metadata and properties
+-- Raises an error when the table is not found
+CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
+BEGIN
+    PERFORM rbac.uid();
+
+    -- Check if table exists in entities metadata
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+
+    -- Raise error if table not found
+    IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    -- Check if user has view permission for this table
+    -- Raise same error to avoid leaking table existence
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    RETURN public.build_schema_for_table(p_table_name);
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_schema IS 
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMAS
+-- =====================================================
+
+-- Get schemas for multiple tables in extended JSON Schema format
+-- Accepts a comma-separated list of table names
+-- Returns a JSON array of schemas, one per table
+-- Each schema uses the same format as get_schema()
+-- Raises an error if any table is not found or the user lacks view permission
+-- (same error behavior as get_schema() — use the same error code to avoid
+--  leaking information about table existence)
+CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_name TEXT;
+    v_table_record RECORD;
+    v_schemas JSON[] := ARRAY[]::JSON[];
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOREACH v_table_name IN ARRAY string_to_array(p_table_names, ',')
+    LOOP
+        v_table_name := trim(v_table_name);
+        -- Skip blank entries that result from leading/trailing commas or spaces
+        IF v_table_name = '' THEN
+            CONTINUE;
+        END IF;
+
+        -- Raise error if table not found in entities metadata
+        SELECT * INTO v_table_record
+        FROM entities
+        WHERE table_name = v_table_name;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
+                USING ERRCODE = 'undefined_table';
+        END IF;
+
+        -- Raise same error when user lacks view permission (avoid leaking table existence)
+        IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
+                USING ERRCODE = 'undefined_table';
+        END IF;
+
+        v_schema := public.build_schema_for_table(v_table_name);
+        v_schemas := array_append(v_schemas, v_schema);
+    END LOOP;
+
+    RETURN array_to_json(v_schemas);
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_schemas IS 
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_schemas(TEXT) TO semantius_user;
+
+-- =====================================================
+-- PING
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION public.ping()
+RETURNS TABLE(
+    server_time TIMESTAMPTZ,
+    current_user_name TEXT,
+    current_role_name TEXT,
+    session_user_name TEXT
+) AS $$
+BEGIN
+    RETURN QUERY SELECT 
+        NOW() as server_time,
+        current_user::TEXT as current_user_name,
+        current_role::TEXT as current_role_name,
+        session_user::TEXT as session_user_name;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION public.ping IS 
+'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.ping() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
+
+-- =====================================================
+-- HAS PERMISSION (public RPC wrapper)
+-- =====================================================
+
+-- Thin public-schema wrapper over rbac.has_permission() so the permission
+-- check is reachable as a PostgREST RPC (POST /rpc/has_permission with body
+-- {"p_permission_name": "..."}). The rbac schema itself is not exposed by
+-- PostgREST, so callers cannot invoke rbac.has_permission() directly.
+--
+-- Companion RACI operators is_raci_actor(text,text,text) and
+-- has_consultation(text,text,text) are already public-schema functions
+-- granted to semantius_user (see 0370_raci.sql), so they are already
+-- reachable as /rpc/is_raci_actor and /rpc/has_consultation. Only
+-- has_permission needed a public wrapper.
+--
+-- Returns TRUE when the current authenticated user holds the named
+-- permission; FALSE otherwise. Never throws for a missing permission
+-- (mirrors rbac.has_permission semantics); rbac.uid() still enforces that
+-- a valid JWT context is present.
+CREATE OR REPLACE FUNCTION public.has_permission(p_permission_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM rbac.uid();
+    RETURN rbac.has_permission(p_permission_name);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.has_permission IS
+'Public RPC wrapper over rbac.has_permission(). Returns TRUE when the current authenticated user holds the named permission. Exposed in the public schema so PostgREST can serve it as /rpc/has_permission, since the rbac schema is not exposed.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.has_permission(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET MODULE CUBE
+-- =====================================================
+
+-- Returns schemas for all entities that form the "cube" for a given module:
+--   1. All entities that directly belong to the module.
+--   2. All entities referenced via the reference_table field of any field
+--      that belongs to one of those module entities.
+-- Entities are sorted alphabetically and deduplicated. Tables the current user
+-- lacks view permission for are silently skipped.
+-- Returns a JSON array of schemas in the same format as get_schema().
+-- The p_module_name parameter is matched against modules.module_slug (URL-safe
+-- identifier), not modules.module_name. The parameter name is preserved for
+-- PostgREST RPC wire compatibility.
+CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    -- Yields the entity row, not just its name, so the loop needs no second
+    -- lookup; the join is also the existence test for reference_table.
+    FOR v_table_record IN
+        SELECT DISTINCT e.table_name, e.view_permission
+        FROM entities e
+        WHERE e.table_name IN (
+            -- All entities belonging to the module
+            SELECT me.table_name
+            FROM entities me
+            JOIN modules m ON m.id = me.module_id
+            WHERE m.module_slug = p_module_name
+
+            UNION
+
+            -- All entities referenced via reference_table from fields of module entities
+            SELECT f.reference_table
+            FROM fields f
+            JOIN entities fe ON fe.table_name = f.table_name
+            JOIN modules m ON m.id = fe.module_id
+            WHERE m.module_slug = p_module_name
+              AND f.reference_table != ''
+        )
+        ORDER BY e.table_name
+    LOOP
+        -- build_schema_for_table checks again: it is self-gating as an RPC of
+        -- its own, and the repeat is a cached lookup.
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_module_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET USER CUBES
+-- =====================================================
+
+-- Returns schemas for all entities across all modules that the current user
+-- has view permission for. Referenced tables are not additionally included —
+-- they will already appear when the user has view permission on them directly.
+-- Returns a JSON array of schemas in the same format as get_schema().
+CREATE OR REPLACE FUNCTION public.get_user_cubes()
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOR v_table_record IN
+        SELECT e.table_name, e.view_permission
+        FROM entities e
+        ORDER BY e.table_name
+    LOOP
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
+
+-- =====================================================
+-- FIX ID SEQUENCE
+-- =====================================================
+
+-- After an import writes explicit ids, the id sequence lags behind them and the
+-- next ordinary insert fails with 23505. This moves the sequence past max(id).
+--
+-- Callable by whoever may insert into the table: the entity's edit_permission.
+-- Non-admins get the same 42501 for an unknown table as for a denied one, as
+-- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
+-- SECURITY DEFINER because the request role cannot setval, and under RLS its
+-- max(id) would miss the rows it cannot see.
+-- The lock keeps inserts out between max() and setval. While it waits, every
+-- later writer of the table queues behind it, so lock_timeout caps the wait at
+-- 2 s and the timeout becomes 90232 (retry) instead of 55P03 (HTTP 500).
+-- The sequence is never lowered: that would re-issue the ids of deleted rows.
+-- A table the definer does not own fails at the LOCK with 42501.
+CREATE OR REPLACE FUNCTION public.fix_id_sequence(p_table TEXT)
+RETURNS BIGINT AS $$
+DECLARE
+    v_id_column TEXT;
+    v_edit_permission TEXT;
+    v_sequence TEXT;
+    v_max BIGINT;
+    v_last BIGINT;
+    v_called BOOLEAN;
+    v_next BIGINT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT e.id_column, e.edit_permission INTO v_id_column, v_edit_permission
+    FROM public.entities e
+    WHERE e.table_name = p_table;
+
+    -- edit_permission is NOT NULL, so NULL here means there is no such entity.
+    IF v_edit_permission IS NULL AND rbac.has_permission('admin') THEN
+        RAISE EXCEPTION 'Table ${table} is not an entity'
+            USING ERRCODE = '90231',
+                  HINT = jsonb_build_object('table', p_table)::text;
+    END IF;
+    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
+        RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
+    END IF;
+
+    -- pg_get_serial_sequence raises on a missing table or column instead of
+    -- returning NULL, and a missing table would surface as 42P01.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = to_regclass(format('public.%I', p_table))
+          AND a.attname = v_id_column
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+    ) THEN
+        RETURN NULL;
+    END IF;
+    v_sequence := pg_get_serial_sequence(format('public.%I', p_table), v_id_column);
+    IF v_sequence IS NULL THEN
+        RETURN NULL;  -- a text, uuid or otherwise non-serial key
+    END IF;
+
+    BEGIN
+        EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', p_table);
+    EXCEPTION WHEN lock_not_available THEN
+        RAISE EXCEPTION 'Table ${table} is busy, try again'
+            USING ERRCODE = '90232',
+                  HINT = jsonb_build_object(
+                      'table', p_table,
+                      'hint', 'Another transaction is writing to ${table}. Retry when it has finished.')::text;
+    END;
+
+    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_column, p_table) INTO v_max;
+    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
+    v_next := GREATEST(COALESCE(v_max, 0) + 1,
+                       CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
+    PERFORM setval(v_sequence, v_next, false);
+    RETURN v_next;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
+
+COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
+'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+
+REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;

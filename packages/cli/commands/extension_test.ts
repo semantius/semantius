@@ -41,10 +41,11 @@ Deno.test("toLf normalizes CRLF and lone CR before hashing", async () => {
 
 Deno.test("versions.json records sha256hex(toLf(source))", async () => {
   // Pins what the manifest hashes: SHA-256 hex of the normalized file text, no
-  // prefix, keyed `<app>/<name>` without the `.sql`. 0010 is a released
-  // migration, which the generator refuses to let anyone edit, so the newest
-  // manifest entry and the file on disk must agree forever.
-  const KEY = "_core/0010_create_core";
+  // prefix, keyed `<app>/<full file name>`. 0020_settings.once.sql is a
+  // run-once migration, which the generator refuses to let anyone edit once a
+  // release contains it, so the newest manifest entry and the file on disk
+  // must agree.
+  const KEY = "_core/0020_settings.once.sql";
 
   const manifest = JSON.parse(
     await Deno.readTextFile(join(REPO_ROOT, "extension", "versions.json")),
@@ -58,7 +59,7 @@ Deno.test("versions.json records sha256hex(toLf(source))", async () => {
   if (!recorded) throw new Error(`${newest} records no checksum for ${KEY}`);
 
   const source = await Deno.readTextFile(
-    join(REPO_ROOT, "apps", "_core", "migrations", "0010_create_core.sql"),
+    join(REPO_ROOT, "apps", "_core", "migrations", "0020_settings.once.sql"),
   );
   assertEquals(
     await sha256hex(toLf(source)),

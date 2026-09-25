@@ -11,14 +11,14 @@
 #   3. readiness gate poll until the `pg_semantius` extension is present (the
 #                     pg_isready healthcheck can go green before the init scripts
 #                     finish, so we check pg_extension directly).
-#   3b. audit-column check   entities is audited and 0270 adds
-#                     entities.order_column inside the same install transaction;
+#   3b. audit-column check   entities is audited and 0230_entity_order_column.sql adds
+#                     entities.order_column inside the same install session;
 #                     verify every audit row written after that point carries it.
 #   4. migrate --apps nwind,test   migrate auto-prepends `_core`, which is
 #                     SKIPPED because the extension seeded `_versions`; only
 #                     `test`,`nwind` are deployed onto the extension's `_core`.
 #                     (The extension's `_core` already includes the
-#                     `webhook_receivers`/`dashboards` tables that test.0030_seed
+#                     `webhook_receivers`/`dashboards` tables that test's 0030_seed.once.sql
 #                     and several test files depend on.)
 #   5. test           run the full pgTAP suite against the ext DB.
 #
@@ -69,15 +69,17 @@ EXT_URL="postgresql://postgres:${PW}@localhost:${PORT}/${DB}"
 
 echo "== [3/5] Waiting for the pg_semantius extension to install =="
 # The pg_extension row appears as soon as CREATE EXTENSION runs, but the core
-# schema only exists once semantius.migrate() has finished, so gate on a
-# migrated `_versions` instead of on the extension row alone.
+# schema only exists once semantius.migrate() has finished. migrate() commits
+# after every file, so a `_versions` row alone only means "started": gate on
+# semantius.pending() being empty, which holds once the last file (the 9900
+# ownership hardening) has committed.
 # Tolerate early "connection refused"/empty results: the healthcheck can pass
 # before 10-roles.sql / 20-extension.sql have finished.
 deadline=$(( SECONDS + 180 ))
 until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
       "SELECT 1 FROM pg_extension e WHERE e.extname='pg_semantius'
          AND to_regclass('public._versions') IS NOT NULL
-         AND EXISTS (SELECT 1 FROM public._versions WHERE name LIKE '_core.%')" 2>/dev/null)" = "1" ]; do
+         AND NOT EXISTS (SELECT 1 FROM semantius.pending())" 2>/dev/null)" = "1" ]; do
   if [ "$SECONDS" -ge "$deadline" ]; then
     echo "Timed out waiting for the pg_semantius extension to install." >&2
     docker compose -f "$COMPOSE_FILE" -p "$PROJECT" logs --tail 60 || true
@@ -87,9 +89,10 @@ until [ "$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
 done
 echo "Extension present."
 
-# The single-transaction install is the only place a column can be added to an
-# already-audited table between two writes to it without a commit in between:
-# entities is audited, and 0270 adds entities.order_column partway through. The
+# The install runs every migration file in one session, which is the only place
+# a column can be added to an already-audited table between two writes to it
+# while the session's cached plans survive:
+# entities is audited, and 0230_entity_order_column.sql adds entities.order_column partway through. The
 # statement-level audit trigger reads the affected rows through a transition
 # table, and one cached plan in that function body serves every audited
 # relation, so a row-type descriptor that failed to re-resolve would drop the new
@@ -114,7 +117,7 @@ fi
 if [ "$late_missing" != "0" ]; then
   echo "FAIL: $late_missing audit rows for entities were logged without order_column" >&2
   echo "after earlier rows already carried it. The audit trigger reused a row-type" >&2
-  echo "descriptor from before 0270." >&2
+  echo "descriptor from before 0230_entity_order_column.sql." >&2
   exit 1
 fi
 carrying="$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc \
@@ -125,7 +128,7 @@ if [ "$carrying" = "0" ]; then
   echo "The check above would pass vacuously; audit logging is not running." >&2
   exit 1
 fi
-echo "Audit records written after 0270 carry order_column ($carrying rows)."
+echo "Audit records written after 0230_entity_order_column.sql carry order_column ($carrying rows)."
 
 echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
 ( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$EXT_URL" )

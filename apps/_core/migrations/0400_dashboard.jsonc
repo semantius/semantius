@@ -1,0 +1,34 @@
+// Dashboard entity: user-configured dashboard layouts and configurations.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "dashboards",
+        "module_name": "_core",
+        "singular": "dashboard",
+        "singular_label": "Dashboard",
+        "plural_label": "Dashboards",
+        "description": "User-configured dashboard layouts and configurations",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "label",
+        "fields": [
+          {"field_name": "config", "title": "Configuration", "format": "json", "field_order": 10,
+           "input_type": "default", "width": "w", "description": "", "default_value": "",
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "position", "title": "Position", "format": "int32", "field_order": 20,
+           "input_type": "default", "width": "default", "description": "", "default_value": "0",
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "module_id", "title": "Module", "format": "reference", "field_order": 30,
+           "input_type": "default", "width": "default", "description": "",
+           "reference_table": "modules", "reference_delete_mode": "cascade"},
+          {"field_name": "view_permission", "title": "View Permission", "format": "reference", "field_order": 40,
+           "input_type": "default", "width": "default", "description": "Permission required to view this dashboard",
+           "reference_table": "permissions", "reference_delete_mode": "clear"}
+        ]
+      }
+    }
+  ]
+}

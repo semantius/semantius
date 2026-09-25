@@ -13,7 +13,7 @@
 -- functions; `semantius.migrate()` then installs the common/rbac/audit/pgmq
 -- schemas and the data dictionary as ORDINARY objects, so they survive
 -- pg_dump/pg_restore and DROP EXTENSION. pgcrypto is created by migrate(),
--- in `public`, where 0110's unqualified calls need it.
+-- in `public`, where 0280_apikeys.sql's unqualified calls need it.
 --
 -- The later init scripts build the runtime layer ON TOP of this: 20 flips
 -- semantius_authenticator to LOGIN, 30 adds the PostgREST `anon` role, 40
@@ -21,4 +21,7 @@
 -- -----------------------------------------------------------------------------
 
 CREATE EXTENSION IF NOT EXISTS pg_semantius;
-SELECT semantius.migrate();
+-- A procedure that commits after every migration file: psql runs this file in
+-- autocommit mode, which CALL needs (inside a transaction block it fails with
+-- 2D000 before anything is written).
+CALL semantius.migrate();

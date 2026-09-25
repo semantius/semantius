@@ -1,7 +1,7 @@
 -- =====================================================
 -- TRUNCATE audit path (0420)
 -- =====================================================
--- audit.truncate_trigger() (0150_audit_log.sql) was never executed by the
+-- audit.truncate_trigger() (0200_audit_log.sql) was never executed by the
 -- suite: 0300 covers INSERT/UPDATE/DELETE and DDL audit only. TRUNCATE needs
 -- the TRUNCATE privilege, which semantius_user does not have on entity tables,
 -- so the statement itself runs as the owner (RESET ROLE); the entity and its

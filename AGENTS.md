@@ -140,12 +140,47 @@ It is confined to `pgdocker/*.sh`; it must never leak into `packages/` or
 ### Database-First Design
 - All business logic implemented in PostgreSQL functions
 - Security enforced through RLS policies and custom RBAC
-- Core objects are owned by the dedicated `semantius_owner` role (NOLOGIN, NOSUPERUSER, BYPASSRLS; created by `0290_owner_hardening.sql` when the installer is a superuser), so SECURITY DEFINER dictionary code never runs with superuser powers; on managed platforms (Neon, Supabase) the installing role stays the owner
+- Core objects are owned by the dedicated `semantius_owner` role (NOLOGIN, NOSUPERUSER, BYPASSRLS; created by `9900_owner_hardening.sql` when the installer is a superuser), so SECURITY DEFINER dictionary code never runs with superuser powers; on managed platforms (Neon, Supabase) the installing role stays the owner
 - The CLI is documented in `CLI.md` (install, every command and flag, the `.env` profiles, what the destructive commands destroy); `README.md` is the overview and links to it. It also ships as a self-contained `pg_semantius` executable, built by `deno task build-cli` (this platform) / `deno task build-cli:all` (all five published targets) and attached to the same GitHub Release. It embeds `apps/` via `deno compile --include`, so nothing under `packages/cli/` may read SQL relative to the working directory - `packages/cli/assets.ts` is the only resolver, and `./apps/<name>` in the working directory shadows the embedded copy per app, out loud
-- Releasing the extension is `./release.sh v<version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the highest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing install - `migrate()` skips by migration name - which is accepted and documented, not a bug
+- Releasing the extension is `./release.sh v<version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the highest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing extension install - its `migrate()` embeds the texts of the version it installed - which is accepted and documented, not a bug; the next version's upgrade script does reach it
 - A change to `apps/_core/migrations/` is committed together with the regenerated build (`deno task extension <default_version from extension/pg_semantius.control>`): the `pgdocker/pg-ext-*` harnesses install whatever is in `extension/`, and `test.yml` rejects a commit whose build does not match its migrations
 - Infrastructure defined in `apps/_core/` folder
 - Automated testing using pgTAP framework
+
+### Migration files
+
+Every runner applies the same rules (`packages/core/src/migrate.ts`; `RELEASE.md`
+has the upgrade side):
+
+- `NNNN_name.sql` and `NNNN_name.jsonc` are **repeatable**: they run again whenever
+  their text changes (ledger `public._versions`, key `<app>.<file name>`, SHA-256
+  of the LF-normalized text). `NNNN_name.once.sql` / `.once.jsonc` run exactly
+  once. `9900_*` files run last and after every pass that ran anything, even a
+  failed one. Numbers are unique per app; files run in byte order of their name,
+  one transaction per file.
+- **What goes where.** Tables, columns, constraints, indexes, types, seed rows
+  and schema-wide grants go into `.once.sql`. Functions, triggers, views, event
+  triggers and hand-written policies go into a repeatable `.sql`, written so a
+  second run is harmless: `CREATE OR REPLACE FUNCTION/VIEW/TRIGGER`,
+  `DROP POLICY/EVENT TRIGGER IF EXISTS` then `CREATE`. `CREATE OR REPLACE` cannot
+  change a function's return type or parameter list (a new parameter list adds an
+  overload that keeps the old one's grants), so drop the old signature first. Each
+  object is defined in exactly one repeatable file; a second definition elsewhere
+  is downgraded whenever the earlier file re-runs.
+- **Entity metadata is a `.jsonc` file** (the semantius-cli export format, version
+  1, plus comments), applied by `public.ensure_entities()`: it creates what is
+  missing and updates what differs, never deletes, and matches metadata by name.
+  An admin edit survives until the file changes. Nothing may hand-write an object
+  the dictionary generates (`<t>_*_policy`, `select_rule_<t>`, `compute_validate_<t>`,
+  `<t>_<f>_fkey/_check/_unique`, `idx_<t>_<f>`): express it through metadata, and
+  extend the dictionary when metadata cannot say it.
+- **After a release, forward only and additive only**: never edit a released
+  `.once.` file, never rename or remove a released file, never rename, drop or
+  retype a table or column (add, move the data, deprecate). A file added after a
+  release sorts after every released file.
+- `pgdocker/pg-compare-installs.sh <ref>` proves a refactoring of the migrations
+  builds the same database, that a second migrate runs nothing, and that a forced
+  re-run of every repeatable file changes nothing.
 
 ### The volatility contract
 
@@ -154,7 +189,7 @@ The permission readers - `rbac.uid`, `user_id`, `has_permission`,
 `public.jl_request_context`, `is_raci_actor`, `has_consultation`, the generated
 `select_rule_*` - are declared `STABLE` **and they write**, through
 `rbac.ensure_context_initialized`. Read the comment above `rbac.uid()` in
-`0030_rbac_functions.sql` before changing any of them; the short version:
+`0080_rbac_functions.sql` before changing any of them; the short version:
 
 - **They write only GUCs, and only with `is_local => true`.** Transaction-local
   settings are discarded at commit or rollback and are legal inside the
@@ -292,7 +327,7 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
 - **STANDARD**: most tables use an auto-incrementing INTEGER column named `id`
   - Examples: users, modules, roles, webhook_receivers, webhook_receiver_logs
 - **EXCEPTION 1**: `entities` uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
-  - The table was called `tables` until 0140 renamed it
+  - The table was called `tables` until `0170_dd_rename.sql` renamed it
   - Foreign keys to it reference `table_name`: `REFERENCES entities(table_name)`
 - **EXCEPTION 2**: `permissions` uses `permission_name TEXT` as the PRIMARY KEY (no `id` column)
   - The name is what module packages seed, what every generated RLS policy embeds as a
@@ -303,7 +338,7 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
     so a rename propagates. `modules.view_permission` is the one that must also be
     `DEFERRABLE INITIALLY DEFERRED`: it and its permission's `module_id` point at each
     other, so the module row has to be inserted first
-  - Names are restricted to `^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$` — the same alphabet `module_slug` accepts, so a scaffold can mint `<slug>:<verb>`; see the CHECK in 0020 for what it excludes and why
+  - Names are restricted to `^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$` — the same alphabet `module_slug` accepts, so a scaffold can mint `<slug>:<verb>`; see the CHECK in `0060_rbac_schema.once.sql` for what it excludes and why
 - **EXCEPTION 3**: `fields` uses a GENERATED TEXT column as PRIMARY KEY
   - `id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY`
   - There is also a UNIQUE constraint on `(table_name, field_name)`
@@ -347,7 +382,12 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
   triggers create the column from them; writing the column by hand instead is the
   bug. On an **unmanaged** entity (`audit_record_logs`, `audit_ddl_logs`) nothing
   derives one from the other, so both halves are written by hand and both must be
-  edited together.
+  edited together: the table in `0190_audit_log.once.sql` (or a later `.once.`
+  file), its `fields` rows in `0300_audit_log.jsonc`.
+- The `fields` rows of an entity defined in a `.jsonc` file live in that file; the
+  ten bootstrap tables (`modules`, `users`, `entities`, `fields`, ...) have theirs
+  in `0150_dd_bootstrap.once.sql`, so a change to one of those goes into a new
+  `.once.` file.
 - The same applies in reverse to a DROP, and to a rename of either half.
 - Give the new `fields` row a `field_order` that keeps the metadata order matching
   the physical column order (leave gaps: 10, 20, 30 ... so a later insert fits).
@@ -429,7 +469,7 @@ The system supports automatic foreign key creation and management:
 - System automatically creates/drops `search_vector` column and GIN index based on searchable fields
 - **Rebuilding `search_vector` locks the table.** It is `ADD COLUMN ... GENERATED ... STORED`: a full heap rewrite under ACCESS EXCLUSIVE that blocks readers as well as writers and rebuilds every index on the table, about 650 ms per 100k rows and linear. Rebuilds are coalesced to one per table per statement and skipped when the generated expression is unchanged (fingerprint in the `search_vector` column comment), but any real change to the searchable field set of a large table belongs in a maintenance window
 - Full-text search works on both managed (entity) tables and core DD tables (modules, roles, permissions, users, entities, fields)
-- Core tables get FTS applied through the 0072_apply_core_fts.sql migration
+- Core tables get FTS applied through `0240_dd_bootstrap_complete.once.sql`
 - Only text-based fields (format_to_json_type = 'string') can be searchable
 - Label fields (ctype='label') get highest search weight ('A'), descriptions get 'B', others get 'C'
 

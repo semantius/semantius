@@ -1,10 +1,10 @@
--- Test rbac.check_permission_hierarchy_cycle (0030_rbac_functions.sql): the
+-- Test rbac.check_permission_hierarchy_cycle (0080_rbac_functions.sql): the
 -- BEFORE INSERT/UPDATE trigger on permission_hierarchy that rejects cycles and
 -- enforces the 11-level depth limit. Also pins the no_self_reference CHECK, the
 -- two foreign keys to permissions(permission_name), admin-only RLS, and that
 -- the hierarchy actually RESOLVES (including implies included, not the reverse).
 --
--- Fixtures (0030_seed.sql): user1=1001 (User role only), user3=admin.
+-- Fixtures (apps/test/migrations/0030_seed.once.sql): user1=1001 (User role only), user3=admin.
 BEGIN;
 
 SELECT plan(16);

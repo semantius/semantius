@@ -32,11 +32,7 @@
  */
 
 import { Client, type ClientConfig } from "pg";
-import {
-  ensureVersionsTable,
-  executeMigrations,
-  type MigrationFile,
-} from "@semantius/core";
+import { type AppMigrations, runMigrations } from "@semantius/core";
 import {
   getBundledAppNames,
   getBundledMigrations,
@@ -84,79 +80,10 @@ export async function migrate(
     logVerbose(`Modules to migrate: ${appsToMigrate.join(", ")}`);
   }
 
-  // Connect with advisory lock to prevent concurrent migrations
-  const clientConfig: ClientConfig = { connectionString: databaseUrl };
-  const lockClient = new Client(clientConfig);
-
-  try {
-    await lockClient.connect();
-    logVerbose("Connected to database");
-
-    const lockResult = await lockClient.query(
-      "SELECT pg_try_advisory_lock(hashtext('migrate')) AS acquired",
-    );
-    const lockAcquired = lockResult.rows[0]?.acquired as boolean;
-
-    if (!lockAcquired) {
-      throw new Error(
-        "Failed to acquire migration lock. Another migration may already be running.",
-      );
-    }
-
-    logVerbose("Migration lock acquired");
-
-    try {
-      for (const appName of appsToMigrate) {
-        const migrations = getBundledMigrations(appName);
-
-        if (migrations.length === 0) {
-          log(`No bundled migrations found for app: ${appName} - skipping`);
-          continue;
-        }
-
-        log(`Migrating app: ${appName} (${migrations.length} file(s))`);
-        await migrateApp(appName, migrations, databaseUrl, verbose);
-        log(`Completed: ${appName}`);
-      }
-
-      log("All migrations completed successfully.");
-    } finally {
-      try {
-        await lockClient.query(
-          "SELECT pg_advisory_unlock(hashtext('migrate'))",
-        );
-        logVerbose("Migration lock released");
-      } catch (unlockError) {
-        console.error(
-          "[semantius/triggerdev] Warning: failed to release migration lock:",
-          unlockError instanceof Error
-            ? unlockError.message
-            : String(unlockError),
-        );
-      }
-    }
-  } finally {
-    try {
-      await lockClient.end();
-      logVerbose("Lock client connection closed");
-    } catch {
-      // ignore close errors
-    }
-  }
-}
-
-async function migrateApp(
-  appName: string,
-  migrations: MigrationFile[],
-  databaseUrl: string,
-  verbose: boolean,
-): Promise<void> {
+  // One connection for the whole pass: the migration lock is a session lock,
+  // and every file's ledger row must be read under it.
   const clientConfig: ClientConfig = { connectionString: databaseUrl };
   const client = new Client(clientConfig);
-
-  const logVerbose = (msg: string) => {
-    if (verbose) console.log(`[semantius/triggerdev] ${msg}`);
-  };
 
   // Wrap pg Client to match the DatabaseClient interface expected by core
   const dbClient = {
@@ -169,36 +96,44 @@ async function migrateApp(
     },
   };
 
+  const apps: AppMigrations[] = [];
+  for (const appName of appsToMigrate) {
+    const migrations = getBundledMigrations(appName);
+    if (migrations.length === 0) {
+      log(`No bundled migrations found for app: ${appName} - skipping`);
+      continue;
+    }
+    log(`Migrating app: ${appName} (${migrations.length} file(s))`);
+    apps.push({ app: appName, migrations });
+  }
+
   try {
     await client.connect();
-    logVerbose(`Connected to database for app: ${appName}`);
-
-    await ensureVersionsTable(dbClient);
-    await executeMigrations(appName, migrations, dbClient);
+    logVerbose("Connected to database");
+    const result = await runMigrations(dbClient, apps);
+    log(
+      `All migrations completed successfully (${result.applied} applied, ${result.skipped} skipped).`,
+    );
   } catch (error) {
     if (error instanceof Error) {
       if (error.message.includes("authentication failed")) {
         throw new Error(
-          `Authentication failed for ${appName}. Check your DATABASE_URL credentials.`,
+          "Authentication failed. Check your DATABASE_URL credentials.",
         );
       } else if (
         error.message.includes("database") &&
         error.message.includes("does not exist")
       ) {
         throw new Error(
-          `Database does not exist for ${appName}. Check the database name in DATABASE_URL.`,
+          "Database does not exist. Check the database name in DATABASE_URL.",
         );
       } else if (error.message.includes("ECONNREFUSED")) {
         throw new Error(
-          `Connection refused for ${appName}. Is the database server running?`,
+          "Connection refused. Is the database server running?",
         );
       } else if (error.message.includes("SSL")) {
         throw new Error(
-          `SSL connection error for ${appName}. Check SSL configuration in DATABASE_URL.`,
-        );
-      } else {
-        throw new Error(
-          `Migration failed for ${appName}: ${error.message}`,
+          "SSL connection error. Check SSL configuration in DATABASE_URL.",
         );
       }
     }
@@ -206,7 +141,7 @@ async function migrateApp(
   } finally {
     try {
       await client.end();
-      logVerbose(`Connection closed for app: ${appName}`);
+      logVerbose("Connection closed");
     } catch {
       // ignore close errors
     }

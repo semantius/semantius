@@ -14,7 +14,7 @@ REM   3. readiness gate poll until the pg_semantius extension is present.
 REM   4. migrate --apps nwind,test   migrate auto-prepends _core, SKIPPED
 REM                     because the extension seeded _versions; deploys only
 REM                     nwind,test. (The extension's _core already includes the
-REM                     webhook_receivers/dashboards tables that test.0030_seed
+REM                     webhook_receivers/dashboards tables that test's 0030_seed.once.sql
 REM                     and several test files depend on.)
 REM   5. test           run the full pgTAP suite against the ext DB.
 cd /d "%~dp0"

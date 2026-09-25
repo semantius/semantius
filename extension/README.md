@@ -9,8 +9,14 @@ Two statements, as a superuser, in a UTF8 database:
 
 ```sql
 CREATE EXTENSION pg_semantius;
-SELECT semantius.migrate();
+CALL semantius.migrate();
 ```
+
+`semantius.migrate()` is a procedure that commits after every migration file, so
+run it as its own statement, not inside `BEGIN` / `COMMIT` or `psql -1`
+(PostgreSQL refuses that with SQLSTATE 2D000 before anything is written). If a
+file fails, the files before it stay applied, the error names the file, and the
+next `CALL` continues from there.
 
 Do **not** use `CASCADE`. `CREATE EXTENSION` creates only the cluster roles,
 the `semantius` schema and its functions. `semantius.migrate()` then installs the
@@ -27,31 +33,40 @@ another schema the install refuses with a hint.
 
 ```sql
 ALTER EXTENSION pg_semantius UPDATE;
-SELECT semantius.migrate();
+CALL semantius.migrate();
 ```
 
-`ALTER EXTENSION ... UPDATE` replaces the installer functions; `migrate()`
-applies whatever is new. Both are safe to re-run: `migrate()` is idempotent
-per migration. `SELECT * FROM semantius.pending()` lists what a `migrate()`
-would apply; `SELECT * FROM semantius.status()` reports drift.
+`ALTER EXTENSION ... UPDATE` replaces the installer; `migrate()` applies
+whatever is due. Both are safe to re-run. `SELECT * FROM semantius.pending()`
+lists what a `migrate()` would apply; `SELECT * FROM semantius.status()`
+reports drift.
 
-**A re-released build of the same version does not reach an existing install.**
-`migrate()` records each migration by name and skips any name it has already
-applied, so a build that changed an existing migration rather than adding a new
-one is not re-applied: the database keeps the SQL it installed, and
-`semantius.status()` lists that migration in `changed_versions` until the
-database is rebuilt from the new build. Compare
-`semantius.status().changed_versions` against the build you expect before assuming
-a re-download changed anything.
+What is due is decided per file from `public._versions`, which records each
+file's name and the SHA-256 of its text:
+
+- a file with no row runs;
+- a repeatable file (`NNNN_name.sql`, `NNNN_name.jsonc`: functions,
+  triggers, views, policies, entity definitions) runs again when its text
+  changed;
+- a run-once file (`NNNN_name.once.sql`: tables, columns, seed rows) never
+  runs again; if its text changed, `semantius.status()` lists it in
+  `changed_versions`;
+- the files numbered 9900 and above (ownership hardening) run after any pass
+  that ran something.
+
+So a build that changed a function reaches an existing install on the next
+`migrate()`. A change made by hand to an object a repeatable file creates
+stays until that file changes again; to re-apply a file anyway, clear its
+checksum: `UPDATE public._versions SET checksum = NULL WHERE name = '...';`.
 
 ## Functions
 
 | Function | Purpose |
 |---|---|
-| `semantius.migrate()` | Applies the bundled migrations. Superuser only, idempotent, one transaction. |
-| `semantius.pending()` | Bundled migrations not yet applied. Works before the first migrate(). |
+| `CALL semantius.migrate()` | Applies the bundled migrations that are due. Superuser only, one transaction per file, fails at once while another migration runs. |
+| `semantius.pending()` | Bundled migrations the next migrate() would apply. Works before the first migrate(). |
 | `semantius.version()` | Version of the installed bundle. |
-| `semantius.status()` | Applied/pending counts, unknown or changed migrations, ownership and default-ACL drift, and whether `jwt_aud` is set. |
+| `semantius.status()` | Applied/pending counts, unknown migrations, changed run-once migrations, ownership and default-ACL drift, and whether `jwt_aud` is set. |
 
 `\dx` shows the *installer's* version, which is not necessarily the state of
 the installed schema; `semantius.status()` is the authority.
@@ -133,8 +148,8 @@ the install refuses.
 ## Session settings the caller controls
 
 `migrate()` pins `search_path`, `standard_conforming_strings` and
-`check_function_bodies`, and forces `session_replication_role = origin`, so
-an unusual session cannot change what gets installed. It still fails, by
+`check_function_bodies`, and forces `session_replication_role = origin`,
+before every file, so an unusual session cannot change what gets installed. It still fails, by
 design, under `default_transaction_read_only`, a `statement_timeout` or
 `lock_timeout` shorter than the install, or an isolation level above read
 committed.
@@ -187,6 +202,9 @@ be given it. An app tier that sets the per-claim GUCs instead of
 | 55000 | `pgcrypto must be installed in schema public` |
 | 55000 | `existing role semantius_owner has unexpected attributes` |
 | 55000 | `semantius.migrate() cannot run inside a CREATE/ALTER EXTENSION script` |
+| 55P03 | `another migration is running` |
+| 2D000 | `invalid transaction termination` (`CALL semantius.migrate()` inside a transaction block) |
+| P0001 | `migration <app>.<file> failed: <message> (SQLSTATE <code>)` |
 
 ## Requirements
 

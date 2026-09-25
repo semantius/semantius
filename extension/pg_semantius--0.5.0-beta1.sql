@@ -4,11 +4,11 @@
 -- DO NOT EDIT MANUALLY - regenerate after changing migrations.
 --
 -- Install:  CREATE EXTENSION pg_semantius;
---           SELECT semantius.migrate();
+--           CALL semantius.migrate();
 
 -- =====================================================
 -- Thin installer. This script creates ONLY cluster roles, the semantius schema
--- and its functions. The 52 core relations, their triggers, policies and seed
+-- and its functions and procedure. The 52 core relations, their triggers, policies and seed
 -- rows are created by semantius.migrate(), which runs OUTSIDE any extension
 -- script, so none of them becomes an extension member. That is what makes a
 -- plain pg_dump / single-pass pg_restore work and DROP EXTENSION harmless.
@@ -111,15 +111,15 @@ COMMENT ON SCHEMA semantius IS
   'Installer for the pg_semantius extension. Holds migrate()/pending()/version()/status(); no data.';
 
 
--- 4. The installer. Not SECURITY DEFINER: current_user, session_user and the
---    superuser check must be the CALLER's, which 0010, 0050 and 0290 rely on.
---    The SET clauses pin the settings the migrations assume, so a hostile or
+-- 4. The installer, a PROCEDURE so it can commit after every file. Not
+--    SECURITY DEFINER: current_user, session_user and the superuser check
+--    must be the CALLER's, which 0010_core.sql, 0100_rbac_rls.sql and
+--    9900_owner_hardening.sql rely on. It pins the
+--    settings the migrations assume with set_config() before every file
+--    (a procedure that commits cannot have SET clauses), so a hostile or
 --    merely unusual session cannot change what gets installed.
-CREATE FUNCTION semantius.migrate() RETURNS text
+CREATE PROCEDURE semantius.migrate(INOUT summary jsonb DEFAULT NULL)
 LANGUAGE plpgsql
-SET search_path = public
-SET standard_conforming_strings = on
-SET check_function_bodies = on
 AS $pgsem_migrate_body$
 DECLARE
   v_applied int := 0;
@@ -127,24 +127,24 @@ DECLARE
   v_start   timestamptz := clock_timestamp();
   v_state text; v_msg text; v_detail text; v_hint text; v_ctx text;
   v_bad   text;
+  v_sum   text;
+  v_found boolean;
+  v_ran   boolean := false;
+  v_failed_file text;
+  v_fail_state text; v_fail_msg text; v_fail_detail text; v_fail_hint text;
+  v_also  text := '';
 BEGIN
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+
   IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN
     RAISE EXCEPTION 'semantius.migrate() must be run by a superuser (current_user is %)', current_user
       USING ERRCODE = '42501';
   END IF;
 
-  -- A superuser session left in 'replica' would silently disable every
-  -- dictionary trigger while the seed rows are written.
-  PERFORM set_config('session_replication_role', 'origin', true);
-
   IF (SELECT pg_catalog.pg_encoding_to_char(encoding)
         FROM pg_catalog.pg_database WHERE datname = current_database()) <> 'UTF8' THEN
     RAISE EXCEPTION 'pg_semantius requires a UTF8 database' USING ERRCODE = '55000';
   END IF;
-
-  -- The CLI runner's key (packages/cli/commands/migrate.ts), so two installers
-  -- queue and an installer and the CLI conflict correctly.
-  PERFORM pg_advisory_xact_lock(hashtext('migrate'));
 
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgmq') THEN
     RAISE EXCEPTION 'the pgmq extension is installed; pg_semantius vendors its own pgmq schema and would overwrite it'
@@ -187,28 +187,62 @@ BEGIN
     END IF;
   END;
 
+  -- The first COMMIT comes before the lock is taken. CALL inside a transaction
+  -- block (BEGIN; CALL ...; or psql -1) cannot commit, and PostgreSQL raises
+  -- 2D000 right here, with nothing locked or written.
+  COMMIT;
+
+  -- One migration at a time, across the CLI runner, this procedure and the
+  -- provisioners (same key everywhere). A SESSION lock, because a transaction
+  -- lock would end with the first per-file COMMIT. Fail at once rather than
+  -- queue: a queued run would start on a half-finished first pass.
+  IF NOT pg_catalog.pg_try_advisory_lock(pg_catalog.hashtext('migrate')) THEN
+    RAISE EXCEPTION 'another migration is running'
+      USING ERRCODE = '55P03',
+            HINT = 'wait for it to finish, then CALL semantius.migrate() again';
+  END IF;
+
   -- Same ledger the CLI runner uses, so either path recognizes the other's work.
-  CREATE TABLE IF NOT EXISTS _versions (
-    name TEXT PRIMARY KEY,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-  );
+  BEGIN
+    PERFORM pg_catalog.set_config('search_path', 'public', true);
+    CREATE TABLE IF NOT EXISTS _versions (
+      name TEXT PRIMARY KEY,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
 
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
 
-  ALTER TABLE _versions ADD COLUMN IF NOT EXISTS checksum TEXT;
+    ALTER TABLE _versions ADD COLUMN IF NOT EXISTS checksum TEXT;
 
-  ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+    RAISE;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0010_create_core') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0010_create_core';
-    BEGIN
-      EXECUTE $pgsem__core_0010_create_core$-- =====================================================
+  -- App _core: v_ran records whether any of its files ran in this pass.
+  v_ran := false;
+
+  -- _core.0010_core.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0010_core.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0010_core.sql';
+      EXECUTE $pgsem__core_0010_core_sql$-- =====================================================
 -- COMMON SCHEMA - Reusable Database Functions
 -- =====================================================
+-- Repeatable: the extension, the two API roles (guarded), the common schema
+-- and its trigger function. The first tables are in 0020_settings.once.sql.
 
 -- Enable pgcrypto for gen_random_bytes()
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 
 -- Ensure the authenticated role exists (create it if missing)
 DO $$
@@ -219,7 +253,6 @@ BEGIN
     END IF;
 END
 $$;
-
 
 -- ======================================================================================================================
 -- COMMON SCHEMA - neondb_owner cannot switch to authenticated, add a new role semantius_user inheriting authenticated
@@ -246,36 +279,8 @@ BEGIN
     END IF;
 END $$;
 
-
--- =====================================================
--- SECURE DEFAULTS: Revoke PUBLIC execute on all future functions
--- =====================================================
--- PostgreSQL grants EXECUTE to PUBLIC by default on every new function, which
--- is how a SECURITY DEFINER function becomes callable by an unauthenticated
--- session.
---
--- These two statements do NOT close that, and nothing in this tree may rely on
--- them. pg_default_acl records the privileges a schema ADDS to the built-in
--- default; a revoke of the built-in PUBLIC grant is not representable there, so
--- it is dropped and the next function created in the schema is world-executable
--- again. That holds whether or not the schema also carries a GRANT: `rbac` has
--- one, its pg_default_acl row exists and does hand EXECUTE to semantius_user,
--- and a function created under it still comes out with PUBLIC in its ACL. The
--- statements are kept because they cost nothing and a future PostgreSQL may
--- honor them.
---
--- What actually protects a function is an explicit REVOKE EXECUTE FROM PUBLIC,
--- per function or per schema; 0030 does the whole rbac schema at once, which is
--- the real reason nothing there is PUBLIC-executable. Guard test
--- 0060_test_security.sql fails the moment one is missing.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-
 -- Create the common schema
 CREATE SCHEMA IF NOT EXISTS common;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA common
-    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 COMMENT ON SCHEMA common IS 'Shared database objects and functions used across multiple schemas';
 
@@ -312,13 +317,91 @@ $$ LANGUAGE plpgsql SET search_path = common;
 
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification. Given trigger arguments, first compares NEW and OLD ignoring updated_at, any generated column and the named arguments; a row that agrees outside those columns leaves updated_at untouched rather than bumping it, so a client cannot move it by resubmitting one either, and tables that pass no arguments keep the unconditional bump.';
 
--- Explicit, for the reason given above. A trigger function needs no EXECUTE
+-- Explicit: PostgreSQL grants EXECUTE to PUBLIC on every new function, and the
+-- default-privilege revoke for `common` in 0020_settings.once.sql cannot take
+-- that grant away (the comment there says why). A trigger function needs no EXECUTE
 -- privilege to fire: PostgreSQL checks it once, at CREATE TRIGGER time. Every
 -- CREATE TRIGGER naming this function is either a plain statement in a migration
--- (0020, 0060), which the installer runs, or is built by SECURITY DEFINER
--- dictionary code (0070, 0145), which runs as the owner. Both already hold
+-- (0070_rbac_schema.sql, 0140_dd_schema.sql), which the installer runs, or is
+-- built by SECURITY DEFINER dictionary code (0160_dd_functions.sql,
+-- 0180_managed_enable.sql), which runs as the owner. Both already hold
 -- EXECUTE without the PUBLIC grant.
 REVOKE EXECUTE ON FUNCTION common.update_updated_at_column() FROM PUBLIC;
+$pgsem__core_0010_core_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0010_core.sql', '114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0010_core.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0010_core.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0020_settings.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0020_settings.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0020_settings.once.sql';
+      EXECUTE $pgsem__core_0020_settings_once_sql$-- =====================================================
+-- DEFAULT PRIVILEGES AND THE _SETTINGS TABLE
+-- =====================================================
+-- Runs once: CREATE TABLE cannot run a second time.
+
+-- =====================================================
+-- SECURE DEFAULTS: Revoke PUBLIC execute on all future functions
+-- =====================================================
+-- PostgreSQL grants EXECUTE to PUBLIC by default on every new function, which
+-- is how a SECURITY DEFINER function becomes callable by an unauthenticated
+-- session.
+--
+-- These two statements do NOT close that, and nothing in this tree may rely on
+-- them. pg_default_acl records the privileges a schema ADDS to the built-in
+-- default; a revoke of the built-in PUBLIC grant is not representable there, so
+-- it is dropped and the next function created in the schema is world-executable
+-- again. That holds whether or not the schema also carries a GRANT: `rbac` has
+-- one, its pg_default_acl row exists and does hand EXECUTE to semantius_user,
+-- and a function created under it still comes out with PUBLIC in its ACL. The
+-- statements are kept because they cost nothing and a future PostgreSQL may
+-- honor them.
+--
+-- What actually protects a function is an explicit REVOKE EXECUTE FROM PUBLIC,
+-- per function or per schema; 0080_rbac_functions.sql does the whole rbac schema
+-- at once, which is
+-- the real reason nothing there is PUBLIC-executable. Guard test
+-- 0060_test_security.sql fails the moment one is missing.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA common
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 -- =====================================================
 -- _SETTINGS TABLE
@@ -342,33 +425,51 @@ CREATE POLICY settings_deny_all ON _settings
     TO semantius_user
     USING (false)
     WITH CHECK (false);
-$pgsem__core_0010_create_core$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0010_create_core', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0010_create_core', 'd796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$pgsem__core_0020_settings_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0020_settings.once.sql', 'cac571d3dd3a6af9aab2c450231cec6741455c1c20ecbac73514956dc10d00fe')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0020_settings.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0020_settings.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0011_session_authenticator') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0011_session_authenticator';
-    BEGIN
-      EXECUTE $pgsem__core_0011_session_authenticator$-- =====================================================================================
--- 0011_session_authenticator.sql  -  session-mode login role (Supabase/Neon pattern)
+  -- _core.0030_session_authenticator.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0030_session_authenticator.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0030_session_authenticator.sql';
+      EXECUTE $pgsem__core_0030_session_authenticator_sql$-- =====================================================================================
+-- 0030_session_authenticator.sql  -  session-mode login role (Supabase/Neon pattern)
 -- =====================================================================================
 -- Creates `semantius_authenticator`, the restricted login role the SESSION auth
 -- mode connects as. Created HERE, in the core migrations, so EVERY deployment —
@@ -401,14 +502,13 @@ $pgsem__core_0010_create_core$;
 --   * local pgdocker: init/11-session-role.sh (reads $SEMANTIUS_AUTHENTICATOR_PASSWORD)
 --   * managed:        deno task setup-session-role (ALTER ... LOGIN PASSWORD over
 --                     the owner connection)
--- This mirrors exactly how `authenticated` is created NOLOGIN in 0010 and flipped
+-- This mirrors exactly how `authenticated` is created NOLOGIN in 0010_core.sql and flipped
 -- to LOGIN by pgdocker init/10-roles.sql.
 --
 -- Idempotent + NON-DESTRUCTIVE OF LOGIN: if the role already exists (e.g. the
 -- local init script created it LOGIN before the migrations ran) this does NOT
 -- strip LOGIN or touch its attributes — it only (re-)asserts the membership grant.
 -- -------------------------------------------------------------------------------------
-
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_authenticator') THEN
@@ -424,7 +524,7 @@ BEGIN
     -- Idempotent: re-running just re-asserts the same membership options.
     --
     -- Privilege-tolerant: granting role membership requires ADMIN OPTION on `authenticated`
-    -- (or superuser). The migration role has it when IT created `authenticated` (0010), and on
+    -- (or superuser). The migration role has it when IT created `authenticated` (0010_core.sql), and on
     -- local pgdocker (superuser) / Supabase (postgres) the grant always succeeds. But on managed
     -- platforms where `authenticated` PRE-EXISTS under a different owner (e.g. some Neon
     -- databases), `neondb_owner` lacks ADMIN OPTION on it and the bare GRANT would raise
@@ -443,37 +543,53 @@ $$;
 
 COMMENT ON ROLE semantius_authenticator IS
 'Session-mode login role (Supabase/Neon authenticator pattern). NOSUPERUSER NOINHERIT NOBYPASSRLS; can do nothing but SET ROLE authenticated. LOGIN + password are set per-environment, never in committed SQL.';
-$pgsem__core_0011_session_authenticator$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0011_session_authenticator', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0011_session_authenticator', 'f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$pgsem__core_0030_session_authenticator_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0030_session_authenticator.sql', '60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0030_session_authenticator.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0030_session_authenticator.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0012_create_cache') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0012_create_cache';
-    BEGIN
-      EXECUTE $pgsem__core_0012_create_cache$-- Create generic cache table for storing key-value pairs with expiration
+  -- _core.0040_cache.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0040_cache.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'fa6fbb5cf836f6755059864bccf6a6a1af3752dc5be878d419ae46d711bcbef2') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0040_cache.sql';
+      EXECUTE $pgsem__core_0040_cache_sql$-- Create generic cache table for storing key-value pairs with expiration
 -- This eliminates the need for Redis and provides persistent caching across all function instances
 -- RLS is enabled without policies to prevent access via Data API, only direct SQL functions
 -- UNLOGGED table for better performance (truncated on crash, not replicated)
-
-
 CREATE UNLOGGED TABLE IF NOT EXISTS common._cache (
     id BIGSERIAL PRIMARY KEY,
     key TEXT NOT NULL UNIQUE,
@@ -586,7 +702,7 @@ END $$;
 -- Withholding the grant to semantius_user is not enough. PostgreSQL grants
 -- EXECUTE to PUBLIC on every new function, and the schema-wide
 -- `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC` in
--- 0010 does not prevent it - see the comment there for why it cannot. An
+-- 0020_settings.once.sql does not prevent it - see the comment there for why it cannot. An
 -- explicit per-function REVOKE is the only form that holds, and
 -- 0060_test_security.sql fails if one is ever missed.
 REVOKE EXECUTE ON FUNCTION common.cache_get(TEXT) FROM PUBLIC;
@@ -605,32 +721,51 @@ COMMENT ON FUNCTION common.cache_get(TEXT) IS 'Get cached value by key, returns 
 COMMENT ON FUNCTION common.cache_set(TEXT, TEXT, INTEGER) IS 'Set cached value with expiration in minutes';
 COMMENT ON FUNCTION common.cache_delete(TEXT) IS 'Delete cached value by key, returns true if deleted';
 COMMENT ON FUNCTION common.cache_cleanup() IS 'Clean up expired cache entries, returns count of deleted entries';
-COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including total, expired, and active entries';$pgsem__core_0012_create_cache$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0012_create_cache', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0012_create_cache', '60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including total, expired, and active entries';
+$pgsem__core_0040_cache_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0040_cache.sql', 'fa6fbb5cf836f6755059864bccf6a6a1af3752dc5be878d419ae46d711bcbef2')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0040_cache.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0040_cache.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0015_jsonlogic') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0015_jsonlogic';
-    BEGIN
-      EXECUTE $pgsem__core_0015_jsonlogic$-- Helper: JsonLogic truthy semantics
+  -- _core.0050_jsonlogic.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
+      EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
 -- false, null, 0, "" and empty arrays are falsy; everything else is truthy
 CREATE OR REPLACE FUNCTION jl_truthy(val jsonb) RETURNS boolean AS $$
 BEGIN
@@ -754,7 +889,7 @@ END;
 -- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
--- is_raci_actor and has_consultation call functions defined in 0210; no rule
+-- is_raci_actor and has_consultation call functions defined in 0370_raci.sql; no rule
 -- evaluated during install uses those operators.
 CREATE OR REPLACE FUNCTION evaluate_json_logic(rule jsonb, data jsonb)
 RETURNS jsonb AS $$
@@ -1025,7 +1160,6 @@ BEGIN
         nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
         RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
-
 
     END IF;   -- end of the pre-evaluation operator group
 
@@ -1370,7 +1504,7 @@ BEGIN
     -- ===================== value_changed =====================
     -- Checks if a field value has changed compared to $old.
     -- Reads $old without the rule ever naming it. build_record_logic_trigger in
-    -- 0180_computed_validation.sql decides whether to build $old by searching the
+    -- 0210_computed_validation.sql decides whether to build $old by searching the
     -- rule text for "$old" or for this operator's name, so any new operator that
     -- reads $old implicitly has to be added to that search or its rules will
     -- silently see no previous row.
@@ -1550,38 +1684,59 @@ GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
-$pgsem__core_0015_jsonlogic$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0015_jsonlogic', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0015_jsonlogic', 'fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$pgsem__core_0050_jsonlogic_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0050_jsonlogic.sql', '9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0050_jsonlogic.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0050_jsonlogic.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0020_rbac_schema') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0020_rbac_schema';
-    BEGIN
-      EXECUTE $pgsem__core_0020_rbac_schema$-- =====================================================
+  -- _core.0060_rbac_schema.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0060_rbac_schema.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0060_rbac_schema.once.sql';
+      EXECUTE $pgsem__core_0060_rbac_schema_once_sql$-- =====================================================
 -- RBAC SYSTEM - DDL (Tables, Indexes, Constraints)
 -- =====================================================
 
 -- =====================================================
 -- MODULES
 -- =====================================================
+-- Runs once: the RBAC tables, their indexes and the rbac schema with its
+-- grants. The slug and updated_at triggers of these tables are in
+-- 0070_rbac_schema.sql, which re-runs whenever it changes.
 
 -- Modules: Logical groupings for roles and permissions
 CREATE TABLE modules (
@@ -1610,41 +1765,6 @@ CREATE TABLE modules (
     CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master')),
     CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
 );
-
--- =====================================================
--- AUTO-SET MODULE SLUG TRIGGER
--- =====================================================
--- A module saved with an empty module_slug gets one derived from module_name,
--- on INSERT and on an UPDATE that clears it. A slug that is set is never
--- rewritten, so renaming a module does not move its URLs or break a client
--- that looks it up by slug (get_module_cubes matches on it).
-
-CREATE OR REPLACE FUNCTION auto_set_module_slug()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
-        -- Every run of characters outside the slug alphabet becomes one hyphen,
-        -- and the ends are trimmed because rule 90702 wants a letter or digit
-        -- first. A name with no ASCII letter or digit derives '', which leaves
-        -- the column default in place.
-        NEW.module_slug := trim(both '-_' from regexp_replace(lower(NEW.module_name), '[^a-z0-9_-]+', '-', 'g'));
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_module_slug IS
-'Trigger function that derives module_slug from module_name when it is empty';
-
-CREATE TRIGGER auto_set_module_slug_trigger
-    BEFORE INSERT OR UPDATE ON modules
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_module_slug();
-
-COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
-'Derives module_slug from module_name when it is empty';
-
-REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
 
 -- =====================================================
 -- PERMISSIONS AND ROLES
@@ -1679,7 +1799,7 @@ CREATE TABLE permissions (
     -- with a primary key violation.
     --
     -- Everything else is allowed, and the segment alphabet deliberately equals
-    -- the one modules.module_slug accepts (rule 90702 in 0060_dd_schema.sql:
+    -- the one modules.module_slug accepts (rule 90702 in 0150_dd_bootstrap.once.sql:
     -- ^[a-z0-9][a-z0-9_-]*$, hyphens included), because a module scaffold mints
     -- <slug>:<verb>. Narrowing this without narrowing that would make a module
     -- slugged service-catalog unable to name its own permissions.
@@ -1703,39 +1823,6 @@ CREATE TABLE roles (
     CONSTRAINT valid_role_slug CHECK (slug = '' OR slug ~ '^[a-z0-9_]+$')
 );
 
--- =====================================================
--- AUTO-SET ROLE SLUG TRIGGER
--- =====================================================
--- Automatically generates slug from role_name when not provided
-
-CREATE OR REPLACE FUNCTION auto_set_role_slug()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.slug IS NULL OR trim(NEW.slug) = '' THEN
-        NEW.slug := lower(regexp_replace(NEW.role_name, '[^a-zA-Z0-9]+', '_', 'g'));
-        -- Collapse consecutive underscores into a single one
-        NEW.slug := regexp_replace(NEW.slug, '_+', '_', 'g');
-        -- Remove leading/trailing underscores
-        NEW.slug := trim(both '_' from NEW.slug);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_role_slug IS
-'Trigger function that auto-generates slug from role_name when not provided';
-
-CREATE TRIGGER auto_set_role_slug_trigger
-    BEFORE INSERT OR UPDATE ON roles
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_role_slug();
-
-COMMENT ON TRIGGER auto_set_role_slug_trigger ON roles IS
-'Auto-generates slug from role_name when not explicitly provided';
-
--- Revoke default PUBLIC execute on trigger function
-REVOKE EXECUTE ON FUNCTION auto_set_role_slug() FROM PUBLIC;
-
 -- Users and agents. A session is a JWT, and the caller is the row whose
 -- external_id equals the sub claim.
 CREATE TABLE users (
@@ -1746,7 +1833,7 @@ CREATE TABLE users (
     -- authentication provider (get_userinfo upserts on it); there is no
     -- default, so a user row saved without one is refused. An agent (is_agent)
     -- saved without one, or with an empty one, gets a generated identity
-    -- from the trigger in 0210: 'agent:' plus a random UUID. An empty or blank
+    -- from assign_agent_external_id (0370_raci.sql): 'agent:' plus a random UUID. An empty or blank
     -- string is refused for both (users_external_id_not_empty, below), so no
     -- row can exist that no session could ever act as.
     --
@@ -1829,33 +1916,6 @@ ALTER TABLE modules ADD COLUMN default_viewer_role_id INTEGER REFERENCES roles(i
 ALTER TABLE modules ADD COLUMN default_manager_role_id INTEGER REFERENCES roles(id);
 ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id);
 
--- modules.view_permission is a foreign key to permissions(permission_name) too,
--- but it is NOT created here: it is DEFERRABLE INITIALLY DEFERRED, and a
--- deferred check queues a pending trigger event that PostgreSQL will not let a
--- later ALTER TABLE past. Adding the constraint after the first module is
--- seeded avoids ever queuing one - see 0040_rbac_seed.sql, where it is created
--- and the reasoning is written out.
-
--- =====================================================
--- TRIGGERS FOR updated_at AUTOMATION
--- =====================================================
-
-CREATE TRIGGER update_modules_updated_at
-    BEFORE UPDATE ON modules
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-CREATE TRIGGER update_permissions_updated_at
-    BEFORE UPDATE ON permissions
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-CREATE TRIGGER update_roles_updated_at
-    BEFORE UPDATE ON roles
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
-
-CREATE TRIGGER update_users_updated_at
-    BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column('last_seen');
-
 -- =====================================================
 -- INDEXES
 -- =====================================================
@@ -1911,35 +1971,9 @@ CREATE INDEX idx_modules_admin_permission ON modules(admin_permission);
 CREATE INDEX idx_modules_default_viewer_role ON modules(default_viewer_role_id);
 CREATE INDEX idx_modules_default_manager_role ON modules(default_manager_role_id);
 CREATE INDEX idx_modules_default_admin_role ON modules(default_admin_role_id);
-$pgsem__core_0020_rbac_schema$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0020_rbac_schema', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0020_rbac_schema', 'e350ccf3a5e1470b08ae20eb92e53a5f979472c5335e5ff7ea897a1d9bbe54e0');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0030_rbac_functions') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0030_rbac_functions';
-    BEGIN
-      EXECUTE $pgsem__core_0030_rbac_functions$-- =====================================================
+-- =====================================================
 -- CREATE SCHEMA
 -- =====================================================
-
 CREATE SCHEMA IF NOT EXISTS rbac;
 
 -- =====================================================
@@ -1957,7 +1991,196 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
 -- Revoke default PUBLIC execute on future rbac functions
 ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+$pgsem__core_0060_rbac_schema_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0060_rbac_schema.once.sql', '4eff03bf0a1d1fecbb60ad2ea21c70b6f85c8be0d80c094bb05c22b84f48bc9f')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0060_rbac_schema.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0060_rbac_schema.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
+  -- _core.0070_rbac_schema.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0070_rbac_schema.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0070_rbac_schema.sql';
+      EXECUTE $pgsem__core_0070_rbac_schema_sql$-- =====================================================
+-- RBAC SYSTEM - slug and updated_at triggers
+-- =====================================================
+-- Repeatable: the tables these triggers sit on are in 0060_rbac_schema.once.sql.
+
+-- =====================================================
+-- AUTO-SET MODULE SLUG TRIGGER
+-- =====================================================
+-- A module saved with an empty module_slug gets one derived from module_name,
+-- on INSERT and on an UPDATE that clears it. A slug that is set is never
+-- rewritten, so renaming a module does not move its URLs or break a client
+-- that looks it up by slug (get_module_cubes matches on it).
+
+CREATE OR REPLACE FUNCTION auto_set_module_slug()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.module_slug IS NULL OR trim(NEW.module_slug) = '' THEN
+        -- Every run of characters outside the slug alphabet becomes one hyphen,
+        -- and the ends are trimmed because rule 90702 wants a letter or digit
+        -- first. A name with no ASCII letter or digit derives '', which leaves
+        -- the column default in place.
+        NEW.module_slug := trim(both '-_' from regexp_replace(lower(NEW.module_name), '[^a-z0-9_-]+', '-', 'g'));
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_module_slug IS
+'Trigger function that derives module_slug from module_name when it is empty';
+
+CREATE OR REPLACE TRIGGER auto_set_module_slug_trigger
+    BEFORE INSERT OR UPDATE ON modules
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_module_slug();
+
+COMMENT ON TRIGGER auto_set_module_slug_trigger ON modules IS
+'Derives module_slug from module_name when it is empty';
+
+REVOKE EXECUTE ON FUNCTION auto_set_module_slug() FROM PUBLIC;
+
+-- =====================================================
+-- AUTO-SET ROLE SLUG TRIGGER
+-- =====================================================
+-- Automatically generates slug from role_name when not provided
+
+CREATE OR REPLACE FUNCTION auto_set_role_slug()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.slug IS NULL OR trim(NEW.slug) = '' THEN
+        NEW.slug := lower(regexp_replace(NEW.role_name, '[^a-zA-Z0-9]+', '_', 'g'));
+        -- Collapse consecutive underscores into a single one
+        NEW.slug := regexp_replace(NEW.slug, '_+', '_', 'g');
+        -- Remove leading/trailing underscores
+        NEW.slug := trim(both '_' from NEW.slug);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_role_slug IS
+'Trigger function that auto-generates slug from role_name when not provided';
+
+CREATE OR REPLACE TRIGGER auto_set_role_slug_trigger
+    BEFORE INSERT OR UPDATE ON roles
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_role_slug();
+
+COMMENT ON TRIGGER auto_set_role_slug_trigger ON roles IS
+'Auto-generates slug from role_name when not explicitly provided';
+
+-- Revoke default PUBLIC execute on trigger function
+REVOKE EXECUTE ON FUNCTION auto_set_role_slug() FROM PUBLIC;
+
+-- modules.view_permission is a foreign key to permissions(permission_name) too,
+-- but it is NOT created here: it is DEFERRABLE INITIALLY DEFERRED, and a
+-- deferred check queues a pending trigger event that PostgreSQL will not let a
+-- later ALTER TABLE past. Adding the constraint after the first module is
+-- seeded avoids ever queuing one - see 0090_rbac_seed.once.sql, where it is created
+-- and the reasoning is written out.
+
+-- =====================================================
+-- TRIGGERS FOR updated_at AUTOMATION
+-- =====================================================
+
+CREATE OR REPLACE TRIGGER update_modules_updated_at
+    BEFORE UPDATE ON modules
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
+
+CREATE OR REPLACE TRIGGER update_permissions_updated_at
+    BEFORE UPDATE ON permissions
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
+
+CREATE OR REPLACE TRIGGER update_roles_updated_at
+    BEFORE UPDATE ON roles
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column();
+
+CREATE OR REPLACE TRIGGER update_users_updated_at
+    BEFORE UPDATE ON users
+    FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column('last_seen');
+$pgsem__core_0070_rbac_schema_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0070_rbac_schema.sql', 'd7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0070_rbac_schema.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0070_rbac_schema.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0080_rbac_functions.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '7be7583f3eadfd246d17ddfd546399b68e893b38ece863fc8b729f9cc643d3d9') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
+      EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
+-- RBAC FUNCTIONS
+-- =====================================================
+-- Repeatable. The rbac schema and its default privileges are in
+-- 0060_rbac_schema.once.sql.
 
 -- =====================================================
 -- RBAC SYSTEM - PL/pgSQL FUNCTIONS
@@ -2053,7 +2276,7 @@ COMMENT ON FUNCTION rbac.check_permission_hierarchy_cycle IS
 'Trigger function to prevent cycles and enforce 11-level depth limit in permission hierarchy.';
 
 -- Apply trigger BEFORE INSERT OR UPDATE
-CREATE TRIGGER prevent_permission_hierarchy_cycle
+CREATE OR REPLACE TRIGGER prevent_permission_hierarchy_cycle
     BEFORE INSERT OR UPDATE ON permission_hierarchy
     FOR EACH ROW
     EXECUTE FUNCTION rbac.check_permission_hierarchy_cycle();
@@ -2447,13 +2670,14 @@ COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 -- as a parameter and writes to users, so a caller that could reach it could
 -- create a principal that never authenticated, overwrite another one's email, or
 -- refresh a foreign last_seen - and last_seen is what the first-user bootstrap in
--- 0050 reads. It is SECURITY INVOKER: its one caller, public.get_userinfo()
--- (0080), is SECURITY DEFINER, so a call reached through get_userinfo runs as
--- the owner regardless, and get_userinfo's own rbac.uid() call is the
--- authentication gate - this function trusts the subject its caller already
--- authenticated rather than repeating that check itself. The revoke from semantius_user has to be explicit:
--- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
--- this schema.
+-- 0100_rbac_rls.sql reads. It is SECURITY INVOKER: its one caller,
+-- public.get_userinfo() (0250_public_functions.sql), is SECURITY DEFINER, so a
+-- call reached through get_userinfo runs as the owner regardless, and
+-- get_userinfo's own rbac.uid() call is the authentication gate - this function
+-- trusts the subject its caller already authenticated rather than repeating
+-- that check itself. The revoke from semantius_user has to be explicit: the
+-- ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql grants EXECUTE on every
+-- function created in this schema.
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEXT) FROM semantius_user;
 
@@ -3048,7 +3272,7 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- below, rbac.ensure_context_initialized and public.get_userinfo - is itself
 -- SECURITY DEFINER, so a call reached from any of them already runs as the
 -- owner (semantius_owner, BYPASSRLS, or the installing role on managed
--- platforms, which 0050 requires to be BYPASSRLS; no table here carries FORCE
+-- platforms, which 0100_rbac_rls.sql requires to be BYPASSRLS; no table here carries FORCE
 -- ROW LEVEL SECURITY) regardless of this function's own label. That keeps it
 -- outside guard test 0060_test_security.sql's rule that every definer calls
 -- rbac.uid(): an internal helper with no identity of its own to authenticate
@@ -3093,8 +3317,8 @@ own - see the comment above this function for why that is safe.';
 -- Not a request-role capability: it takes an internal id directly, with no
 -- self-or-admin guard, because it has no subject of its own to check against
 -- one. The explicit revoke from semantius_user is required regardless of that:
--- 0030's ALTER DEFAULT PRIVILEGES grants EXECUTE on every function created in
--- this schema.
+-- the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql grants EXECUTE on
+-- every function created in this schema.
 REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(INTEGER) FROM PUBLIC, semantius_user;
 
 -- Get all effective permissions for a user (including implied)
@@ -3245,7 +3469,7 @@ BEGIN
            OR v_external_id = ''
            OR v_external_id IS DISTINCT FROM current_setting('request.jwt.claim.sub', true)
         THEN
-            -- Cold: the direct call is the authentication gate 0060 requires
+            -- Cold: the direct call is the authentication gate 0060_test_security.sql requires
             -- of a definer the request role can execute, and what turns a
             -- session with no claims into 42501 rather than a NULL id.
             PERFORM rbac.uid();
@@ -3414,7 +3638,7 @@ COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS
 'Automatically grants newly created permissions to the Administrator role';
 
 -- Apply trigger AFTER INSERT on permissions table
-CREATE TRIGGER auto_grant_permission_to_administrator
+CREATE OR REPLACE TRIGGER auto_grant_permission_to_administrator
     AFTER INSERT ON permissions
     FOR EACH ROW
     EXECUTE FUNCTION rbac.grant_permission_to_administrator();
@@ -3425,45 +3649,62 @@ REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rbac FROM PUBLIC;
 
 -- The scope helpers are SECURITY INVOKER and only correct inside one of the
 -- three definer checkers, where current_user is the owner. Taking EXECUTE away
--- from the request role is what stops them being called anywhere else: 0030's
--- ALTER DEFAULT PRIVILEGES grants it to semantius_user on every function
+-- from the request role is what stops them being called anywhere else: the
+-- ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql grants it to
+-- semantius_user on every function
 -- created in this schema, so the revoke has to be explicit.
 REVOKE EXECUTE ON FUNCTION rbac.expand_scopes(TEXT) FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
-$pgsem__core_0030_rbac_functions$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0030_rbac_functions', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0030_rbac_functions', '4b4666a7d3337a0a6eeb1d6a0484ebf399c817103e2ca2334f66bcc87c950abe');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$pgsem__core_0080_rbac_functions_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0080_rbac_functions.sql', '7be7583f3eadfd246d17ddfd546399b68e893b38ece863fc8b729f9cc643d3d9')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0080_rbac_functions.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0080_rbac_functions.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0040_rbac_seed') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0040_rbac_seed';
-    BEGIN
-      EXECUTE $pgsem__core_0040_rbac_seed$-- =====================================================
+  -- _core.0090_rbac_seed.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0090_rbac_seed.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0090_rbac_seed.once.sql';
+      EXECUTE $pgsem__core_0090_rbac_seed_once_sql$-- =====================================================
 -- Description: Seeds initial modules, permissions, roles, and their relationships
 -- =====================================================
-
 
 -- =====================================================
 -- SEED MODULES
 -- =====================================================
-
 INSERT INTO modules (id, module_name, module_slug, description, view_permission, icon_name, logo_color, home_page) VALUES
     (1, '_core', 'admin', 'Administration', 'admin', 'settings', '#029948', '/admin/users');
 
@@ -3537,10 +3778,10 @@ SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)
 -- permissions they name.
 --
 -- It is created HERE, at the end of the seed, rather than beside the other
--- modules foreign keys in 0020, and that placement is the point. A deferred
+-- modules foreign keys in 0060_rbac_schema.once.sql, and that placement is the point. A deferred
 -- check is a pending trigger event, and PostgreSQL refuses ALTER TABLE on a
 -- table that has one; declaring the constraint before the seed would leave the
--- seed's own INSERT queued and 0050's ALTER TABLE modules ENABLE ROW LEVEL
+-- seed's own INSERT queued and 0100_rbac_rls.sql's ALTER TABLE modules ENABLE ROW LEVEL
 -- SECURITY - and any later ALTER TABLE modules - would fail with SQLSTATE 55006.
 -- That is invisible when each migration runs in its own transaction and fatal
 -- when the extension installer runs all of them in one. ADD CONSTRAINT
@@ -3555,32 +3796,51 @@ SELECT setval('modules_id_seq', GREATEST(1000, (SELECT MAX(id) + 1 FROM modules)
 ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
     FOREIGN KEY (view_permission) REFERENCES permissions(permission_name)
     ON DELETE NO ACTION ON UPDATE CASCADE
-    DEFERRABLE INITIALLY DEFERRED;$pgsem__core_0040_rbac_seed$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0040_rbac_seed', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0040_rbac_seed', '5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+    DEFERRABLE INITIALLY DEFERRED;
+$pgsem__core_0090_rbac_seed_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0090_rbac_seed.once.sql', '458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0090_rbac_seed.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0090_rbac_seed.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0050_rbac_rls') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0050_rbac_rls';
-    BEGIN
-      EXECUTE $pgsem__core_0050_rbac_rls$-- =====================================================
+  -- _core.0100_rbac_rls.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'dd3bdedb0bf2d0e4c9668bab09e765d7915184ecfac8628cdb5605e82f2696f1') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
+      EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
 -- Description: Enable Row Level Security (RLS) policies
 -- =====================================================
 
@@ -3592,6 +3852,9 @@ ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
 -- On Neon: Roles created via Console/CLI/API inherit BYPASSRLS from 'neon_superuser' (projects after Aug 15, 2023)
 -- On self-hosted: You may need to run: ALTER ROLE your_role BYPASSRLS;
 -- Note: This verification will halt the script if BYPASSRLS is not available
+-- Repeatable. The schema-wide grants are in 0110_rbac_grants.once.sql: they
+-- reach every table that exists when they run, so running them again later
+-- would grant semantius_user the tables created since.
 
 -- RAISE, not ASSERT: assertions are silently skipped when
 -- plpgsql.check_asserts is off, which would let the install proceed without
@@ -3604,7 +3867,6 @@ BEGIN
             HINT = 'ALTER ROLE ' || quote_ident(current_user) || ' BYPASSRLS;';
   END IF;
 END $$;
-
 
 -- =====================================================
 -- ENABLE RLS ON ALL RBAC TABLES
@@ -3620,239 +3882,28 @@ ALTER TABLE user_permissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permission_hierarchy ENABLE ROW LEVEL SECURITY;
 
 -- =====================================================
--- MODULES - use view_permission column for SELECT, admin for others
+-- POLICIES OF THE EIGHT RBAC TABLES
 -- =====================================================
-
-CREATE POLICY modules_select_policy ON modules
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_any_permission('admin', view_permission)));
-
-CREATE POLICY modules_insert_policy ON modules
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY modules_update_policy ON modules
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY modules_delete_policy ON modules
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
--- =====================================================
--- USERS - user:read for SELECT, user:manage for others
--- =====================================================
-
-CREATE POLICY users_select_policy ON users
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('user:read')));
-
-CREATE POLICY users_insert_policy ON users
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('user:manage')));
-
-CREATE POLICY users_update_policy ON users
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('user:manage')))
-    WITH CHECK ((select rbac.has_permission('user:manage')));
-
-CREATE POLICY users_delete_policy ON users
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('user:manage')));
-
--- =====================================================
--- PERMISSIONS - admin for all operations
--- =====================================================
-
-CREATE POLICY permissions_select_policy ON permissions
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
-CREATE POLICY permissions_insert_policy ON permissions
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY permissions_update_policy ON permissions
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY permissions_delete_policy ON permissions
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
--- =====================================================
--- ROLES - admin for all operations
--- =====================================================
-
-CREATE POLICY roles_select_policy ON roles
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
-CREATE POLICY roles_insert_policy ON roles
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY roles_update_policy ON roles
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY roles_delete_policy ON roles
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
--- =====================================================
--- USER_ROLES - admin for all operations
--- =====================================================
-
-CREATE POLICY user_roles_select_policy ON user_roles
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
-CREATE POLICY user_roles_insert_policy ON user_roles
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY user_roles_update_policy ON user_roles
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY user_roles_delete_policy ON user_roles
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
--- =====================================================
--- ROLE_PERMISSIONS - admin for all operations
--- =====================================================
-
-CREATE POLICY role_permissions_select_policy ON role_permissions
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
-CREATE POLICY role_permissions_insert_policy ON role_permissions
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY role_permissions_update_policy ON role_permissions
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY role_permissions_delete_policy ON role_permissions
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
--- =====================================================
--- USER_PERMISSIONS - admin for all operations
--- =====================================================
-
-CREATE POLICY user_permissions_select_policy ON user_permissions
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
-CREATE POLICY user_permissions_insert_policy ON user_permissions
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY user_permissions_update_policy ON user_permissions
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY user_permissions_delete_policy ON user_permissions
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
--- =====================================================
--- PERMISSION_HIERARCHY - admin for all operations
--- =====================================================
-
-CREATE POLICY permission_hierarchy_select_policy ON permission_hierarchy
-    FOR SELECT
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
-
-CREATE POLICY permission_hierarchy_insert_policy ON permission_hierarchy
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY permission_hierarchy_update_policy ON permission_hierarchy
-    FOR UPDATE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')))
-    WITH CHECK ((select rbac.has_permission('admin')));
-
-CREATE POLICY permission_hierarchy_delete_policy ON permission_hierarchy
-    FOR DELETE
-    TO semantius_user
-    USING ((select rbac.has_permission('admin')));
+-- None here. These tables are data dictionary entities (0150_dd_bootstrap.once.sql registers them),
+-- and the dictionary owns every policy named <table>_{select,insert,update,
+-- delete}_policy: it drops and re-creates them whenever the entity's
+-- view_permission, edit_permission or select_rule changes. A hand-written
+-- copy would be replaced by the first such change and would overwrite the
+-- dictionary's version whenever this file ran again. create_entity_policies()
+-- generates them once the dictionary exists (0240_dd_bootstrap_complete.once.sql),
+-- and modules gets its per-row rule from its select_rule in the same file. Until then RLS is on with no policy,
+-- which denies the request role everything; the install itself runs as the
+-- owner.
 
 -- =====================================================
 -- _VERSIONS - admin can query, deny insert/update/delete
 -- =====================================================
 
+DROP POLICY IF EXISTS versions_select_policy ON _versions;
 CREATE POLICY versions_select_policy ON _versions
     FOR SELECT
     TO semantius_user
     USING ((select rbac.has_permission('admin')));
-
--- No INSERT, UPDATE, or DELETE policies - these operations are denied to all semantius_user roles
-
--- =====================================================
--- GRANT TABLE ACCESS TO semantius_user ROLE
--- =====================================================
--- Grant usage on public schema
-GRANT USAGE ON SCHEMA public TO semantius_user;
-
--- Grant table permissions (RLS policies will further restrict access)
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO semantius_user;
-
--- Grant sequence usage for auto-increment columns
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO semantius_user;
-
--- Earlier releases did carry a default privilege here, and `deno task dropall`
--- does not remove one: pg_default_acl is database state, not schema state, so a
--- database that ever ran that release keeps handing the request role every new
--- table in public until it is taken back explicitly. These two revokes do that.
--- They bind to the installing role, which is the grantor of the rows they undo;
--- 0290 takes back the semantius_owner pair. On a database that never had them
--- both are no-ops and leave no row behind.
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
 
 -- There is deliberately no ALTER DEFAULT PRIVILEGES for tables or sequences in
 -- this schema. A default grant would reach every table created in public from
@@ -3862,9 +3913,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- per table, at each site that creates one the request role must reach - the
 -- dictionary at CREATE TABLE and at adoption, and the core migrations for what
 -- they create - so that a grant is never in place without the policies that
--- bound it. The two ON ALL statements above are not a default: they cover the
--- tables that exist at this point of the migration order, every one of them
--- ours and every one of them with RLS (pinned by 0060_test_security.sql 2.1).
+-- bound it. The two ON ALL statements in 0110_rbac_grants.once.sql are not a
+-- default: they cover the tables that exist at that point of the migration
+-- order, every one of them ours and every one of them with RLS (pinned by
+-- 0060_test_security.sql 2.1).
 
 -- =====================================================
 -- TRIGGER: Auto-assign role 1 (User) to new users
@@ -3876,7 +3928,7 @@ CREATE OR REPLACE FUNCTION rbac.auto_assign_user_role()
 RETURNS TRIGGER AS $$
 BEGIN
     -- Insert the user into role 1 (User) if not already assigned
-    -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
+    -- Note: Role ID 1 is explicitly seeded in 0090_rbac_seed.once.sql and reserved for the User role
     INSERT INTO user_roles (user_id, role_id)
     VALUES (NEW.id, 1)
     ON CONFLICT (user_id, role_id) DO NOTHING;
@@ -3935,7 +3987,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS
 'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first principal to arrive with a last_seen while no user holds role 2, under an advisory lock.';
 
-CREATE TRIGGER auto_assign_user_role_trigger
+CREATE OR REPLACE TRIGGER auto_assign_user_role_trigger
     AFTER INSERT ON users
     FOR EACH ROW
     EXECUTE FUNCTION rbac.auto_assign_user_role();
@@ -3953,7 +4005,7 @@ CREATE OR REPLACE FUNCTION rbac.prevent_user_role_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
     -- Check if attempting to delete role 1 (User role)
-    -- Note: Role ID 1 is explicitly seeded in 0040_rbac_seed.sql and reserved for the User role
+    -- Note: Role ID 1 is explicitly seeded in 0090_rbac_seed.once.sql and reserved for the User role
     IF OLD.role_id = 1 THEN
         -- Allow cascade when the user itself is being deleted
         IF NOT EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id) THEN
@@ -3971,7 +4023,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
 'Trigger function to prevent deletion of role 1 (User) from any user.';
 
-CREATE TRIGGER prevent_user_role_deletion_trigger
+CREATE OR REPLACE TRIGGER prevent_user_role_deletion_trigger
     BEFORE DELETE ON user_roles
     FOR EACH ROW
     EXECUTE FUNCTION rbac.prevent_user_role_deletion();
@@ -4007,7 +4059,7 @@ COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 -- has BYPASSRLS, so the exemption below would let every caller through.
 --
 -- That exemption is the operator's escape hatch and matches fields_ctype_lock in
--- 0070: a direct superuser or owner connection may still empty the administrator
+-- 0160_dd_functions.sql: a direct superuser or owner connection may still empty the administrator
 -- set, which is how a database is repaired and how a test builds a system that
 -- has never had one. It gives away nothing - such a connection already holds
 -- everything the extension protects. It is also the only exemption, and that is
@@ -4039,9 +4091,10 @@ RETURNS INTEGER AS $$
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
 -- The invoker trigger above has to be able to call this, so semantius_user keeps
--- the EXECUTE that 0030's ALTER DEFAULT PRIVILEGES grants it. What that exposes
--- is one bit - whether the system still has an administrator - which any session
--- can already read off the guard by issuing a statement the guard watches.
+-- the EXECUTE that the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql
+-- grants it. What that exposes is one bit - whether the system still has an
+-- administrator - which any session can already read off the guard by issuing a
+-- statement the guard watches.
 REVOKE EXECUTE ON FUNCTION rbac.count_enabled_administrators() FROM PUBLIC;
 
 COMMENT ON FUNCTION rbac.count_enabled_administrators IS
@@ -4066,7 +4119,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public;
 
--- Created after 0030's blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac, so it
+-- Created after the blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac at the end of
+-- 0080_rbac_functions.sql, so it
 -- carries PostgreSQL's built-in PUBLIC grant until this line takes it away. The
 -- request role keeps EXECUTE: it is the invoker, and the trigger is useless if
 -- the caller cannot run it.
@@ -4075,12 +4129,12 @@ REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_remains() FROM PUBLIC;
 COMMENT ON FUNCTION rbac.assert_administrator_remains IS
 'Statement-level guard: refuses any statement that would leave no enabled user holding role 2 (Administrator). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
 
-CREATE TRIGGER assert_administrator_remains_on_user_roles
+CREATE OR REPLACE TRIGGER assert_administrator_remains_on_user_roles
     AFTER DELETE ON user_roles
     FOR EACH STATEMENT
     EXECUTE FUNCTION rbac.assert_administrator_remains();
 
-CREATE TRIGGER assert_administrator_remains_on_user_delete
+CREATE OR REPLACE TRIGGER assert_administrator_remains_on_user_delete
     AFTER DELETE ON users
     FOR EACH STATEMENT
     EXECUTE FUNCTION rbac.assert_administrator_remains();
@@ -4088,7 +4142,7 @@ CREATE TRIGGER assert_administrator_remains_on_user_delete
 -- Scoped to the one column that can revoke an administrator without touching a
 -- role: an unscoped UPDATE trigger would run this query on every login, because
 -- get_userinfo() refreshes last_seen on each one.
-CREATE TRIGGER assert_administrator_remains_on_disable
+CREATE OR REPLACE TRIGGER assert_administrator_remains_on_disable
     AFTER UPDATE OF is_disabled ON users
     FOR EACH STATEMENT
     EXECUTE FUNCTION rbac.assert_administrator_remains();
@@ -4102,7 +4156,7 @@ COMMENT ON TRIGGER assert_administrator_remains_on_user_delete ON users IS
 -- the referencing table's owner, which is BYPASSRLS and therefore exempt from
 -- the user_roles trigger above - this one fires in the caller's own context and
 -- catches it.
-CREATE TRIGGER assert_administrator_remains_on_role_delete
+CREATE OR REPLACE TRIGGER assert_administrator_remains_on_role_delete
     AFTER DELETE ON roles
     FOR EACH STATEMENT
     EXECUTE FUNCTION rbac.assert_administrator_remains();
@@ -4140,7 +4194,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 COMMENT ON FUNCTION rbac.default_assigned_by IS
 'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
 
-CREATE TRIGGER default_assigned_by_trigger
+CREATE OR REPLACE TRIGGER default_assigned_by_trigger
     BEFORE INSERT ON user_roles
     FOR EACH ROW
     EXECUTE FUNCTION rbac.default_assigned_by();
@@ -4174,7 +4228,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 COMMENT ON FUNCTION rbac.default_granted_by IS
 'Trigger function to default granted_by to the current user ID when not explicitly provided.';
 
-CREATE TRIGGER default_granted_by_trigger
+CREATE OR REPLACE TRIGGER default_granted_by_trigger
     BEFORE INSERT ON user_permissions
     FOR EACH ROW
     EXECUTE FUNCTION rbac.default_granted_by();
@@ -4186,404 +4240,130 @@ COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.default_assigned_by() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;$pgsem__core_0050_rbac_rls$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0050_rbac_rls', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0050_rbac_rls', '548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0060_dd_schema') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0060_dd_schema';
-    BEGIN
-      EXECUTE $pgsem__core_0060_dd_schema$-- =====================================================
--- DYNAMIC TABLE MANAGEMENT SCHEMA
--- =====================================================
--- This schema allows runtime definition of tables and their fields
--- Integrates with RBAC system for permission-based access control
--- =====================================================
-
--- =====================================================
--- ENTITIES TABLE
--- =====================================================
--- Stores metadata about dynamically created tables
-
-CREATE TABLE IF NOT EXISTS entities (
-    table_name TEXT PRIMARY KEY,
-    singular TEXT NOT NULL DEFAULT '',
-    plural TEXT DEFAULT '',  -- Nullable because trigger auto-sets it before constraint check
-    singular_label TEXT NOT NULL DEFAULT '',
-    plural_label TEXT NOT NULL DEFAULT '',
-    icon_url TEXT DEFAULT '',
-    description TEXT DEFAULT '',
-    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
-    -- RESTRICT, not the deferred NO ACTION modules.view_permission needs: an
-    -- entity is always created after the permissions it names, so an immediate
-    -- check fails early instead of at commit.
-    view_permission TEXT NOT NULL DEFAULT 'public:read'
-        REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
-    edit_permission TEXT NOT NULL DEFAULT 'admin'
-        REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
-    id_column TEXT NOT NULL DEFAULT 'id',
-    label_column TEXT NOT NULL DEFAULT 'label',
-    label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
-    managed BOOLEAN NOT NULL DEFAULT TRUE,
-    searchable BOOLEAN NOT NULL DEFAULT FALSE,
-    is_child BOOLEAN NOT NULL DEFAULT FALSE,
-    edit_mode TEXT NOT NULL DEFAULT 'auto',
-    cube_mode TEXT NOT NULL DEFAULT 'auto',
-    audit_log BOOLEAN NOT NULL DEFAULT FALSE,
-    computed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
-    validation_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
-    select_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
-    -- Catalog codes: which catalog blueprint this entity was built from. The modeler writes them so a
-    -- later run can find the entity again after a rename or merge. They default empty, which is what
-    -- an entity created outside the catalog has.
-    catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical uber-model code; rename/dialect/silo join key
-    catalog_owner_module TEXT NOT NULL DEFAULT '',       -- soft slug pointer to the catalog owner module (not an FK)
-    entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- kind of data held; editable; the platform acts only on 'junction' (dd_is_junction in 0145)
-    catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
-    order_column TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    -- Validate table_name follows PostgreSQL naming conventions
-    CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
-
-    -- Validate column names follow PostgreSQL naming conventions
-    CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
-    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
-    -- label_parent is empty (intrinsic) or a column-name identifier (validated against the
-    -- fields catalog by the validate_label_parent trigger in 0145_managed_enable.sql).
-    CONSTRAINT valid_label_parent CHECK (label_parent = '' OR label_parent ~ '^[a-z_][a-z0-9_]*$'),
-
-    -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
-    CONSTRAINT plural_matches_table_name CHECK (plural = table_name),
-
-    -- computed_fields and validation_rules must be JSON arrays
-    CONSTRAINT computed_fields_is_array CHECK (jsonb_typeof(computed_fields) = 'array'),
-    CONSTRAINT validation_rules_is_array CHECK (jsonb_typeof(validation_rules) = 'array'),
-    -- select_rule must be a JSON object
-    CONSTRAINT select_rule_is_object CHECK (jsonb_typeof(select_rule) = 'object'),
-    -- entity_type is a closed set of 6 values; 'unclassified' is its empty value, so '' is rejected.
-    -- This inline CHECK is the only one on the column: the field-metadata seed below runs before the
-    -- add_dd_field trigger exists, so the dictionary builds no enum CHECK of its own for it.
-    -- catalog_entity_aliases must be a JSON array.
-    CONSTRAINT valid_entity_type CHECK (entity_type IN
-        ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
-    CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
-    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$')
-);
-
-CREATE INDEX idx_entities_module ON entities(module_id);
--- The two permission columns are RESTRICT foreign keys, so every permission
--- delete and every rename scans them. The dictionary builds idx_<table>_<field>
--- for a reference field it creates; these are declared by hand, so their
--- indexes are too.
-CREATE INDEX idx_entities_view_permission ON entities(view_permission);
-CREATE INDEX idx_entities_edit_permission ON entities(edit_permission);
-
--- =====================================================
--- FIELDS TABLE
--- =====================================================
--- Stores metadata about fields in dynamically created tables
-
-CREATE TABLE IF NOT EXISTS fields (
-    id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
-    -- ON UPDATE CASCADE carries a rename of entities.table_name (0140) to the fields rows.
-    table_name TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
-    field_name TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT DEFAULT '',
-    format TEXT NOT NULL DEFAULT 'text',
-    is_pk BOOLEAN NOT NULL DEFAULT FALSE,
-    -- A default is a value (or one of the argument-less SQL expressions
-    -- quote_default_value() allow-lists), never a statement: the dictionary
-    -- interpolates it into ALTER TABLE ... DEFAULT, so statement separators and
-    -- comment markers are rejected outright as a second line of defense.
-    default_value TEXT DEFAULT ''
-        CONSTRAINT valid_default_value CHECK (
-            length(default_value) <= 200
-            AND default_value !~ '[;[:cntrl:]]'
-            AND position('--' IN default_value) = 0
-            AND position('/*' IN default_value) = 0
-        ),
-    field_order INTEGER NOT NULL DEFAULT 0,
-    input_type TEXT NOT NULL DEFAULT 'default',
-    width TEXT NOT NULL DEFAULT 'default',
-    ctype TEXT DEFAULT '',
-    searchable BOOLEAN NOT NULL DEFAULT FALSE,
-    enum_values JSONB DEFAULT NULL,
-    "precision" SMALLINT NOT NULL DEFAULT 2,
-    reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
-    reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
-    relationship_label TEXT NOT NULL DEFAULT 'has',
-    singular_label_parent TEXT NOT NULL DEFAULT '',
-    plural_label_parent TEXT NOT NULL DEFAULT '',
-    unique_value BOOLEAN NOT NULL DEFAULT FALSE,
-    cube_type TEXT NOT NULL DEFAULT 'auto',
-    input_type_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
-    -- Catalog/blueprint provenance (v0.1.2): stable design-time field identity (blueprint field name);
-    -- the field-rename join key. Empty = created outside the deploy pipeline.
-    catalog_field_code TEXT NOT NULL DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    -- Unique constraint on table_name and field_name
-    CONSTRAINT fields_table_field_unique UNIQUE (table_name, field_name),
-    
-    -- Validate field_name follows PostgreSQL naming conventions
-    CONSTRAINT valid_field_name CHECK (field_name ~ '^[a-z_][a-z0-9_]*$'),
-    
-
-    
-    -- Ensure precision is within a reasonable range for NUMERIC scale
-    CONSTRAINT valid_precision CHECK ("precision" >= 0 AND "precision" <= 18),
-
-    -- Ensure reference_table is set when format is 'reference' or 'parent'
-    CONSTRAINT reference_requires_table CHECK (
-        (format IN ('reference', 'parent') AND reference_table != '') OR (format NOT IN ('reference', 'parent'))
-    ),
-
-    -- Ensure format is 'reference' or 'parent' when reference_table is set
-    CONSTRAINT reference_table_requires_reference_format CHECK (
-        (reference_table != '' AND format IN ('reference', 'parent')) OR (reference_table = '')
-    )
-);
-
--- Add this partial unique index:
-CREATE UNIQUE INDEX one_pk_per_table_idx
-ON fields (table_name)
-WHERE is_pk;-- Ensure only one primary key per table    
-
-CREATE INDEX idx_fields_table ON fields(table_name);
-CREATE INDEX idx_fields_name ON fields(field_name);
-CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
-CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
-
--- Create trigger function to validate reference_table when not empty
--- We use a trigger instead of CHECK constraint to allow subqueries
-CREATE OR REPLACE FUNCTION validate_reference_table()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Only validate if reference_table is not empty
-    IF NEW.reference_table != '' THEN
-        -- Check if the referenced table exists
-        IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = NEW.reference_table) THEN
-            RAISE EXCEPTION 'Referenced table ${table} not found in entities'
-                USING ERRCODE = '90212',
-                      HINT = jsonb_build_object('table', NEW.reference_table)::text;
-        END IF;
+REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
+$pgsem__core_0100_rbac_rls_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0100_rbac_rls.sql', 'dd3bdedb0bf2d0e4c9668bab09e765d7915184ecfac8628cdb5605e82f2696f1')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
     END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION validate_reference_table IS
-'Trigger function that rejects a field whose reference_table is set but does not match any entities.table_name. Enforced via trigger (not a CHECK) so it can run a subquery.';
-
-CREATE TRIGGER validate_reference_table_trigger
-    BEFORE INSERT OR UPDATE ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION validate_reference_table();
-
--- =====================================================
--- ENABLE RLS ON METADATA TABLES
--- =====================================================
-
-ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
-ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
-
--- =====================================================
--- RLS POLICIES FOR ENTITIES
--- =====================================================
-
-CREATE POLICY entities_select_policy ON entities
-    FOR SELECT
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('public:read')));
-
-CREATE POLICY entities_insert_policy ON entities
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((SELECT rbac.has_permission('admin')));
-
-CREATE POLICY entities_update_policy ON entities
-    FOR UPDATE
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')))
-    WITH CHECK ((SELECT rbac.has_permission('admin')));
-
-CREATE POLICY entities_delete_policy ON entities
-    FOR DELETE
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')));
-
--- =====================================================
--- RLS POLICIES FOR FIELDS
--- =====================================================
-
-CREATE POLICY fields_select_policy ON fields
-    FOR SELECT
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('public:read')));
-
-CREATE POLICY fields_insert_policy ON fields
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((SELECT rbac.has_permission('admin')));
-
-CREATE POLICY fields_update_policy ON fields
-    FOR UPDATE
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')))
-    WITH CHECK ((SELECT rbac.has_permission('admin')));
-
-CREATE POLICY fields_delete_policy ON fields
-    FOR DELETE
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')));
-
--- =====================================================
--- GRANT THE REQUEST ROLE ACCESS TO THE METADATA TABLES
--- =====================================================
--- These two are created after 0050's one-time GRANT ... ON ALL TABLES and there
--- is no default privilege in this schema to pick them up, so the request role
--- reaches them only through this grant. It comes after the RLS enable and the
--- eight policies above, in that order: a grant is what publishes a table
--- through the Data API, and until policies exist it is the whole of that
--- table's access control. Neither table has a sequence - entities is keyed by
--- table_name and fields.id is a generated text column.
-GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields TO semantius_user;
-
--- =====================================================
--- AUTO-SET PLURAL TRIGGER
--- =====================================================
--- Automatically sets plural to match table_name on INSERT/UPDATE
--- This ensures plural always equals table_name and ignores user input
-
-CREATE OR REPLACE FUNCTION auto_set_plural()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- Always set plural to table_name, ignoring any provided value
-    NEW.plural := NEW.table_name;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_plural IS 
-'Trigger function that automatically sets plural column to match table_name, ignoring user input';
-
-CREATE TRIGGER auto_set_plural_trigger
-    BEFORE INSERT OR UPDATE ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION auto_set_plural();
-
-COMMENT ON TRIGGER auto_set_plural_trigger ON entities IS
-'Automatically sets plural to match table_name on INSERT/UPDATE';
-
--- =====================================================
--- UPDATE TIMESTAMP TRIGGERS
--- =====================================================
--- Uses common.update_updated_at_column() from common schema
-
-CREATE TRIGGER update_entities_updated_at
-    BEFORE UPDATE ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION common.update_updated_at_column();
-
-CREATE TRIGGER update_fields_updated_at
-    BEFORE UPDATE ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION common.update_updated_at_column();
-
--- =====================================================
--- PROVENANCE: catalog_entity_aliases append-only guard (v0.1.2)
--- =====================================================
--- A cross-domain reuse/merge APPENDS an alias element ({alias_code, source_domain, ...});
--- prior elements are never removed or rewritten. Enforced as a narrow BEFORE UPDATE guard
--- (cheaper + more targeted than a JsonLogic validation rule, and avoids running the full
--- compute_validate machinery for this one check): the new array must contain every element
--- of the old one (jsonb @> superset). The WHEN clause skips the no-op common case, so it is
--- inert during renames and metadata edits. Rejection shares the 23514 class used by
--- validation_rules. SECURITY DEFINER + pinned search_path per house style.
-
-CREATE OR REPLACE FUNCTION enforce_catalog_aliases_append_only()
-RETURNS TRIGGER
-SECURITY DEFINER
-SET search_path = public
-LANGUAGE plpgsql AS $$
-BEGIN
-    IF NOT (NEW.catalog_entity_aliases @> OLD.catalog_entity_aliases) THEN
-        RAISE EXCEPTION 'catalog_entity_aliases is append-only: existing alias elements cannot be removed or rewritten'
-            USING ERRCODE = '90213';
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0100_rbac_rls.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0100_rbac_rls.sql', v_msg, v_state);
     END IF;
-    RETURN NEW;
-END;
-$$;
+  END;
+  COMMIT;
 
-COMMENT ON FUNCTION enforce_catalog_aliases_append_only IS
-'BEFORE UPDATE guard on entities: catalog_entity_aliases may only grow (new array must contain all prior elements via jsonb @>). Enforces the append-only cross-domain merge ledger.';
-
-REVOKE EXECUTE ON FUNCTION enforce_catalog_aliases_append_only() FROM PUBLIC;
-
-CREATE TRIGGER enforce_catalog_aliases_append_only_trigger
-    BEFORE UPDATE ON entities
-    FOR EACH ROW
-    WHEN (OLD.catalog_entity_aliases IS DISTINCT FROM NEW.catalog_entity_aliases)
-    EXECUTE FUNCTION enforce_catalog_aliases_append_only();
+  -- _core.0110_rbac_grants.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0110_rbac_grants.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0110_rbac_grants.once.sql';
+      EXECUTE $pgsem__core_0110_rbac_grants_once_sql$-- =====================================================
+-- SCHEMA-WIDE GRANTS FOR semantius_user
+-- =====================================================
+-- Runs once. ON ALL TABLES / ON ALL SEQUENCES grant what exists at this point
+-- of a fresh install - the RBAC tables, _settings and _versions. Tables created
+-- later get their grants from the dictionary or their own migration; a second
+-- run would hand semantius_user every table created in between.
 
 -- =====================================================
--- SEED CORE TABLES METADATA
+-- GRANT TABLE ACCESS TO semantius_user ROLE
 -- =====================================================
--- Add metadata for core RBAC and dynamic table system tables
--- These are marked with a non-empty ctype (core) to indicate they are protected system columns
+-- Grant usage on public schema
+GRANT USAGE ON SCHEMA public TO semantius_user;
 
--- Insert entities metadata for core tables
---
--- entity_type: the pure junctions are stamped explicitly (entity_type='junction' is authoritative; see
--- dd_is_junction in 0145). The structural test is two parent FK legs with no relationship payload of their
--- own — audit/provenance columns (assigned_at/assigned_by, granted_at/granted_by, origin, created_at)
--- don't count. permission_hierarchy qualifies: its two legs both point at permissions and its only
--- non-leg fields are origin (provenance) and created_at (audit). Stamping it is authoritative — the
--- dd_is_junction heuristic alone would miss it because origin is not an audit-named/ctype column.
--- This seed runs before the entity_type-watching triggers (0145); the label-function backfill at the
--- end of 0145 then builds the junction-shaped labels for all entities.
---
--- Rule 90702 accepts an empty module_slug: the trigger in 0020 derives one from module_name, and a
--- name with no ASCII letter or digit derives nothing, which leaves the column default.
-INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column)
-VALUES 
-    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, ''),
-    ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
-     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order'),
-    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, ''),
-    ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
-     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''","source_module":"platform","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]}}]'::jsonb, 'unclassified', TRUE, ''),
-    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
-     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}},{"code":"90206","message":"catalog_role_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_role_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_role_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, ''),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles and organized via hierarchy', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb, 'unclassified', TRUE, ''),
-    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, ''),
-    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, ''),
-    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, ''),
-    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
-     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '');
+-- Grant table permissions (RLS policies will further restrict access)
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO semantius_user;
+
+-- Grant sequence usage for auto-increment columns
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO semantius_user;
+
+-- Earlier releases did carry a default privilege here, and `deno task dropall`
+-- does not remove one: pg_default_acl is database state, not schema state, so a
+-- database that ever ran that release keeps handing the request role every new
+-- table in public until it is taken back explicitly. These two revokes do that.
+-- They bind to the installing role, which is the grantor of the rows they undo;
+-- 9900_owner_hardening.sql takes back the semantius_owner pair. On a database that never had them
+-- both are no-ops and leave no row behind.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM semantius_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
+$pgsem__core_0110_rbac_grants_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0110_rbac_grants.once.sql', 'fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0110_rbac_grants.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0110_rbac_grants.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0120_dd_formats.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0120_dd_formats.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0120_dd_formats.sql';
+      EXECUTE $pgsem__core_0120_dd_formats_sql$-- =====================================================
+-- FIELD FORMATS
+-- =====================================================
+-- Repeatable. The valid_format CHECK on fields is built from dd_formats() once,
+-- in 0150_dd_bootstrap.once.sql, so a new format also needs a .once. file that
+-- rebuilds that constraint.
 
 -- =====================================================
 -- FIELD FORMATS
@@ -4792,6 +4572,494 @@ COMMENT ON FUNCTION dd_formats() IS
 'The field formats (SemSchema formats.json): format name -> {type, description}, in the order the fields.format enum offers them.';
 
 REVOKE EXECUTE ON FUNCTION dd_formats() FROM PUBLIC;
+$pgsem__core_0120_dd_formats_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0120_dd_formats.sql', '3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0120_dd_formats.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0120_dd_formats.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0130_dd_schema.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0130_dd_schema.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0130_dd_schema.once.sql';
+      EXECUTE $pgsem__core_0130_dd_schema_once_sql$-- =====================================================
+-- DYNAMIC TABLE MANAGEMENT SCHEMA
+-- =====================================================
+-- This schema allows runtime definition of tables and their fields
+-- Integrates with RBAC system for permission-based access control
+-- =====================================================
+
+-- =====================================================
+-- ENTITIES TABLE
+-- =====================================================
+-- Stores metadata about dynamically created tables
+-- Runs once: the entities and fields tables and their indexes. Their trigger
+-- functions and grants are in 0140_dd_schema.sql, their own dictionary rows
+-- in 0150_dd_bootstrap.once.sql.
+
+CREATE TABLE IF NOT EXISTS entities (
+    table_name TEXT PRIMARY KEY,
+    singular TEXT NOT NULL DEFAULT '',
+    plural TEXT DEFAULT '',  -- Nullable because trigger auto-sets it before constraint check
+    singular_label TEXT NOT NULL DEFAULT '',
+    plural_label TEXT NOT NULL DEFAULT '',
+    icon_url TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+    -- RESTRICT, not the deferred NO ACTION modules.view_permission needs: an
+    -- entity is always created after the permissions it names, so an immediate
+    -- check fails early instead of at commit.
+    view_permission TEXT NOT NULL DEFAULT 'public:read'
+        REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
+    edit_permission TEXT NOT NULL DEFAULT 'admin'
+        REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
+    id_column TEXT NOT NULL DEFAULT 'id',
+    label_column TEXT NOT NULL DEFAULT 'label',
+    label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
+    managed BOOLEAN NOT NULL DEFAULT TRUE,
+    searchable BOOLEAN NOT NULL DEFAULT FALSE,
+    is_child BOOLEAN NOT NULL DEFAULT FALSE,
+    edit_mode TEXT NOT NULL DEFAULT 'auto',
+    cube_mode TEXT NOT NULL DEFAULT 'auto',
+    audit_log BOOLEAN NOT NULL DEFAULT FALSE,
+    computed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+    validation_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+    select_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- Catalog codes: which catalog blueprint this entity was built from. The modeler writes them so a
+    -- later run can find the entity again after a rename or merge. They default empty, which is what
+    -- an entity created outside the catalog has.
+    catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical uber-model code; rename/dialect/silo join key
+    catalog_owner_module TEXT NOT NULL DEFAULT '',       -- soft slug pointer to the catalog owner module (not an FK)
+    entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- kind of data held; editable; the platform acts only on 'junction' (dd_is_junction in 0180_managed_enable.sql)
+    catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
+    order_column TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Validate table_name follows PostgreSQL naming conventions
+    CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
+
+    -- Validate column names follow PostgreSQL naming conventions
+    CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
+    CONSTRAINT valid_label_column CHECK (label_column ~ '^[a-z_][a-z0-9_]*$'),
+    -- label_parent is empty (intrinsic) or a column-name identifier (validated against the
+    -- fields catalog by the validate_label_parent trigger in 0180_managed_enable.sql).
+    CONSTRAINT valid_label_parent CHECK (label_parent = '' OR label_parent ~ '^[a-z_][a-z0-9_]*$'),
+
+    -- Ensure plural matches table_name (plural is auto-assigned and not changeable)
+    CONSTRAINT plural_matches_table_name CHECK (plural = table_name),
+
+    -- computed_fields and validation_rules must be JSON arrays
+    CONSTRAINT computed_fields_is_array CHECK (jsonb_typeof(computed_fields) = 'array'),
+    CONSTRAINT validation_rules_is_array CHECK (jsonb_typeof(validation_rules) = 'array'),
+    -- select_rule must be a JSON object
+    CONSTRAINT select_rule_is_object CHECK (jsonb_typeof(select_rule) = 'object'),
+    -- entity_type is a closed set of 6 values; 'unclassified' is its empty value, so '' is rejected.
+    -- This inline CHECK is the only one on the column: the field-metadata seed in
+    -- 0150_dd_bootstrap.once.sql runs before the
+    -- add_dd_field trigger exists, so the dictionary builds no enum CHECK of its own for it.
+    -- catalog_entity_aliases must be a JSON array.
+    CONSTRAINT valid_entity_type CHECK (entity_type IN
+        ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
+    CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$')
+);
+
+CREATE INDEX idx_entities_module ON entities(module_id);
+-- The two permission columns are RESTRICT foreign keys, so every permission
+-- delete and every rename scans them. The dictionary builds idx_<table>_<field>
+-- for a reference field it creates; these are declared by hand, so their
+-- indexes are too.
+CREATE INDEX idx_entities_view_permission ON entities(view_permission);
+CREATE INDEX idx_entities_edit_permission ON entities(edit_permission);
+
+-- =====================================================
+-- FIELDS TABLE
+-- =====================================================
+-- Stores metadata about fields in dynamically created tables
+
+CREATE TABLE IF NOT EXISTS fields (
+    id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY,
+    -- ON UPDATE CASCADE carries a rename of entities.table_name (0170_dd_rename.sql) to the fields rows.
+    table_name TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    field_name TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT DEFAULT '',
+    format TEXT NOT NULL DEFAULT 'text',
+    is_pk BOOLEAN NOT NULL DEFAULT FALSE,
+    -- A default is a value (or one of the argument-less SQL expressions
+    -- quote_default_value() allow-lists), never a statement: the dictionary
+    -- interpolates it into ALTER TABLE ... DEFAULT, so statement separators and
+    -- comment markers are rejected outright as a second line of defense.
+    default_value TEXT DEFAULT ''
+        CONSTRAINT valid_default_value CHECK (
+            length(default_value) <= 200
+            AND default_value !~ '[;[:cntrl:]]'
+            AND position('--' IN default_value) = 0
+            AND position('/*' IN default_value) = 0
+        ),
+    field_order INTEGER NOT NULL DEFAULT 0,
+    input_type TEXT NOT NULL DEFAULT 'default',
+    width TEXT NOT NULL DEFAULT 'default',
+    ctype TEXT DEFAULT '',
+    searchable BOOLEAN NOT NULL DEFAULT FALSE,
+    enum_values JSONB DEFAULT NULL,
+    "precision" SMALLINT NOT NULL DEFAULT 2,
+    reference_table TEXT NOT NULL DEFAULT '',  -- Empty string means no reference (consistent with no-null policy)
+    reference_delete_mode TEXT NOT NULL DEFAULT 'restrict',
+    relationship_label TEXT NOT NULL DEFAULT 'has',
+    singular_label_parent TEXT NOT NULL DEFAULT '',
+    plural_label_parent TEXT NOT NULL DEFAULT '',
+    unique_value BOOLEAN NOT NULL DEFAULT FALSE,
+    cube_type TEXT NOT NULL DEFAULT 'auto',
+    input_type_rule JSONB NOT NULL DEFAULT '{}'::jsonb,
+    -- Catalog/blueprint provenance (v0.1.2): stable design-time field identity (blueprint field name);
+    -- the field-rename join key. Empty = created outside the deploy pipeline.
+    catalog_field_code TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Unique constraint on table_name and field_name
+    CONSTRAINT fields_table_field_unique UNIQUE (table_name, field_name),
+    
+    -- Validate field_name follows PostgreSQL naming conventions
+    CONSTRAINT valid_field_name CHECK (field_name ~ '^[a-z_][a-z0-9_]*$'),
+    
+
+    
+    -- Ensure precision is within a reasonable range for NUMERIC scale
+    CONSTRAINT valid_precision CHECK ("precision" >= 0 AND "precision" <= 18),
+
+    -- Ensure reference_table is set when format is 'reference' or 'parent'
+    CONSTRAINT reference_requires_table CHECK (
+        (format IN ('reference', 'parent') AND reference_table != '') OR (format NOT IN ('reference', 'parent'))
+    ),
+
+    -- Ensure format is 'reference' or 'parent' when reference_table is set
+    CONSTRAINT reference_table_requires_reference_format CHECK (
+        (reference_table != '' AND format IN ('reference', 'parent')) OR (reference_table = '')
+    )
+);
+
+-- Add this partial unique index:
+CREATE UNIQUE INDEX one_pk_per_table_idx
+ON fields (table_name)
+WHERE is_pk;-- Ensure only one primary key per table    
+
+CREATE INDEX idx_fields_table ON fields(table_name);
+CREATE INDEX idx_fields_name ON fields(field_name);
+CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
+CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
+
+-- =====================================================
+-- ENABLE RLS ON METADATA TABLES
+-- =====================================================
+
+ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
+$pgsem__core_0130_dd_schema_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0130_dd_schema.once.sql', 'd294e502dd8e4ac713f695d7dd22e2c2582e758cbc415a40fc3ab4f4e999a163')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0130_dd_schema.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0130_dd_schema.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0140_dd_schema.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0140_dd_schema.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0140_dd_schema.sql';
+      EXECUTE $pgsem__core_0140_dd_schema_sql$-- =====================================================
+-- DYNAMIC TABLE MANAGEMENT SCHEMA - triggers and grants
+-- =====================================================
+-- Repeatable. The tables are in 0130_dd_schema.once.sql.
+
+-- Create trigger function to validate reference_table when not empty
+-- We use a trigger instead of CHECK constraint to allow subqueries
+CREATE OR REPLACE FUNCTION validate_reference_table()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only validate if reference_table is not empty
+    IF NEW.reference_table != '' THEN
+        -- Check if the referenced table exists
+        IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = NEW.reference_table) THEN
+            RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+                USING ERRCODE = '90212',
+                      HINT = jsonb_build_object('table', NEW.reference_table)::text;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION validate_reference_table IS
+'Trigger function that rejects a field whose reference_table is set but does not match any entities.table_name. Enforced via trigger (not a CHECK) so it can run a subquery.';
+
+CREATE OR REPLACE TRIGGER validate_reference_table_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_reference_table();
+
+-- The four policies of each table are generated by create_entity_policies()
+-- in 0240_dd_bootstrap_complete.once.sql, from the entities rows registered in
+-- 0150_dd_bootstrap.once.sql, like those of every other entity; see the note in
+-- 0100_rbac_rls.sql.
+
+-- =====================================================
+-- GRANT THE REQUEST ROLE ACCESS TO THE METADATA TABLES
+-- =====================================================
+-- These two are created after the one-time GRANT ... ON ALL TABLES in
+-- 0110_rbac_grants.once.sql and there is no default privilege in this schema to
+-- pick them up, so the request role reaches them only through this grant. It
+-- comes after the RLS enable (0130_dd_schema.once.sql): a grant is what
+-- publishes a table through the Data API, and with RLS on and no policy yet the
+-- table stays closed to the request role until
+-- 0240_dd_bootstrap_complete.once.sql generates its policies. Neither table has
+-- a sequence - entities is keyed by table_name and fields.id is a generated
+-- text column.
+GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields TO semantius_user;
+
+-- =====================================================
+-- AUTO-SET PLURAL TRIGGER
+-- =====================================================
+-- Automatically sets plural to match table_name on INSERT/UPDATE
+-- This ensures plural always equals table_name and ignores user input
+
+CREATE OR REPLACE FUNCTION auto_set_plural()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Always set plural to table_name, ignoring any provided value
+    NEW.plural := NEW.table_name;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_plural IS 
+'Trigger function that automatically sets plural column to match table_name, ignoring user input';
+
+CREATE OR REPLACE TRIGGER auto_set_plural_trigger
+    BEFORE INSERT OR UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION auto_set_plural();
+
+COMMENT ON TRIGGER auto_set_plural_trigger ON entities IS
+'Automatically sets plural to match table_name on INSERT/UPDATE';
+
+-- =====================================================
+-- UPDATE TIMESTAMP TRIGGERS
+-- =====================================================
+-- Uses common.update_updated_at_column() from common schema
+
+CREATE OR REPLACE TRIGGER update_entities_updated_at
+    BEFORE UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION common.update_updated_at_column();
+
+CREATE OR REPLACE TRIGGER update_fields_updated_at
+    BEFORE UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION common.update_updated_at_column();
+
+-- =====================================================
+-- PROVENANCE: catalog_entity_aliases append-only guard (v0.1.2)
+-- =====================================================
+-- A cross-domain reuse/merge APPENDS an alias element ({alias_code, source_domain, ...});
+-- prior elements are never removed or rewritten. Enforced as a narrow BEFORE UPDATE guard
+-- (cheaper + more targeted than a JsonLogic validation rule, and avoids running the full
+-- compute_validate machinery for this one check): the new array must contain every element
+-- of the old one (jsonb @> superset). The WHEN clause skips the no-op common case, so it is
+-- inert during renames and metadata edits. Rejection shares the 23514 class used by
+-- validation_rules. SECURITY DEFINER + pinned search_path per house style.
+
+CREATE OR REPLACE FUNCTION enforce_catalog_aliases_append_only()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT (NEW.catalog_entity_aliases @> OLD.catalog_entity_aliases) THEN
+        RAISE EXCEPTION 'catalog_entity_aliases is append-only: existing alias elements cannot be removed or rewritten'
+            USING ERRCODE = '90213';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION enforce_catalog_aliases_append_only IS
+'BEFORE UPDATE guard on entities: catalog_entity_aliases may only grow (new array must contain all prior elements via jsonb @>). Enforces the append-only cross-domain merge ledger.';
+
+REVOKE EXECUTE ON FUNCTION enforce_catalog_aliases_append_only() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER enforce_catalog_aliases_append_only_trigger
+    BEFORE UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.catalog_entity_aliases IS DISTINCT FROM NEW.catalog_entity_aliases)
+    EXECUTE FUNCTION enforce_catalog_aliases_append_only();
+
+-- Revoke default PUBLIC execute on trigger functions defined in this file
+REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;
+$pgsem__core_0140_dd_schema_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0140_dd_schema.sql', '409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0140_dd_schema.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0140_dd_schema.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0150_dd_bootstrap.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0150_dd_bootstrap.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0150_dd_bootstrap.once.sql';
+      EXECUTE $pgsem__core_0150_dd_bootstrap_once_sql$-- =====================================================
+-- DICTIONARY BOOTSTRAP
+-- =====================================================
+-- Runs once: the entities rows of the ten core tables, the CHECK constraints
+-- of entities and fields, and the fields rows of the core tables. The
+-- dictionary's own triggers do not exist yet, so the steps they would have
+-- taken for these tables run in 0240_dd_bootstrap_complete.once.sql.
+
+-- =====================================================
+-- SEED CORE TABLES METADATA
+-- =====================================================
+-- Add metadata for core RBAC and dynamic table system tables
+-- These are marked with a non-empty ctype (core) to indicate they are protected system columns
+
+-- Insert entities metadata for core tables
+--
+-- entity_type: the pure junctions are stamped explicitly (entity_type='junction' is authoritative; see
+-- dd_is_junction in 0180_managed_enable.sql). The structural test is two parent FK legs with no relationship payload of their
+-- own — audit/provenance columns (assigned_at/assigned_by, granted_at/granted_by, origin, created_at)
+-- don't count. permission_hierarchy qualifies: its two legs both point at permissions and its only
+-- non-leg fields are origin (provenance) and created_at (audit). Stamping it is authoritative — the
+-- dd_is_junction heuristic alone would miss it because origin is not an audit-named/ctype column.
+-- This seed runs before the entity_type-watching triggers (0180_managed_enable.sql); the
+-- label-function backfill in 0240_dd_bootstrap_complete.once.sql then builds the junction-shaped
+-- labels for all entities.
+--
+-- Rule 90702 accepts an empty module_slug: auto_set_module_slug (0070_rbac_schema.sql) derives one
+-- from module_name, and a
+-- name with no ASCII letter or digit derives nothing, which leaves the column default.
+--
+-- modules carries a select_rule: a module row is visible to an administrator
+-- and to whoever holds that row's own view_permission. A non-empty select_rule
+-- replaces the entity's view_permission for row access, so the entity's
+-- view_permission ('admin') then only decides who may fetch the modules schema
+-- through get_schema() and its siblings. Expressing the rule as metadata rather
+-- than as a hand-written policy is what lets get_record_by_id and set_record,
+-- which apply the dictionary's predicate, return exactly what RLS returns.
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule)
+VALUES 
+    ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
+    ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
+     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order', '{}'::jsonb),
+    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
+    ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
+     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''","source_module":"platform","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]}}]'::jsonb, 'unclassified', TRUE, '', '{"or": [{"has_permission": "admin"}, {"has_permission": {"var": "view_permission"}}]}'::jsonb),
+    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
+     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}},{"code":"90206","message":"catalog_role_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_role_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_role_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles and organized via hierarchy', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
+    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb),
+    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb),
+    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb),
+    ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
+     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '', '{}'::jsonb);
 
 -- =====================================================
 -- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
@@ -5033,35 +5301,50 @@ VALUES
     ('permission_hierarchy', 'included_permission_name',  'Included Permission',  'The narrower permission that is included by the broader one',       'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'included in', 'Included in', 'Included in', NULL, ''),
     ('permission_hierarchy', 'origin',                'Origin',                'How this hierarchy entry was created', 'enum',      FALSE, 25, 'readonly', 'default', 'core', FALSE, '',             '',        '', '', '', '["system", "model", "model_master", "user"]'::jsonb, 'user'),
     ('permission_hierarchy', 'created_at',            'Created At',            '',                                                                'date-time', FALSE, 30, 'disabled', 'default', 'audit', FALSE, '',             '',        '', '', '', NULL, '');
+$pgsem__core_0150_dd_bootstrap_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0150_dd_bootstrap.once.sql', 'f9afb047926e47e8e19faf1fccd1c473697dd9ee488db46acc3c7b9ddb7d07a1')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0150_dd_bootstrap.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0150_dd_bootstrap.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
--- Revoke default PUBLIC execute on trigger functions defined in this file
-REVOKE EXECUTE ON FUNCTION validate_reference_table() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_schema$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0060_dd_schema', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0060_dd_schema', '501bad68ef6d7699433d176f943d5561f2cdfc74276318037b625ea3ddb3f841');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0070_dd_functions') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0070_dd_functions';
-    BEGIN
-      EXECUTE $pgsem__core_0070_dd_functions$-- =====================================================
+  -- _core.0160_dd_functions.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
+      EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
 -- DYNAMIC TABLE MANAGEMENT FUNCTIONS
 -- =====================================================
 -- Automatically creates tables and fields when metadata is inserted
@@ -5073,7 +5356,6 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;$pgsem__core_0060_dd_sc
 -- =====================================================
 -- Maps JSON Schema format values to PostgreSQL data types
 -- This function converts the format column value to an actual PostgreSQL type
-
 CREATE OR REPLACE FUNCTION format_to_data_type(p_format TEXT, p_precision SMALLINT DEFAULT NULL)
 RETURNS TEXT AS $$
 DECLARE
@@ -5408,40 +5690,81 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION dd_field_comment IS
 'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
 
--- The core tables (0020, 0060) are seeded before the entity and field triggers exist, so
--- neither they nor their columns have a comment yet. Give them the ones the triggers would
--- have written. PostgREST shows these comments as descriptions in its OpenAPI output, so this
--- keeps the DD description the only source there too; later changes reach the comments through
--- the update triggers. 0480_test_core_comments_match_dd.sql fails if a migration overwrites one.
-DO $$
+-- =====================================================
+-- RLS POLICIES OF AN ENTITY
+-- =====================================================
+-- The dictionary's four policies for a managed entity, from its row in
+-- entities: SELECT on view_permission, INSERT/UPDATE/DELETE on
+-- edit_permission. A select_rule, when set, is layered on afterwards by
+-- build_select_rule_policy (0210_computed_validation.sql), which replaces
+-- SELECT, UPDATE and DELETE. create_dd_table calls it for every new entity;
+-- 0240_dd_bootstrap_complete.once.sql calls it for the core tables that were
+-- registered before the dictionary existed.
+CREATE OR REPLACE FUNCTION create_entity_policies(p_table_name TEXT)
+RETURNS VOID AS $$
 DECLARE
-    r RECORD;
-    v_comment TEXT;
+    v_view_permission TEXT;
+    v_edit_permission TEXT;
 BEGIN
-    FOR r IN
-        SELECT e.table_name, e.plural_label, e.description
-        FROM entities e
-        JOIN information_schema.tables t
-          ON t.table_schema = 'public' AND t.table_name = e.table_name AND t.table_type = 'BASE TABLE'
-    LOOP
-        v_comment := dd_table_comment(r.plural_label, r.description);
-        IF v_comment IS NOT NULL THEN
-            EXECUTE format('COMMENT ON TABLE %I IS %L', r.table_name, v_comment);
-        END IF;
-    END LOOP;
+    SELECT view_permission, edit_permission
+      INTO v_view_permission, v_edit_permission
+      FROM entities
+     WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Table ${table} is not an entity'
+            USING ERRCODE = '90231',
+                  HINT = jsonb_build_object('table', p_table_name)::text;
+    END IF;
 
-    FOR r IN
-        SELECT f.table_name, f.field_name, f.title, f.format, f.description, f.enum_values
-        FROM fields f
-        JOIN information_schema.columns c
-          ON c.table_schema = 'public' AND c.table_name = f.table_name AND c.column_name = f.field_name
-    LOOP
-        v_comment := dd_field_comment(r.title, r.format, r.description, r.enum_values);
-        IF v_comment IS NOT NULL THEN
-            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', r.table_name, r.field_name, v_comment);
-        END IF;
-    END LOOP;
-END $$;
+    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
+    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
+    -- Test 0445 fails on the bare per-row form.
+    EXECUTE format(
+        'CREATE POLICY %I ON %I
+            FOR SELECT
+            TO semantius_user
+            USING ((SELECT rbac.has_permission(%L)))',
+        p_table_name || '_select_policy',
+        p_table_name,
+        v_view_permission
+    );
+
+    EXECUTE format(
+        'CREATE POLICY %I ON %I
+            FOR INSERT
+            TO semantius_user
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        p_table_name || '_insert_policy',
+        p_table_name,
+        v_edit_permission
+    );
+
+    EXECUTE format(
+        'CREATE POLICY %I ON %I
+            FOR UPDATE
+            TO semantius_user
+            USING ((SELECT rbac.has_permission(%L)))
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        p_table_name || '_update_policy',
+        p_table_name,
+        v_edit_permission,
+        v_edit_permission
+    );
+
+    EXECUTE format(
+        'CREATE POLICY %I ON %I
+            FOR DELETE
+            TO semantius_user
+            USING ((SELECT rbac.has_permission(%L)))',
+        p_table_name || '_delete_policy',
+        p_table_name,
+        v_edit_permission
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION create_entity_policies(TEXT) IS
+'Creates the four RLS policies of a managed entity from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
@@ -5496,58 +5819,9 @@ BEGIN
     -- Enable RLS on the new table
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
     
-    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
-    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
-    -- Test 0445 fails on the bare per-row form.
-    -- Create RLS policies for SELECT (view permission)
-    v_policy_sql := format(
-        'CREATE POLICY %I ON %I
-            FOR SELECT
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name || '_select_policy',
-        NEW.table_name,
-        NEW.view_permission
-    );
-    EXECUTE v_policy_sql;
-    
-    -- Create RLS policies for INSERT (edit permission)
-    v_policy_sql := format(
-        'CREATE POLICY %I ON %I
-            FOR INSERT
-            TO semantius_user
-            WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name || '_insert_policy',
-        NEW.table_name,
-        NEW.edit_permission
-    );
-    EXECUTE v_policy_sql;
-    
-    -- Create RLS policies for UPDATE (edit permission)
-    v_policy_sql := format(
-        'CREATE POLICY %I ON %I
-            FOR UPDATE
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))
-            WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name || '_update_policy',
-        NEW.table_name,
-        NEW.edit_permission,
-        NEW.edit_permission
-    );
-    EXECUTE v_policy_sql;
-    
-    -- Create RLS policies for DELETE (edit permission)
-    v_policy_sql := format(
-        'CREATE POLICY %I ON %I
-            FOR DELETE
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name || '_delete_policy',
-        NEW.table_name,
-        NEW.edit_permission
-    );
-    EXECUTE v_policy_sql;
+    -- The four RLS policies (view_permission for SELECT, edit_permission for
+    -- INSERT, UPDATE and DELETE).
+    PERFORM create_entity_policies(NEW.table_name);
 
     -- The request role has no default privileges in public, so a dictionary
     -- table is unreachable through the Data API until it is granted here. The
@@ -5609,7 +5883,7 @@ COMMENT ON FUNCTION create_dd_table IS
 'Trigger function that creates a table with RLS policies when a row is inserted into entities table.';
 
 -- Apply trigger AFTER INSERT on entities
-CREATE TRIGGER create_table_trigger
+CREATE OR REPLACE TRIGGER create_table_trigger
     AFTER INSERT ON entities
     FOR EACH ROW
     EXECUTE FUNCTION create_dd_table();
@@ -5651,7 +5925,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 COMMENT ON FUNCTION update_dd_table_comment IS
 'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata.';
 
-CREATE TRIGGER update_table_comment_trigger
+CREATE OR REPLACE TRIGGER update_table_comment_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION update_dd_table_comment();
@@ -5700,7 +5974,7 @@ COMMENT ON FUNCTION lock_field_ctype IS
 
 REVOKE EXECUTE ON FUNCTION lock_field_ctype() FROM PUBLIC;
 
-CREATE TRIGGER fields_ctype_lock
+CREATE OR REPLACE TRIGGER fields_ctype_lock
     BEFORE INSERT OR UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION lock_field_ctype();
@@ -5977,7 +6251,7 @@ COMMENT ON FUNCTION add_dd_field IS
 'Trigger function that adds a column to a table when a row is inserted into fields table.';
 
 -- Apply trigger AFTER INSERT on fields
-CREATE TRIGGER add_field_trigger
+CREATE OR REPLACE TRIGGER add_field_trigger
     AFTER INSERT ON fields
     FOR EACH ROW
     EXECUTE FUNCTION add_dd_field();
@@ -5986,8 +6260,9 @@ CREATE TRIGGER add_field_trigger
 -- TRIGGER FUNCTION: UPDATE FIELD ON UPDATE
 -- =====================================================
 
--- apply_field_ddl() (0145) and the BEFORE trigger validate_field_rename_and_format
--- (0140) are defined later; no fields row is updated during install before both exist.
+-- apply_field_ddl() (0180_managed_enable.sql) and the BEFORE trigger
+-- validate_field_rename_and_format (0170_dd_rename.sql) are defined later; no
+-- fields row is updated during install before both exist.
 CREATE OR REPLACE FUNCTION update_dd_field()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -6305,7 +6580,7 @@ When the physical column is missing from a managed table (e.g. defined while man
 the column is created via apply_field_ddl() and the function returns early.';
 
 -- Apply trigger AFTER UPDATE on fields
-CREATE TRIGGER update_field_trigger
+CREATE OR REPLACE TRIGGER update_field_trigger
     AFTER UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION update_dd_field();
@@ -6390,7 +6665,7 @@ COMMENT ON FUNCTION delete_dd_field IS
 'Trigger function that drops a column when a field is deleted.';
 
 -- Apply trigger BEFORE DELETE on fields
-CREATE TRIGGER delete_field_trigger
+CREATE OR REPLACE TRIGGER delete_field_trigger
     BEFORE DELETE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION delete_dd_field();
@@ -6422,7 +6697,7 @@ COMMENT ON FUNCTION delete_dd_table IS
 
 -- Apply trigger BEFORE DELETE on entities
 -- Note: Fields will be deleted via CASCADE on the foreign key
-CREATE TRIGGER delete_table_trigger
+CREATE OR REPLACE TRIGGER delete_table_trigger
     BEFORE DELETE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION delete_dd_table();
@@ -6434,7 +6709,7 @@ CREATE TRIGGER delete_table_trigger
 -- RLS policies must be dropped and recreated with the new permission value.
 --
 -- NOTE: The SELECT policy is already handled by manage_select_rule_policy
--- (in 0180_computed_validation.sql) which fires when view_permission changes.
+-- (in 0210_computed_validation.sql) which fires when view_permission changes.
 
 CREATE OR REPLACE FUNCTION update_entity_policies()
 RETURNS TRIGGER AS $$
@@ -6465,9 +6740,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 COMMENT ON FUNCTION update_entity_policies IS
 'AFTER UPDATE trigger on entities: drops and recreates INSERT, UPDATE, and DELETE
 RLS policies when edit_permission changes. The SELECT policy is handled separately
-by manage_select_rule_policy (0180_computed_validation.sql).';
+by manage_select_rule_policy (0210_computed_validation.sql).';
 
-CREATE TRIGGER update_entity_policies_trigger
+CREATE OR REPLACE TRIGGER update_entity_policies_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.edit_permission IS DISTINCT FROM NEW.edit_permission)
@@ -6818,19 +7093,19 @@ COMMENT ON FUNCTION handle_field_searchable_delete IS
 'Statement-level trigger function: rebuilds search_vector once per table for the fields deleted by one statement.';
 
 -- One trigger per event: transition tables cannot be shared across events.
-CREATE TRIGGER handle_field_searchable_insert_trigger
+CREATE OR REPLACE TRIGGER handle_field_searchable_insert_trigger
     AFTER INSERT ON fields
     REFERENCING NEW TABLE AS new_fields
     FOR EACH STATEMENT
     EXECUTE FUNCTION handle_field_searchable_insert();
 
-CREATE TRIGGER handle_field_searchable_update_trigger
+CREATE OR REPLACE TRIGGER handle_field_searchable_update_trigger
     AFTER UPDATE ON fields
     REFERENCING OLD TABLE AS old_fields NEW TABLE AS new_fields
     FOR EACH STATEMENT
     EXECUTE FUNCTION handle_field_searchable_update();
 
-CREATE TRIGGER handle_field_searchable_delete_trigger
+CREATE OR REPLACE TRIGGER handle_field_searchable_delete_trigger
     AFTER DELETE ON fields
     REFERENCING OLD TABLE AS old_fields
     FOR EACH STATEMENT
@@ -6875,7 +7150,7 @@ $$ LANGUAGE plpgsql SET search_path = public;
 COMMENT ON FUNCTION enforce_table_searchable_consistency IS 
 'Trigger function that ensures entities.searchable always reflects the status of related fields, preventing manual overrides.';
 
-CREATE TRIGGER enforce_table_searchable_consistency_trigger
+CREATE OR REPLACE TRIGGER enforce_table_searchable_consistency_trigger
     BEFORE UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.searchable IS DISTINCT FROM NEW.searchable)
@@ -6954,7 +7229,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 COMMENT ON FUNCTION handle_field_parent_format_change IS 
 'Trigger function that updates entities.is_child when fields with format=''parent'' are created, updated, or deleted.';
 
-CREATE TRIGGER handle_field_parent_format_change_trigger
+CREATE OR REPLACE TRIGGER handle_field_parent_format_change_trigger
     AFTER INSERT OR UPDATE OR DELETE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION handle_field_parent_format_change();
@@ -6988,7 +7263,7 @@ $$ LANGUAGE plpgsql SET search_path = public;
 COMMENT ON FUNCTION enforce_table_is_child_consistency IS 
 'Trigger function that ensures entities.is_child always reflects the status of related fields, preventing manual overrides.';
 
-CREATE TRIGGER enforce_table_is_child_consistency_trigger
+CREATE OR REPLACE TRIGGER enforce_table_is_child_consistency_trigger
     BEFORE UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.is_child IS DISTINCT FROM NEW.is_child)
@@ -7082,6 +7357,7 @@ REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION create_entity_policies(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_dd_table_comment() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION add_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_dd_field() FROM PUBLIC;
@@ -7098,1534 +7374,50 @@ REVOKE EXECUTE ON FUNCTION update_table_is_child_flag(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION handle_field_parent_format_change() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enforce_table_is_child_consistency() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
-$pgsem__core_0070_dd_functions$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0070_dd_functions', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0070_dd_functions', '8dd8a4b0627e9974fd9bd6dd45f5a109a7181e398a487d08ed492b0c70fc6270');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0072_apply_core_fts') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0072_apply_core_fts';
-    BEGIN
-      EXECUTE $pgsem__core_0072_apply_core_fts$-- =====================================================
--- APPLY FTS TO CORE DD TABLES
--- =====================================================
--- Core tables (entities, fields, users, modules, roles, permissions)
--- are created in 0060_dd_schema.sql before the DD trigger system (0070),
--- so their field metadata inserts don't fire handle_field_searchable_insert_trigger.
--- We apply search_vector columns explicitly here.
--- Tables created later via the DD system (e.g. webhook_receivers in 0100)
--- get FTS automatically through the trigger.
-
--- Apply search_vector to core tables that have searchable fields
-SELECT update_search_vector_column('entities');
-SELECT update_search_vector_column('fields');
-SELECT update_search_vector_column('users');
-SELECT update_search_vector_column('modules');
-SELECT update_search_vector_column('roles');
-SELECT update_search_vector_column('permissions');
-
--- Update searchable flags for all core entities to ensure consistency
-UPDATE entities t
-SET searchable = EXISTS (
-    SELECT 1 FROM fields f 
-    WHERE f.table_name = t.table_name 
-      AND f.searchable = TRUE
-);
-
--- Update is_child flags for all core entities to ensure consistency
-UPDATE entities t
-SET is_child = EXISTS (
-    SELECT 1 FROM fields f 
-    WHERE f.table_name = t.table_name 
-      AND f.format = 'parent'
-);
-$pgsem__core_0072_apply_core_fts$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0072_apply_core_fts', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0072_apply_core_fts', '09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0080_public_functions') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0080_public_functions';
-    BEGIN
-      EXECUTE $pgsem__core_0080_public_functions$-- =====================================================
--- PUBLIC FUNCTIONS
--- =====================================================
--- User-facing functions in the public schema
--- These provide convenient access to RBAC and user information
--- =====================================================
-
--- =====================================================
--- GET USER MODULES (Helper function)
--- =====================================================
-
--- Get modules the current user has permission to view
--- This function manually filters modules by permission since it may be
--- called from a SECURITY DEFINER context where RLS is bypassed
--- Used internally by get_userinfo()
-CREATE OR REPLACE FUNCTION public.get_user_modules()
-RETURNS JSONB AS $$
-BEGIN
-    RETURN COALESCE(
-        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
-        FROM modules m
-        WHERE rbac.has_any_permission('admin', m.view_permission)),
-        '[]'::jsonb
-    );
-END;
--- STABLE: writes no row, so PostgREST serves it over GET.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
-
-COMMENT ON FUNCTION public.get_user_modules IS 
-'Returns modules array filtered by RLS. Used internally by get_userinfo().';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
-
--- =====================================================
--- GET USER INFO
--- =====================================================
-
--- Get current authenticated user's information
--- Returns the user record from the users table for the current JWT as JSON
--- IMPORTANT: This function creates/updates the user record and updates last_seen
--- Clients should call this function when they detect a new login to initialize the user
-CREATE OR REPLACE FUNCTION public.get_userinfo()
-RETURNS JSONB AS $$
-DECLARE
-    v_external_id TEXT;
-    v_email TEXT;
-    v_display_name TEXT;
-    v_first_name TEXT;
-    v_last_name TEXT;
-    v_user_id INTEGER;
-    v_result JSONB;
-    v_roles JSONB;
-    v_permissions JSONB;
-    v_modules JSONB;
-BEGIN
-    -- Get current user from JWT
-    v_external_id := rbac.uid();
-
-    -- Get claims from JWT
-    v_email := current_setting('request.jwt.claim.email', true);
-    v_display_name := current_setting('request.jwt.claim.name', true);
-    v_first_name := current_setting('request.jwt.claim.given_name', true);
-    v_last_name := current_setting('request.jwt.claim.family_name', true);
-
-    -- Create or update user record and update last_seen
-    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
-    
-    -- Verify user was created/found successfully
-    IF v_user_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
-            USING ERRCODE = '90008',
-                  HINT = jsonb_build_object('external_id', v_external_id)::text;
-    END IF;
-
-    -- Build roles array with role details
-    SELECT COALESCE(jsonb_agg(
-        jsonb_build_object(
-            'role_id', r.id,
-            'role_name', r.role_name,
-            'description', r.description,
-            'module_id', r.module_id,
-            'assigned_at', ur.assigned_at
-        ) ORDER BY r.role_name
-    ), '[]'::jsonb)
-    INTO v_roles
-    FROM user_roles ur
-    JOIN roles r ON ur.role_id = r.id
-    WHERE ur.user_id = v_user_id;
-    
-    -- Build permissions array (all effective permissions including inherited)
-    SELECT COALESCE(jsonb_agg(
-        permission_name ORDER BY permission_name
-    ), '[]'::jsonb)
-    INTO v_permissions
-    FROM rbac.get_user_permissions_by_id(v_user_id);
-
-    -- Prime the context cache with the permissions just computed above, rather
-    -- than leaving get_user_modules() -> has_any_permission() to reach
-    -- ensure_context_initialized() and resolve the identical set a second time.
-    -- The recursive permission query is the expensive part of this function, and
-    -- on a first login it would otherwise run twice in one call.
-    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
-    PERFORM set_config('app.current_external_id', v_external_id, true);
-    PERFORM set_config('app.user_permissions', COALESCE(
-        (SELECT string_agg(p.value #>> '{}', ',' ORDER BY p.value #>> '{}')
-         FROM jsonb_array_elements(v_permissions) AS p(value)),
-        ''
-    ), true);
-    PERFORM set_config('app.context_initialized', 'true', true);
-
-    -- Build modules array (filtered by permissions via helper function)
-    v_modules := public.get_user_modules();
-    
-    -- Build the final JSON result
-    SELECT jsonb_build_object(
-        'user_id', u.id,
-        'external_id', u.external_id,
-        'email', u.email,
-        'display_name', u.display_name,
-        'first_name', u.first_name,
-        'last_name', u.last_name,
-        'is_disabled', u.is_disabled,
-        'created_at', u.created_at,
-        'updated_at', u.updated_at,
-        'last_seen', u.last_seen,
-        'roles', v_roles,
-        'permissions', v_permissions,
-        'modules', v_modules
-    )
-    INTO v_result
-    FROM users u
-    WHERE u.id = v_user_id;
-    
-    -- Final safety check (should never be NULL after previous validations)
-    IF v_result IS NULL THEN
-        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
-            USING ERRCODE = '90010',
-                  HINT = jsonb_build_object('user_id', v_user_id)::text;
-    END IF;
-    
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_userinfo IS
-'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
-
-
--- =====================================================
--- GET SCHEMA CHILDREN
--- =====================================================
-
--- Get child relationships for a table
--- Returns an array of fields that reference the given table with format='parent'
--- Each child entry includes: fields.id, fields.title, entities.singular_label,
--- entities.plural_label, entities.id_column, entities.label_column
-CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
-RETURNS JSON AS $$
-DECLARE
-    v_result JSON;
-BEGIN
-    PERFORM rbac.uid();
-
-    SELECT COALESCE(
-        json_agg(
-            json_build_object(
-                'id', f.id,
-                'title', f.title,
-                'singular_label', e.singular_label,
-                'plural_label', e.plural_label,
-                'singular_label_parent', f.singular_label_parent,
-                'plural_label_parent', f.plural_label_parent,
-                'id_column', e.id_column,
-                'label_column', e.label_column
-            ) ORDER BY f.id
-        ),
-        '[]'::json
-    )
-    INTO v_result
-    FROM fields f
-    JOIN entities e ON f.table_name = e.table_name
-    WHERE f.reference_table = p_table_name
-      AND f.format = 'parent';
-
-    RETURN v_result;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_schema_children IS 
-'Returns array of child relationships (fields with format=''parent'') that reference the given table. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
-
--- =====================================================
--- GET SCHEMA FOR TABLE (Internal helper)
--- =====================================================
-
--- Helper that builds a schema JSON for a single table. Self-gating: it applies the
--- view_permission check itself and raises undefined_table for a table the caller
--- may not view, so it is safe to expose directly to the request role.
--- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
-CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
-RETURNS JSON AS $$
-DECLARE
-    v_table_record RECORD;
-    v_result JSON;
-    v_cache_version TEXT;
-    v_db_version    TEXT;
-BEGIN
-    PERFORM rbac.uid();
-
-    SELECT * INTO v_table_record
-    FROM entities
-    WHERE table_name = p_table_name;
-
-    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
-    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
-    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
-    -- callers — otherwise any request-role caller reads any table's full schema (including its
-    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
-    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
-    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
-    -- harmless) for them.
-    IF NOT FOUND THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Build properties object from fields
-    -- Each field becomes a property with JSON Schema attributes
-    WITH ordered_fields AS (
-        SELECT 
-            f.field_name,
-            f.format,
-            f.title,
-            f.description,
-            f.default_value,
-            f.input_type,
-            f.width,
-            f.field_order,
-            CASE WHEN jsonb_typeof(f.enum_values) = 'array' THEN f.enum_values ELSE NULL END AS enum_values,
-            f.reference_table,
-            f.reference_delete_mode,
-            f.ctype,
-            f.searchable,
-            f.cube_type,
-            f.singular_label_parent,
-            f.plural_label_parent,
-            f.unique_value,
-            f."precision",
-            f.relationship_label,
-            f.input_type_rule,
-            -- Join with tables to get id_column and label_column when reference_table is set
-            -- COALESCE to empty string is intentional: provides consistent output when referenced table
-            -- doesn't exist or is missing columns. The JSON assembly below emits
-            -- these four only for a field whose format is a reference and whose
-            -- reference_table is not empty, so an empty string never reaches the
-            -- output as a value.
-            COALESCE(t.id_column, '') AS reference_table_id_column,
-            COALESCE(t.label_column, '') AS reference_table_label_column,
-            COALESCE(t.singular_label, '') AS reference_table_singular_label,
-            COALESCE(t.plural_label, '') AS reference_table_plural_label,
-            -- The property's JSON type. A reference takes the type of the key it
-            -- points at, so entities/permissions come out "string" and users
-            -- "integer"; a hard-coded list of text-keyed tables would go stale the
-            -- first time an entity changes its key.
-            field_json_type(f.format, f.reference_table) AS json_type
-        FROM fields f
-        LEFT JOIN entities t ON f.reference_table = t.table_name
-        WHERE f.table_name = p_table_name
-        ORDER BY f.field_order
-    ),
-    properties_with_defaults AS (
-        SELECT 
-            field_name,
-            field_order,
-            (jsonb_build_object(
-                'type', json_type,
-                'title', title,
-                'description', description,
-                'inputMode', input_type,
-                'width', width,
-                'field_order', field_order
-            ) || 
-            -- Add ctype field if present
-            CASE 
-                WHEN ctype IS NOT NULL AND ctype != ''
-                THEN jsonb_build_object('ctype', ctype)
-                ELSE '{}'::jsonb
-            END ||
-            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
-            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
-            -- Add searchable field
-            jsonb_build_object('searchable', searchable) ||
-            -- Add cube_type field
-            jsonb_build_object('cube_type', cube_type) ||
-            -- Add unique_value field
-            jsonb_build_object('unique_value', unique_value) ||
-            -- Add precision only for number formats
-            CASE
-                WHEN format_to_json_type(format)::text = '"number"'
-                THEN jsonb_build_object('precision', "precision")
-                ELSE '{}'::jsonb
-            END ||
-            -- Add input_type_rule only when a non-empty JsonLogic rule is set
-            CASE
-                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
-                THEN jsonb_build_object('input_type_rule', input_type_rule)
-                ELSE '{}'::jsonb
-            END ||
-            jsonb_build_object('format', format) ||
-            -- Add enum field if enum_values is present
-            CASE
-                WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
-                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
-                ELSE '{}'::jsonb
-            END ||
-            -- Add reference_table field if format is 'reference' or 'parent'
-            CASE 
-                WHEN format IN ('reference', 'parent') AND reference_table != ''
-                THEN jsonb_build_object(
-                    'reference_table', reference_table,
-                    'reference_delete_mode', reference_delete_mode,
-                    'relationship_label', relationship_label,
-                    'reference_table_id_column', reference_table_id_column,
-                    'reference_table_label_column', reference_table_label_column,
-                    'reference_table_singular_label', reference_table_singular_label,
-                    'reference_table_plural_label', reference_table_plural_label
-                )
-                ELSE '{}'::jsonb
-            END ||
-            -- Add singular_label_parent / plural_label_parent for parent fields when set
-            CASE
-                WHEN format = 'parent' AND singular_label_parent != ''
-                THEN jsonb_build_object(
-                    'singular_label_parent', singular_label_parent,
-                    'plural_label_parent', plural_label_parent
-                )
-                ELSE '{}'::jsonb
-            END ||
-            -- Add default field separately to handle type conversion properly
-            CASE
-                -- Enum: use effective default (first value when required without explicit default, else '')
-                WHEN format = 'enum' THEN
-                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
-                WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
-                    CASE
-                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
-                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
-                        -- For strings, trim quotes if present (handles SQL literal strings like 'active')
-                        ELSE jsonb_build_object('default', trim(both '''' from default_value))
-                    END
-                -- For string types without explicit default, add empty string default. Not for a
-                -- reference to a text-keyed entity (permissions, entities): its column is nullable
-                -- and '' names no row, so a client that saves the default fails the foreign key.
-                -- With no default the client starts it empty and leaves it out of the write, as it
-                -- does for a reference to an integer-keyed entity.
-                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent') THEN jsonb_build_object('default', '')
-                -- For JSON types without explicit default, add empty object default
-                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
-                ELSE '{}'::jsonb
-            END) AS property_value
-        FROM ordered_fields
-    ),
-    -- Derived composed-label columns are surfaced as ORDINARY properties, discriminated only by
-    -- ctype (_label / fk_label) and ordered so each <fk>_label sits immediately after its FK. They
-    -- are read-only computed columns (writable:false) and absent from the fields catalog / read_field.
-    label_props AS (
-        SELECT
-            '_label'::text AS field_name,
-            (COALESCE((SELECT field_order FROM fields
-                       WHERE table_name = p_table_name AND ctype = 'label'
-                       ORDER BY field_order LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
-            jsonb_build_object(
-                'type', 'string', 'format', 'text',
-                'title', v_table_record.singular_label,
-                'description', 'Composed, human-readable label folded from the parent chain',
-                'inputMode', 'readonly', 'width', 'default',
-                'field_order', COALESCE((SELECT field_order FROM fields
-                                         WHERE table_name = p_table_name AND ctype = 'label'
-                                         ORDER BY field_order LIMIT 1), 1),
-                'ctype', '_label', 'is_core', false, 'searchable', false,
-                'writable', false, 'selectable', true,
-                'source', NULLIF(v_table_record.label_parent, '')
-            ) AS property_value
-        UNION ALL
-        SELECT
-            f.field_name || '_label',
-            (f.field_order::numeric * 1000 + 1) AS sort_order,
-            jsonb_build_object(
-                'type', 'string', 'format', 'text',
-                'title', f.title,
-                'description', 'Composed label of the referenced '
-                               || COALESCE(e2.singular_label, f.reference_table),
-                'inputMode', 'readonly', 'width', 'default',
-                'field_order', f.field_order,
-                'ctype', 'fk_label', 'is_core', false, 'searchable', false,
-                'writable', false, 'selectable', true,
-                'reference_table', f.reference_table,
-                'source', jsonb_build_object('field', f.field_name, 'reference_table', f.reference_table)
-            )
-        FROM fields f
-        LEFT JOIN entities e2 ON e2.table_name = f.reference_table
-        WHERE f.table_name = p_table_name
-          AND public.dd_is_fk_format(f.format)
-          AND f.reference_table <> ''
-          -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
-          AND NOT EXISTS (SELECT 1 FROM fields f2
-                          WHERE f2.table_name = p_table_name
-                            AND f2.field_name = f.field_name || '_label')
-    ),
-    all_props AS (
-        SELECT field_name, (field_order::numeric * 1000) AS sort_order, property_value
-        FROM properties_with_defaults
-        UNION ALL
-        SELECT field_name, sort_order, property_value FROM label_props
-    ),
-    -- Keep this a CTE, not a statement of its own: the function runs once per
-    -- entity, so every extra statement costs an SPI round trip per entity.
-    required_fields AS (
-        SELECT field_name, field_order
-        FROM fields
-        WHERE table_name = p_table_name
-          AND is_nullable(format) = FALSE
-          AND field_name != v_table_record.id_column
-          AND field_name NOT IN ('created_at', 'updated_at')
-          AND default_value IS NULL
-          AND format NOT IN ('json', 'jsonlogic')
-        ORDER BY field_order
-    )
-    -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
-    -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
-    -- children: fields in other tables that reference this one with format='parent'.
-    SELECT json_build_object(
-        '$schema', 'https://semantius.com/meta/sem-schema/v1',
-        '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-        'title', v_table_record.singular_label,
-        'description', v_table_record.description,
-        -- module_slug rides inside `table` next to module_id because the id alone is a dead end
-        -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
-        -- only the numeric id must fetch the module list before it can ask for the rest of the
-        -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
-        -- policy protects, so handing it out under the entity's view_permission leaks nothing.
-        -- The rest of the module row is a different matter: settings, dashboard_config, the
-        -- three permission columns and the default_*_role_ids are readable only with 'admin' or
-        -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
-        -- an entity's view_permission is often public:read. They stay in get_user_modules().
-        'table', to_jsonb(v_table_record) || jsonb_build_object(
-            'module_slug',
-            (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-        'type', 'object',
-        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
-                                FROM all_props), '{}'::json),
-        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
-        'children', public.get_schema_children(p_table_name),
-        'additionalProperties', false
-    )
-    INTO v_result;
-
-    RETURN v_result;
-END;
--- STABLE: it only reads the dictionary, and its callers get_schema, get_schemas,
--- get_module_cubes and get_user_cubes are STABLE already. Raising is not a side
--- effect, and PostgREST serves a STABLE function over GET.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
-
--- =====================================================
--- GET SCHEMA
--- =====================================================
-
--- Get schema information for a table in extended JSON Schema format
--- Returns JSON Schema with table metadata and properties
--- Raises an error when the table is not found
-CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
-RETURNS JSON AS $$
-DECLARE
-    v_table_record RECORD;
-    v_cache_version TEXT;
-    v_db_version    TEXT;
-BEGIN
-    PERFORM rbac.uid();
-
-    -- Check if table exists in entities metadata
-    SELECT * INTO v_table_record
-    FROM entities
-    WHERE table_name = p_table_name;
-
-    -- Raise error if table not found
-    IF NOT FOUND THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Check if user has view permission for this table
-    -- Raise same error to avoid leaking table existence
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    RETURN public.build_schema_for_table(p_table_name);
-END;
--- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_schema IS 
-'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
-
--- =====================================================
--- GET SCHEMAS
--- =====================================================
-
--- Get schemas for multiple tables in extended JSON Schema format
--- Accepts a comma-separated list of table names
--- Returns a JSON array of schemas, one per table
--- Each schema uses the same format as get_schema()
--- Raises an error if any table is not found or the user lacks view permission
--- (same error behavior as get_schema() — use the same error code to avoid
---  leaking information about table existence)
-CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
-RETURNS JSON AS $$
-DECLARE
-    v_table_name TEXT;
-    v_table_record RECORD;
-    v_schemas JSON[] := ARRAY[]::JSON[];
-    v_schema JSON;
-BEGIN
-    PERFORM rbac.uid();
-
-    FOREACH v_table_name IN ARRAY string_to_array(p_table_names, ',')
-    LOOP
-        v_table_name := trim(v_table_name);
-        -- Skip blank entries that result from leading/trailing commas or spaces
-        IF v_table_name = '' THEN
-            CONTINUE;
-        END IF;
-
-        -- Raise error if table not found in entities metadata
-        SELECT * INTO v_table_record
-        FROM entities
-        WHERE table_name = v_table_name;
-
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
-                USING ERRCODE = 'undefined_table';
-        END IF;
-
-        -- Raise same error when user lacks view permission (avoid leaking table existence)
-        IF NOT rbac.has_permission(v_table_record.view_permission) THEN
-            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
-                USING ERRCODE = 'undefined_table';
-        END IF;
-
-        v_schema := public.build_schema_for_table(v_table_name);
-        v_schemas := array_append(v_schemas, v_schema);
-    END LOOP;
-
-    RETURN array_to_json(v_schemas);
-END;
--- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_schemas(TEXT) TO semantius_user;
-
--- =====================================================
--- PING
--- =====================================================
-
-CREATE OR REPLACE FUNCTION public.ping()
-RETURNS TABLE(
-    server_time TIMESTAMPTZ,
-    current_user_name TEXT,
-    current_role_name TEXT,
-    session_user_name TEXT
-) AS $$
-BEGIN
-    RETURN QUERY SELECT 
-        NOW() as server_time,
-        current_user::TEXT as current_user_name,
-        current_role::TEXT as current_role_name,
-        session_user::TEXT as session_user_name;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION public.ping IS 
-'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.ping() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
-
-
-
--- =====================================================
--- HAS PERMISSION (public RPC wrapper)
--- =====================================================
-
--- Thin public-schema wrapper over rbac.has_permission() so the permission
--- check is reachable as a PostgREST RPC (POST /rpc/has_permission with body
--- {"p_permission_name": "..."}). The rbac schema itself is not exposed by
--- PostgREST, so callers cannot invoke rbac.has_permission() directly.
---
--- Companion RACI operators is_raci_actor(text,text,text) and
--- has_consultation(text,text,text) are already public-schema functions
--- granted to semantius_user (see 0210_raci.sql), so they are already
--- reachable as /rpc/is_raci_actor and /rpc/has_consultation. Only
--- has_permission needed a public wrapper.
---
--- Returns TRUE when the current authenticated user holds the named
--- permission; FALSE otherwise. Never throws for a missing permission
--- (mirrors rbac.has_permission semantics); rbac.uid() still enforces that
--- a valid JWT context is present.
-CREATE OR REPLACE FUNCTION public.has_permission(p_permission_name TEXT)
-RETURNS BOOLEAN AS $$
-BEGIN
-    PERFORM rbac.uid();
-    RETURN rbac.has_permission(p_permission_name);
-END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.has_permission IS
-'Public RPC wrapper over rbac.has_permission(). Returns TRUE when the current authenticated user holds the named permission. Exposed in the public schema so PostgREST can serve it as /rpc/has_permission, since the rbac schema is not exposed.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.has_permission(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
-
--- =====================================================
--- GET MODULE CUBE
--- =====================================================
-
--- Returns schemas for all entities that form the "cube" for a given module:
---   1. All entities that directly belong to the module.
---   2. All entities referenced via the reference_table field of any field
---      that belongs to one of those module entities.
--- Entities are sorted alphabetically and deduplicated. Tables the current user
--- lacks view permission for are silently skipped.
--- Returns a JSON array of schemas in the same format as get_schema().
--- The p_module_name parameter is matched against modules.module_slug (URL-safe
--- identifier), not modules.module_name. The parameter name is preserved for
--- PostgREST RPC wire compatibility.
-CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
-RETURNS SETOF JSON AS $$
-DECLARE
-    v_table_record RECORD;
-    v_schema JSON;
-BEGIN
-    PERFORM rbac.uid();
-
-    -- Yields the entity row, not just its name, so the loop needs no second
-    -- lookup; the join is also the existence test for reference_table.
-    FOR v_table_record IN
-        SELECT DISTINCT e.table_name, e.view_permission
-        FROM entities e
-        WHERE e.table_name IN (
-            -- All entities belonging to the module
-            SELECT me.table_name
-            FROM entities me
-            JOIN modules m ON m.id = me.module_id
-            WHERE m.module_slug = p_module_name
-
-            UNION
-
-            -- All entities referenced via reference_table from fields of module entities
-            SELECT f.reference_table
-            FROM fields f
-            JOIN entities fe ON fe.table_name = f.table_name
-            JOIN modules m ON m.id = fe.module_id
-            WHERE m.module_slug = p_module_name
-              AND f.reference_table != ''
-        )
-        ORDER BY e.table_name
-    LOOP
-        -- build_schema_for_table checks again: it is self-gating as an RPC of
-        -- its own, and the repeat is a cached lookup.
-        IF rbac.has_permission(v_table_record.view_permission) THEN
-            v_schema := public.build_schema_for_table(v_table_record.table_name);
-            IF v_schema IS NOT NULL THEN
-                RETURN NEXT v_schema;
-            END IF;
-        END IF;
-    END LOOP;
-END;
--- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_module_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
-
--- =====================================================
--- GET USER CUBES
--- =====================================================
-
--- Returns schemas for all entities across all modules that the current user
--- has view permission for. Referenced tables are not additionally included —
--- they will already appear when the user has view permission on them directly.
--- Returns a JSON array of schemas in the same format as get_schema().
-CREATE OR REPLACE FUNCTION public.get_user_cubes()
-RETURNS SETOF JSON AS $$
-DECLARE
-    v_table_record RECORD;
-    v_schema JSON;
-BEGIN
-    PERFORM rbac.uid();
-
-    FOR v_table_record IN
-        SELECT e.table_name, e.view_permission
-        FROM entities e
-        ORDER BY e.table_name
-    LOOP
-        IF rbac.has_permission(v_table_record.view_permission) THEN
-            v_schema := public.build_schema_for_table(v_table_record.table_name);
-            IF v_schema IS NOT NULL THEN
-                RETURN NEXT v_schema;
-            END IF;
-        END IF;
-    END LOOP;
-END;
--- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.get_user_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
-
--- Revoke default PUBLIC execute, then grant only to semantius_user
-REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
-
--- =====================================================
--- FIX ID SEQUENCE
--- =====================================================
-
--- After an import writes explicit ids, the id sequence lags behind them and the
--- next ordinary insert fails with 23505. This moves the sequence past max(id).
---
--- Callable by whoever may insert into the table: the entity's edit_permission.
--- Non-admins get the same 42501 for an unknown table as for a denied one, as
--- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
--- SECURITY DEFINER because the request role cannot setval, and under RLS its
--- max(id) would miss the rows it cannot see.
--- The lock keeps inserts out between max() and setval. While it waits, every
--- later writer of the table queues behind it, so lock_timeout caps the wait at
--- 2 s and the timeout becomes 90232 (retry) instead of 55P03 (HTTP 500).
--- The sequence is never lowered: that would re-issue the ids of deleted rows.
--- A table the definer does not own fails at the LOCK with 42501.
-CREATE OR REPLACE FUNCTION public.fix_id_sequence(p_table TEXT)
-RETURNS BIGINT AS $$
-DECLARE
-    v_id_column TEXT;
-    v_edit_permission TEXT;
-    v_sequence TEXT;
-    v_max BIGINT;
-    v_last BIGINT;
-    v_called BOOLEAN;
-    v_next BIGINT;
-BEGIN
-    PERFORM rbac.uid();
-
-    SELECT e.id_column, e.edit_permission INTO v_id_column, v_edit_permission
-    FROM public.entities e
-    WHERE e.table_name = p_table;
-
-    -- edit_permission is NOT NULL, so NULL here means there is no such entity.
-    IF v_edit_permission IS NULL AND rbac.has_permission('admin') THEN
-        RAISE EXCEPTION 'Table ${table} is not an entity'
-            USING ERRCODE = '90231',
-                  HINT = jsonb_build_object('table', p_table)::text;
-    END IF;
-    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
-        RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
-            USING ERRCODE = 'insufficient_privilege',
-                  HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
-    END IF;
-
-    -- pg_get_serial_sequence raises on a missing table or column instead of
-    -- returning NULL, and a missing table would surface as 42P01.
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_attribute a
-        WHERE a.attrelid = to_regclass(format('public.%I', p_table))
-          AND a.attname = v_id_column
-          AND a.attnum > 0
-          AND NOT a.attisdropped
-    ) THEN
-        RETURN NULL;
-    END IF;
-    v_sequence := pg_get_serial_sequence(format('public.%I', p_table), v_id_column);
-    IF v_sequence IS NULL THEN
-        RETURN NULL;  -- a text, uuid or otherwise non-serial key
-    END IF;
-
-    BEGIN
-        EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', p_table);
-    EXCEPTION WHEN lock_not_available THEN
-        RAISE EXCEPTION 'Table ${table} is busy, try again'
-            USING ERRCODE = '90232',
-                  HINT = jsonb_build_object(
-                      'table', p_table,
-                      'hint', 'Another transaction is writing to ${table}. Retry when it has finished.')::text;
-    END;
-
-    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_column, p_table) INTO v_max;
-    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
-    v_next := GREATEST(COALESCE(v_max, 0) + 1,
-                       CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
-    PERFORM setval(v_sequence, v_next, false);
-    RETURN v_next;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
-
-COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
-'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
-
-REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
-$pgsem__core_0080_public_functions$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0080_public_functions', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0080_public_functions', '3c67d0a53305cd19134e070425024d209eb091d4bc13bd7e9bf58fa4a1fc4623');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0090_notify_triggers') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0090_notify_triggers';
-    BEGIN
-      EXECUTE $pgsem__core_0090_notify_triggers$-- =====================================================
--- POSTGREST SCHEMA RELOAD NOTIFICATIONS
--- =====================================================
--- Send NOTIFY pgrst commands when tables or fields are modified.
--- All notifications go through common.refresh_schema_cache() which
--- also keeps the db_version timestamp in _settings up to date.
--- =====================================================
-
--- =====================================================
--- COMMON: SCHEMA CACHE REFRESH
--- =====================================================
--- Central function called by all DDL and DML triggers.
--- Sends NOTIFY pgrst, 'reload schema' and writes the current
--- timestamp into _settings(name='db_version') so clients can
--- detect that the schema has changed without polling PostgREST.
-
-CREATE OR REPLACE FUNCTION common.refresh_schema_cache() RETURNS void AS $$
-DECLARE
-    v_db_version_ts TEXT;
-    v_current       TEXT;
-BEGIN
-    -- ISO 8601 datetime (e.g. 2026-03-20T22:21:49.813267+00:00)
-    v_db_version_ts := to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"');
-
-    -- Update db_version only when the stored value is outdated (or missing)
-    SELECT value INTO v_current FROM _settings WHERE name = 'db_version';
-    IF NOT FOUND OR v_current < v_db_version_ts THEN
-        INSERT INTO _settings (name, value) VALUES ('db_version', v_db_version_ts)
-        ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
-    END IF;
-
-    -- Notify PostgREST to reload its schema cache
-    NOTIFY pgrst, 'reload schema';
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
-
-COMMENT ON FUNCTION common.refresh_schema_cache() IS
-'Notifies PostgREST to reload its schema cache and updates the db_version timestamp in _settings.';
-
--- =====================================================
--- TRIGGER FUNCTION: NOTIFY ON TABLES CHANGES
--- =====================================================
--- SECURITY DEFINER, like its sibling below, because it fires on a DML statement
--- issued by the request role and common.refresh_schema_cache() is not callable
--- by that role: an entities write would otherwise fail with 42501. Safe to run
--- as the owner - the body takes no argument, builds no dynamic SQL, and reaches
--- exactly one fully qualified function - and search_path is pinned so the name
--- it reaches cannot be redirected by the caller.
-
-CREATE OR REPLACE FUNCTION notify_pgrst_tables()
-RETURNS TRIGGER AS $$
-BEGIN
-    PERFORM common.refresh_schema_cache();
-
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
+$pgsem__core_0160_dd_functions_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0160_dd_functions.sql', '27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
     ELSE
-        RETURN NEW;
+      v_skipped := v_skipped + 1;
     END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
-
-COMMENT ON FUNCTION notify_pgrst_tables IS
-'Trigger function that notifies PostgREST to reload schema when entities are modified.';
-
--- Apply trigger on entities table
-CREATE TRIGGER notify_pgrst_on_tables_change
-    AFTER INSERT OR UPDATE OR DELETE ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_pgrst_tables();
-
--- =====================================================
--- TRIGGER FUNCTION: NOTIFY ON FIELDS CHANGES
--- =====================================================
-
-CREATE OR REPLACE FUNCTION notify_pgrst_fields()
-RETURNS TRIGGER AS $$
-BEGIN
-    PERFORM common.refresh_schema_cache();
-
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0160_dd_functions.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
     ELSE
-        RETURN NEW;
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0160_dd_functions.sql', v_msg, v_state);
     END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+  END;
+  COMMIT;
 
-COMMENT ON FUNCTION notify_pgrst_fields IS
-'Trigger function that notifies PostgREST to reload schema when fields are modified.';
-
--- Apply trigger on fields table
-CREATE TRIGGER notify_pgrst_on_fields_change
-    AFTER INSERT OR UPDATE OR DELETE ON fields
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_pgrst_fields();
-
--- =====================================================
--- DDL EVENT TRIGGERS: NOTIFY ON SCHEMA CHANGES
--- =====================================================
--- Fire on every DDL command that PostgREST cares about so its
--- schema cache stays in sync automatically.
-
--- Watch CREATE and ALTER commands
-CREATE OR REPLACE FUNCTION pgrst_ddl_watch() RETURNS event_trigger AS $$
-DECLARE
-    cmd record;
-BEGIN
-    FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
-    LOOP
-        IF cmd.command_tag IN (
-          'CREATE SCHEMA', 'ALTER SCHEMA'
-        , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
-        , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
-        , 'CREATE VIEW', 'ALTER VIEW'
-        , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
-        , 'CREATE FUNCTION', 'ALTER FUNCTION'
-        , 'CREATE TRIGGER'
-        , 'CREATE TYPE', 'ALTER TYPE'
-        , 'CREATE RULE'
-        , 'COMMENT'
-        )
-        -- Only the schemas Semantius owns: DDL in a foreign schema cannot change
-        -- the API surface PostgREST exposes, and pg_temp is excluded by the same
-        -- list, so a CREATE TEMP TABLE notifies nobody. A NULL schema_name
-        -- (GRANT, REVOKE, ALTER DEFAULT PRIVILEGES, CREATE SCHEMA) reports no
-        -- schema but can still change that surface, so it stays in scope.
-        AND (cmd.schema_name IS NULL
-             OR cmd.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
-        THEN
-            PERFORM common.refresh_schema_cache();
-        END IF;
-    END LOOP;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
--- Watch DROP commands
-CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
-DECLARE
-    obj record;
-BEGIN
-    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
-    LOOP
-        IF obj.object_type IN (
-          'schema'
-        , 'table'
-        , 'foreign table'
-        , 'view'
-        , 'materialized view'
-        , 'function'
-        , 'trigger'
-        , 'type'
-        , 'rule'
-        )
-        AND obj.is_temporary IS false -- no pg_temp objects
-        -- and only for the schemas Semantius owns, matching pgrst_ddl_watch:
-        -- without this a DROP in a foreign schema still reloaded the cache. A
-        -- NULL schema_name here means the dropped object IS a schema, which
-        -- can change what PostgREST exposes, so it stays in scope.
-        AND (obj.schema_name IS NULL
-             OR obj.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
-        THEN
-            PERFORM common.refresh_schema_cache();
-        END IF;
-    END LOOP;
-END;
-$$ LANGUAGE plpgsql SET search_path = public;
-
-COMMENT ON FUNCTION pgrst_ddl_watch() IS
-'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';
-COMMENT ON FUNCTION pgrst_drop_watch() IS
-'Event-trigger function (sql_drop) that refreshes the PostgREST schema cache when a relevant object is dropped.';
-
-CREATE EVENT TRIGGER pgrst_ddl_watch
-    ON ddl_command_end
-    EXECUTE PROCEDURE pgrst_ddl_watch();
-
-CREATE EVENT TRIGGER pgrst_drop_watch
-    ON sql_drop
-    EXECUTE PROCEDURE pgrst_drop_watch();
-
--- Revoke default PUBLIC execute on notify trigger functions
-REVOKE EXECUTE ON FUNCTION notify_pgrst_tables() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
-
--- Nothing outside this file calls common.refresh_schema_cache(). Its four
--- callers are the two DML trigger functions and the two event-trigger functions
--- above, and they reach it by two different routes: the DML pair are SECURITY
--- DEFINER and run as the owner, while pgrst_ddl_watch and pgrst_drop_watch are
--- SECURITY INVOKER and run as whoever executed the DDL.
---
--- That second route is why this revoke is safe only as long as the request role
--- cannot run DDL. It holds today because semantius_user has CREATE on no schema
--- and owns nothing, so it can never fire an event trigger. A temp table is the
--- one thing it can create, and pg_temp is filtered out by the schema allow-list
--- above before refresh_schema_cache is reached. Grant the request role CREATE
--- anywhere and DDL starts failing with 42501 from inside an event trigger.
---
--- Left callable by the request role the function is a free amplifier: one RPC
--- per request makes PostgREST rebuild its schema cache, and no identity check
--- would help, because a NOTIFY costs the same whoever sends it.
-REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
-REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
-
--- USAGE on the schema stays: it reaches nothing on its own (every function in
--- `common` is now revoked from both PUBLIC and semantius_user, and common._cache
--- has RLS with no policies and no table grant), and dropping it is a separate
--- change with a wider blast radius than this one.
-GRANT USAGE ON SCHEMA common TO semantius_user;
-$pgsem__core_0090_notify_triggers$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0090_notify_triggers', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0090_notify_triggers', 'c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0110_apikeys') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0110_apikeys';
-    BEGIN
-      EXECUTE $pgsem__core_0110_apikeys$-- =====================================================
--- API KEYS TABLE AND FUNCTIONS
--- =====================================================
--- Internal table for storing API keys with hashed secrets.
--- RLS is enabled with no policies so it is only accessible
--- internally via SECURITY DEFINER functions (same pattern as _settings).
--- No entries in entities/fields - not exposed in the UI.
-
--- =====================================================
--- _APIKEYS TABLE
--- =====================================================
-
-CREATE TABLE _apikeys (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    key_id TEXT NOT NULL UNIQUE,
-    secret_hash TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    last_used_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_apikeys_user_id ON _apikeys(user_id);
-CREATE UNIQUE INDEX idx_apikeys_key_id ON _apikeys(key_id);
-
-ALTER TABLE _apikeys ENABLE ROW LEVEL SECURITY;
-
--- Deny-all policy so the table is never exposed through PostgREST / the Data API.
--- SECURITY DEFINER functions can still read and write it.
-CREATE POLICY apikeys_deny_all ON _apikeys
-    FOR ALL
-    TO semantius_user
-    USING (false)
-    WITH CHECK (false);
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON _apikeys TO semantius_user;
-GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
-
--- =====================================================
--- GENERATE API KEY FUNCTION
--- =====================================================
--- Generates a new API key for a user.
--- When p_user_id = 0, uses the current session user id and prefix "uk-".
--- When p_user_id <> 0, validates user exists and requires admin permission,
--- uses prefix "sk-".
--- p_description is an optional human-readable label stored with the key.
--- Returns the full API key (only time the secret is visible in plaintext).
--- Accessible via PostgREST RPC by all authenticated users.
-
-CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
-RETURNS JSONB AS $$
-DECLARE
-    v_target_user_id INTEGER;
-    v_key_prefix TEXT;
-    v_new_key_id TEXT;
-    v_new_secret TEXT;
-    v_full_api_key TEXT;
-    v_done BOOLEAN := FALSE;
-BEGIN
-    -- Authenticate the caller
-    PERFORM rbac.uid();
-
-    IF p_user_id = 0 THEN
-        -- Use the current session user id
-        v_target_user_id := rbac.user_id();
-        v_key_prefix := 'uk-';
-    ELSE
-        -- Require admin permission for generating keys for other users
-        PERFORM rbac.require_permission('admin');
-
-        -- Validate the target user exists
-        IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
-            RAISE EXCEPTION 'User with id ${user_id} does not exist'
-                USING ERRCODE = '90401',
-                      HINT = jsonb_build_object('user_id', p_user_id)::text;
-        END IF;
-
-        v_target_user_id := p_user_id;
-        v_key_prefix := 'sk-';
-    END IF;
-
-    -- Loop until we generate a unique key_id
-    WHILE NOT v_done LOOP
-        BEGIN
-            -- Generate a 12-char random public ID (6 bytes = 12 hex chars)
-            v_new_key_id := v_key_prefix || encode(gen_random_bytes(6), 'hex');
-
-            -- Generate a 32-char random secret (16 bytes = 32 hex chars)
-            v_new_secret := encode(gen_random_bytes(16), 'hex');
-
-            -- Attempt to insert with hashed secret and description
-            INSERT INTO _apikeys (user_id, key_id, secret_hash, description)
-            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf', 10)), COALESCE(p_description, ''));
-
-            -- If we reach here, insert was successful
-            v_full_api_key := v_new_key_id || '-' || v_new_secret;
-            v_done := TRUE;
-
-        EXCEPTION WHEN unique_violation THEN
-            -- If key_id already exists, loop again to generate a new one
-            NULL;
-        END;
-    END LOOP;
-
-    RETURN jsonb_build_object('api_key', v_full_api_key, 'key_id', v_new_key_id);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.generate_api_key IS
-'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
-
--- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_user;
-
--- =====================================================
--- VALIDATE API KEY FUNCTION (INTERNAL ONLY)
--- =====================================================
--- Validates an API key by splitting it into key_id and secret,
--- looking up the record, and verifying the bcrypt hash.
--- Returns the user_id if valid, NULL if invalid.
--- Updates last_used_at on successful validation.
--- NOT accessible via PostgREST (no GRANT to semantius_user).
-
-CREATE OR REPLACE FUNCTION public.validate_api_key(p_api_key TEXT)
-RETURNS INTEGER AS $$
-DECLARE
-    v_key_id TEXT;
-    v_secret TEXT;
-    v_last_dash INTEGER;
-    v_record RECORD;
-BEGIN
-    -- Validate input
-    IF p_api_key IS NULL OR p_api_key = '' THEN
-        RETURN NULL;
-    END IF;
-
-    -- Split the key: everything up to the last '-' is key_id, the rest is secret
-    -- Key format: prefix + public_id + '-' + secret
-    -- e.g. "uk-abcdef012345-0123456789abcdef0123456789abcdef"
-    v_last_dash := length(p_api_key) - position('-' IN reverse(p_api_key)) + 1;
-
-    IF position('-' IN reverse(p_api_key)) = 0 OR v_last_dash >= length(p_api_key) THEN
-        RETURN NULL;
-    END IF;
-
-    v_key_id := substring(p_api_key FROM 1 FOR v_last_dash - 1);
-    v_secret := substring(p_api_key FROM v_last_dash + 1);
-
-    IF v_key_id = '' OR v_secret = '' THEN
-        RETURN NULL;
-    END IF;
-
-    -- Look up the record by key_id
-    SELECT * INTO v_record
-    FROM _apikeys
-    WHERE key_id = v_key_id;
-
-    IF NOT FOUND THEN
-        RETURN NULL;
-    END IF;
-
-    -- Verify the secret against the stored bcrypt hash
-    IF v_record.secret_hash = crypt(v_secret, v_record.secret_hash) THEN
-        -- Update last_used_at on successful validation
-        UPDATE _apikeys SET last_used_at = CURRENT_TIMESTAMP WHERE key_id = v_key_id;
-        RETURN v_record.user_id;
-    ELSE
-        RETURN NULL;
-    END IF;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.validate_api_key IS
-'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
-
--- Reachable from the auth tier over a direct owner connection, and from nothing
--- else. That is the only caller shape that can work: the API-key exchange
--- continues by reading `users` with no JWT context, which needs the RLS bypass
--- an owner has and a request role never does.
---
--- It is the primitive that establishes an identity, so it cannot carry an
--- rbac.uid() check the way every other definer in this schema does, and a grant
--- to the request role would therefore be a grant with nothing behind it: an
--- unauthenticated bcrypt call at cost 10 per request, and a timing oracle,
--- because the key_id lookup returns before crypt() and so rejects an unknown key
--- id measurably faster than a wrong secret for a known one. The API-key tests
--- reach it with RESET ROLE for the same reason. If a new entry point needs it,
--- that entry point is a SECURITY DEFINER function, not a grant.
-REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM semantius_user;
-REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
-
--- =====================================================
--- LIST API KEYS FUNCTION
--- =====================================================
--- Returns a JSON array of API keys for the current user or a specific user.
--- Each entry contains key_id, description, last_used_at, and created_at.
--- The secret hash is never returned.
--- When p_user_id = 0, returns keys for the current session user.
--- When p_user_id <> 0, requires admin permission.
--- Accessible via PostgREST RPC by all authenticated users.
-
-CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id INTEGER DEFAULT 0)
-RETURNS JSONB AS $$
-DECLARE
-    v_target_user_id INTEGER;
-BEGIN
-    -- Authenticate the caller
-    PERFORM rbac.uid();
-
-    IF p_user_id = 0 THEN
-        v_target_user_id := rbac.user_id();
-    ELSE
-        -- Require admin permission to list keys for another user
-        PERFORM rbac.require_permission('admin');
-
-        -- Validate the target user exists
-        IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
-            RAISE EXCEPTION 'User with id ${user_id} does not exist'
-                USING ERRCODE = '90401',
-                      HINT = jsonb_build_object('user_id', p_user_id)::text;
-        END IF;
-
-        v_target_user_id := p_user_id;
-    END IF;
-
-    RETURN COALESCE(
-        (SELECT jsonb_agg(
-            jsonb_build_object(
-                'key_id', key_id,
-                'description', description,
-                'last_used_at', last_used_at,
-                'created_at', created_at
-            ) ORDER BY created_at DESC
-        )
-        FROM _apikeys
-        WHERE user_id = v_target_user_id),
-        '[]'::jsonb
-    );
-END;
--- STABLE: writes nothing, so PostgREST serves it over GET.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.list_api_keys IS
-'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
-
--- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.list_api_keys(INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
-
--- =====================================================
--- DELETE API KEY FUNCTION
--- =====================================================
--- Deletes an API key by its public key_id.
--- Users may delete their own keys.
--- Admins may delete keys belonging to any user.
--- Returns TRUE if the key was deleted, raises an exception if not found
--- or if the caller does not have permission.
--- Accessible via PostgREST RPC by all authenticated users.
-
-CREATE OR REPLACE FUNCTION public.delete_api_key(p_key_id TEXT)
-RETURNS BOOLEAN AS $$
-DECLARE
-    v_current_user_id INTEGER;
-    v_record RECORD;
-BEGIN
-    -- Authenticate the caller
-    PERFORM rbac.uid();
-    v_current_user_id := rbac.user_id();
-
-    -- Look up the key
-    SELECT * INTO v_record
-    FROM _apikeys
-    WHERE key_id = p_key_id;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'API key not found'
-            USING ERRCODE = '90402';
-    END IF;
-
-    -- If the key belongs to another user, require admin permission
-    IF v_record.user_id <> v_current_user_id THEN
-        PERFORM rbac.require_permission('admin');
-    END IF;
-
-    DELETE FROM _apikeys WHERE key_id = p_key_id;
-
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.delete_api_key IS
-'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user.';
-
--- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.delete_api_key(TEXT) TO semantius_user;
-$pgsem__core_0110_apikeys$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0110_apikeys', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0110_apikeys', '6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0140_dd_rename') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0140_dd_rename';
-    BEGIN
-      EXECUTE $pgsem__core_0140_dd_rename$-- =====================================================
+  -- _core.0170_dd_rename.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
+      EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
 -- DDL RENAME SUPPORT
 -- =====================================================
 -- Adds support for renaming:
@@ -8640,7 +7432,6 @@ $pgsem__core_0110_apikeys$;
 -- Fires BEFORE UPDATE on entities when table_name changes.
 -- Renames the physical table and sets a transaction-local session variable
 -- so the cascaded update to fields.table_name is allowed by update_dd_field.
-
 CREATE OR REPLACE FUNCTION rename_dd_table()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -8862,7 +7653,7 @@ Sets a transaction-local session variable so the cascaded update to fields.table
 allowed by update_dd_field without raising an exception.';
 
 -- Apply trigger BEFORE UPDATE on entities (only when table_name changes)
-CREATE TRIGGER rename_table_trigger
+CREATE OR REPLACE TRIGGER rename_table_trigger
     BEFORE UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
@@ -8900,7 +7691,7 @@ COMMENT ON FUNCTION rename_dd_reference_tables IS
 in all fields across all tables that referenced the old name.  Cascades through
 update_dd_field() to rebuild the physical FK constraint on the referencing table.';
 
-CREATE TRIGGER rename_reference_tables_trigger
+CREATE OR REPLACE TRIGGER rename_reference_tables_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
@@ -8955,7 +7746,7 @@ that contain the old table name.';
 
 REVOKE EXECUTE ON FUNCTION rename_dd_jsonlogic_refs() FROM PUBLIC;
 
-CREATE TRIGGER rename_jsonlogic_refs_trigger
+CREATE OR REPLACE TRIGGER rename_jsonlogic_refs_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
@@ -9145,7 +7936,7 @@ Renames the physical column (and associated constraints/indexes) when field_name
 Rejects format changes that would alter the underlying PostgreSQL data type.';
 
 -- Apply trigger BEFORE UPDATE on fields
-CREATE TRIGGER validate_field_rename_and_format_trigger
+CREATE OR REPLACE TRIGGER validate_field_rename_and_format_trigger
     BEFORE UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION validate_field_rename_and_format();
@@ -9157,32 +7948,50 @@ COMMENT ON TRIGGER validate_field_rename_and_format_trigger ON fields IS
 REVOKE EXECUTE ON FUNCTION rename_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rename_dd_reference_tables() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
-$pgsem__core_0140_dd_rename$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0140_dd_rename', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0140_dd_rename', '5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$pgsem__core_0170_dd_rename_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0170_dd_rename.sql', 'b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0170_dd_rename.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0170_dd_rename.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0145_managed_enable') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0145_managed_enable';
-    BEGIN
-      EXECUTE $pgsem__core_0145_managed_enable$-- =====================================================
+  -- _core.0180_managed_enable.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '686a8b4f76bf9f153976b9c0c5686bc2de9ca9b106ab18a901eec1aaa505dfac') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
+      EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
 -- MANAGED ENABLE SUPPORT
 -- =====================================================
 -- Adds support for:
@@ -9204,7 +8013,6 @@ $pgsem__core_0140_dd_rename$;
 --     managed is first enabled
 --   • update_dd_field() trigger  – when the column is found to be
 --     missing from an otherwise-managed table
-
 CREATE OR REPLACE FUNCTION apply_field_ddl(p_field fields)
 RETURNS VOID AS $$
 DECLARE
@@ -9443,7 +8251,7 @@ BEGIN
     -- audit logs, registered as entities with managed = false - would be
     -- unlocked rather than adopted, because the INSERT and UPDATE policies and
     -- the grant beside them are exactly what it was protected from.
-    -- 0150_audit_log.sql refuses the managed flip on those two entities outright,
+    -- 0200_audit_log.sql refuses the managed flip on those two entities outright,
     -- so they never arrive here; the reasoning is written out there.
     --
     -- Access can widen. A table that carried its own policies keeps them, and
@@ -9601,7 +8409,7 @@ policies created if absent, the request-role table and sequence grants issued -
 then adds any columns that were defined as field records while the table was
 unmanaged. An adopted table ends up configured as a table created managed would
 be; a table that carried policies of its own keeps them alongside, so access can
-widen, which is why 0150_audit_log.sql refuses the managed flip outright for the
+widen, which is why 0200_audit_log.sql refuses the managed flip outright for the
 two entities whose protection is that the request role cannot write them. Finally
 calls build_select_rule_policy() directly, so an entity carrying a select_rule
 gets the per-row predicate rather than the permission-only policies installed
@@ -9611,7 +8419,7 @@ order, and if that one ran first the toggle would leave a select_rule entity
 gated by view_permission alone.';
 
 -- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
-CREATE TRIGGER enable_table_trigger
+CREATE OR REPLACE TRIGGER enable_table_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.managed = FALSE AND NEW.managed = TRUE)
@@ -9620,7 +8428,7 @@ CREATE TRIGGER enable_table_trigger
 COMMENT ON TRIGGER enable_table_trigger ON entities IS
 'Creates the physical table and adds missing columns when managed changes from false to true.';
 
--- users.external_id is seeded unique_value in 0060, before the dictionary triggers
+-- users.external_id is seeded unique_value in 0150_dd_bootstrap.once.sql, before the dictionary triggers
 -- exist, so the partial index they would build for it is built here.
 CREATE UNIQUE INDEX IF NOT EXISTS users_external_id_unique ON users(external_id) WHERE external_id IS NOT NULL AND external_id != '';
 
@@ -9924,7 +8732,7 @@ $$;
 COMMENT ON FUNCTION reserve_field_namespace() IS
 'Trigger function that rejects user-created field names beginning with "_" (reserved for generated/system columns such as _label). Privileged BYPASSRLS roles are exempt.';
 
-CREATE TRIGGER fields_reserve_namespace_trigger
+CREATE OR REPLACE TRIGGER fields_reserve_namespace_trigger
     BEFORE INSERT OR UPDATE OF field_name ON fields
     FOR EACH ROW
     EXECUTE FUNCTION reserve_field_namespace();
@@ -10002,7 +8810,7 @@ $$;
 COMMENT ON FUNCTION validate_label_parent() IS
 'Trigger function validating an entity''s label_parent: it must name a reference/parent field of the entity, must not self-reference, and must not introduce a cycle in the identity spine.';
 
-CREATE TRIGGER validate_label_parent_trigger
+CREATE OR REPLACE TRIGGER validate_label_parent_trigger
     BEFORE INSERT OR UPDATE OF label_parent ON entities
     FOR EACH ROW
     EXECUTE FUNCTION validate_label_parent();
@@ -10070,12 +8878,12 @@ COMMENT ON FUNCTION dd_label_fn_sync_entity() IS
 COMMENT ON FUNCTION dd_label_fn_sync_field() IS
 'Trigger function that regenerates the owning entity''s _label / <fk>_label computed-column functions after a fields row changes, by calling rebuild_entity_label_functions. An INSERT that cannot change a generated body skips the rebuild.';
 
-CREATE TRIGGER zzz_label_fn_entity_insert_trigger
+CREATE OR REPLACE TRIGGER zzz_label_fn_entity_insert_trigger
     AFTER INSERT ON entities
     FOR EACH ROW
     EXECUTE FUNCTION dd_label_fn_sync_entity();
 
-CREATE TRIGGER zzz_label_fn_entity_update_trigger
+CREATE OR REPLACE TRIGGER zzz_label_fn_entity_update_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
     WHEN (OLD.table_name   IS DISTINCT FROM NEW.table_name
@@ -10085,17 +8893,17 @@ CREATE TRIGGER zzz_label_fn_entity_update_trigger
        OR OLD.managed      IS DISTINCT FROM NEW.managed)
     EXECUTE FUNCTION dd_label_fn_sync_entity();
 
-CREATE TRIGGER zzz_label_fn_field_insert_trigger
+CREATE OR REPLACE TRIGGER zzz_label_fn_field_insert_trigger
     AFTER INSERT ON fields
     FOR EACH ROW
     EXECUTE FUNCTION dd_label_fn_sync_field();
 
-CREATE TRIGGER zzz_label_fn_field_delete_trigger
+CREATE OR REPLACE TRIGGER zzz_label_fn_field_delete_trigger
     AFTER DELETE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION dd_label_fn_sync_field();
 
-CREATE TRIGGER zzz_label_fn_field_update_trigger
+CREATE OR REPLACE TRIGGER zzz_label_fn_field_update_trigger
     AFTER UPDATE ON fields
     FOR EACH ROW
     WHEN (OLD.field_name      IS DISTINCT FROM NEW.field_name
@@ -10115,43 +8923,50 @@ REVOKE EXECUTE ON FUNCTION dd_spine_parent(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_is_fk_format(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_is_junction(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
+$pgsem__core_0180_managed_enable_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0180_managed_enable.sql', '686a8b4f76bf9f153976b9c0c5686bc2de9ca9b106ab18a901eec1aaa505dfac')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0180_managed_enable.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0180_managed_enable.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
--- Backfill: build label functions for every entity that already exists (core meta-tables and any
--- entity created before these triggers were installed). Entities created later self-provision via
--- the AFTER triggers above. Order-independent thanks to check_function_bodies being off per build.
-DO $$
-DECLARE r RECORD;
-BEGIN
-    FOR r IN SELECT table_name FROM entities ORDER BY table_name LOOP
-        PERFORM rebuild_entity_label_functions(r.table_name);
-    END LOOP;
-END $$;
-$pgsem__core_0145_managed_enable$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0145_managed_enable', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0145_managed_enable', 'd90dbe504d3d304bd80c43827cc855a39411f323ae8b72e462b3fde47e3a6015');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0150_audit_log') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0150_audit_log';
-    BEGIN
-      EXECUTE $pgsem__core_0150_audit_log$-- =====================================================
+  -- _core.0190_audit_log.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0190_audit_log.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0190_audit_log.once.sql';
+      EXECUTE $pgsem__core_0190_audit_log_once_sql$-- =====================================================
 -- AUDIT LOG SYSTEM
 -- =====================================================
 -- Provides comprehensive audit logging for DML operations (INSERT, UPDATE,
@@ -10173,6 +8988,9 @@ $pgsem__core_0145_managed_enable$;
 -- =====================================================
 -- The audit schema is used ONLY for internal helper functions and types.
 -- The actual audit tables live in public schema for standard API access.
+-- Runs once: the audit schema, its type and the two log tables. The functions,
+-- event triggers, policies and grants are in 0200_audit_log.sql, the tables'
+-- dictionary rows in 0300_audit_log.jsonc.
 
 CREATE SCHEMA IF NOT EXISTS audit;
 
@@ -10247,10 +9065,10 @@ Each row captures the operation type, the full record (new/old), and metadata.';
 -- 'replica' before writing, which skips these triggers outright. They raise the
 -- cost of an undocumented write; they do not make one impossible.
 --
--- is_superuser is read from the GUC here, and 0290_owner_hardening reads
+-- is_superuser is read from the GUC here, and 9900_owner_hardening reads
 -- pg_roles.rolsuper instead, deliberately: the GUC reports the OUTER user, so
 -- under a SECURITY DEFINER function - which every one of these triggers is - it
--- keeps reporting the session rather than the function owner. 0290 needs to know
+-- keeps reporting the session rather than the function owner. 9900 needs to know
 -- whether the EFFECTIVE user can create a BYPASSRLS role, so the GUC is wrong
 -- for it. This column wants the session, which is exactly what the GUC still
 -- reports, and reading it costs no catalog access.
@@ -10306,6 +9124,65 @@ COMMENT ON TABLE public.audit_ddl_logs IS
 CREATE INDEX IF NOT EXISTS audit_ddl_logs_event_time
     ON public.audit_ddl_logs
     USING BRIN(event_time);
+
+-- =====================================================
+-- STEP 11: RLS on audit tables
+-- =====================================================
+-- Audit tables are in public schema, so PostgREST can expose them.
+-- RLS ensures only admin users can access audit data.
+
+ALTER TABLE public.audit_record_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_ddl_logs ENABLE ROW LEVEL SECURITY;
+
+-- Grant usage on the audit schema to semantius_user (needed for trigger execution)
+GRANT USAGE ON SCHEMA audit TO semantius_user;
+$pgsem__core_0190_audit_log_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0190_audit_log.once.sql', 'ebaf8f65f8ca306ad8b24365577645b2110fecce46de4d784d8f0d8f197e9a8e')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0190_audit_log.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0190_audit_log.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0200_audit_log.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1db1e6397e428babeb3c60d100631f113f1e2b5642cd66f6977531c6b55e1d0c') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
+      EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
+-- AUDIT LOG SYSTEM - functions, triggers, policies
+-- =====================================================
+-- Repeatable. The schema and tables are in 0190_audit_log.once.sql.
 
 -- =====================================================
 -- STEP 4: Helper function to compute record_id from primary key
@@ -10812,7 +9689,7 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      throw away the privilege history this table exists to keep. CREATE
 --      SCHEMA also reports no schema (its identity is the new schema's name),
 --      so creating a schema is always logged, foreign ones included.
---   3. generated label companions - rebuild_entity_label_functions (0145)
+--   3. generated label companions - rebuild_entity_label_functions (0180_managed_enable.sql)
 --      drops and recreates the whole set of <name>_label(rowtype) functions on
 --      any field edit, so these events are churn, not history. This reaches
 --      only the CREATE/ALTER FUNCTION and COMMENT events: the matching GRANT
@@ -10879,6 +9756,7 @@ $$;
 COMMENT ON FUNCTION audit.log_ddl_event IS
 'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
 
+DROP EVENT TRIGGER IF EXISTS track_ddl_changes;
 CREATE EVENT TRIGGER track_ddl_changes
     ON ddl_command_end
     EXECUTE FUNCTION audit.log_ddl_event();
@@ -10921,7 +9799,7 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     EXTENSION safe to run on a database whose data is being kept.
 --   - not temporary. The dropped-objects record carries is_temporary directly,
 --     so no pg_temp prefix test is needed here.
---   - not a generated label companion. rebuild_entity_label_functions (0145)
+--   - not a generated label companion. rebuild_entity_label_functions (0180_managed_enable.sql)
 --     issues DROP FUNCTION IF EXISTS on every label companion on every field
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
@@ -10974,6 +9852,7 @@ $$;
 COMMENT ON FUNCTION audit.log_drop_event IS
 'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order.';
 
+DROP EVENT TRIGGER IF EXISTS track_ddl_drops;
 CREATE EVENT TRIGGER track_ddl_drops
     ON sql_drop
     EXECUTE FUNCTION audit.log_drop_event();
@@ -10982,53 +9861,11 @@ COMMENT ON EVENT TRIGGER track_ddl_drops IS
 'Event trigger that fires after any DROP command completes, logging the dropped objects to audit_ddl_logs.';
 
 -- =====================================================
--- STEP 8: Register audit tables as entities (managed=false)
--- =====================================================
--- These are core system tables. managed=false means no DDL triggers fire
--- when inserting into entities, but having entries in entities/fields makes
--- them queryable through the standard API (get_schema, etc.).
-
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
-VALUES
-    ('audit_record_logs', 'audit_record_log', 'Audit Record Log', 'Audit Record Logs', 'DML audit trail for entity table records', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'table_name', FALSE),
-    ('audit_ddl_logs', 'audit_ddl_log', 'Audit DDL Log', 'Audit DDL Logs', 'DDL audit trail for schema change events', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'command_tag', FALSE);
-
--- Field metadata for audit_record_logs
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('audit_record_logs', 'id',            'Id',            '',                                                                  'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
-    ('audit_record_logs', 'record_id',     'Record UUID',     'Deterministic UUID computed from table OID and primary key values', 'uuid',      FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'old_record_id', 'Old Record UUID', 'Record id before update/delete',                                   'uuid',      FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'record_pk',     'Record Primary Key',     '',                          'text',      FALSE, 25,  'readonly', 'default', 'core',  TRUE,  '', ''),
-    ('audit_record_logs', 'op',            'Operation',     'DML operation type: INSERT, UPDATE, DELETE, TRUNCATE',               'text',      FALSE, 30,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'ts',            'Timestamp',     '',                                        'date-time', FALSE, 40,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'user_id',       'User',       'From the JWT context; 0 when unavailable',             'int32',     FALSE, 50,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'db_role',       'DB Role',       'session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.',      'text',      FALSE, 52,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'is_superuser',  'Is Superuser',  'Whether the writing session had superuser privileges. On a data row that means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.',               'boolean',   FALSE, 54,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'client_addr',   'Client Addr',   'Connecting client address (inet_client_addr()); NULL for a unix-socket connection, which means a shell on the database host rather than a client on the network',       'text',      FALSE, 56,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'table_oid',     'Table OID',     'PostgreSQL internal object identifier for the table',                'int32',     FALSE, 60,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_record_logs', 'table_schema',  'Table Schema',  '',                                       'text',      FALSE, 70,  'readonly', 'default', 'core',  TRUE,  '', ''),
-    ('audit_record_logs', 'table_name',    'Table Name',    '',                                        'text',      FALSE, 80,  'readonly', 'default', 'label', TRUE,  '', ''),
-    ('audit_record_logs', 'record',        'Record',        'Full record after INSERT/UPDATE (JSONB)',                            'json',      FALSE, 90,  'readonly', 'w',       'core',  FALSE, '', ''),
-    ('audit_record_logs', 'old_record',    'Old Record',    'Previous record before UPDATE/DELETE (JSONB)',                       'json',      FALSE, 100, 'readonly', 'w',       'core',  FALSE, '', '');
-
--- Field metadata for audit_ddl_logs
-INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('audit_ddl_logs', 'id',              'Id',              '',                                                                'int64',     TRUE,  1,   'readonly', 'default', 'id',    FALSE, '', ''),
-    ('audit_ddl_logs', 'event_time',      'Event Finish Time',      '',                                  'date-time', FALSE, 10,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_ddl_logs', 'user_id',         'User',         'From the JWT context; 0 when unavailable, e.g. during migrations',           'int32',     FALSE, 20,  'readonly', 'default', 'core',  FALSE, '', ''),
-    ('audit_ddl_logs', 'command_tag',     'Command Tag',     'DDL command type (e.g. CREATE TABLE, ALTER TABLE)',                'text',      FALSE, 30,  'readonly', 'default', 'label', TRUE,  '', ''),
-    ('audit_ddl_logs', 'object_type',     'Object Type',     '',                                'text',      FALSE, 40,  'readonly', 'default', 'core',  TRUE,  '', ''),
-    ('audit_ddl_logs', 'object_identity', 'Object Identity', 'Fully qualified name of the affected object',                     'text',      FALSE, 50,  'readonly', 'w',       'core',  TRUE,  '', ''),
-    ('audit_ddl_logs', 'query_text',      'Query Text',      'The SQL statement that triggered the event',                      'text',      FALSE, 60,  'readonly', 'w',       'core',  FALSE, '', '');
-
--- =====================================================
 -- STEP 8b: The audit entities can never become managed
 -- =====================================================
 -- The request role may read and delete audit rows but never insert or update
 -- them; that is what makes the log evidence. Setting managed = TRUE would make
--- enable_dd_table (0145) add the standard INSERT/UPDATE policies and grant, so
+-- enable_dd_table (0180_managed_enable.sql) add the standard INSERT/UPDATE policies and grant, so
 -- anyone holding edit_permission could forge or rewrite entries. The flip is
 -- refused here, so enable_dd_table needs no exception for these two tables.
 -- 0041_test_no_unmanaged_ootb.sql pins them as the only unmanaged entities.
@@ -11054,7 +9891,7 @@ REVOKE EXECUTE ON FUNCTION audit.assert_audit_entity_stays_unmanaged() FROM PUBL
 
 -- Scoped to the one column that can trigger adoption, so an ordinary entity
 -- edit does not run it.
-CREATE TRIGGER assert_audit_entity_stays_unmanaged_trigger
+CREATE OR REPLACE TRIGGER assert_audit_entity_stays_unmanaged_trigger
     BEFORE UPDATE OF managed ON entities
     FOR EACH ROW
     EXECUTE FUNCTION audit.assert_audit_entity_stays_unmanaged();
@@ -11133,7 +9970,7 @@ COMMENT ON FUNCTION manage_audit_log IS
 On INSERT, enables audit for new managed tables. On UPDATE, toggles audit
 when audit_log or managed flags change.';
 
-CREATE TRIGGER manage_audit_log_trigger
+CREATE OR REPLACE TRIGGER manage_audit_log_trigger
     AFTER INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION manage_audit_log();
@@ -11141,11 +9978,1275 @@ CREATE TRIGGER manage_audit_log_trigger
 COMMENT ON TRIGGER manage_audit_log_trigger ON entities IS
 'Manages audit trigger lifecycle when entities are created or modified.';
 
+-- An audit row may only be written by the SECURITY DEFINER trigger functions
+-- above, never by the request role: a log the logged party can append to proves
+-- nothing. There is deliberately no INSERT policy, and INSERT is revoked below,
+-- so a forged row with a foreign user_id or an invented command_tag has no path
+-- in. UPDATE is revoked for the same reason - it has no policy today, and
+-- without the revoke a future policy would silently reopen the hole.
+--
+-- Reading and deleting stay with the administrator: 0300_test_audit_log.sql
+-- exercises the deletes, which is how an operator prunes the log.
+DROP POLICY IF EXISTS audit_record_logs_select ON public.audit_record_logs;
+CREATE POLICY audit_record_logs_select ON public.audit_record_logs
+    FOR SELECT
+    TO semantius_user
+    USING ((SELECT rbac.has_permission('admin')));
+
+DROP POLICY IF EXISTS audit_record_logs_delete ON public.audit_record_logs;
+CREATE POLICY audit_record_logs_delete ON public.audit_record_logs
+    FOR DELETE
+    TO semantius_user
+    USING ((SELECT rbac.has_permission('admin')));
+
+DROP POLICY IF EXISTS audit_ddl_logs_select ON public.audit_ddl_logs;
+CREATE POLICY audit_ddl_logs_select ON public.audit_ddl_logs
+    FOR SELECT
+    TO semantius_user
+    USING ((SELECT rbac.has_permission('admin')));
+
+DROP POLICY IF EXISTS audit_ddl_logs_delete ON public.audit_ddl_logs;
+CREATE POLICY audit_ddl_logs_delete ON public.audit_ddl_logs
+    FOR DELETE
+    TO semantius_user
+    USING ((SELECT rbac.has_permission('admin')));
+
+-- Grant necessary table permissions to semantius_user
+GRANT SELECT, DELETE ON public.audit_record_logs TO semantius_user;
+GRANT SELECT, DELETE ON public.audit_ddl_logs TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE public.audit_record_logs_id_seq TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
+
+-- Belt and braces on the two evidence tables: the grants above are the only
+-- ones they receive, since there is no default privilege on tables in public
+-- and the one-time GRANT ... ON ALL TABLES in 0110_rbac_grants.once.sql ran
+-- before these were created.
+-- These revokes therefore take nothing away today. They stay because a
+-- blanket grant added anywhere later in the migration order would silently
+-- hand the request role the ability to forge and rewrite audit rows, and this
+-- is the one place where that must be impossible rather than merely unlikely.
+-- Pinned by 0060_test_security.sql and 0300_test_audit_log.sql.
+REVOKE INSERT, UPDATE ON public.audit_record_logs FROM semantius_user;
+REVOKE INSERT, UPDATE ON public.audit_ddl_logs FROM semantius_user;
+
+-- Revoke default PUBLIC execute on audit functions
+REVOKE EXECUTE ON FUNCTION audit.primary_key_columns(OID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.to_record_id(OID, TEXT[], JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.insert_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.log_drop_event() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS, TEXT[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
+$pgsem__core_0200_audit_log_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0200_audit_log.sql', '1db1e6397e428babeb3c60d100631f113f1e2b5642cd66f6977531c6b55e1d0c')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0200_audit_log.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0200_audit_log.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0210_computed_validation.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '07d411cd2025f7fe813e38e7ffca60fade072328b957eaece98021d16af5e7b2') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
+      EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
+-- COMPUTED FIELDS AND VALIDATION RULES
 -- =====================================================
--- STEP 10: Enable audit for _core tables
+-- Per-record derivation and invariant checks expressed as JsonLogic.
+--
+-- Schema for entities.computed_fields and entities.validation_rules lives in
+-- 0130_dd_schema.once.sql alongside the rest of the entities table; this file
+-- contains only the runtime: a per-table BEFORE INSERT OR UPDATE OR DELETE
+-- trigger function that is (re)generated whenever either array is non-empty, and
+-- dropped when both are empty or the entity itself is deleted.
+--
+-- Reserved variables injected into the JsonLogic data:
+--   $today    -> server date
+--   $now      -> server timestamp
+--   $user_id  -> internal user_id from JWT context, null when no context
+--   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
+--   $mode     -> the operation: 'insert' | 'update' | 'delete'
+--
+-- DELETE arm: the rules also fire on DELETE, evaluated against the row being
+-- removed (OLD). Computed-field output is discarded on DELETE (the row is going
+-- away), but validation_rules can abort the delete — e.g. a rule guarded by
+-- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. The trigger is per row,
+-- so a statement deleting many rows is judged one row at a time and a single
+-- refusal takes the whole statement with it.
 -- =====================================================
--- The _core entities are seeded with audit_log = TRUE (0060) before
--- manage_audit_log_trigger exists, so their audit triggers are built here.
+-- STEP 0: Error-hint merge used by the generated trigger
+-- =====================================================
+-- The merge is additive and the key already present wins - jsonb || takes the
+-- right operand. That direction is what makes a cascaded write keep the
+-- innermost entity and rule, and what lets a 42501 keep its own hint.code;
+-- swapping the operands inverts both silently.
+--
+-- The cast is guarded rather than tested with a leading brace: text that starts
+-- with one can still be malformed, and a raise in here would replace the error
+-- the caller is trying to report.
+CREATE OR REPLACE FUNCTION public.jl_error_hint(p_hint TEXT, p_add JSONB)
+RETURNS TEXT AS $$
+DECLARE
+    v_obj JSONB;
+BEGIN
+    IF p_hint IS NULL OR p_hint = '' THEN
+        v_obj := '{}'::jsonb;
+    ELSE
+        BEGIN
+            v_obj := p_hint::jsonb;
+        EXCEPTION WHEN OTHERS THEN
+            v_obj := NULL;
+        END;
+        IF v_obj IS NULL OR jsonb_typeof(v_obj) <> 'object' THEN
+            v_obj := jsonb_build_object('hint', p_hint);
+        END IF;
+    END IF;
+    RETURN (p_add || v_obj)::text;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
+'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 1: Per-row trigger generator
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION build_record_logic_trigger(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_fn_name TEXT;
+    v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
+    v_body TEXT;
+    v_rules_block TEXT := '';
+    v_item JSONB;
+    v_name TEXT;
+    v_path_sql TEXT;
+    v_logic_lit TEXT;
+    v_code TEXT;
+    v_message TEXT;
+    v_rule_hint TEXT;
+    v_has_computed BOOLEAN;
+    v_writeback TEXT;
+    v_all_logic TEXT;
+    v_extra_ctx TEXT := '';
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        -- No entity by that name. Every caller passes one it just read, and the
+        -- entities DELETE arm drops the function itself, so this is reached only
+        -- by a caller naming a table the dictionary does not know - drop
+        -- whatever is there under that name and leave.
+        v_fn_name := 'compute_validate_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        RETURN;
+    END IF;
+
+    -- Skip unmanaged tables (no physical table to attach a trigger to)
+    IF NOT v_entity.managed THEN
+        RETURN;
+    END IF;
+
+    v_fn_name := 'compute_validate_' || p_table_name;
+
+    -- Drop any existing trigger + function so we can recreate cleanly
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+
+    -- Both arrays empty → nothing to install
+    IF jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) = 0
+       AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
+        RETURN;
+    END IF;
+
+    v_has_computed := jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) > 0;
+
+    -- $old is built only for entities whose rules read it: it serializes the
+    -- whole previous row on every UPDATE and DELETE, for rules that mostly never
+    -- look at it. $mode is a lowercased TG_OP and costs nothing, so it is always
+    -- present - and it is the variable that guards DELETE, where a missing value
+    -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
+    -- blocking the delete.
+    --
+    -- The $old test is a substring search over the raw rule text rather than a
+    -- lookup of a "$old" key, because a reference is usually a path -
+    -- {"var":"$old.label"} - and an exact-key test would miss it and drop the
+    -- value the rule needs. Three forms count as a reference:
+    --   * the name appearing anywhere, which covers every literal path;
+    --   * value_changed, which never names $old but reads the key itself and
+    --     returns true whenever it is absent, so an entity using it would
+    --     silently start reporting every field as changed;
+    --   * a var whose argument is an object rather than a string. The
+    --     interpreter evaluates that argument as JsonLogic, so {"var":{"cat":
+    --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
+    --     the text. Such a rule cannot be searched, so any entity using one gets
+    --     the full context.
+    v_all_logic := COALESCE(v_entity.computed_fields::text, '') ||
+                   COALESCE(v_entity.validation_rules::text, '');
+
+    IF v_all_logic LIKE '%$old%'
+       OR v_all_logic LIKE '%value_changed%'
+       OR v_all_logic LIKE '%"var": {%' THEN
+        v_extra_ctx := v_extra_ctx || $CTX$,
+        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END$CTX$;
+    END IF;
+
+    v_extra_ctx := v_extra_ctx || $CTX$,
+        '$mode',    to_jsonb(lower(TG_OP))$CTX$;
+
+    -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
+    FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
+        v_item := v_entity.computed_fields -> v_idx;
+        v_name := v_item ->> 'name';
+        IF v_name IS NULL OR v_name = '' THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
+        END IF;
+        IF (v_item -> 'jsonlogic') IS NULL THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90901',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
+        END IF;
+        v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
+        SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
+          INTO v_path_sql
+          FROM unnest(string_to_array(v_name, '.')) AS part;
+
+        -- The field name is admin-supplied text that lands inside the generated
+        -- function body: it is emitted as a quoted literal so quotes or dollar
+        -- signs in it cannot break out of the string. It is a value handed to
+        -- jsonb_build_object, never a RAISE format string, so nothing in it
+        -- needs escaping.
+        --
+        -- WHEN SQLSTATE '90000' catches the whole of class 90, not that one
+        -- code: PostgreSQL treats a SQLSTATE ending in three zeroes as a
+        -- category and matches every code whose first two characters agree.
+        -- Our own catalog errors therefore pass through untouched, and only
+        -- everything else is re-raised with the locating keys merged in.
+        v_rules_block := v_rules_block || E'\n' || format(
+$BLOCK$    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION
+        WHEN SQLSTATE '90000' THEN
+            RAISE;
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS
+                v_err_state  = RETURNED_SQLSTATE,
+                v_err_msg    = MESSAGE_TEXT,
+                v_err_detail = PG_EXCEPTION_DETAIL,
+                v_err_hint   = PG_EXCEPTION_HINT;
+            RAISE EXCEPTION '%%', v_err_msg
+                USING ERRCODE = v_err_state,
+                      DETAIL  = COALESCE(v_err_detail, ''),
+                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
+                                    'entity', TG_TABLE_NAME,
+                                    'field',  %s));
+    END;
+    v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
+$BLOCK$,
+            v_logic_lit,
+            quote_literal(v_name),
+            v_path_sql);
+    END LOOP;
+
+    -- Validation rules: evaluate each against post-derivation v_data, raise on falsy
+    FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) - 1 LOOP
+        v_item := v_entity.validation_rules -> v_idx;
+        v_code := v_item ->> 'code';
+        v_message := v_item ->> 'message';
+        v_rule_hint := v_item ->> 'hint';
+        IF v_code IS NULL OR v_code = '' THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
+                USING ERRCODE = '90902',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
+        END IF;
+        IF v_message IS NULL THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+                USING ERRCODE = '90903',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
+        END IF;
+        IF (v_item -> 'jsonlogic') IS NULL THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90904',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
+        END IF;
+
+        -- Refused here rather than when the rule fires: PL/pgSQL accepts any
+        -- five uppercase alphanumerics as an ERRCODE, so a code like
+        -- "must_be_positive" installs happily and then fails at write time,
+        -- inside a trigger, on a row that has nothing to do with it.
+        --
+        -- "platform" is a naming convention, not a trust boundary - a
+        -- dictionary administrator can write it, and already writes the rule's
+        -- logic and message anyway.
+        IF (v_item ->> 'source_module') = 'platform' THEN
+            IF v_code !~ '^90[0-9]{3}$' THEN
+                RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
+                    USING ERRCODE = '90906',
+                          HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
+            END IF;
+        ELSIF v_code !~ '^99[0-9]{3}$' THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
+                USING ERRCODE = '90905',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
+        END IF;
+
+        v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
+
+        -- code, message and hint are admin-supplied text that lands inside the
+        -- generated function body, all three emitted as quoted literals so a
+        -- quote or a dollar sign cannot break out of the string. None of them
+        -- is a RAISE format string: the message is passed as the argument of a
+        -- '%' format instead, which is what lets a rule author write a percent
+        -- sign without escaping it.
+        --
+        -- An error thrown while the rule's logic runs is not the rule failing,
+        -- so it travels out as itself; the handler is the one above.
+        v_rules_block := v_rules_block || E'\n' || format(
+$BLOCK$    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION
+        WHEN SQLSTATE '90000' THEN
+            RAISE;
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS
+                v_err_state  = RETURNED_SQLSTATE,
+                v_err_msg    = MESSAGE_TEXT,
+                v_err_detail = PG_EXCEPTION_DETAIL,
+                v_err_hint   = PG_EXCEPTION_HINT;
+            RAISE EXCEPTION '%%', v_err_msg
+                USING ERRCODE = v_err_state,
+                      DETAIL  = COALESCE(v_err_detail, ''),
+                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
+                                    'entity', TG_TABLE_NAME,
+                                    'rule',   %s));
+    END;
+    IF NOT jl_truthy(v_result) THEN
+        RAISE EXCEPTION '%%', %s USING ERRCODE = %s, HINT = %s;
+    END IF;
+$BLOCK$,
+            v_logic_lit,
+            quote_literal(v_code),
+            quote_literal(v_message),
+            quote_literal(v_code),
+            'jsonb_build_object(''entity'', TG_TABLE_NAME, ''rule'', ' ||
+                quote_literal(v_code) ||
+                CASE WHEN v_rule_hint IS NULL THEN ''
+                     ELSE ', ''hint'', ' || quote_literal(v_rule_hint) END ||
+                ')::text');
+    END LOOP;
+
+    -- Write-back tail. Validation rules never modify the row, so a validation-only
+    -- entity returns NEW untouched — no need to rebuild it. An entity WITH computed
+    -- fields must fold the derived values (written into v_data by the block above)
+    -- back onto NEW.
+    --
+    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
+    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
+    -- A static call caches the target row type's tuple descriptor in the plpgsql
+    -- expression's fn_extra and does NOT refresh it when the table gains a column
+    -- LATER in the SAME transaction — so a column added and set after this trigger
+    -- first fired (e.g. an order column provisioned and then set in the same install) would be
+    -- silently dropped, reverting that write. This only surfaces in a single-txn
+    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
+    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
+    -- every call, so mid-transaction columns survive.
+    IF v_has_computed THEN
+        v_writeback := $WB$    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
+$WB$;
+    ELSE
+        v_writeback := '';
+    END IF;
+
+    -- Assemble full function.
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+DECLARE
+    v_data jsonb;
+    v_result jsonb;
+    v_uid_text text;
+    v_err_state text;
+    v_err_msg text;
+    v_err_detail text;
+    v_err_hint text;
+BEGIN
+    -- Derived through rbac (lazy context initialization), never read raw from the
+    -- client-writable app.current_user_id setting; NULL when unauthenticated.
+    v_uid_text := rbac.user_id_or_null()::text;
+    -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
+    v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        '$user_id', CASE
+                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
+                       ELSE to_jsonb(v_uid_text::int)
+                   END%s
+    );
+%s
+    -- DELETE keeps no computed output; the validation rules above may still abort it.
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+%s    RETURN NEW;
+END;
+$TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
+
+    EXECUTE v_body;
+
+    -- Revoke PUBLIC execute on trigger function (security best practice)
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I() FROM PUBLIC', v_fn_name);
+
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I() IS %L',
+        v_fn_name,
+        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s". Generated by build_record_logic_trigger.', p_table_name));
+
+    EXECUTE format(
+        'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
+        v_trg_name, p_table_name, v_fn_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION build_record_logic_trigger IS
+'Generates (or drops) the per-table BEFORE INSERT OR UPDATE OR DELETE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete.';
+
+REVOKE EXECUTE ON FUNCTION build_record_logic_trigger(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 2: Trigger on entities to keep per-row trigger in sync
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION manage_record_logic_trigger()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_fn_name TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.managed AND (
+              jsonb_array_length(COALESCE(NEW.computed_fields, '[]'::jsonb)) > 0
+           OR jsonb_array_length(COALESCE(NEW.validation_rules, '[]'::jsonb)) > 0
+        ) THEN
+            PERFORM build_record_logic_trigger(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields
+           OR OLD.validation_rules IS DISTINCT FROM NEW.validation_rules
+           OR OLD.managed IS DISTINCT FROM NEW.managed
+           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+            PERFORM build_record_logic_trigger(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        v_fn_name := 'compute_validate_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION manage_record_logic_trigger IS
+'Trigger function on entities that creates/updates/drops the per-table BEFORE row trigger for computed_fields and validation_rules.';
+
+-- AFTER INSERT/UPDATE so it runs after create_table_trigger (which creates the
+-- physical table). AFTER DELETE so it runs after delete_table_trigger drops the
+-- table — at that point only the standalone trigger function survives, which we
+-- explicitly drop.
+CREATE OR REPLACE TRIGGER manage_record_logic_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION manage_record_logic_trigger();
+
+REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 3: Per-row SELECT policy generator (select_rule)
+-- =====================================================
+-- When an entity has a non-empty select_rule (a JsonLogic object), this
+-- function generates two helper functions and rebuilds the SELECT, UPDATE and
+-- DELETE policies so each row is filtered by the rule. The two-argument helper
+-- merges the row with a statement context handed to it; the one-argument helper
+-- resolves that context itself. Reserved variables are
+-- ($today, $now, $user_id — there is no $old/$mode for a read),
+-- evaluates the JsonLogic rule, and returns true only when the result is truthy.
+
+-- The reserved JsonLogic variables that do not vary within a statement. RLS
+-- quals reach this through an uncorrelated sub-select so the planner turns it
+-- into an InitPlan and evaluates it once per statement instead of once per row;
+-- 0445_test_policy_subselect_form.sql pins that shape against a well-meaning
+-- edit to a bare call.
+--
+-- rbac.uid() is called directly and first. It is what refuses a session with no
+-- valid claims, and this function is the only refusal on the select_rule read
+-- path: that policy's USING clause carries no permission conjunct, and the
+-- generated predicate swallows every error from rule evaluation. Reaching uid()
+-- indirectly is not equivalent - rbac.ensure_context_initialized() returns early
+-- on an already-initialized session without calling it, so the gate would hold
+-- only on the first statement of a transaction.
+--
+-- The user id comes from rbac.user_id() rather than from app.current_user_id.
+-- That setting is client-writable in a direct SQL session, and rbac.user_id()
+-- derives the value instead of believing it. is_raci_actor and has_consultation
+-- in 0370_raci.sql still read the setting raw after calling ensure_context_initialized,
+-- so this is not the last raw read in the codebase - it is one fewer. Going
+-- through the helper also means a subject with no users row raises 42501 here,
+-- the same answer the other RLS paths give.
+CREATE OR REPLACE FUNCTION public.jl_request_context()
+RETURNS JSONB AS $$
+DECLARE
+    v_uid INTEGER;
+BEGIN
+    PERFORM rbac.uid();
+    v_uid := rbac.user_id();
+    RETURN jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        -- rbac.user_id() raises rather than returning NULL, so there is no
+        -- unresolved case to fold here.
+        '$user_id', to_jsonb(v_uid)
+    );
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.jl_request_context() IS
+'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
+
+CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_fn_name TEXT;
+    v_policy_name TEXT;
+    v_body TEXT;
+    v_logic_lit TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND THEN
+        -- No entity by that name; drop both overloads if they exist. A DROP that
+        -- names only one signature is a silent no-op for the other, and the
+        -- CASCADE that removes the dependent policies rides on it.
+        v_fn_name := 'select_rule_' || p_table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+        RETURN;
+    END IF;
+
+    -- Skip unmanaged tables
+    IF NOT v_entity.managed THEN
+        RETURN;
+    END IF;
+
+    v_fn_name := 'select_rule_' || p_table_name;
+    v_policy_name := p_table_name || '_select_policy';
+
+    -- Always drop both overloads before rebuilding (CASCADE removes anything
+    -- depending on them). Dropping only one leaves the other behind and the
+    -- CREATE below then fails with a duplicate-function error.
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+
+    -- Drop the existing select policy so we can recreate it
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
+
+    -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
+    -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
+    -- If select_rule is empty, restore the default permission-only policies (read = view
+    -- permission, writes = edit permission, no per-row rule).
+    IF v_entity.select_rule = '{}'::jsonb THEN
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
+            v_policy_name, p_table_name, v_entity.view_permission);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
+        EXECUTE format(
+            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
+            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
+        RETURN;
+    END IF;
+
+    v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- Build the per-row evaluation function in two overloads.
+    --
+    -- The two-argument form takes the statement-constant context as a parameter
+    -- so the policies can hoist it out of the per-row loop. It answers rule
+    -- questions for anyone able to supply a context, which is unavoidable: an
+    -- RLS qual runs with the querying role's privileges, so semantius_user must
+    -- hold EXECUTE. It returns no row data - the caller already holds the row it
+    -- passes in, and RLS still filters any relation being scanned. The
+    -- permission operators resolve against the session rather than against
+    -- $user_id, so a forged context cannot widen what a caller may see. It does
+    -- merge the context over the row, so a caller can shadow a column and aim an
+    -- operator such as has_consultation at a record it cannot read; the answer
+    -- is one boolean, never its contents.
+    --
+    -- The one-argument form supplies the context itself and is the entry point
+    -- for callers outside a policy, get_record_by_id in 0160_dd_functions.sql
+    -- among them. It carries the authentication gate for those callers, which is
+    -- why it must not be reduced to a convenience wrapper that skips it.
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS $SEL$
+DECLARE
+    v_data jsonb;
+    v_result jsonb;
+BEGIN
+    v_data := to_jsonb(p_row) || p_ctx;
+
+    BEGIN
+        v_result := evaluate_json_logic(%s::jsonb, v_data);
+    EXCEPTION WHEN OTHERS THEN
+        RETURN FALSE;
+    END;
+
+    RETURN jl_truthy(v_result);
+END;
+$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+    SELECT public.%I(p_row, public.jl_request_context());
+$SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name);
+
+    EXECUTE v_body;
+
+    -- Both overloads need their own grants and comment: privileges and comments
+    -- attach to a signature, not to a name, so an overload left out is callable
+    -- by any role and undocumented. 0060_test_security.sql and
+    -- 0240_test_no_unsafe_functions.sql sweep for exactly that.
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I(public.%I, jsonb) IS %L',
+        v_fn_name, p_table_name,
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s" against a caller-supplied statement context. Generated by build_select_rule_policy.', p_table_name));
+
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
+        v_fn_name, p_table_name,
+        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s", resolving the request context itself. Generated by build_select_rule_policy.', p_table_name));
+
+    -- The context sub-select is uncorrelated, so the planner lifts it to an
+    -- InitPlan and resolves the request once per statement rather than once per
+    -- scanned row. It has to appear in all three policies: a USING clause is
+    -- evaluated per row for every UPDATE and DELETE as well, so a policy left
+    -- with a bare call keeps paying per row on the write path.
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
+        v_policy_name, p_table_name, v_fn_name, p_table_name);
+
+    -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
+    -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
+    -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
+    -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
+    -- row out of its own rule.
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
+        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION build_select_rule_policy IS
+'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it. With no select_rule set, the three policies are the permission-only form instead. The generated functions have EXECUTE revoked from PUBLIC.';
+
+REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- STEP 4: Trigger on entities to keep select_rule policy in sync
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION manage_select_rule_policy()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_fn_name TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.managed AND NEW.select_rule IS NOT NULL AND NEW.select_rule != '{}'::jsonb THEN
+            PERFORM build_select_rule_policy(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
+           OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
+           OR OLD.managed IS DISTINCT FROM NEW.managed
+           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+            PERFORM build_select_rule_policy(NEW.table_name);
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        -- Both overloads, or the survivor blocks the next CREATE under this name.
+        v_fn_name := 'select_rule_' || OLD.table_name;
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, OLD.table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
+        RETURN OLD;
+    END IF;
+
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION manage_select_rule_policy IS
+'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
+
+CREATE OR REPLACE TRIGGER manage_select_rule_policy_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION manage_select_rule_policy();
+
+REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
+$pgsem__core_0210_computed_validation_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0210_computed_validation.sql', '07d411cd2025f7fe813e38e7ffca60fade072328b957eaece98021d16af5e7b2')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0210_computed_validation.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0210_computed_validation.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0220_entity_insert_defaults.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0220_entity_insert_defaults.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0220_entity_insert_defaults.sql';
+      EXECUTE $pgsem__core_0220_entity_insert_defaults_sql$-- =====================================================
+-- MIGRATION: entity insert defaults (singular, singular_label)
+-- =====================================================
+-- When a row is inserted into entities, create_dd_table() (0160_dd_functions.sql) seeds the
+-- name/label field's title from entities.singular_label. Previously, if the
+-- caller did not supply singular/singular_label they stayed '' (the column
+-- default), so the name field was created with a blank title.
+--
+-- This migration fills sensible defaults BEFORE INSERT so they flow into the
+-- field title automatically (create_dd_table runs AFTER INSERT and reads the
+-- already-populated NEW.singular_label):
+--
+--   * singular        -- derived from table_name by a naive de-pluralize
+--                        ('tenants' -> 'tenant', 'cities' -> 'city')
+--   * singular_label  -- derived from label_column via snake_to_label()
+--                        ('tenant_name' -> 'Tenant Name', 'label' -> 'Label')
+--
+-- Values supplied by the caller are always preserved verbatim -- defaults are
+-- only applied when the column is left blank. plural is handled separately by
+-- the existing auto_set_plural trigger (0140_dd_schema.sql) and is not touched here.
+--
+-- Additive only (no objects removed), so a single forward migration covers both
+-- fresh and existing/production databases.
+
+-- =====================================================
+-- FUNCTION: snake_to_label
+-- =====================================================
+-- Convert a snake_case identifier into a human-readable Title Case label.
+--   'tenant_name'     -> 'Tenant Name'
+--   'city'            -> 'City'
+--   'address_line_1'  -> 'Address Line 1'
+-- Collapses runs of underscores and trims leading/trailing ones.
+CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
+RETURNS TEXT
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public
+AS $$
+    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
+$$;
+
+COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
+'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
+
+REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
+-- =====================================================
+-- TRIGGER FUNCTION: set_entity_defaults
+-- =====================================================
+-- Fills singular and singular_label from table_name / label_column when the
+-- caller leaves them blank. Runs BEFORE INSERT so create_dd_table() (AFTER
+-- INSERT) sees the populated values and seeds the name field title correctly.
+
+CREATE OR REPLACE FUNCTION public.set_entity_defaults()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+    -- Derive singular from table_name (naive de-pluralize) when not provided.
+    -- Handles regular plurals and '...ies'; leaves '...ss' and irregulars alone.
+    IF NEW.singular IS NULL OR NEW.singular = '' THEN
+        NEW.singular := CASE
+            WHEN NEW.table_name ~ 'ies$'   THEN regexp_replace(NEW.table_name, 'ies$', 'y')
+            WHEN NEW.table_name ~ '[^s]s$' THEN left(NEW.table_name, length(NEW.table_name) - 1)
+            ELSE NEW.table_name
+        END;
+    END IF;
+
+    -- Derive singular_label from label_column when not provided.
+    IF NEW.singular_label IS NULL OR NEW.singular_label = '' THEN
+        NEW.singular_label := public.snake_to_label(NEW.label_column);
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.set_entity_defaults() IS
+'Trigger function that derives singular (de-pluralized table_name) and singular_label (snake_to_label of label_column) when left blank on insert.';
+
+REVOKE EXECUTE ON FUNCTION public.set_entity_defaults() FROM PUBLIC;
+
+DROP TRIGGER IF EXISTS set_entity_defaults_trigger ON entities;
+CREATE OR REPLACE TRIGGER set_entity_defaults_trigger
+    BEFORE INSERT ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION public.set_entity_defaults();
+
+COMMENT ON TRIGGER set_entity_defaults_trigger ON entities IS
+'Derives singular and singular_label on insert when the caller leaves them blank.';
+$pgsem__core_0220_entity_insert_defaults_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0220_entity_insert_defaults.sql', 'a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0220_entity_insert_defaults.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0220_entity_insert_defaults.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0230_entity_order_column.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0230_entity_order_column.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0230_entity_order_column.sql';
+      EXECUTE $pgsem__core_0230_entity_order_column_sql$-- =====================================================
+-- MIGRATION: entities.order_column — fixed per-entity row ordering
+-- =====================================================
+-- Adds a generic "row order" mechanism driven by a single metadata column on
+-- entities:
+--
+--   entities.order_column  TEXT  -- name of the INTEGER column that stores a
+--                                    fixed row order on this entity's physical
+--                                    table. '' (the default) = no row ordering.
+--
+-- behavior (all driven by AFTER INSERT/UPDATE triggers on entities, mirroring
+-- the other table-altering DD triggers):
+--   • When order_column is set (first time): ALTER TABLE ... ADD COLUMN
+--     <order_column> INTEGER NOT NULL DEFAULT 0, and install a BEFORE INSERT
+--     trigger that auto-assigns the order on inserts that don't provide a value.
+--   • When order_column is changed to a different name: the previous column is
+--     dropped and the new one created.
+--   • When order_column is cleared ('' or NULL): the column and its auto-assign
+--     trigger are dropped.
+--
+-- Auto-assign rule (matching the requirement): on INSERT, when the order column
+-- has no value (0 / NULL), set it to MAX(order_column) + 10 over the rows whose
+-- order is below 900000 (so values pinned at/above the 900,000 ceiling — e.g. the
+-- created_at/updated_at audit columns at 999998/999999 — never inflate the
+-- running max), or 10 for the first record.
+--
+
+-- =====================================================
+-- 1. Generic BEFORE INSERT auto-assign trigger function
+-- =====================================================
+-- Installed (per entity) on the physical table by handle_entity_order_column().
+-- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
+-- function serves every entity that declares an order_column.
+--
+-- The `fields` table is special: it holds the field metadata for many entities in
+-- one physical table, so its order runs independently per table_name (a new field
+-- continues its own entity's 10/20/30… sequence). Every other entity is a single
+-- list, so the whole physical table is one sequence.
+--
+-- SECURITY DEFINER so the MAX() probe sees every row (true max), not just the rows
+-- the inserting user can read under RLS — otherwise concurrent inserts by limited
+-- users could collide on order values.
+CREATE OR REPLACE FUNCTION auto_set_order_value()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_col     TEXT := TG_ARGV[0];
+    v_current JSONB;
+    v_val     BIGINT;
+    v_next    BIGINT;
+BEGIN
+    v_current := to_jsonb(NEW);
+
+    -- Current value of the order column on the incoming row ('' / NULL / 0 => unset).
+    v_val := NULLIF(v_current ->> v_col, '')::BIGINT;
+
+    IF v_val IS NULL OR v_val = 0 THEN
+        IF TG_TABLE_NAME = 'fields' THEN
+            -- Per table_name: a new field lands after that entity's existing fields.
+            SELECT (COALESCE(MAX(field_order), 0) + 10)::BIGINT
+            INTO v_next
+            FROM fields
+            WHERE field_order < 900000
+              AND table_name = (v_current ->> 'table_name');
+        ELSE
+            EXECUTE format(
+                'SELECT COALESCE(MAX(%I), 0) + 10 FROM %I.%I WHERE %I < 900000',
+                v_col, TG_TABLE_SCHEMA, TG_TABLE_NAME, v_col
+            )
+            INTO v_next;
+        END IF;
+
+        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_col, v_next));
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION auto_set_order_value IS
+'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 900000 (or 10 for the first record). On the fields table the max is scoped per table_name. Installed per entity by handle_entity_order_column().';
+
+REVOKE EXECUTE ON FUNCTION auto_set_order_value() FROM PUBLIC;
+
+-- =====================================================
+-- 2. Entity-level trigger: maintain the physical order column + its trigger
+-- =====================================================
+-- Fires AFTER the structural create/enable triggers (zz_ prefix) so the physical
+-- table already exists. Idempotent and additive-safe.
+
+CREATE OR REPLACE FUNCTION handle_entity_order_column()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_old          TEXT := '';
+    v_new          TEXT := COALESCE(NEW.order_column, '');
+    v_trigger_name TEXT := 'zz_auto_order_' || NEW.table_name;
+BEGIN
+    SET LOCAL client_min_messages = WARNING;
+
+    IF TG_OP = 'UPDATE' THEN
+        v_old := COALESCE(OLD.order_column, '');
+    END IF;
+
+    -- Only touch a physically existing table (unmanaged entities have none yet;
+    -- the column is provisioned when the table is later created/enabled).
+    IF to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    -- Remove the previous order column + its trigger when the name changed or cleared.
+    IF v_old <> '' AND v_old <> v_new THEN
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+        EXECUTE format('ALTER TABLE public.%I DROP COLUMN IF EXISTS %I', NEW.table_name, v_old);
+        RAISE NOTICE 'Dropped order column "%" on table "%"', v_old, NEW.table_name;
+    END IF;
+
+    IF v_new <> '' THEN
+        -- Provision the order column (first time) and (re)install the auto-assign trigger.
+        EXECUTE format(
+            'ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS %I INTEGER NOT NULL DEFAULT 0',
+            NEW.table_name, v_new
+        );
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+        EXECUTE format(
+            'CREATE TRIGGER %I BEFORE INSERT ON public.%I '
+            'FOR EACH ROW EXECUTE FUNCTION auto_set_order_value(%L)',
+            v_trigger_name, NEW.table_name, v_new
+        );
+        RAISE NOTICE 'Provisioned order column "%" on table "%"', v_new, NEW.table_name;
+    ELSE
+        -- Cleared: ensure no stale auto-assign trigger remains.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION handle_entity_order_column IS
+'AFTER INSERT/UPDATE trigger on entities: provisions or drops the physical order column named by entities.order_column and installs/removes the auto_set_order_value BEFORE INSERT trigger on the entity''s table.';
+
+REVOKE EXECUTE ON FUNCTION handle_entity_order_column() FROM PUBLIC;
+
+-- INSERT: only act when an order_column was supplied at creation time.
+CREATE OR REPLACE TRIGGER zz_entity_order_column_insert_trigger
+    AFTER INSERT ON entities
+    FOR EACH ROW
+    WHEN (COALESCE(NEW.order_column, '') <> '')
+    EXECUTE FUNCTION handle_entity_order_column();
+
+-- UPDATE: act when order_column changes, or when the table is enabled (managed F->T)
+-- and an order_column is already declared (so the column is provisioned on enable).
+CREATE OR REPLACE TRIGGER zz_entity_order_column_update_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.order_column IS DISTINCT FROM NEW.order_column
+       OR (OLD.managed = FALSE AND NEW.managed = TRUE AND COALESCE(NEW.order_column, '') <> ''))
+    EXECUTE FUNCTION handle_entity_order_column();
+
+-- =====================================================
+-- 3. Auto-assign trigger on the fields table
+-- =====================================================
+-- The fields entity is seeded with order_column = 'field_order' (0150_dd_bootstrap.once.sql) before the
+-- entities trigger above exists, so its trigger is installed here.
+--
+-- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
+-- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
+-- created_at/updated_at audit columns at 999998/999999 never inflate the max.
+CREATE OR REPLACE TRIGGER zz_auto_order_fields
+    BEFORE INSERT ON public.fields
+    FOR EACH ROW EXECUTE FUNCTION auto_set_order_value('field_order');
+$pgsem__core_0230_entity_order_column_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0230_entity_order_column.sql', 'afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0230_entity_order_column.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0230_entity_order_column.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0240_dd_bootstrap_complete.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0240_dd_bootstrap_complete.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0240_dd_bootstrap_complete.once.sql';
+      EXECUTE $pgsem__core_0240_dd_bootstrap_complete_once_sql$-- =====================================================
+-- DICTIONARY BOOTSTRAP - completion for the core tables
+-- =====================================================
+-- Runs once. The core tables were registered in 0150_dd_bootstrap.once.sql,
+-- before the dictionary triggers existed, so what those triggers do for every
+-- other entity is done here for them, in this order: table and column
+-- comments, search vectors, label functions, audit tracking, record logic,
+-- RLS policies, select_rule policies.
+
+-- The core tables (0060_rbac_schema.once.sql, 0130_dd_schema.once.sql) are registered in
+-- 0150_dd_bootstrap.once.sql before the entity and field triggers exist, so
+-- neither they nor their columns have a comment yet. Give them the ones the triggers would
+-- have written. PostgREST shows these comments as descriptions in its OpenAPI output, so this
+-- keeps the DD description the only source there too; later changes reach the comments through
+-- the update triggers. 0480_test_core_comments_match_dd.sql fails if a migration overwrites one.
+DO $$
+DECLARE
+    r RECORD;
+    v_comment TEXT;
+BEGIN
+    FOR r IN
+        SELECT e.table_name, e.plural_label, e.description
+        FROM entities e
+        JOIN information_schema.tables t
+          ON t.table_schema = 'public' AND t.table_name = e.table_name AND t.table_type = 'BASE TABLE'
+    LOOP
+        v_comment := dd_table_comment(r.plural_label, r.description);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON TABLE %I IS %L', r.table_name, v_comment);
+        END IF;
+    END LOOP;
+
+    FOR r IN
+        SELECT f.table_name, f.field_name, f.title, f.format, f.description, f.enum_values
+        FROM fields f
+        JOIN information_schema.columns c
+          ON c.table_schema = 'public' AND c.table_name = f.table_name AND c.column_name = f.field_name
+    LOOP
+        v_comment := dd_field_comment(r.title, r.format, r.description, r.enum_values);
+        IF v_comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', r.table_name, r.field_name, v_comment);
+        END IF;
+    END LOOP;
+END $$;
+
+-- =====================================================
+-- SEARCH VECTORS OF THE CORE TABLES
+-- =====================================================
+-- The fields rows of the core tables (entities, fields, users, modules, roles,
+-- permissions) are inserted in 0150_dd_bootstrap.once.sql, before
+-- handle_field_searchable_insert_trigger (0160_dd_functions.sql) exists, so
+-- nothing has built their search_vector columns. Tables registered later
+-- through the dictionary (e.g. webhook_receivers in
+-- 0380_webhook_receiver.jsonc) get them from that trigger.
+SELECT update_search_vector_column('entities');
+SELECT update_search_vector_column('fields');
+SELECT update_search_vector_column('users');
+SELECT update_search_vector_column('modules');
+SELECT update_search_vector_column('roles');
+SELECT update_search_vector_column('permissions');
+
+-- Update searchable flags for all core entities to ensure consistency
+UPDATE entities t
+SET searchable = EXISTS (
+    SELECT 1 FROM fields f 
+    WHERE f.table_name = t.table_name 
+      AND f.searchable = TRUE
+);
+
+-- Update is_child flags for all core entities to ensure consistency
+UPDATE entities t
+SET is_child = EXISTS (
+    SELECT 1 FROM fields f 
+    WHERE f.table_name = t.table_name 
+      AND f.format = 'parent'
+);
+
+-- =====================================================
+-- LABEL FUNCTIONS
+-- =====================================================
+-- Build the label functions of every entity that already exists (the core tables and any entity
+-- registered before the zzz_label_fn_* triggers of 0180_managed_enable.sql were installed).
+-- Entities registered later get theirs from those AFTER triggers. Order-independent thanks to
+-- check_function_bodies being off per build.
+DO $$
+DECLARE r RECORD;
+BEGIN
+    FOR r IN SELECT table_name FROM entities ORDER BY table_name LOOP
+        PERFORM rebuild_entity_label_functions(r.table_name);
+    END LOOP;
+END $$;
+
+-- =====================================================
+-- AUDIT TRACKING OF THE CORE TABLES
+-- =====================================================
+-- The _core entities are registered with audit_log = TRUE
+-- (0150_dd_bootstrap.once.sql) before manage_audit_log_trigger
+-- (0200_audit_log.sql) exists, so their audit triggers are built here.
 
 DO $$
 DECLARE
@@ -11171,103 +11272,2745 @@ BEGIN
 END $$;
 
 -- =====================================================
--- STEP 11: RLS on audit tables
+-- RECORD LOGIC OF THE CORE TABLES
 -- =====================================================
--- Audit tables are in public schema, so PostgREST can expose them.
--- RLS ensures only admin users can access audit data.
+-- Core entities (roles, permission_hierarchy, etc.) are registered in
+-- 0150_dd_bootstrap.once.sql with non-empty validation_rules/computed_fields
+-- before manage_record_logic_trigger (0210_computed_validation.sql) exists.
+-- Build their record-logic triggers now.
 
-ALTER TABLE public.audit_record_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.audit_ddl_logs ENABLE ROW LEVEL SECURITY;
+DO $$
+DECLARE
+    v_table_name TEXT;
+BEGIN
+    FOR v_table_name IN
+        SELECT e.table_name FROM entities e
+        WHERE jsonb_array_length(COALESCE(e.computed_fields, '[]'::jsonb)) > 0
+           OR jsonb_array_length(COALESCE(e.validation_rules, '[]'::jsonb)) > 0
+    LOOP
+        PERFORM build_record_logic_trigger(v_table_name);
+    END LOOP;
+END;
+$$;
 
--- An audit row may only be written by the SECURITY DEFINER trigger functions
--- above, never by the request role: a log the logged party can append to proves
--- nothing. There is deliberately no INSERT policy, and INSERT is revoked below,
--- so a forged row with a foreign user_id or an invented command_tag has no path
--- in. UPDATE is revoked for the same reason - it has no policy today, and
--- without the revoke a future policy would silently reopen the hole.
+-- =====================================================
+-- POLICIES OF THE CORE TABLES
+-- =====================================================
+-- The ten core tables were registered as entities in 0150_dd_bootstrap.once.sql
+-- before create_dd_table existed, so nothing generated their policies. Generate them
+-- now, the same way the dictionary does for every other entity, so that a
+-- later change to one of their permissions rebuilds them like any other.
+SELECT create_entity_policies(t)
+  FROM unnest(ARRAY['entities', 'fields', 'users', 'modules', 'roles', 'permissions',
+                    'user_roles', 'role_permissions', 'user_permissions',
+                    'permission_hierarchy']) AS t;
+
+-- =====================================================
+-- SELECT_RULE POLICIES OF THE CORE TABLES
+-- =====================================================
+-- A core entity registered with a select_rule (modules) was never seen by
+-- manage_select_rule_policy_trigger (0210_computed_validation.sql), which did
+-- not exist yet. build_select_rule_policy drops and replaces the SELECT,
+-- UPDATE and DELETE policies of its entity, while create_entity_policies
+-- uses a plain CREATE POLICY that fails on an existing one, so the rule is
+-- layered on last, as the dictionary does for every other entity.
+DO $$
+DECLARE
+    v_table_name TEXT;
+BEGIN
+    FOR v_table_name IN
+        SELECT e.table_name FROM entities e
+        WHERE e.managed AND e.select_rule <> '{}'::jsonb
+        ORDER BY e.table_name
+    LOOP
+        PERFORM build_select_rule_policy(v_table_name);
+    END LOOP;
+END;
+$$;
+$pgsem__core_0240_dd_bootstrap_complete_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '01767ae84a91aa5cd6d18cd55ff240c0789db9db6571d74140ebf4c167e6e8e4')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0240_dd_bootstrap_complete.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0240_dd_bootstrap_complete.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0250_public_functions.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
+      EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
+-- PUBLIC FUNCTIONS
+-- =====================================================
+-- User-facing functions in the public schema
+-- These provide convenient access to RBAC and user information
+-- =====================================================
+
+-- =====================================================
+-- GET USER MODULES (Helper function)
+-- =====================================================
+-- Get modules the current user has permission to view
+-- This function manually filters modules by permission since it may be
+-- called from a SECURITY DEFINER context where RLS is bypassed
+-- Used internally by get_userinfo()
+CREATE OR REPLACE FUNCTION public.get_user_modules()
+RETURNS JSONB AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.module_name)
+        FROM modules m
+        WHERE rbac.has_any_permission('admin', m.view_permission)),
+        '[]'::jsonb
+    );
+END;
+-- STABLE: writes no row, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_modules IS 
+'Returns modules array filtered by RLS. Used internally by get_userinfo().';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_modules() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_modules() TO semantius_user;
+
+-- =====================================================
+-- GET USER INFO
+-- =====================================================
+
+-- Get current authenticated user's information
+-- Returns the user record from the users table for the current JWT as JSON
+-- IMPORTANT: This function creates/updates the user record and updates last_seen
+-- Clients should call this function when they detect a new login to initialize the user
+CREATE OR REPLACE FUNCTION public.get_userinfo()
+RETURNS JSONB AS $$
+DECLARE
+    v_external_id TEXT;
+    v_email TEXT;
+    v_display_name TEXT;
+    v_first_name TEXT;
+    v_last_name TEXT;
+    v_user_id INTEGER;
+    v_result JSONB;
+    v_roles JSONB;
+    v_permissions JSONB;
+    v_modules JSONB;
+BEGIN
+    -- Get current user from JWT
+    v_external_id := rbac.uid();
+
+    -- Get claims from JWT
+    v_email := current_setting('request.jwt.claim.email', true);
+    v_display_name := current_setting('request.jwt.claim.name', true);
+    v_first_name := current_setting('request.jwt.claim.given_name', true);
+    v_last_name := current_setting('request.jwt.claim.family_name', true);
+
+    -- Create or update user record and update last_seen
+    v_user_id := rbac.upsert_user_from_jwt(v_external_id, v_email, v_display_name, v_first_name, v_last_name);
+    
+    -- Verify user was created/found successfully
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Failed to create or find user: external_id = ${external_id}'
+            USING ERRCODE = '90008',
+                  HINT = jsonb_build_object('external_id', v_external_id)::text;
+    END IF;
+
+    -- Build roles array with role details
+    SELECT COALESCE(jsonb_agg(
+        jsonb_build_object(
+            'role_id', r.id,
+            'role_name', r.role_name,
+            'description', r.description,
+            'module_id', r.module_id,
+            'assigned_at', ur.assigned_at
+        ) ORDER BY r.role_name
+    ), '[]'::jsonb)
+    INTO v_roles
+    FROM user_roles ur
+    JOIN roles r ON ur.role_id = r.id
+    WHERE ur.user_id = v_user_id;
+    
+    -- Build permissions array (all effective permissions including inherited)
+    SELECT COALESCE(jsonb_agg(
+        permission_name ORDER BY permission_name
+    ), '[]'::jsonb)
+    INTO v_permissions
+    FROM rbac.get_user_permissions_by_id(v_user_id);
+
+    -- Prime the context cache with the permissions just computed above, rather
+    -- than leaving get_user_modules() -> has_any_permission() to reach
+    -- ensure_context_initialized() and resolve the identical set a second time.
+    -- The recursive permission query is the expensive part of this function, and
+    -- on a first login it would otherwise run twice in one call.
+    PERFORM set_config('app.current_user_id', v_user_id::TEXT, true);
+    PERFORM set_config('app.current_external_id', v_external_id, true);
+    PERFORM set_config('app.user_permissions', COALESCE(
+        (SELECT string_agg(p.value #>> '{}', ',' ORDER BY p.value #>> '{}')
+         FROM jsonb_array_elements(v_permissions) AS p(value)),
+        ''
+    ), true);
+    PERFORM set_config('app.context_initialized', 'true', true);
+
+    -- Build modules array (filtered by permissions via helper function)
+    v_modules := public.get_user_modules();
+    
+    -- Build the final JSON result
+    SELECT jsonb_build_object(
+        'user_id', u.id,
+        'external_id', u.external_id,
+        'email', u.email,
+        'display_name', u.display_name,
+        'first_name', u.first_name,
+        'last_name', u.last_name,
+        'is_disabled', u.is_disabled,
+        'created_at', u.created_at,
+        'updated_at', u.updated_at,
+        'last_seen', u.last_seen,
+        'roles', v_roles,
+        'permissions', v_permissions,
+        'modules', v_modules
+    )
+    INTO v_result
+    FROM users u
+    WHERE u.id = v_user_id;
+    
+    -- Final safety check (should never be NULL after previous validations)
+    IF v_result IS NULL THEN
+        RAISE EXCEPTION 'Unexpected error: unable to build user info JSON for user_id = ${user_id}'
+            USING ERRCODE = '90010',
+                  HINT = jsonb_build_object('user_id', v_user_id)::text;
+    END IF;
+    
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_userinfo IS
+'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_userinfo() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA CHILDREN
+-- =====================================================
+
+-- Get child relationships for a table
+-- Returns an array of fields that reference the given table with format='parent'
+-- Each child entry includes: fields.id, fields.title, entities.singular_label,
+-- entities.plural_label, entities.id_column, entities.label_column
+CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_result JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT COALESCE(
+        json_agg(
+            json_build_object(
+                'id', f.id,
+                'title', f.title,
+                'singular_label', e.singular_label,
+                'plural_label', e.plural_label,
+                'singular_label_parent', f.singular_label_parent,
+                'plural_label_parent', f.plural_label_parent,
+                'id_column', e.id_column,
+                'label_column', e.label_column
+            ) ORDER BY f.id
+        ),
+        '[]'::json
+    )
+    INTO v_result
+    FROM fields f
+    JOIN entities e ON f.table_name = e.table_name
+    WHERE f.reference_table = p_table_name
+      AND f.format = 'parent';
+
+    RETURN v_result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_schema_children IS 
+'Returns array of child relationships (fields with format=''parent'') that reference the given table. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA FOR TABLE (Internal helper)
+-- =====================================================
+
+-- Helper that builds a schema JSON for a single table. Self-gating: it applies the
+-- view_permission check itself and raises undefined_table for a table the caller
+-- may not view, so it is safe to expose directly to the request role.
+-- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
+CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_result JSON;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+
+    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
+    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
+    -- callers — otherwise any request-role caller reads any table's full schema (including its
+    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
+    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
+    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
+    -- harmless) for them.
+    IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    -- Build properties object from fields
+    -- Each field becomes a property with JSON Schema attributes
+    WITH ordered_fields AS (
+        SELECT 
+            f.field_name,
+            f.format,
+            f.title,
+            f.description,
+            f.default_value,
+            f.input_type,
+            f.width,
+            f.field_order,
+            CASE WHEN jsonb_typeof(f.enum_values) = 'array' THEN f.enum_values ELSE NULL END AS enum_values,
+            f.reference_table,
+            f.reference_delete_mode,
+            f.ctype,
+            f.searchable,
+            f.cube_type,
+            f.singular_label_parent,
+            f.plural_label_parent,
+            f.unique_value,
+            f."precision",
+            f.relationship_label,
+            f.input_type_rule,
+            -- Join with tables to get id_column and label_column when reference_table is set
+            -- COALESCE to empty string is intentional: provides consistent output when referenced table
+            -- doesn't exist or is missing columns. The JSON assembly below emits
+            -- these four only for a field whose format is a reference and whose
+            -- reference_table is not empty, so an empty string never reaches the
+            -- output as a value.
+            COALESCE(t.id_column, '') AS reference_table_id_column,
+            COALESCE(t.label_column, '') AS reference_table_label_column,
+            COALESCE(t.singular_label, '') AS reference_table_singular_label,
+            COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- The property's JSON type. A reference takes the type of the key it
+            -- points at, so entities/permissions come out "string" and users
+            -- "integer"; a hard-coded list of text-keyed tables would go stale the
+            -- first time an entity changes its key.
+            field_json_type(f.format, f.reference_table) AS json_type
+        FROM fields f
+        LEFT JOIN entities t ON f.reference_table = t.table_name
+        WHERE f.table_name = p_table_name
+        ORDER BY f.field_order
+    ),
+    properties_with_defaults AS (
+        SELECT 
+            field_name,
+            field_order,
+            (jsonb_build_object(
+                'type', json_type,
+                'title', title,
+                'description', description,
+                'inputMode', input_type,
+                'width', width,
+                'field_order', field_order
+            ) || 
+            -- Add ctype field if present
+            CASE 
+                WHEN ctype IS NOT NULL AND ctype != ''
+                THEN jsonb_build_object('ctype', ctype)
+                ELSE '{}'::jsonb
+            END ||
+            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
+            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+            -- Add searchable field
+            jsonb_build_object('searchable', searchable) ||
+            -- Add cube_type field
+            jsonb_build_object('cube_type', cube_type) ||
+            -- Add unique_value field
+            jsonb_build_object('unique_value', unique_value) ||
+            -- Add precision only for number formats
+            CASE
+                WHEN format_to_json_type(format)::text = '"number"'
+                THEN jsonb_build_object('precision', "precision")
+                ELSE '{}'::jsonb
+            END ||
+            -- Add input_type_rule only when a non-empty JsonLogic rule is set
+            CASE
+                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
+                THEN jsonb_build_object('input_type_rule', input_type_rule)
+                ELSE '{}'::jsonb
+            END ||
+            jsonb_build_object('format', format) ||
+            -- Add enum field if enum_values is present
+            CASE
+                WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
+                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
+                ELSE '{}'::jsonb
+            END ||
+            -- Add reference_table field if format is 'reference' or 'parent'
+            CASE 
+                WHEN format IN ('reference', 'parent') AND reference_table != ''
+                THEN jsonb_build_object(
+                    'reference_table', reference_table,
+                    'reference_delete_mode', reference_delete_mode,
+                    'relationship_label', relationship_label,
+                    'reference_table_id_column', reference_table_id_column,
+                    'reference_table_label_column', reference_table_label_column,
+                    'reference_table_singular_label', reference_table_singular_label,
+                    'reference_table_plural_label', reference_table_plural_label
+                )
+                ELSE '{}'::jsonb
+            END ||
+            -- Add singular_label_parent / plural_label_parent for parent fields when set
+            CASE
+                WHEN format = 'parent' AND singular_label_parent != ''
+                THEN jsonb_build_object(
+                    'singular_label_parent', singular_label_parent,
+                    'plural_label_parent', plural_label_parent
+                )
+                ELSE '{}'::jsonb
+            END ||
+            -- Add default field separately to handle type conversion properly
+            CASE
+                -- Enum: use effective default (first value when required without explicit default, else '')
+                WHEN format = 'enum' THEN
+                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
+                WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
+                    CASE
+                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
+                        -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                        ELSE jsonb_build_object('default', trim(both '''' from default_value))
+                    END
+                -- For string types without explicit default, add empty string default. Not for a
+                -- reference to a text-keyed entity (permissions, entities): its column is nullable
+                -- and '' names no row, so a client that saves the default fails the foreign key.
+                -- With no default the client starts it empty and leaves it out of the write, as it
+                -- does for a reference to an integer-keyed entity.
+                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent') THEN jsonb_build_object('default', '')
+                -- For JSON types without explicit default, add empty object default
+                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
+                ELSE '{}'::jsonb
+            END) AS property_value
+        FROM ordered_fields
+    ),
+    -- Derived composed-label columns are surfaced as ORDINARY properties, discriminated only by
+    -- ctype (_label / fk_label) and ordered so each <fk>_label sits immediately after its FK. They
+    -- are read-only computed columns (writable:false) and absent from the fields catalog / read_field.
+    label_props AS (
+        SELECT
+            '_label'::text AS field_name,
+            (COALESCE((SELECT field_order FROM fields
+                       WHERE table_name = p_table_name AND ctype = 'label'
+                       ORDER BY field_order LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            jsonb_build_object(
+                'type', 'string', 'format', 'text',
+                'title', v_table_record.singular_label,
+                'description', 'Composed, human-readable label folded from the parent chain',
+                'inputMode', 'readonly', 'width', 'default',
+                'field_order', COALESCE((SELECT field_order FROM fields
+                                         WHERE table_name = p_table_name AND ctype = 'label'
+                                         ORDER BY field_order LIMIT 1), 1),
+                'ctype', '_label', 'is_core', false, 'searchable', false,
+                'writable', false, 'selectable', true,
+                'source', NULLIF(v_table_record.label_parent, '')
+            ) AS property_value
+        UNION ALL
+        SELECT
+            f.field_name || '_label',
+            (f.field_order::numeric * 1000 + 1) AS sort_order,
+            jsonb_build_object(
+                'type', 'string', 'format', 'text',
+                'title', f.title,
+                'description', 'Composed label of the referenced '
+                               || COALESCE(e2.singular_label, f.reference_table),
+                'inputMode', 'readonly', 'width', 'default',
+                'field_order', f.field_order,
+                'ctype', 'fk_label', 'is_core', false, 'searchable', false,
+                'writable', false, 'selectable', true,
+                'reference_table', f.reference_table,
+                'source', jsonb_build_object('field', f.field_name, 'reference_table', f.reference_table)
+            )
+        FROM fields f
+        LEFT JOIN entities e2 ON e2.table_name = f.reference_table
+        WHERE f.table_name = p_table_name
+          AND public.dd_is_fk_format(f.format)
+          AND f.reference_table <> ''
+          -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
+          AND NOT EXISTS (SELECT 1 FROM fields f2
+                          WHERE f2.table_name = p_table_name
+                            AND f2.field_name = f.field_name || '_label')
+    ),
+    all_props AS (
+        SELECT field_name, (field_order::numeric * 1000) AS sort_order, property_value
+        FROM properties_with_defaults
+        UNION ALL
+        SELECT field_name, sort_order, property_value FROM label_props
+    ),
+    -- Keep this a CTE, not a statement of its own: the function runs once per
+    -- entity, so every extra statement costs an SPI round trip per entity.
+    required_fields AS (
+        SELECT field_name, field_order
+        FROM fields
+        WHERE table_name = p_table_name
+          AND is_nullable(format) = FALSE
+          AND field_name != v_table_record.id_column
+          AND field_name NOT IN ('created_at', 'updated_at')
+          AND default_value IS NULL
+          AND format NOT IN ('json', 'jsonlogic')
+        ORDER BY field_order
+    )
+    -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
+    -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
+    -- children: fields in other tables that reference this one with format='parent'.
+    SELECT json_build_object(
+        '$schema', 'https://semantius.com/meta/sem-schema/v1',
+        '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+        'title', v_table_record.singular_label,
+        'description', v_table_record.description,
+        -- module_slug rides inside `table` next to module_id because the id alone is a dead end
+        -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
+        -- only the numeric id must fetch the module list before it can ask for the rest of the
+        -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
+        -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+        -- The rest of the module row is a different matter: settings, dashboard_config, the
+        -- three permission columns and the default_*_role_ids are readable only with 'admin' or
+        -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
+        -- an entity's view_permission is often public:read. They stay in get_user_modules().
+        'table', to_jsonb(v_table_record) || jsonb_build_object(
+            'module_slug',
+            (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
+        'type', 'object',
+        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
+                                FROM all_props), '{}'::json),
+        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
+        'children', public.get_schema_children(p_table_name),
+        'additionalProperties', false
+    )
+    INTO v_result;
+
+    RETURN v_result;
+END;
+-- STABLE: it only reads the dictionary, and its callers get_schema, get_schemas,
+-- get_module_cubes and get_user_cubes are STABLE already. Raising is not a side
+-- effect, and PostgREST serves a STABLE function over GET.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.build_schema_for_table IS
+'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMA
+-- =====================================================
+
+-- Get schema information for a table in extended JSON Schema format
+-- Returns JSON Schema with table metadata and properties
+-- Raises an error when the table is not found
+CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
+BEGIN
+    PERFORM rbac.uid();
+
+    -- Check if table exists in entities metadata
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+
+    -- Raise error if table not found
+    IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    -- Check if user has view permission for this table
+    -- Raise same error to avoid leaking table existence
+    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    RETURN public.build_schema_for_table(p_table_name);
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_schema IS 
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET SCHEMAS
+-- =====================================================
+
+-- Get schemas for multiple tables in extended JSON Schema format
+-- Accepts a comma-separated list of table names
+-- Returns a JSON array of schemas, one per table
+-- Each schema uses the same format as get_schema()
+-- Raises an error if any table is not found or the user lacks view permission
+-- (same error behavior as get_schema() — use the same error code to avoid
+--  leaking information about table existence)
+CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_name TEXT;
+    v_table_record RECORD;
+    v_schemas JSON[] := ARRAY[]::JSON[];
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOREACH v_table_name IN ARRAY string_to_array(p_table_names, ',')
+    LOOP
+        v_table_name := trim(v_table_name);
+        -- Skip blank entries that result from leading/trailing commas or spaces
+        IF v_table_name = '' THEN
+            CONTINUE;
+        END IF;
+
+        -- Raise error if table not found in entities metadata
+        SELECT * INTO v_table_record
+        FROM entities
+        WHERE table_name = v_table_name;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
+                USING ERRCODE = 'undefined_table';
+        END IF;
+
+        -- Raise same error when user lacks view permission (avoid leaking table existence)
+        IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
+                USING ERRCODE = 'undefined_table';
+        END IF;
+
+        v_schema := public.build_schema_for_table(v_table_name);
+        v_schemas := array_append(v_schemas, v_schema);
+    END LOOP;
+
+    RETURN array_to_json(v_schemas);
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_schemas IS 
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_schemas(TEXT) TO semantius_user;
+
+-- =====================================================
+-- PING
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION public.ping()
+RETURNS TABLE(
+    server_time TIMESTAMPTZ,
+    current_user_name TEXT,
+    current_role_name TEXT,
+    session_user_name TEXT
+) AS $$
+BEGIN
+    RETURN QUERY SELECT 
+        NOW() as server_time,
+        current_user::TEXT as current_user_name,
+        current_role::TEXT as current_role_name,
+        session_user::TEXT as session_user_name;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION public.ping IS 
+'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.ping() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.ping() TO semantius_user;
+
+-- =====================================================
+-- HAS PERMISSION (public RPC wrapper)
+-- =====================================================
+
+-- Thin public-schema wrapper over rbac.has_permission() so the permission
+-- check is reachable as a PostgREST RPC (POST /rpc/has_permission with body
+-- {"p_permission_name": "..."}). The rbac schema itself is not exposed by
+-- PostgREST, so callers cannot invoke rbac.has_permission() directly.
 --
--- Reading and deleting stay with the administrator: 0300_test_audit_log.sql
--- exercises the deletes, which is how an operator prunes the log.
-CREATE POLICY audit_record_logs_select ON public.audit_record_logs
-    FOR SELECT
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')));
+-- Companion RACI operators is_raci_actor(text,text,text) and
+-- has_consultation(text,text,text) are already public-schema functions
+-- granted to semantius_user (see 0370_raci.sql), so they are already
+-- reachable as /rpc/is_raci_actor and /rpc/has_consultation. Only
+-- has_permission needed a public wrapper.
+--
+-- Returns TRUE when the current authenticated user holds the named
+-- permission; FALSE otherwise. Never throws for a missing permission
+-- (mirrors rbac.has_permission semantics); rbac.uid() still enforces that
+-- a valid JWT context is present.
+CREATE OR REPLACE FUNCTION public.has_permission(p_permission_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    PERFORM rbac.uid();
+    RETURN rbac.has_permission(p_permission_name);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
-CREATE POLICY audit_record_logs_delete ON public.audit_record_logs
-    FOR DELETE
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')));
+COMMENT ON FUNCTION public.has_permission IS
+'Public RPC wrapper over rbac.has_permission(). Returns TRUE when the current authenticated user holds the named permission. Exposed in the public schema so PostgREST can serve it as /rpc/has_permission, since the rbac schema is not exposed.';
 
-CREATE POLICY audit_ddl_logs_select ON public.audit_ddl_logs
-    FOR SELECT
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')));
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.has_permission(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
 
-CREATE POLICY audit_ddl_logs_delete ON public.audit_ddl_logs
-    FOR DELETE
-    TO semantius_user
-    USING ((SELECT rbac.has_permission('admin')));
+-- =====================================================
+-- GET MODULE CUBE
+-- =====================================================
 
--- Grant necessary table permissions to semantius_user
-GRANT SELECT, DELETE ON public.audit_record_logs TO semantius_user;
-GRANT SELECT, DELETE ON public.audit_ddl_logs TO semantius_user;
-GRANT USAGE, SELECT ON SEQUENCE public.audit_record_logs_id_seq TO semantius_user;
-GRANT USAGE, SELECT ON SEQUENCE public.audit_ddl_logs_id_seq TO semantius_user;
+-- Returns schemas for all entities that form the "cube" for a given module:
+--   1. All entities that directly belong to the module.
+--   2. All entities referenced via the reference_table field of any field
+--      that belongs to one of those module entities.
+-- Entities are sorted alphabetically and deduplicated. Tables the current user
+-- lacks view permission for are silently skipped.
+-- Returns a JSON array of schemas in the same format as get_schema().
+-- The p_module_name parameter is matched against modules.module_slug (URL-safe
+-- identifier), not modules.module_name. The parameter name is preserved for
+-- PostgREST RPC wire compatibility.
+CREATE OR REPLACE FUNCTION public.get_module_cubes(p_module_name TEXT)
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
 
--- Belt and braces on the two evidence tables: the grants above are the only
--- ones they receive, since there is no default privilege on tables in public
--- and 0050's one-time GRANT ... ON ALL TABLES ran before these were created.
--- These revokes therefore take nothing away today. They stay because a
--- blanket grant added anywhere later in the migration order would silently
--- hand the request role the ability to forge and rewrite audit rows, and this
--- is the one place where that must be impossible rather than merely unlikely.
--- Pinned by 0060_test_security.sql and 0300_test_audit_log.sql.
-REVOKE INSERT, UPDATE ON public.audit_record_logs FROM semantius_user;
-REVOKE INSERT, UPDATE ON public.audit_ddl_logs FROM semantius_user;
+    -- Yields the entity row, not just its name, so the loop needs no second
+    -- lookup; the join is also the existence test for reference_table.
+    FOR v_table_record IN
+        SELECT DISTINCT e.table_name, e.view_permission
+        FROM entities e
+        WHERE e.table_name IN (
+            -- All entities belonging to the module
+            SELECT me.table_name
+            FROM entities me
+            JOIN modules m ON m.id = me.module_id
+            WHERE m.module_slug = p_module_name
 
--- Grant usage on the audit schema to semantius_user (needed for trigger execution)
-GRANT USAGE ON SCHEMA audit TO semantius_user;
+            UNION
 
--- Revoke default PUBLIC execute on audit functions
-REVOKE EXECUTE ON FUNCTION audit.primary_key_columns(OID) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.to_record_id(OID, TEXT[], JSONB) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.extract_record_pk(TEXT[], JSONB) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.current_user_id() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.insert_update_delete_trigger() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.insert_trigger() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.delete_trigger() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.truncate_trigger() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.log_ddl_event() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.log_drop_event() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.enable_tracking(REGCLASS, TEXT[]) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION audit.disable_tracking(REGCLASS) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
-$pgsem__core_0150_audit_log$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0150_audit_log', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0150_audit_log', '6170e6837efec7f42ac3f4c7b83578f34c98d8e14162780c2de6795b729f9f2d');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+            -- All entities referenced via reference_table from fields of module entities
+            SELECT f.reference_table
+            FROM fields f
+            JOIN entities fe ON fe.table_name = f.table_name
+            JOIN modules m ON m.id = fe.module_id
+            WHERE m.module_slug = p_module_name
+              AND f.reference_table != ''
+        )
+        ORDER BY e.table_name
+    LOOP
+        -- build_schema_for_table checks again: it is self-gating as an RPC of
+        -- its own, and the repeat is a cached lookup.
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0160_pgmq') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0160_pgmq';
+COMMENT ON FUNCTION public.get_module_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
+
+-- =====================================================
+-- GET USER CUBES
+-- =====================================================
+
+-- Returns schemas for all entities across all modules that the current user
+-- has view permission for. Referenced tables are not additionally included —
+-- they will already appear when the user has view permission on them directly.
+-- Returns a JSON array of schemas in the same format as get_schema().
+CREATE OR REPLACE FUNCTION public.get_user_cubes()
+RETURNS SETOF JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_schema JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    FOR v_table_record IN
+        SELECT e.table_name, e.view_permission
+        FROM entities e
+        ORDER BY e.table_name
+    LOOP
+        IF rbac.has_permission(v_table_record.view_permission) THEN
+            v_schema := public.build_schema_for_table(v_table_record.table_name);
+            IF v_schema IS NOT NULL THEN
+                RETURN NEXT v_schema;
+            END IF;
+        END IF;
+    END LOOP;
+END;
+-- STABLE: writes no row.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.get_user_cubes IS
+'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
+
+-- Revoke default PUBLIC execute, then grant only to semantius_user
+REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
+
+-- =====================================================
+-- FIX ID SEQUENCE
+-- =====================================================
+
+-- After an import writes explicit ids, the id sequence lags behind them and the
+-- next ordinary insert fails with 23505. This moves the sequence past max(id).
+--
+-- Callable by whoever may insert into the table: the entity's edit_permission.
+-- Non-admins get the same 42501 for an unknown table as for a denied one, as
+-- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
+-- SECURITY DEFINER because the request role cannot setval, and under RLS its
+-- max(id) would miss the rows it cannot see.
+-- The lock keeps inserts out between max() and setval. While it waits, every
+-- later writer of the table queues behind it, so lock_timeout caps the wait at
+-- 2 s and the timeout becomes 90232 (retry) instead of 55P03 (HTTP 500).
+-- The sequence is never lowered: that would re-issue the ids of deleted rows.
+-- A table the definer does not own fails at the LOCK with 42501.
+CREATE OR REPLACE FUNCTION public.fix_id_sequence(p_table TEXT)
+RETURNS BIGINT AS $$
+DECLARE
+    v_id_column TEXT;
+    v_edit_permission TEXT;
+    v_sequence TEXT;
+    v_max BIGINT;
+    v_last BIGINT;
+    v_called BOOLEAN;
+    v_next BIGINT;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT e.id_column, e.edit_permission INTO v_id_column, v_edit_permission
+    FROM public.entities e
+    WHERE e.table_name = p_table;
+
+    -- edit_permission is NOT NULL, so NULL here means there is no such entity.
+    IF v_edit_permission IS NULL AND rbac.has_permission('admin') THEN
+        RAISE EXCEPTION 'Table ${table} is not an entity'
+            USING ERRCODE = '90231',
+                  HINT = jsonb_build_object('table', p_table)::text;
+    END IF;
+    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
+        RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
+    END IF;
+
+    -- pg_get_serial_sequence raises on a missing table or column instead of
+    -- returning NULL, and a missing table would surface as 42P01.
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid = to_regclass(format('public.%I', p_table))
+          AND a.attname = v_id_column
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+    ) THEN
+        RETURN NULL;
+    END IF;
+    v_sequence := pg_get_serial_sequence(format('public.%I', p_table), v_id_column);
+    IF v_sequence IS NULL THEN
+        RETURN NULL;  -- a text, uuid or otherwise non-serial key
+    END IF;
+
     BEGIN
-      EXECUTE $pgsem__core_0160_pgmq$--
+        EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', p_table);
+    EXCEPTION WHEN lock_not_available THEN
+        RAISE EXCEPTION 'Table ${table} is busy, try again'
+            USING ERRCODE = '90232',
+                  HINT = jsonb_build_object(
+                      'table', p_table,
+                      'hint', 'Another transaction is writing to ${table}. Retry when it has finished.')::text;
+    END;
+
+    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_column, p_table) INTO v_max;
+    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
+    v_next := GREATEST(COALESCE(v_max, 0) + 1,
+                       CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
+    PERFORM setval(v_sequence, v_next, false);
+    RETURN v_next;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
+
+COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
+'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+
+REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
+$pgsem__core_0250_public_functions_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0250_public_functions.sql', '82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0250_public_functions.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0250_public_functions.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0260_notify_triggers.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0260_notify_triggers.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0260_notify_triggers.sql';
+      EXECUTE $pgsem__core_0260_notify_triggers_sql$-- =====================================================
+-- POSTGREST SCHEMA RELOAD NOTIFICATIONS
+-- =====================================================
+-- Send NOTIFY pgrst commands when tables or fields are modified.
+-- All notifications go through common.refresh_schema_cache() which
+-- also keeps the db_version timestamp in _settings up to date.
+-- =====================================================
+
+-- =====================================================
+-- COMMON: SCHEMA CACHE REFRESH
+-- =====================================================
+-- Central function called by all DDL and DML triggers.
+-- Sends NOTIFY pgrst, 'reload schema' and writes the current
+-- timestamp into _settings(name='db_version') so clients can
+-- detect that the schema has changed without polling PostgREST.
+CREATE OR REPLACE FUNCTION common.refresh_schema_cache() RETURNS void AS $$
+DECLARE
+    v_db_version_ts TEXT;
+    v_current       TEXT;
+BEGIN
+    -- ISO 8601 datetime (e.g. 2026-03-20T22:21:49.813267+00:00)
+    v_db_version_ts := to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"');
+
+    -- Update db_version only when the stored value is outdated (or missing)
+    SELECT value INTO v_current FROM _settings WHERE name = 'db_version';
+    IF NOT FOUND OR v_current < v_db_version_ts THEN
+        INSERT INTO _settings (name, value) VALUES ('db_version', v_db_version_ts)
+        ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+    END IF;
+
+    -- Notify PostgREST to reload its schema cache
+    NOTIFY pgrst, 'reload schema';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION common.refresh_schema_cache() IS
+'Notifies PostgREST to reload its schema cache and updates the db_version timestamp in _settings.';
+
+-- =====================================================
+-- TRIGGER FUNCTION: NOTIFY ON TABLES CHANGES
+-- =====================================================
+-- SECURITY DEFINER, like its sibling below, because it fires on a DML statement
+-- issued by the request role and common.refresh_schema_cache() is not callable
+-- by that role: an entities write would otherwise fail with 42501. Safe to run
+-- as the owner - the body takes no argument, builds no dynamic SQL, and reaches
+-- exactly one fully qualified function - and search_path is pinned so the name
+-- it reaches cannot be redirected by the caller.
+
+CREATE OR REPLACE FUNCTION notify_pgrst_tables()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM common.refresh_schema_cache();
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION notify_pgrst_tables IS
+'Trigger function that notifies PostgREST to reload schema when entities are modified.';
+
+-- Apply trigger on entities table
+CREATE OR REPLACE TRIGGER notify_pgrst_on_tables_change
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_pgrst_tables();
+
+-- =====================================================
+-- TRIGGER FUNCTION: NOTIFY ON FIELDS CHANGES
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION notify_pgrst_fields()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM common.refresh_schema_cache();
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION notify_pgrst_fields IS
+'Trigger function that notifies PostgREST to reload schema when fields are modified.';
+
+-- Apply trigger on fields table
+CREATE OR REPLACE TRIGGER notify_pgrst_on_fields_change
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_pgrst_fields();
+
+-- =====================================================
+-- DDL EVENT TRIGGERS: NOTIFY ON SCHEMA CHANGES
+-- =====================================================
+-- Fire on every DDL command that PostgREST cares about so its
+-- schema cache stays in sync automatically.
+
+-- Watch CREATE and ALTER commands
+CREATE OR REPLACE FUNCTION pgrst_ddl_watch() RETURNS event_trigger AS $$
+DECLARE
+    cmd record;
+BEGIN
+    FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
+    LOOP
+        IF cmd.command_tag IN (
+          'CREATE SCHEMA', 'ALTER SCHEMA'
+        , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
+        , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
+        , 'CREATE VIEW', 'ALTER VIEW'
+        , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
+        , 'CREATE FUNCTION', 'ALTER FUNCTION'
+        , 'CREATE TRIGGER'
+        , 'CREATE TYPE', 'ALTER TYPE'
+        , 'CREATE RULE'
+        , 'COMMENT'
+        )
+        -- Only the schemas Semantius owns: DDL in a foreign schema cannot change
+        -- the API surface PostgREST exposes, and pg_temp is excluded by the same
+        -- list, so a CREATE TEMP TABLE notifies nobody. A NULL schema_name
+        -- (GRANT, REVOKE, ALTER DEFAULT PRIVILEGES, CREATE SCHEMA) reports no
+        -- schema but can still change that surface, so it stays in scope.
+        AND (cmd.schema_name IS NULL
+             OR cmd.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
+        THEN
+            PERFORM common.refresh_schema_cache();
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- Watch DROP commands
+CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
+DECLARE
+    obj record;
+BEGIN
+    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
+    LOOP
+        IF obj.object_type IN (
+          'schema'
+        , 'table'
+        , 'foreign table'
+        , 'view'
+        , 'materialized view'
+        , 'function'
+        , 'trigger'
+        , 'type'
+        , 'rule'
+        )
+        AND obj.is_temporary IS false -- no pg_temp objects
+        -- and only for the schemas Semantius owns, matching pgrst_ddl_watch:
+        -- without this a DROP in a foreign schema still reloaded the cache. A
+        -- NULL schema_name here means the dropped object IS a schema, which
+        -- can change what PostgREST exposes, so it stays in scope.
+        AND (obj.schema_name IS NULL
+             OR obj.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
+        THEN
+            PERFORM common.refresh_schema_cache();
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION pgrst_ddl_watch() IS
+'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';
+COMMENT ON FUNCTION pgrst_drop_watch() IS
+'Event-trigger function (sql_drop) that refreshes the PostgREST schema cache when a relevant object is dropped.';
+
+DROP EVENT TRIGGER IF EXISTS pgrst_ddl_watch;
+CREATE EVENT TRIGGER pgrst_ddl_watch
+    ON ddl_command_end
+    EXECUTE PROCEDURE pgrst_ddl_watch();
+
+DROP EVENT TRIGGER IF EXISTS pgrst_drop_watch;
+CREATE EVENT TRIGGER pgrst_drop_watch
+    ON sql_drop
+    EXECUTE PROCEDURE pgrst_drop_watch();
+
+-- Revoke default PUBLIC execute on notify trigger functions
+REVOKE EXECUTE ON FUNCTION notify_pgrst_tables() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
+
+-- Nothing outside this file calls common.refresh_schema_cache(). Its four
+-- callers are the two DML trigger functions and the two event-trigger functions
+-- above, and they reach it by two different routes: the DML pair are SECURITY
+-- DEFINER and run as the owner, while pgrst_ddl_watch and pgrst_drop_watch are
+-- SECURITY INVOKER and run as whoever executed the DDL.
+--
+-- That second route is why this revoke is safe only as long as the request role
+-- cannot run DDL. It holds today because semantius_user has CREATE on no schema
+-- and owns nothing, so it can never fire an event trigger. A temp table is the
+-- one thing it can create, and pg_temp is filtered out by the schema allow-list
+-- above before refresh_schema_cache is reached. Grant the request role CREATE
+-- anywhere and DDL starts failing with 42501 from inside an event trigger.
+--
+-- Left callable by the request role the function is a free amplifier: one RPC
+-- per request makes PostgREST rebuild its schema cache, and no identity check
+-- would help, because a NOTIFY costs the same whoever sends it.
+REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
+REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
+
+-- USAGE on the schema stays: it reaches nothing on its own (every function in
+-- `common` is now revoked from both PUBLIC and semantius_user, and common._cache
+-- has RLS with no policies and no table grant), and dropping it is a separate
+-- change with a wider blast radius than this one.
+GRANT USAGE ON SCHEMA common TO semantius_user;
+$pgsem__core_0260_notify_triggers_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0260_notify_triggers.sql', '8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0260_notify_triggers.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0260_notify_triggers.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0270_apikeys.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0270_apikeys.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0270_apikeys.once.sql';
+      EXECUTE $pgsem__core_0270_apikeys_once_sql$-- =====================================================
+-- API KEYS TABLE AND FUNCTIONS
+-- =====================================================
+-- Internal table for storing API keys with hashed secrets.
+-- RLS is enabled with no policies so it is only accessible
+-- internally via SECURITY DEFINER functions (same pattern as _settings).
+-- No entries in entities/fields - not exposed in the UI.
+
+-- =====================================================
+-- _APIKEYS TABLE
+-- =====================================================
+-- Runs once: the table, its indexes, deny-all policy and grants. The
+-- functions are in 0280_apikeys.sql.
+
+CREATE TABLE _apikeys (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_id TEXT NOT NULL UNIQUE,
+    secret_hash TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    last_used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_apikeys_user_id ON _apikeys(user_id);
+CREATE UNIQUE INDEX idx_apikeys_key_id ON _apikeys(key_id);
+
+ALTER TABLE _apikeys ENABLE ROW LEVEL SECURITY;
+
+-- Deny-all policy so the table is never exposed through PostgREST / the Data API.
+-- SECURITY DEFINER functions can still read and write it.
+CREATE POLICY apikeys_deny_all ON _apikeys
+    FOR ALL
+    TO semantius_user
+    USING (false)
+    WITH CHECK (false);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON _apikeys TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
+$pgsem__core_0270_apikeys_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0270_apikeys.once.sql', '1d2b4f346d9398a6ef6afe99529ba2e9dec4caee2f68aab35edb833c353e66ec')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0270_apikeys.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0270_apikeys.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0280_apikeys.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0280_apikeys.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0280_apikeys.sql';
+      EXECUTE $pgsem__core_0280_apikeys_sql$-- =====================================================
+-- API KEY FUNCTIONS
+-- =====================================================
+-- Repeatable. The _apikeys table is in 0270_apikeys.once.sql.
+
+-- =====================================================
+-- GENERATE API KEY FUNCTION
+-- =====================================================
+-- Generates a new API key for a user.
+-- When p_user_id = 0, uses the current session user id and prefix "uk-".
+-- When p_user_id <> 0, validates user exists and requires admin permission,
+-- uses prefix "sk-".
+-- p_description is an optional human-readable label stored with the key.
+-- Returns the full API key (only time the secret is visible in plaintext).
+-- Accessible via PostgREST RPC by all authenticated users.
+
+CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
+RETURNS JSONB AS $$
+DECLARE
+    v_target_user_id INTEGER;
+    v_key_prefix TEXT;
+    v_new_key_id TEXT;
+    v_new_secret TEXT;
+    v_full_api_key TEXT;
+    v_done BOOLEAN := FALSE;
+BEGIN
+    -- Authenticate the caller
+    PERFORM rbac.uid();
+
+    IF p_user_id = 0 THEN
+        -- Use the current session user id
+        v_target_user_id := rbac.user_id();
+        v_key_prefix := 'uk-';
+    ELSE
+        -- Require admin permission for generating keys for other users
+        PERFORM rbac.require_permission('admin');
+
+        -- Validate the target user exists
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
+            RAISE EXCEPTION 'User with id ${user_id} does not exist'
+                USING ERRCODE = '90401',
+                      HINT = jsonb_build_object('user_id', p_user_id)::text;
+        END IF;
+
+        v_target_user_id := p_user_id;
+        v_key_prefix := 'sk-';
+    END IF;
+
+    -- Loop until we generate a unique key_id
+    WHILE NOT v_done LOOP
+        BEGIN
+            -- Generate a 12-char random public ID (6 bytes = 12 hex chars)
+            v_new_key_id := v_key_prefix || encode(gen_random_bytes(6), 'hex');
+
+            -- Generate a 32-char random secret (16 bytes = 32 hex chars)
+            v_new_secret := encode(gen_random_bytes(16), 'hex');
+
+            -- Attempt to insert with hashed secret and description
+            INSERT INTO _apikeys (user_id, key_id, secret_hash, description)
+            VALUES (v_target_user_id, v_new_key_id, crypt(v_new_secret, gen_salt('bf', 10)), COALESCE(p_description, ''));
+
+            -- If we reach here, insert was successful
+            v_full_api_key := v_new_key_id || '-' || v_new_secret;
+            v_done := TRUE;
+
+        EXCEPTION WHEN unique_violation THEN
+            -- If key_id already exists, loop again to generate a new one
+            NULL;
+        END;
+    END LOOP;
+
+    RETURN jsonb_build_object('api_key', v_full_api_key, 'key_id', v_new_key_id);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.generate_api_key IS
+'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
+
+-- Grant execute to semantius_user (accessible via PostgREST RPC)
+REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_user;
+
+-- =====================================================
+-- VALIDATE API KEY FUNCTION (INTERNAL ONLY)
+-- =====================================================
+-- Validates an API key by splitting it into key_id and secret,
+-- looking up the record, and verifying the bcrypt hash.
+-- Returns the user_id if valid, NULL if invalid.
+-- Updates last_used_at on successful validation.
+-- NOT accessible via PostgREST (no GRANT to semantius_user).
+
+CREATE OR REPLACE FUNCTION public.validate_api_key(p_api_key TEXT)
+RETURNS INTEGER AS $$
+DECLARE
+    v_key_id TEXT;
+    v_secret TEXT;
+    v_last_dash INTEGER;
+    v_record RECORD;
+BEGIN
+    -- Validate input
+    IF p_api_key IS NULL OR p_api_key = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- Split the key: everything up to the last '-' is key_id, the rest is secret
+    -- Key format: prefix + public_id + '-' + secret
+    -- e.g. "uk-abcdef012345-0123456789abcdef0123456789abcdef"
+    v_last_dash := length(p_api_key) - position('-' IN reverse(p_api_key)) + 1;
+
+    IF position('-' IN reverse(p_api_key)) = 0 OR v_last_dash >= length(p_api_key) THEN
+        RETURN NULL;
+    END IF;
+
+    v_key_id := substring(p_api_key FROM 1 FOR v_last_dash - 1);
+    v_secret := substring(p_api_key FROM v_last_dash + 1);
+
+    IF v_key_id = '' OR v_secret = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- Look up the record by key_id
+    SELECT * INTO v_record
+    FROM _apikeys
+    WHERE key_id = v_key_id;
+
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+
+    -- Verify the secret against the stored bcrypt hash
+    IF v_record.secret_hash = crypt(v_secret, v_record.secret_hash) THEN
+        -- Update last_used_at on successful validation
+        UPDATE _apikeys SET last_used_at = CURRENT_TIMESTAMP WHERE key_id = v_key_id;
+        RETURN v_record.user_id;
+    ELSE
+        RETURN NULL;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.validate_api_key IS
+'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
+
+-- Reachable from the auth tier over a direct owner connection, and from nothing
+-- else. That is the only caller shape that can work: the API-key exchange
+-- continues by reading `users` with no JWT context, which needs the RLS bypass
+-- an owner has and a request role never does.
+--
+-- It is the primitive that establishes an identity, so it cannot carry an
+-- rbac.uid() check the way every other definer in this schema does, and a grant
+-- to the request role would therefore be a grant with nothing behind it: an
+-- unauthenticated bcrypt call at cost 10 per request, and a timing oracle,
+-- because the key_id lookup returns before crypt() and so rejects an unknown key
+-- id measurably faster than a wrong secret for a known one. The API-key tests
+-- reach it with RESET ROLE for the same reason. If a new entry point needs it,
+-- that entry point is a SECURITY DEFINER function, not a grant.
+REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM semantius_user;
+REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- LIST API KEYS FUNCTION
+-- =====================================================
+-- Returns a JSON array of API keys for the current user or a specific user.
+-- Each entry contains key_id, description, last_used_at, and created_at.
+-- The secret hash is never returned.
+-- When p_user_id = 0, returns keys for the current session user.
+-- When p_user_id <> 0, requires admin permission.
+-- Accessible via PostgREST RPC by all authenticated users.
+
+CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id INTEGER DEFAULT 0)
+RETURNS JSONB AS $$
+DECLARE
+    v_target_user_id INTEGER;
+BEGIN
+    -- Authenticate the caller
+    PERFORM rbac.uid();
+
+    IF p_user_id = 0 THEN
+        v_target_user_id := rbac.user_id();
+    ELSE
+        -- Require admin permission to list keys for another user
+        PERFORM rbac.require_permission('admin');
+
+        -- Validate the target user exists
+        IF NOT EXISTS (SELECT 1 FROM users WHERE id = p_user_id) THEN
+            RAISE EXCEPTION 'User with id ${user_id} does not exist'
+                USING ERRCODE = '90401',
+                      HINT = jsonb_build_object('user_id', p_user_id)::text;
+        END IF;
+
+        v_target_user_id := p_user_id;
+    END IF;
+
+    RETURN COALESCE(
+        (SELECT jsonb_agg(
+            jsonb_build_object(
+                'key_id', key_id,
+                'description', description,
+                'last_used_at', last_used_at,
+                'created_at', created_at
+            ) ORDER BY created_at DESC
+        )
+        FROM _apikeys
+        WHERE user_id = v_target_user_id),
+        '[]'::jsonb
+    );
+END;
+-- STABLE: writes nothing, so PostgREST serves it over GET.
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.list_api_keys IS
+'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
+
+-- Grant execute to semantius_user (accessible via PostgREST RPC)
+REVOKE EXECUTE ON FUNCTION public.list_api_keys(INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
+
+-- =====================================================
+-- DELETE API KEY FUNCTION
+-- =====================================================
+-- Deletes an API key by its public key_id.
+-- Users may delete their own keys.
+-- Admins may delete keys belonging to any user.
+-- Returns TRUE if the key was deleted, raises an exception if not found
+-- or if the caller does not have permission.
+-- Accessible via PostgREST RPC by all authenticated users.
+
+CREATE OR REPLACE FUNCTION public.delete_api_key(p_key_id TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_current_user_id INTEGER;
+    v_record RECORD;
+BEGIN
+    -- Authenticate the caller
+    PERFORM rbac.uid();
+    v_current_user_id := rbac.user_id();
+
+    -- Look up the key
+    SELECT * INTO v_record
+    FROM _apikeys
+    WHERE key_id = p_key_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'API key not found'
+            USING ERRCODE = '90402';
+    END IF;
+
+    -- If the key belongs to another user, require admin permission
+    IF v_record.user_id <> v_current_user_id THEN
+        PERFORM rbac.require_permission('admin');
+    END IF;
+
+    DELETE FROM _apikeys WHERE key_id = p_key_id;
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION public.delete_api_key IS
+'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user.';
+
+-- Grant execute to semantius_user (accessible via PostgREST RPC)
+REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.delete_api_key(TEXT) TO semantius_user;
+$pgsem__core_0280_apikeys_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0280_apikeys.sql', '16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0280_apikeys.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0280_apikeys.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0290_ensure_entities.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
+      EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
+-- ENTITY DEFINITIONS: jsonc_to_jsonb, ensure_entities
+-- =====================================================
+-- A migration file named NNNN_name.jsonc holds entity metadata as a
+-- declarative document in the semantius-cli export format (version 1) with
+-- JSONC comments allowed. Every migration runner executes it as
+--
+--   SELECT public.ensure_entities(public.jsonc_to_jsonb(<the file text, dollar-quoted>));
+--
+-- (the dollar tag is JSONC_TAG in packages/core/src/migrate.ts), so the parsing and the diffing live here, once, and no runner needs a JSONC
+-- parser. A .jsonc file is repeatable: it runs again whenever its text
+-- changes, and ensure_entities then writes only what differs from the database.
+--
+-- The rules are those of the semantius-cli import:
+--   * metadata is matched by name (module_name, permission_name, role slug,
+--     table_name, (table_name, field_name)), never by id, and never written
+--     with ON CONFLICT - an upsert would put the create-only columns into its
+--     SET list and fire their triggers;
+--   * create-only columns (catalog codes, id_column, a role's origin and slug,
+--     a module's module_type, a field's ctype) are written on insert only;
+--   * an omitted key takes the column default on insert and is left untouched
+--     on update; an explicit null writes NULL;
+--   * nothing is ever deleted.
+-- Order of work: module, permissions, permission hierarchy, roles, grants, the
+-- module's permission and default-role columns; entities without the columns
+-- that name fields; fields, in array order (array order is creation order, so
+-- it fixes the physical column order); then the entity columns that name
+-- fields (label_parent, computed_fields, validation_rules, select_rule); then
+-- the records, so every record is written under the entity's rules on a first
+-- apply as on a re-apply.
+--
+-- All four functions are SECURITY INVOKER and granted to nobody: they run as
+-- the installing role, inside a migration. Their errors are install-time errors
+-- and use PostgreSQL's own SQLSTATEs (22023 for a malformed definition, 0A000
+-- for a change that is not additive), like the other exemptions listed in
+-- docs/error-contract.md.
+-- =====================================================
+-- jsonc_to_jsonb
+-- =====================================================
+-- JSONC = JSON plus // and /* */ comments, trailing commas and a byte order
+-- mark (CRLF needs nothing: \r is JSON whitespace). The text is cut into
+-- tokens - a string literal, a comment, a run of other characters, or a single
+-- character - so a comment marker or a comma inside a string is never touched.
+-- Comments become one space (so they still separate tokens), and a comma
+-- followed only by whitespace and a closing bracket is dropped from the text
+-- between two strings. Whatever is left must be JSON; the cast reports what is
+-- not. An unterminated string matches no string token, stays as a lone quote
+-- and fails the cast.
+--
+-- The alternation relies on PostgreSQL's leftmost-longest regex semantics:
+-- "//x" matches the comment branch rather than the single-character one
+-- because it is longer. The block-comment branch is written without a
+-- non-greedy quantifier on purpose - in PostgreSQL the first quantifier of a
+-- regex decides the greediness of the whole match.
+CREATE OR REPLACE FUNCTION public.jsonc_to_jsonb(jsonc TEXT)
+RETURNS JSONB
+LANGUAGE sql
+IMMUTABLE STRICT
+SECURITY INVOKER
+SET search_path = public, pg_catalog
+AS $fn$
+    WITH tokens AS (
+        SELECT t.i, t.m[1] AS tok
+          FROM regexp_matches(
+                   regexp_replace(jsonc, '^' || chr(65279), ''),
+                   '("(?:[^"\\]|\\.)*"|//[^\n]*|/\*(?:[^*]|\*+[^*/])*\*+/|[^"/]+|.)',
+                   'g') WITH ORDINALITY AS t(m, i)
+    ), kinds AS (
+        SELECT i, tok,
+               length(tok) >= 2 AND left(tok, 1) = '"' AND right(tok, 1) = '"' AS is_string,
+               left(tok, 2) IN ('//', '/*') AS is_comment
+          FROM tokens
+    ), runs AS (
+        -- Every non-string token gets the number of strings before it, so the
+        -- tokens between two strings share one run.
+        SELECT i, tok, is_string, is_comment,
+               count(*) FILTER (WHERE is_string) OVER (ORDER BY i) AS run
+          FROM kinds
+    ), pieces AS (
+        SELECT min(i) AS ord,
+               regexp_replace(
+                   string_agg(CASE WHEN is_comment THEN ' ' ELSE tok END, '' ORDER BY i),
+                   ',(\s*[\]}])', '\1', 'g') AS piece
+          FROM runs
+         WHERE NOT is_string
+         GROUP BY run
+        UNION ALL
+        SELECT i, tok FROM runs WHERE is_string
+    )
+    SELECT coalesce(string_agg(piece, '' ORDER BY ord), '')::jsonb FROM pieces
+$fn$;
+
+COMMENT ON FUNCTION public.jsonc_to_jsonb(TEXT) IS
+'Parses JSONC (JSON with // and /* */ comments, trailing commas and a byte order mark) into jsonb. Comment markers and commas inside strings are left alone. Used by the migration runners to apply .jsonc entity definitions through ensure_entities().';
+
+REVOKE EXECUTE ON FUNCTION public.jsonc_to_jsonb(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- ensure_entities_insert_rows: new rows in one statement
+-- =====================================================
+-- Inserts the objects of p_rows, in array order, with one INSERT. A key an
+-- object omits is written as DEFAULT for that row, so "omitted means the
+-- column default" holds even when the rows of one statement set different
+-- columns. One statement rather than one per row matters for the fields
+-- table: the dictionary coalesces its statement-level work (the search_vector
+-- rebuild) per statement, which decides where that column lands.
+CREATE OR REPLACE FUNCTION public.ensure_entities_insert_rows(p_table TEXT, p_rows JSONB)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_catalog
+AS $fn$
+DECLARE
+    v_rel    TEXT := format('public.%I', p_table);
+    v_cols   TEXT[];
+    v_values TEXT;
+BEGIN
+    SELECT array_agg(k ORDER BY k) INTO v_cols
+      FROM (SELECT DISTINCT jsonb_object_keys(r) AS k FROM jsonb_array_elements(p_rows) r) s;
+    IF v_cols IS NULL THEN
+        RETURN;
+    END IF;
+    SELECT string_agg(
+             '(' || (SELECT string_agg(
+                               CASE WHEN r ? c
+                                    THEN format('(jsonb_populate_record(NULL::%s, $1 -> %s)).%I', v_rel, i - 1, c)
+                                    ELSE 'DEFAULT' END,
+                               ', ' ORDER BY c)
+                       FROM unnest(v_cols) AS c) || ')',
+             ', ' ORDER BY i)
+      INTO v_values
+      FROM jsonb_array_elements(p_rows) WITH ORDINALITY AS t(r, i);
+    EXECUTE format('INSERT INTO %s (%s) VALUES %s', v_rel,
+                   (SELECT string_agg(format('%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c),
+                   v_values)
+    USING p_rows;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.ensure_entities_insert_rows(TEXT, JSONB) IS
+'Internal to ensure_entities(): inserts a JSON array of rows into a metadata table with one INSERT, in array order, a key a row omits taking the column default.';
+
+REVOKE EXECUTE ON FUNCTION public.ensure_entities_insert_rows(TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
+-- ensure_entities_row: one metadata row
+-- =====================================================
+-- Makes one row of a metadata table look as p_row describes: inserts it when
+-- no row matches p_key, otherwise updates only the columns whose value
+-- differs, and writes nothing when none does. Values are compared after the
+-- same coercion the write applies (jsonb_populate_record on the table's row
+-- type), so "10" and 10 for an integer column are the same value. Columns in
+-- p_create_only and the key columns are never updated. Returns 'created',
+-- 'updated' or 'unchanged'.
+CREATE OR REPLACE FUNCTION public.ensure_entities_row(
+    p_table       TEXT,
+    p_key         JSONB,
+    p_row         JSONB,
+    p_create_only TEXT[],
+    p_label       TEXT
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_catalog
+AS $fn$
+DECLARE
+    v_rel     TEXT := format('public.%I', p_table);
+    v_where   TEXT;
+    v_current JSONB;
+    v_wanted  JSONB;
+    v_cols    TEXT[];
+    v_changed TEXT[];
+BEGIN
+    SELECT string_agg(format('t.%1$I = k.%1$I', key), ' AND ')
+      INTO v_where
+      FROM jsonb_object_keys(p_key) AS key;
+
+    EXECUTE format(
+        'SELECT to_jsonb(t) FROM %1$s t, jsonb_populate_record(NULL::%1$s, $1) k WHERE %2$s',
+        v_rel, v_where)
+       INTO v_current USING p_key;
+
+    SELECT array_agg(key ORDER BY key) INTO v_cols FROM jsonb_object_keys(p_row) AS key;
+
+    IF v_current IS NULL THEN
+        PERFORM ensure_entities_insert_rows(p_table, jsonb_build_array(p_row));
+        -- The dictionary's field trigger lowers client_min_messages to WARNING
+        -- for the rest of the transaction (SET LOCAL); restore the level the
+        -- caller had when ensure_entities started, or this NOTICE is lost.
+        PERFORM set_config('client_min_messages',
+                           coalesce(current_setting('semantius.notice_level', true),
+                                    current_setting('client_min_messages')), true);
+        RAISE NOTICE 'ensure_entities: created %', p_label;
+        RETURN 'created';
+    END IF;
+
+    EXECUTE format('SELECT to_jsonb(jsonb_populate_record(NULL::%s, $1))', v_rel)
+       INTO v_wanted USING p_row;
+
+    SELECT array_agg(c ORDER BY c)
+      INTO v_changed
+      FROM unnest(v_cols) AS c
+     WHERE NOT (p_key ? c)
+       AND c <> ALL (coalesce(p_create_only, ARRAY[]::TEXT[]))
+       AND (v_wanted -> c) IS DISTINCT FROM (v_current -> c);
+
+    IF v_changed IS NULL THEN
+        RETURN 'unchanged';
+    END IF;
+
+    EXECUTE format(
+        'UPDATE %1$s t SET %2$s FROM jsonb_populate_record(NULL::%1$s, $1) r, jsonb_populate_record(NULL::%1$s, $2) k WHERE %3$s',
+        v_rel,
+        (SELECT string_agg(format('%1$I = r.%1$I', c), ', ' ORDER BY c) FROM unnest(v_changed) AS c),
+        v_where)
+    USING p_row, p_key;
+    PERFORM set_config('client_min_messages',
+                       coalesce(current_setting('semantius.notice_level', true),
+                                current_setting('client_min_messages')), true);
+    RAISE NOTICE 'ensure_entities: updated % (%)', p_label, array_to_string(v_changed, ', ');
+    RETURN 'updated';
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.ensure_entities_row(TEXT, JSONB, JSONB, TEXT[], TEXT) IS
+'Internal to ensure_entities(): inserts one metadata row, or updates only the columns that differ, never the key or create-only columns. Returns created, updated or unchanged.';
+
+REVOKE EXECUTE ON FUNCTION public.ensure_entities_row(TEXT, JSONB, JSONB, TEXT[], TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- ensure_entities
+-- =====================================================
+CREATE OR REPLACE FUNCTION public.ensure_entities(definition JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = public, pg_catalog
+AS $fn$
+DECLARE
+    -- Keys the export carries but nothing writes: computed by the platform or
+    -- implied by the document's structure.
+    c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
+        'created_at', 'updated_at', 'module_id', 'search_vector'];
+    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'catalog_entity_code',
+        'catalog_entity_aliases'];
+    -- Written once the fields exist, because they name fields.
+    c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
+        'validation_rules', 'select_rule'];
+    c_field_ignored CONSTANT TEXT[] := ARRAY['id', 'table_name', 'created_at', 'updated_at',
+        'search_vector'];
+    c_field_create_only CONSTANT TEXT[] := ARRAY['ctype', 'catalog_field_code'];
+    c_module_ignored CONSTANT TEXT[] := ARRAY['id', 'created_at', 'updated_at', 'version',
+        'version_date', 'search_vector', 'default_viewer_role_id', 'default_manager_role_id',
+        'default_admin_role_id'];
+    c_module_create_only CONSTANT TEXT[] := ARRAY['module_type', 'catalog_module_code'];
+    c_module_role_keys CONSTANT TEXT[] := ARRAY['default_viewer_role_slug',
+        'default_manager_role_slug', 'default_admin_role_slug'];
+    c_module_deferred CONSTANT TEXT[] := ARRAY['view_permission', 'manage_permission',
+        'admin_permission', 'default_viewer_role_slug', 'default_manager_role_slug',
+        'default_admin_role_slug'];
+    c_permission_ignored CONSTANT TEXT[] := ARRAY['module_id', 'created_at', 'updated_at',
+        'search_vector'];
+    c_role_ignored CONSTANT TEXT[] := ARRAY['id', 'module_id', 'created_at', 'updated_at',
+        'search_vector'];
+    c_role_create_only CONSTANT TEXT[] := ARRAY['origin', 'slug'];
+
+    v_entity_keys     TEXT[];
+    v_field_keys      TEXT[];
+    v_module_keys     TEXT[];
+    v_permission_keys TEXT[];
+    v_role_keys       TEXT[];
+
+    v_summary   JSONB := jsonb_build_object(
+        'entities', jsonb_build_object('created', '[]'::jsonb, 'updated', '[]'::jsonb),
+        'fields', jsonb_build_object('created', '[]'::jsonb, 'updated', '[]'::jsonb),
+        'fields_not_in_definition', '[]'::jsonb,
+        'records', '{}'::jsonb);
+    v_module    JSONB;
+    v_module_id INTEGER;
+    v_entries   JSONB;
+    v_entry     JSONB;
+    v_entity    JSONB;
+    v_field     JSONB;
+    v_item      JSONB;
+    v_row       JSONB;
+    v_key       TEXT;
+    v_bad       TEXT;
+    v_status    TEXT;
+    v_table     TEXT;
+    v_current   public.entities%ROWTYPE;
+    v_idx       INTEGER;
+    v_batch     JSONB;
+    v_batch_n   INTEGER;
+    v_role_id   INTEGER;
+    v_label     TEXT;
+    v_n         BIGINT;
+    v_m         BIGINT;
+BEGIN
+    -- The NOTICE level to restore before each NOTICE; see ensure_entities_row.
+    PERFORM set_config('semantius.notice_level', current_setting('client_min_messages'), true);
+
+    -- ---------------------------------------------------------------
+    -- 1. Validate the whole document before writing anything.
+    -- ---------------------------------------------------------------
+    SELECT array_agg(attname::TEXT) INTO v_entity_keys FROM pg_attribute
+     WHERE attrelid = 'public.entities'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname::TEXT <> ALL (c_entity_ignored);
+    v_entity_keys := v_entity_keys || ARRAY['module_name', 'fields'];
+    SELECT array_agg(attname::TEXT) INTO v_field_keys FROM pg_attribute
+     WHERE attrelid = 'public.fields'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname::TEXT <> ALL (c_field_ignored);
+    SELECT array_agg(attname::TEXT) INTO v_module_keys FROM pg_attribute
+     WHERE attrelid = 'public.modules'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname::TEXT <> ALL (c_module_ignored);
+    v_module_keys := v_module_keys || c_module_role_keys;
+    SELECT array_agg(attname::TEXT) INTO v_permission_keys FROM pg_attribute
+     WHERE attrelid = 'public.permissions'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname::TEXT <> ALL (c_permission_ignored);
+    SELECT array_agg(attname::TEXT) INTO v_role_keys FROM pg_attribute
+     WHERE attrelid = 'public.roles'::regclass AND attnum > 0 AND NOT attisdropped
+       AND attname::TEXT <> ALL (c_role_ignored);
+
+    IF definition IS NULL OR jsonb_typeof(definition) <> 'object' THEN
+        RAISE EXCEPTION 'ensure_entities: the definition must be a JSON object'
+            USING ERRCODE = '22023';
+    END IF;
+    SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(definition) AS k
+     WHERE k <> ALL (ARRAY['version', 'module', 'permissions', 'permission_hierarchy',
+                           'roles', 'role_permissions', 'entities']);
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION 'ensure_entities: unknown top-level key(s): %', v_bad
+            USING ERRCODE = '22023';
+    END IF;
+    IF definition -> 'version' IS DISTINCT FROM '1'::jsonb THEN
+        RAISE EXCEPTION 'ensure_entities: "version" must be 1, not %',
+            coalesce((definition -> 'version')::TEXT, 'missing')
+            USING ERRCODE = '22023';
+    END IF;
+    FOREACH v_key IN ARRAY ARRAY['permissions', 'permission_hierarchy', 'roles',
+                                 'role_permissions', 'entities'] LOOP
+        IF definition ? v_key AND jsonb_typeof(definition -> v_key) <> 'array' THEN
+            RAISE EXCEPTION 'ensure_entities: "%" must be an array', v_key
+                USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    v_module := definition -> 'module';
+    IF v_module IS NOT NULL THEN
+        IF jsonb_typeof(v_module) <> 'object'
+           OR jsonb_typeof(v_module -> 'module_name') IS DISTINCT FROM 'string'
+           OR v_module ->> 'module_name' = '' THEN
+            RAISE EXCEPTION 'ensure_entities: "module" must be an object with a module_name'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_module) AS k
+         WHERE k <> ALL (v_module_keys);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: module %: unknown key(s): %',
+                v_module ->> 'module_name', v_bad USING ERRCODE = '22023';
+        END IF;
+        IF v_module ? 'module_slug' AND v_module ->> 'module_slug' = '' THEN
+            RAISE EXCEPTION 'ensure_entities: module %: an empty module_slug is derived by a trigger; omit it instead',
+                v_module ->> 'module_name' USING ERRCODE = '22023';
+        END IF;
+    ELSIF jsonb_array_length(coalesce(definition -> 'permissions', '[]')) > 0
+       OR jsonb_array_length(coalesce(definition -> 'roles', '[]')) > 0 THEN
+        RAISE EXCEPTION 'ensure_entities: permissions and roles belong to the document''s "module", which is missing'
+            USING ERRCODE = '22023';
+    END IF;
+
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'permissions', '[]')) e LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR jsonb_typeof(v_item -> 'permission_name') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'ensure_entities: every permission needs a permission_name'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_item) AS k
+         WHERE k <> ALL (v_permission_keys);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: permission %: unknown key(s): %',
+                v_item ->> 'permission_name', v_bad USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'permission_hierarchy', '[]')) e LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR jsonb_typeof(v_item -> 'including_permission_name') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(v_item -> 'included_permission_name') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'ensure_entities: every permission_hierarchy row needs including_permission_name and included_permission_name'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_item) AS k
+         WHERE k <> ALL (ARRAY['including_permission_name', 'included_permission_name', 'origin']);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: permission_hierarchy: unknown key(s): %', v_bad
+                USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'roles', '[]')) e LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR jsonb_typeof(v_item -> 'slug') IS DISTINCT FROM 'string'
+           OR v_item ->> 'slug' = '' THEN
+            RAISE EXCEPTION 'ensure_entities: every role needs a slug (roles are matched by slug)'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_item) AS k
+         WHERE k <> ALL (v_role_keys);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: role %: unknown key(s): %',
+                v_item ->> 'slug', v_bad USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'role_permissions', '[]')) e LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR jsonb_typeof(v_item -> 'role_slug') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(v_item -> 'permission_name') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'ensure_entities: every role_permissions row needs role_slug and permission_name'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_item) AS k
+         WHERE k <> ALL (ARRAY['role_slug', 'permission_name']);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: role_permissions: unknown key(s): %', v_bad
+                USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    v_entries := coalesce(definition -> 'entities', '[]');
+    FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
+        v_entity := v_entry -> 'entity';
+        IF jsonb_typeof(v_entry) <> 'object'
+           OR jsonb_typeof(v_entity) IS DISTINCT FROM 'object'
+           OR jsonb_typeof(v_entity -> 'table_name') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'ensure_entities: every entry of "entities" needs an "entity" with a table_name'
+                USING ERRCODE = '22023';
+        END IF;
+        v_table := v_entity ->> 'table_name';
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_entry) AS k
+         WHERE k <> ALL (ARRAY['entity', 'records']);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: entry %: unknown key(s): %', v_table, v_bad
+                USING ERRCODE = '22023';
+        END IF;
+        IF v_entry ? 'records' AND jsonb_typeof(v_entry -> 'records') <> 'array' THEN
+            RAISE EXCEPTION 'ensure_entities: the records of % must be an array', v_table
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_entity) AS k
+         WHERE k <> ALL (v_entity_keys) AND k <> ALL (c_entity_ignored);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: entity %: unknown key(s): %', v_table, v_bad
+                USING ERRCODE = '22023';
+        END IF;
+        -- Values a trigger would rewrite: stored differently from the file,
+        -- they would make every later apply see a change that is not one.
+        FOREACH v_key IN ARRAY ARRAY['singular', 'singular_label'] LOOP
+            IF v_entity ? v_key AND coalesce(v_entity ->> v_key, '') = '' THEN
+                RAISE EXCEPTION 'ensure_entities: entity %: an empty % is derived by a trigger; omit it instead',
+                    v_table, v_key USING ERRCODE = '22023';
+            END IF;
+        END LOOP;
+        IF v_entity ? 'fields' AND jsonb_typeof(v_entity -> 'fields') <> 'array' THEN
+            RAISE EXCEPTION 'ensure_entities: the fields of % must be an array', v_table
+                USING ERRCODE = '22023';
+        END IF;
+        FOR v_field IN SELECT f FROM jsonb_array_elements(coalesce(v_entity -> 'fields', '[]')) f LOOP
+            IF jsonb_typeof(v_field) <> 'object'
+               OR jsonb_typeof(v_field -> 'field_name') IS DISTINCT FROM 'string' THEN
+                RAISE EXCEPTION 'ensure_entities: every field of % needs a field_name', v_table
+                    USING ERRCODE = '22023';
+            END IF;
+            SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_field) AS k
+             WHERE k <> ALL (v_field_keys) AND k <> ALL (c_field_ignored);
+            IF v_bad IS NOT NULL THEN
+                RAISE EXCEPTION 'ensure_entities: field %.%: unknown key(s): %',
+                    v_table, v_field ->> 'field_name', v_bad USING ERRCODE = '22023';
+            END IF;
+            IF v_field -> 'field_order' = '0'::jsonb THEN
+                RAISE EXCEPTION 'ensure_entities: field %.%: field_order 0 is replaced by a trigger; give a position or omit it',
+                    v_table, v_field ->> 'field_name' USING ERRCODE = '22023';
+            END IF;
+            IF v_field ? 'enum_values' AND jsonb_typeof(v_field -> 'enum_values') NOT IN ('array', 'null') THEN
+                RAISE EXCEPTION 'ensure_entities: field %.%: enum_values must be an array or null',
+                    v_table, v_field ->> 'field_name' USING ERRCODE = '22023';
+            END IF;
+        END LOOP;
+        FOR v_item IN SELECT r FROM jsonb_array_elements(coalesce(v_entry -> 'records', '[]')) r LOOP
+            IF jsonb_typeof(v_item) <> 'object' THEN
+                RAISE EXCEPTION 'ensure_entities: every record of % must be an object', v_table
+                    USING ERRCODE = '22023';
+            END IF;
+        END LOOP;
+    END LOOP;
+
+    -- ---------------------------------------------------------------
+    -- 2. The module sections, matched by name.
+    -- ---------------------------------------------------------------
+    IF v_module IS NOT NULL THEN
+        v_label := 'module ' || (v_module ->> 'module_name');
+        SELECT jsonb_object_agg(key, value) INTO v_row
+          FROM jsonb_each(v_module) WHERE key <> ALL (c_module_deferred);
+        v_status := ensure_entities_row('modules',
+            jsonb_build_object('module_name', v_module -> 'module_name'),
+            v_row, c_module_create_only, v_label);
+        v_summary := v_summary || jsonb_build_object('module', v_status);
+        SELECT id INTO v_module_id FROM modules WHERE module_name = v_module ->> 'module_name';
+
+        v_summary := v_summary || jsonb_build_object('permissions',
+            jsonb_build_object('created', '[]'::jsonb, 'updated', '[]'::jsonb));
+        FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'permissions', '[]')) e LOOP
+            v_status := ensure_entities_row('permissions',
+                jsonb_build_object('permission_name', v_item -> 'permission_name'),
+                v_item || jsonb_build_object('module_id', v_module_id),
+                ARRAY['module_id'], 'permission ' || (v_item ->> 'permission_name'));
+            IF v_status <> 'unchanged' THEN
+                v_summary := jsonb_insert(v_summary, ARRAY['permissions', v_status, '-1'],
+                                          v_item -> 'permission_name', true);
+            END IF;
+        END LOOP;
+
+        v_summary := v_summary || jsonb_build_object('permission_hierarchy',
+            jsonb_build_object('created', '[]'::jsonb));
+        FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'permission_hierarchy', '[]')) e LOOP
+            -- Never updated: origin is immutable once set.
+            IF NOT EXISTS (SELECT 1 FROM permission_hierarchy h
+                            WHERE h.including_permission_name = v_item ->> 'including_permission_name'
+                              AND h.included_permission_name = v_item ->> 'included_permission_name') THEN
+                PERFORM ensure_entities_row('permission_hierarchy',
+                    v_item - 'origin', v_item, NULL,
+                    format('permission hierarchy %s -> %s',
+                           v_item ->> 'including_permission_name', v_item ->> 'included_permission_name'));
+                v_summary := jsonb_insert(v_summary, ARRAY['permission_hierarchy', 'created', '-1'],
+                    to_jsonb((v_item ->> 'including_permission_name') || ' -> ' || (v_item ->> 'included_permission_name')), true);
+            END IF;
+        END LOOP;
+
+        v_summary := v_summary || jsonb_build_object('roles',
+            jsonb_build_object('created', '[]'::jsonb, 'updated', '[]'::jsonb));
+        FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'roles', '[]')) e LOOP
+            v_status := ensure_entities_row('roles',
+                jsonb_build_object('slug', v_item -> 'slug'),
+                v_item || jsonb_build_object('module_id', v_module_id),
+                c_role_create_only || ARRAY['module_id'], 'role ' || (v_item ->> 'slug'));
+            IF v_status <> 'unchanged' THEN
+                v_summary := jsonb_insert(v_summary, ARRAY['roles', v_status, '-1'], v_item -> 'slug', true);
+            END IF;
+        END LOOP;
+
+        -- Grants may name the roles of other modules.
+        v_summary := v_summary || jsonb_build_object('role_permissions',
+            jsonb_build_object('created', '[]'::jsonb));
+        FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'role_permissions', '[]')) e LOOP
+            SELECT id INTO v_role_id FROM roles WHERE slug = v_item ->> 'role_slug';
+            IF v_role_id IS NULL THEN
+                RAISE EXCEPTION 'ensure_entities: grant of %: no role with slug %',
+                    v_item ->> 'permission_name', v_item ->> 'role_slug' USING ERRCODE = '22023';
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM role_permissions rp
+                            WHERE rp.role_id = v_role_id
+                              AND rp.permission_name = v_item ->> 'permission_name') THEN
+                PERFORM ensure_entities_row('role_permissions',
+                    jsonb_build_object('role_id', v_role_id, 'permission_name', v_item -> 'permission_name'),
+                    jsonb_build_object('role_id', v_role_id, 'permission_name', v_item -> 'permission_name'),
+                    NULL, format('grant of %s to role %s', v_item ->> 'permission_name', v_item ->> 'role_slug'));
+                v_summary := jsonb_insert(v_summary, ARRAY['role_permissions', 'created', '-1'],
+                    to_jsonb((v_item ->> 'role_slug') || ':' || (v_item ->> 'permission_name')), true);
+            END IF;
+        END LOOP;
+
+        -- The module's permission and default-role columns, now that the
+        -- permissions and roles they name exist.
+        v_row := '{}'::jsonb;
+        FOREACH v_key IN ARRAY c_module_deferred LOOP
+            CONTINUE WHEN NOT v_module ? v_key;
+            IF v_key = ANY (c_module_role_keys) THEN
+                IF v_module -> v_key = 'null'::jsonb THEN
+                    v_row := v_row || jsonb_build_object(replace(v_key, '_slug', '_id'), NULL);
+                ELSE
+                    SELECT id INTO v_role_id FROM roles WHERE slug = v_module ->> v_key;
+                    IF v_role_id IS NULL THEN
+                        RAISE EXCEPTION 'ensure_entities: module %: %: no role with slug %',
+                            v_module ->> 'module_name', v_key, v_module ->> v_key USING ERRCODE = '22023';
+                    END IF;
+                    v_row := v_row || jsonb_build_object(replace(v_key, '_slug', '_id'), v_role_id);
+                END IF;
+            ELSE
+                v_row := v_row || jsonb_build_object(v_key, v_module -> v_key);
+            END IF;
+        END LOOP;
+        IF v_row <> '{}'::jsonb THEN
+            v_status := ensure_entities_row('modules',
+                jsonb_build_object('module_name', v_module -> 'module_name'),
+                v_row || jsonb_build_object('module_name', v_module -> 'module_name'),
+                NULL, v_label);
+            IF v_status = 'updated' AND v_summary ->> 'module' = 'unchanged' THEN
+                v_summary := v_summary || jsonb_build_object('module', 'updated');
+            END IF;
+        END IF;
+    END IF;
+
+    -- ---------------------------------------------------------------
+    -- 3. Entities, without the columns that name fields.
+    -- ---------------------------------------------------------------
+    FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
+        v_entity := v_entry -> 'entity';
+        v_table := v_entity ->> 'table_name';
+        SELECT * INTO v_current FROM entities WHERE table_name = v_table;
+
+        IF NOT (v_entity ? 'fields') THEN
+            -- A records-only entry: the entity must already exist.
+            IF NOT FOUND THEN
+                RAISE EXCEPTION 'ensure_entities: entity % does not exist and the definition carries no schema for it (no "fields")',
+                    v_table USING ERRCODE = '22023';
+            END IF;
+            CONTINUE;
+        END IF;
+
+        IF FOUND THEN
+            -- Not additive: the old order column would be dropped, or the
+            -- dictionary would let go of a table it created.
+            IF v_entity ? 'order_column' AND v_current.order_column <> ''
+               AND v_entity ->> 'order_column' IS DISTINCT FROM v_current.order_column THEN
+                RAISE EXCEPTION 'ensure_entities: entity %: order_column cannot change from % to % (the old column would be dropped)',
+                    v_table, v_current.order_column, coalesce(v_entity ->> 'order_column', 'null')
+                    USING ERRCODE = '0A000';
+            END IF;
+            IF v_entity ? 'managed' AND v_current.managed
+               AND (v_entity -> 'managed') IS DISTINCT FROM 'true'::jsonb THEN
+                RAISE EXCEPTION 'ensure_entities: entity % cannot change from managed to unmanaged', v_table
+                    USING ERRCODE = '0A000';
+            END IF;
+        ELSIF NOT (v_entity ? 'module_name') THEN
+            RAISE EXCEPTION 'ensure_entities: entity % needs a module_name to be created', v_table
+                USING ERRCODE = '22023';
+        END IF;
+
+        SELECT jsonb_object_agg(key, value) INTO v_row
+          FROM jsonb_each(v_entity)
+         WHERE key <> ALL (c_entity_deferred || c_entity_ignored || ARRAY['fields', 'module_name']);
+        IF v_entity ? 'module_name' THEN
+            SELECT id INTO v_module_id FROM modules WHERE module_name = v_entity ->> 'module_name';
+            IF v_module_id IS NULL THEN
+                RAISE EXCEPTION 'ensure_entities: entity %: no module named %',
+                    v_table, v_entity ->> 'module_name' USING ERRCODE = '22023';
+            END IF;
+            v_row := v_row || jsonb_build_object('module_id', v_module_id);
+        END IF;
+
+        v_status := ensure_entities_row('entities',
+            jsonb_build_object('table_name', v_table), v_row,
+            c_entity_create_only, 'entity ' || v_table);
+        IF v_status <> 'unchanged' THEN
+            v_summary := jsonb_insert(v_summary, ARRAY['entities', v_status, '-1'], to_jsonb(v_table), true);
+        END IF;
+    END LOOP;
+
+    -- ---------------------------------------------------------------
+    -- 4. Fields, in array order. Consecutive new fields of one entity are
+    --    inserted by one statement, as a hand-written migration would, so
+    --    the dictionary's statement-level work (the search_vector rebuild)
+    --    runs once for them and the physical column order is array order.
+    -- ---------------------------------------------------------------
+    FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
+        v_entity := v_entry -> 'entity';
+        CONTINUE WHEN NOT (v_entity ? 'fields');
+        v_table := v_entity ->> 'table_name';
+        v_batch := '[]'::jsonb;
+
+        FOR v_field, v_idx IN
+            SELECT f, i FROM jsonb_array_elements(v_entity -> 'fields') WITH ORDINALITY AS t(f, i)
+        LOOP
+            v_row := v_field - c_field_ignored;
+            IF EXISTS (SELECT 1 FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name') THEN
+                -- Flush the pending inserts first, to keep array order.
+                IF jsonb_array_length(v_batch) > 0 THEN
+                    PERFORM ensure_entities_insert_rows('fields', v_batch);
+                    PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
+                    FOR v_item IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
+                        RAISE NOTICE 'ensure_entities: created field %.%', v_table, v_item ->> 'field_name';
+                    END LOOP;
+                    v_summary := jsonb_set(v_summary, ARRAY['fields', 'created'],
+                        (v_summary #> ARRAY['fields', 'created'])
+                        || (SELECT jsonb_agg(to_jsonb(v_table || '.' || (b ->> 'field_name')))
+                              FROM jsonb_array_elements(v_batch) b));
+                    v_batch := '[]'::jsonb;
+                END IF;
+                IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM
+                   (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name') THEN
+                    RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
+                        v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
+                END IF;
+                v_status := ensure_entities_row('fields',
+                    jsonb_build_object('table_name', v_table, 'field_name', v_field -> 'field_name'),
+                    v_row || jsonb_build_object('table_name', v_table),
+                    c_field_create_only, format('field %s.%s', v_table, v_field ->> 'field_name'));
+                IF v_status = 'updated' THEN
+                    v_summary := jsonb_insert(v_summary, ARRAY['fields', 'updated', '-1'],
+                        to_jsonb(v_table || '.' || (v_field ->> 'field_name')), true);
+                END IF;
+            ELSE
+                v_batch := v_batch || jsonb_build_array(v_row || jsonb_build_object('table_name', v_table));
+            END IF;
+        END LOOP;
+        IF jsonb_array_length(v_batch) > 0 THEN
+            PERFORM ensure_entities_insert_rows('fields', v_batch);
+            PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
+            FOR v_item IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
+                RAISE NOTICE 'ensure_entities: created field %.%', v_table, v_item ->> 'field_name';
+            END LOOP;
+            v_summary := jsonb_set(v_summary, ARRAY['fields', 'created'],
+                (v_summary #> ARRAY['fields', 'created'])
+                || (SELECT jsonb_agg(to_jsonb(v_table || '.' || (b ->> 'field_name')))
+                      FROM jsonb_array_elements(v_batch) b));
+        END IF;
+
+        -- Reported, never deleted.
+        v_summary := jsonb_set(v_summary, ARRAY['fields_not_in_definition'],
+            (v_summary -> 'fields_not_in_definition')
+            || coalesce((SELECT jsonb_agg(to_jsonb(f.id) ORDER BY f.field_order, f.field_name)
+                           FROM fields f
+                          WHERE f.table_name = v_table
+                            AND coalesce(f.ctype, '') = ''
+                            AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_entity -> 'fields') d
+                                             WHERE d ->> 'field_name' = f.field_name)), '[]'::jsonb));
+    END LOOP;
+
+    -- ---------------------------------------------------------------
+    -- 5. The entity columns that name fields.
+    -- ---------------------------------------------------------------
+    FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
+        v_entity := v_entry -> 'entity';
+        CONTINUE WHEN NOT (v_entity ? 'fields');
+        v_table := v_entity ->> 'table_name';
+        SELECT jsonb_object_agg(key, value) INTO v_row
+          FROM jsonb_each(v_entity) WHERE key = ANY (c_entity_deferred);
+        CONTINUE WHEN v_row IS NULL;
+        v_status := ensure_entities_row('entities',
+            jsonb_build_object('table_name', v_table),
+            v_row || jsonb_build_object('table_name', v_table),
+            NULL, 'entity ' || v_table);
+        IF v_status = 'updated'
+           AND NOT (v_summary #> ARRAY['entities', 'created']) @> to_jsonb(ARRAY[v_table])
+           AND NOT (v_summary #> ARRAY['entities', 'updated']) @> to_jsonb(ARRAY[v_table]) THEN
+            v_summary := jsonb_insert(v_summary, ARRAY['entities', 'updated', '-1'], to_jsonb(v_table), true);
+        END IF;
+    END LOOP;
+
+    -- ---------------------------------------------------------------
+    -- 6. Records, table by table in foreign-key order.
+    -- ---------------------------------------------------------------
+    DECLARE
+        v_pending  TEXT[];
+        v_done     TEXT[] := ARRAY[]::TEXT[];
+        v_next     TEXT;
+        v_records  JSONB;
+        v_id_col   TEXT;
+        v_cols     TEXT[];
+        v_skip     TEXT[];
+        v_unknown  TEXT;
+        v_col_list TEXT;
+        v_sequence TEXT;
+        v_max      BIGINT;
+        v_last     BIGINT;
+        v_called   BOOLEAN;
+    BEGIN
+        SELECT array_agg(e -> 'entity' ->> 'table_name' ORDER BY i)
+          INTO v_pending
+          FROM jsonb_array_elements(v_entries) WITH ORDINALITY AS t(e, i)
+         WHERE jsonb_array_length(coalesce(e -> 'records', '[]')) > 0;
+
+        WHILE coalesce(array_length(v_pending, 1), 0) > 0 LOOP
+            -- The first pending table whose referenced tables (among those
+            -- with records here) are all written. A reference to its own
+            -- table needs no order: one INSERT writes every new row, and the
+            -- foreign key is checked at the end of that statement.
+            SELECT p INTO v_next
+              FROM unnest(v_pending) WITH ORDINALITY AS u(p, ord)
+             WHERE NOT EXISTS (
+                     SELECT 1 FROM fields f
+                      WHERE f.table_name = p
+                        AND f.format IN ('reference', 'parent')
+                        AND f.reference_table <> p
+                        AND f.reference_table = ANY (v_pending))
+             ORDER BY ord
+             LIMIT 1;
+            IF v_next IS NULL THEN
+                RAISE EXCEPTION 'ensure_entities: the records of % reference each other; no order writes them',
+                    array_to_string(v_pending, ', ') USING ERRCODE = '22023';
+            END IF;
+            v_table := v_next;
+            v_pending := array_remove(v_pending, v_table);
+
+            SELECT e -> 'records' INTO v_records
+              FROM jsonb_array_elements(v_entries) e
+             WHERE e -> 'entity' ->> 'table_name' = v_table;
+            SELECT * INTO v_current FROM entities WHERE table_name = v_table;
+            v_id_col := v_current.id_column;
+
+            -- Every record carries the same keys: an omitted key would mean
+            -- "default" for a new row and "untouched" for an existing one,
+            -- which a set-based write cannot tell apart per row.
+            SELECT array_agg(k ORDER BY k) INTO v_cols
+              FROM jsonb_object_keys(v_records -> 0) AS k;
+            IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_records) r
+                        WHERE (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(r) AS k)
+                              IS DISTINCT FROM v_cols) THEN
+                RAISE EXCEPTION 'ensure_entities: the records of % do not all carry the same keys', v_table
+                    USING ERRCODE = '22023';
+            END IF;
+            IF NOT (v_id_col = ANY (v_cols)) THEN
+                RAISE EXCEPTION 'ensure_entities: the records of % carry no %, the id column', v_table, v_id_col
+                    USING ERRCODE = '22023';
+            END IF;
+            SELECT string_agg(c, ', ') INTO v_unknown FROM unnest(v_cols) AS c
+             WHERE c <> v_id_col
+               AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = v_table AND f.field_name = c);
+            IF v_unknown IS NOT NULL THEN
+                RAISE EXCEPTION 'ensure_entities: records of %: % has no field %', v_table, v_table, v_unknown
+                    USING ERRCODE = '22023';
+            END IF;
+
+            -- The platform sets these; a value in the file is not written.
+            SELECT array_agg(x) INTO v_skip FROM (
+                SELECT f.field_name AS x FROM fields f WHERE f.table_name = v_table AND f.ctype = 'audit'
+                UNION
+                SELECT c ->> 'name' FROM jsonb_array_elements(v_current.computed_fields) c
+            ) s;
+            v_cols := ARRAY(SELECT c FROM unnest(v_cols) AS c
+                             WHERE c = v_id_col OR c <> ALL (coalesce(v_skip, ARRAY[]::TEXT[]))
+                             ORDER BY c);
+            SELECT string_agg(format('%I', c), ', ' ORDER BY c) INTO v_col_list FROM unnest(v_cols) AS c;
+
+            EXECUTE format(
+                'INSERT INTO public.%1$I (%2$s)
+                 SELECT %3$s FROM jsonb_populate_recordset(NULL::public.%1$I, $1) WITH ORDINALITY AS r
+                  WHERE NOT EXISTS (SELECT 1 FROM public.%1$I x WHERE x.%4$I = r.%4$I)
+                  ORDER BY r.ordinality',
+                v_table, v_col_list,
+                (SELECT string_agg(format('r.%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c),
+                v_id_col)
+            USING v_records;
+            GET DIAGNOSTICS v_n = ROW_COUNT;
+
+            v_m := 0;
+            IF array_length(v_cols, 1) > 1 THEN
+                EXECUTE format(
+                    'UPDATE public.%1$I x SET %2$s
+                       FROM jsonb_populate_recordset(NULL::public.%1$I, $1) r
+                      WHERE x.%3$I = r.%3$I
+                        AND jsonb_build_array(%4$s) IS DISTINCT FROM jsonb_build_array(%5$s)',
+                    v_table,
+                    (SELECT string_agg(format('%1$I = r.%1$I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c WHERE c <> v_id_col),
+                    v_id_col,
+                    (SELECT string_agg(format('x.%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c WHERE c <> v_id_col),
+                    (SELECT string_agg(format('r.%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c WHERE c <> v_id_col))
+                USING v_records;
+                GET DIAGNOSTICS v_m = ROW_COUNT;
+            END IF;
+
+            IF v_n > 0 OR v_m > 0 THEN
+                PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
+                RAISE NOTICE 'ensure_entities: records of %: % inserted, % updated', v_table, v_n, v_m;
+            END IF;
+            v_summary := jsonb_set(v_summary, ARRAY['records', v_table],
+                jsonb_build_object('inserted', v_n, 'updated', v_m));
+
+            -- Explicit ids leave the id sequence behind them: move it past the
+            -- highest id, never lower (the rule public.fix_id_sequence applies).
+            IF EXISTS (SELECT 1 FROM pg_attribute a
+                        WHERE a.attrelid = format('public.%I', v_table)::regclass
+                          AND a.attname = v_id_col AND a.attnum > 0 AND NOT a.attisdropped) THEN
+                v_sequence := pg_get_serial_sequence(format('public.%I', v_table), v_id_col);
+                IF v_sequence IS NOT NULL THEN
+                    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_col, v_table) INTO v_max;
+                    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
+                    IF coalesce(v_max, 0) + 1 > (CASE WHEN v_called THEN v_last + 1 ELSE v_last END) THEN
+                        PERFORM setval(v_sequence, v_max, true);
+                    END IF;
+                END IF;
+            END IF;
+            v_done := v_done || v_table;
+        END LOOP;
+    END;
+
+    RETURN v_summary;
+END;
+$fn$;
+
+COMMENT ON FUNCTION public.ensure_entities(JSONB) IS
+'Applies a declarative entity definition (the semantius-cli export format, version 1): makes the listed module sections, entities, fields and records exist as described. Creates what is missing, updates only what differs, never deletes, never upserts metadata. Returns a summary of what it created and updated and which fields the definition does not list; raises one NOTICE per change. Run by the migration runners for every .jsonc migration file.';
+
+REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
+$pgsem__core_0290_ensure_entities_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0290_ensure_entities.sql', '5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0290_ensure_entities.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0290_ensure_entities.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0300_audit_log.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0300_audit_log.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0300_audit_log.jsonc';
+      EXECUTE $pgsem__core_0300_audit_log_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Audit log entities: registers the audit tables audit_record_logs and
+// audit_ddl_logs (created by 0190_audit_log.once.sql) in the data dictionary.
+//
+// These are core system tables. managed: false means the dictionary creates no
+// table and runs no DDL for them; the entities/fields rows only make them
+// queryable through the standard API (get_schema, etc.). Every field is
+// registered explicitly, core ones included, because an unmanaged entity gets
+// no generated fields.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "audit_record_logs",
+        "module_name": "_core",
+        "singular": "audit_record_log",
+        "singular_label": "Audit Record Log",
+        "plural_label": "Audit Record Logs",
+        "description": "DML audit trail for entity table records",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "table_name",
+        "managed": false,
+        "fields": [
+          {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
+           "input_type": "readonly", "width": "default", "ctype": "id", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "record_id", "title": "Record UUID", "description": "Deterministic UUID computed from table OID and primary key values",
+           "format": "uuid", "is_pk": false, "field_order": 10,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "old_record_id", "title": "Old Record UUID", "description": "Record id before update/delete",
+           "format": "uuid", "is_pk": false, "field_order": 20,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "record_pk", "title": "Record Primary Key", "description": "",
+           "format": "text", "is_pk": false, "field_order": 25,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "op", "title": "Operation", "description": "DML operation type: INSERT, UPDATE, DELETE, TRUNCATE",
+           "format": "text", "is_pk": false, "field_order": 30,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "ts", "title": "Timestamp", "description": "",
+           "format": "date-time", "is_pk": false, "field_order": 40,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable",
+           "format": "int32", "is_pk": false, "field_order": 50,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "db_role", "title": "DB Role",
+           "description": "session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.",
+           "format": "text", "is_pk": false, "field_order": 52,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "is_superuser", "title": "Is Superuser",
+           "description": "Whether the writing session had superuser privileges. On a data row that means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.",
+           "format": "boolean", "is_pk": false, "field_order": 54,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "client_addr", "title": "Client Addr",
+           "description": "Connecting client address (inet_client_addr()); NULL for a unix-socket connection, which means a shell on the database host rather than a client on the network",
+           "format": "text", "is_pk": false, "field_order": 56,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "table_oid", "title": "Table OID", "description": "PostgreSQL internal object identifier for the table",
+           "format": "int32", "is_pk": false, "field_order": 60,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "table_schema", "title": "Table Schema", "description": "",
+           "format": "text", "is_pk": false, "field_order": 70,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "table_name", "title": "Table Name", "description": "",
+           "format": "text", "is_pk": false, "field_order": 80,
+           "input_type": "readonly", "width": "default", "ctype": "label", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "record", "title": "Record", "description": "Full record after INSERT/UPDATE (JSONB)",
+           "format": "json", "is_pk": false, "field_order": 90,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "old_record", "title": "Old Record", "description": "Previous record before UPDATE/DELETE (JSONB)",
+           "format": "json", "is_pk": false, "field_order": 100,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "audit_ddl_logs",
+        "module_name": "_core",
+        "singular": "audit_ddl_log",
+        "singular_label": "Audit DDL Log",
+        "plural_label": "Audit DDL Logs",
+        "description": "DDL audit trail for schema change events",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "command_tag",
+        "managed": false,
+        "fields": [
+          {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
+           "input_type": "readonly", "width": "default", "ctype": "id", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "event_time", "title": "Event Finish Time", "description": "",
+           "format": "date-time", "is_pk": false, "field_order": 10,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable, e.g. during migrations",
+           "format": "int32", "is_pk": false, "field_order": 20,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "command_tag", "title": "Command Tag", "description": "DDL command type (e.g. CREATE TABLE, ALTER TABLE)",
+           "format": "text", "is_pk": false, "field_order": 30,
+           "input_type": "readonly", "width": "default", "ctype": "label", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "object_type", "title": "Object Type", "description": "",
+           "format": "text", "is_pk": false, "field_order": 40,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "object_identity", "title": "Object Identity", "description": "Fully qualified name of the affected object",
+           "format": "text", "is_pk": false, "field_order": 50,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "query_text", "title": "Query Text", "description": "The SQL statement that triggered the event",
+           "format": "text", "is_pk": false, "field_order": 60,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0300_audit_log_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0300_audit_log.jsonc', '411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0300_audit_log.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0300_audit_log.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0310_pgmq.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0310_pgmq.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0310_pgmq.once.sql';
+      EXECUTE $pgsem__core_0310_pgmq_once_sql$--
 -- based on https://github.com/pgmq/pgmq v1.11.1
 -- The PostgreSQL License Copyright (c) 2023, Tembo
 ------------------------------------------------------------
@@ -13393,32 +16136,239 @@ CREATE OR REPLACE FUNCTION pgmq.send_batch_topic(
 AS
 $$
     SELECT * FROM pgmq.send_batch_topic(routing_key, msgs, headers, clock_timestamp() + make_interval(secs => delay));
-$$;$pgsem__core_0160_pgmq$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0160_pgmq', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0160_pgmq', '78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$$;
+$pgsem__core_0310_pgmq_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0310_pgmq.once.sql', '603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0310_pgmq.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0310_pgmq.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0170_queue') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0170_queue';
-    BEGIN
-      EXECUTE $pgsem__core_0170_queue$-- =====================================================
+  -- _core.0320_queue.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0320_queue.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0320_queue.jsonc';
+      EXECUTE $pgsem__core_0320_queue_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Queue entities: queues (each row is a pgmq queue) and queue_table_events
+// (maps table DML events to a queue, so inserts, updates and deletes on
+// managed tables are enqueued as messages). The functions and triggers behind
+// them are in 0340_queue.sql; the columns' NOT NULL settings in
+// 0330_queue_setup.once.sql.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "queues",
+        "module_name": "_core",
+        "singular": "queue",
+        "singular_label": "Queue",
+        "plural_label": "Queues",
+        "description": "Message queues backed by pgmq",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "queue_name",
+        "fields": [
+          // The label column queue_name is created by the dictionary; a queue
+          // name is unique and required.
+          {"field_name": "queue_name", "ctype": "label", "unique_value": true, "input_type": "required"},
+          // Per-queue authorization for the RPC consumers, declared as
+          // dictionary fields like entities.view_permission so the UI can
+          // manage them. view_permission gates queue_read; manage_permission
+          // gates queue_pop, queue_archive and queue_delete. Both default to
+          // admin, and being references to permissions(permission_name) is what
+          // makes a name that is not a registered permission impossible to
+          // store and a permission a queue names impossible to delete.
+          {"field_name": "view_permission", "title": "View Permission", "format": "reference", "is_pk": false,
+           "field_order": 30, "input_type": "default", "width": "default",
+           "description": "Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.",
+           "default_value": "admin", "enum_values": null, "ctype": null,
+           "reference_table": "permissions", "reference_delete_mode": "restrict", "relationship_label": "gates reading",
+           "unique_value": false},
+          {"field_name": "manage_permission", "title": "Manage Permission", "format": "reference", "is_pk": false,
+           "field_order": 40, "input_type": "default", "width": "default",
+           "description": "Permission required to pop, archive or delete messages from this queue.",
+           "default_value": "admin", "enum_values": null, "ctype": null,
+           "reference_table": "permissions", "reference_delete_mode": "restrict", "relationship_label": "gates managing",
+           "unique_value": false}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "queue_table_events",
+        "module_name": "_core",
+        "singular": "queue_table_event",
+        "singular_label": "Queue Table Event",
+        "plural_label": "Queue Table Events",
+        "description": "Maps table DML events to queues",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "event_name",
+        "fields": [
+          // A reference to entities is a TEXT column (entities.table_name is
+          // TEXT). Listed first so it keeps the column position it had when it
+          // was pre-created; its NOT NULL and DEFAULT '' are set by
+          // 0330_queue_setup.once.sql.
+          {"field_name": "table_name", "title": "Entity", "format": "reference", "is_pk": false,
+           "field_order": 10, "input_type": "required", "width": "default",
+           "description": "Table whose DML events are captured",
+           "default_value": "", "enum_values": null, "ctype": null,
+           "reference_table": "entities", "reference_delete_mode": "cascade", "relationship_label": "has queue events",
+           "unique_value": true},
+          {"field_name": "queue_id", "title": "Queue", "format": "parent", "is_pk": false,
+           "field_order": 5, "input_type": "default", "width": "default",
+           "description": "",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "queues", "reference_delete_mode": "cascade", "relationship_label": "has events",
+           "unique_value": false},
+          {"field_name": "event_handler", "title": "Event Handler", "format": "enum", "is_pk": false,
+           "field_order": 20, "input_type": "required", "width": "default",
+           "description": "Which DML operations trigger a queue message",
+           "default_value": "", "enum_values": ["insert", "update", "upsert", "delete", "change"], "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": "",
+           "unique_value": false}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0320_queue_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0320_queue.jsonc', '83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0320_queue.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0320_queue.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0330_queue_setup.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0330_queue_setup.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0330_queue_setup.once.sql';
+      EXECUTE $pgsem__core_0330_queue_setup_once_sql$-- =====================================================
+-- QUEUE SYSTEM - column constraints
+-- =====================================================
+-- Runs once. The entities are defined in 0320_queue.jsonc. A queue without
+-- its permissions is unusable, so both are required.
+
+-- reference columns default to nullable in the DD model; both are mandatory
+ALTER TABLE queues ALTER COLUMN view_permission SET NOT NULL;
+ALTER TABLE queues ALTER COLUMN manage_permission SET NOT NULL;
+
+-- queue_table_events.table_name is a reference to entities, which the
+-- dictionary creates as a nullable TEXT column. A mapping without a table
+-- means nothing, so the column is NOT NULL, defaulting to ''.
+ALTER TABLE queue_table_events ALTER COLUMN table_name SET DEFAULT '';
+ALTER TABLE queue_table_events ALTER COLUMN table_name SET NOT NULL;
+$pgsem__core_0330_queue_setup_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0330_queue_setup.once.sql', '9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0330_queue_setup.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0330_queue_setup.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0340_queue.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0340_queue.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0340_queue.sql';
+      EXECUTE $pgsem__core_0340_queue_sql$-- =====================================================
 -- QUEUE SYSTEM
 -- =====================================================
 -- Provides managed message queues backed by pgmq.
@@ -13434,52 +16384,8 @@ $$;$pgsem__core_0160_pgmq$;
 -- =====================================================
 -- STEP 1: Create the queues entity
 -- =====================================================
-
-INSERT INTO entities (
-    table_name,
-    singular,
-    singular_label,
-    plural_label,
-    description,
-    module_id,
-    view_permission,
-    edit_permission,
-    id_column,
-    label_column
-)
-VALUES (
-    'queues',
-    'queue',
-    'Queue',
-    'Queues',
-    'Message queues backed by pgmq',
-    1, -- _core module
-    'admin',
-    'admin',
-    'id',
-    'queue_name'
-);
-
--- The label_column 'queue_name' is auto-created by the DD trigger.
--- Mark it as unique and required.
-UPDATE fields SET unique_value = TRUE, input_type = 'required'
-WHERE table_name = 'queues' AND field_name = 'queue_name';
-
--- Per-queue authorization for the RPC consumers (release review S4), declared
--- as dictionary fields like entities.view_permission so the UI can manage them.
--- view_permission gates queue_read; manage_permission gates queue_pop,
--- queue_archive and queue_delete. Both default to admin, and being references
--- to permissions(permission_name) is what makes a name that is not a registered
--- permission impossible to store and a permission a queue names impossible to
--- delete.
-INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
-VALUES
-    ('queues', 'view_permission',   'View Permission',   'reference', FALSE, 30, 'default', 'default', 'Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates reading', FALSE),
-    ('queues', 'manage_permission', 'Manage Permission', 'reference', FALSE, 40, 'default', 'default', 'Permission required to pop, archive or delete messages from this queue.', 'admin', NULL, NULL, 'permissions', 'restrict', 'gates managing', FALSE);
-
--- reference columns default to nullable in the DD model; both are mandatory
-ALTER TABLE queues ALTER COLUMN view_permission SET NOT NULL;
-ALTER TABLE queues ALTER COLUMN manage_permission SET NOT NULL;
+-- Repeatable. The entities are defined in 0320_queue.jsonc, their column
+-- constraints in 0330_queue_setup.once.sql.
 
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
@@ -13505,7 +16411,7 @@ $$;
 COMMENT ON FUNCTION queue_after_insert() IS
 'Trigger function that provisions the underlying pgmq queue (pgmq.create) when a row is inserted into the queues table.';
 
-CREATE TRIGGER queue_after_insert_trigger
+CREATE OR REPLACE TRIGGER queue_after_insert_trigger
     AFTER INSERT ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_after_insert();
@@ -13526,7 +16432,7 @@ $$;
 COMMENT ON FUNCTION queue_before_update() IS
 'Trigger function that rejects any attempt to change queues.queue_name after creation (the name is immutable once the pgmq queue exists).';
 
-CREATE TRIGGER queue_before_update_trigger
+CREATE OR REPLACE TRIGGER queue_before_update_trigger
     BEFORE UPDATE ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_before_update();
@@ -13549,48 +16455,10 @@ $$;
 COMMENT ON FUNCTION queue_before_delete() IS
 'Trigger function that, when a row is deleted from the queues table, deletes its queue_table_events mappings (which drops their triggers) and then the underlying pgmq queue.';
 
-CREATE TRIGGER queue_before_delete_trigger
+CREATE OR REPLACE TRIGGER queue_before_delete_trigger
     BEFORE DELETE ON queues
     FOR EACH ROW
     EXECUTE FUNCTION queue_before_delete();
-
--- =====================================================
--- STEP 3: Create queue_table_events child entity
--- =====================================================
-
-INSERT INTO entities (
-    table_name,
-    singular,
-    singular_label,
-    plural_label,
-    description,
-    module_id,
-    view_permission,
-    edit_permission,
-    id_column,
-    label_column
-)
-VALUES (
-    'queue_table_events',
-    'queue_table_event',
-    'Queue Table Event',
-    'Queue Table Events',
-    'Maps table DML events to queues',
-    1, -- _core module
-    'admin',
-    'admin',
-    'id',
-    'event_name'
-);
-
--- Pre-create table_name column as TEXT (entities.table_name is TEXT, not INTEGER)
-ALTER TABLE queue_table_events ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL DEFAULT '';
-
-INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label, unique_value)
-VALUES
-    ('queue_table_events', 'queue_id',      'Queue',         'parent',    FALSE,  5, 'default',  'default', '',           NULL, NULL,                                                          NULL, 'queues',   'cascade', 'has events', FALSE),
-    ('queue_table_events', 'table_name',    'Entity',         'reference', FALSE, 10, 'required', 'default', 'Table whose DML events are captured',          '',   NULL,                                                          NULL, 'entities', 'cascade', 'has queue events', TRUE),
-    ('queue_table_events', 'event_handler', 'Event Handler', 'enum',      FALSE, 20, 'required', 'default', 'Which DML operations trigger a queue message', '',   '["insert", "update", "upsert", "delete", "change"]'::jsonb,  NULL, '',         '',        '', FALSE);
 
 -- =====================================================
 -- STEP 4: Triggers on queue_table_events
@@ -13619,7 +16487,7 @@ $$;
 COMMENT ON FUNCTION queue_event_before_update() IS
 'Trigger function that rejects changing queue_table_events.table_name on UPDATE (the mapping''s target table is immutable).';
 
-CREATE TRIGGER queue_event_before_update_trigger
+CREATE OR REPLACE TRIGGER queue_event_before_update_trigger
     BEFORE UPDATE ON queue_table_events
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_before_update();
@@ -13767,7 +16635,7 @@ BEGIN
     --
     -- The name carries the event, not the handler:
     -- queue_<queue>_<event>_on_<table>. For a single-event handler the two words
-    -- coincide. The name must end in _on_<table>, because 0140_dd_rename.sql
+    -- coincide. The name must end in _on_<table>, because 0170_dd_rename.sql
     -- renames these triggers by matching that suffix and swapping the new table
     -- name onto the end. The handler itself is not lost: it is read back from
     -- queue_table_events when a message is built.
@@ -13809,7 +16677,7 @@ $$;
 COMMENT ON FUNCTION queue_event_after_insert() IS
 'Trigger function that installs one statement-level queue_build_record_json trigger per DML event on the mapped table when a queue_table_events mapping is inserted.';
 
-CREATE TRIGGER queue_event_after_insert_trigger
+CREATE OR REPLACE TRIGGER queue_event_after_insert_trigger
     AFTER INSERT ON queue_table_events
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_after_insert();
@@ -13855,7 +16723,7 @@ $$;
 COMMENT ON FUNCTION queue_event_after_delete() IS
 'Trigger function that drops every queue_build_record_json trigger from the mapped table when a queue_table_events mapping is deleted.';
 
-CREATE TRIGGER queue_event_after_delete_trigger
+CREATE OR REPLACE TRIGGER queue_event_after_delete_trigger
     AFTER DELETE ON queue_table_events
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_after_delete();
@@ -14043,752 +16911,362 @@ COMMENT ON FUNCTION public.queue_delete IS
 
 REVOKE EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
-$pgsem__core_0170_queue$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0170_queue', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0170_queue', '738f929680392b1f8725d2399f6bf56736a80e566fa52860c7faa030ca3f81c9');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0180_computed_validation') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0180_computed_validation';
-    BEGIN
-      EXECUTE $pgsem__core_0180_computed_validation$-- =====================================================
--- COMPUTED FIELDS AND VALIDATION RULES
--- =====================================================
--- Per-record derivation and invariant checks expressed as JsonLogic.
---
--- Schema for entities.computed_fields and entities.validation_rules lives in
--- 0060_dd_schema.sql alongside the rest of the entities table; this migration
--- contains only the runtime: a per-table BEFORE INSERT OR UPDATE OR DELETE
--- trigger function that is (re)generated whenever either array is non-empty, and
--- dropped when both are empty or the entity itself is deleted.
---
--- Reserved variables injected into the JsonLogic data:
---   $today    -> server date
---   $now      -> server timestamp
---   $user_id  -> internal user_id from JWT context, null when no context
---   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
---   $mode     -> the operation: 'insert' | 'update' | 'delete'
---
--- DELETE arm: the rules also fire on DELETE, evaluated against the row being
--- removed (OLD). Computed-field output is discarded on DELETE (the row is going
--- away), but validation_rules can abort the delete — e.g. a rule guarded by
--- {"!=": [{"var": "$mode"}, "delete"]} blocks deletion. The trigger is per row,
--- so a statement deleting many rows is judged one row at a time and a single
--- refusal takes the whole statement with it.
-
--- =====================================================
--- STEP 0: Error-hint merge used by the generated trigger
--- =====================================================
--- The merge is additive and the key already present wins - jsonb || takes the
--- right operand. That direction is what makes a cascaded write keep the
--- innermost entity and rule, and what lets a 42501 keep its own hint.code;
--- swapping the operands inverts both silently.
---
--- The cast is guarded rather than tested with a leading brace: text that starts
--- with one can still be malformed, and a raise in here would replace the error
--- the caller is trying to report.
-CREATE OR REPLACE FUNCTION public.jl_error_hint(p_hint TEXT, p_add JSONB)
-RETURNS TEXT AS $$
-DECLARE
-    v_obj JSONB;
-BEGIN
-    IF p_hint IS NULL OR p_hint = '' THEN
-        v_obj := '{}'::jsonb;
+$pgsem__core_0340_queue_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0340_queue.sql', 'e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
     ELSE
-        BEGIN
-            v_obj := p_hint::jsonb;
-        EXCEPTION WHEN OTHERS THEN
-            v_obj := NULL;
-        END;
-        IF v_obj IS NULL OR jsonb_typeof(v_obj) <> 'object' THEN
-            v_obj := jsonb_build_object('hint', p_hint);
-        END IF;
+      v_skipped := v_skipped + 1;
     END IF;
-    RETURN (p_add || v_obj)::text;
-END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
-
-COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
-'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
-
-REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
-
--- =====================================================
--- STEP 1: Per-row trigger generator
--- =====================================================
-
-CREATE OR REPLACE FUNCTION build_record_logic_trigger(p_table_name TEXT)
-RETURNS VOID AS $$
-DECLARE
-    v_entity entities%ROWTYPE;
-    v_fn_name TEXT;
-    v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
-    v_body TEXT;
-    v_rules_block TEXT := '';
-    v_item JSONB;
-    v_name TEXT;
-    v_path_sql TEXT;
-    v_logic_lit TEXT;
-    v_code TEXT;
-    v_message TEXT;
-    v_rule_hint TEXT;
-    v_has_computed BOOLEAN;
-    v_writeback TEXT;
-    v_all_logic TEXT;
-    v_extra_ctx TEXT := '';
-BEGIN
-    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
-    IF NOT FOUND THEN
-        -- No entity by that name. Every caller passes one it just read, and the
-        -- entities DELETE arm drops the function itself, so this is reached only
-        -- by a caller naming a table the dictionary does not know - drop
-        -- whatever is there under that name and leave.
-        v_fn_name := 'compute_validate_' || p_table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
-        RETURN;
-    END IF;
-
-    -- Skip unmanaged tables (no physical table to attach a trigger to)
-    IF NOT v_entity.managed THEN
-        RETURN;
-    END IF;
-
-    v_fn_name := 'compute_validate_' || p_table_name;
-
-    -- Drop any existing trigger + function so we can recreate cleanly
-    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
-
-    -- Both arrays empty → nothing to install
-    IF jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) = 0
-       AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
-        RETURN;
-    END IF;
-
-    v_has_computed := jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) > 0;
-
-    -- $old is built only for entities whose rules read it: it serializes the
-    -- whole previous row on every UPDATE and DELETE, for rules that mostly never
-    -- look at it. $mode is a lowercased TG_OP and costs nothing, so it is always
-    -- present - and it is the variable that guards DELETE, where a missing value
-    -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
-    -- blocking the delete.
-    --
-    -- The $old test is a substring search over the raw rule text rather than a
-    -- lookup of a "$old" key, because a reference is usually a path -
-    -- {"var":"$old.label"} - and an exact-key test would miss it and drop the
-    -- value the rule needs. Three forms count as a reference:
-    --   * the name appearing anywhere, which covers every literal path;
-    --   * value_changed, which never names $old but reads the key itself and
-    --     returns true whenever it is absent, so an entity using it would
-    --     silently start reporting every field as changed;
-    --   * a var whose argument is an object rather than a string. The
-    --     interpreter evaluates that argument as JsonLogic, so {"var":{"cat":
-    --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
-    --     the text. Such a rule cannot be searched, so any entity using one gets
-    --     the full context.
-    v_all_logic := COALESCE(v_entity.computed_fields::text, '') ||
-                   COALESCE(v_entity.validation_rules::text, '');
-
-    IF v_all_logic LIKE '%$old%'
-       OR v_all_logic LIKE '%value_changed%'
-       OR v_all_logic LIKE '%"var": {%' THEN
-        v_extra_ctx := v_extra_ctx || $CTX$,
-        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END$CTX$;
-    END IF;
-
-    v_extra_ctx := v_extra_ctx || $CTX$,
-        '$mode',    to_jsonb(lower(TG_OP))$CTX$;
-
-    -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
-    FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
-        v_item := v_entity.computed_fields -> v_idx;
-        v_name := v_item ->> 'name';
-        IF v_name IS NULL OR v_name = '' THEN
-            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
-                USING ERRCODE = '90900',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
-                USING ERRCODE = '90901',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
-        SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
-          INTO v_path_sql
-          FROM unnest(string_to_array(v_name, '.')) AS part;
-
-        -- The field name is admin-supplied text that lands inside the generated
-        -- function body: it is emitted as a quoted literal so quotes or dollar
-        -- signs in it cannot break out of the string. It is a value handed to
-        -- jsonb_build_object, never a RAISE format string, so nothing in it
-        -- needs escaping.
-        --
-        -- WHEN SQLSTATE '90000' catches the whole of class 90, not that one
-        -- code: PostgreSQL treats a SQLSTATE ending in three zeroes as a
-        -- category and matches every code whose first two characters agree.
-        -- Our own catalog errors therefore pass through untouched, and only
-        -- everything else is re-raised with the locating keys merged in.
-        v_rules_block := v_rules_block || E'\n' || format(
-$BLOCK$    BEGIN
-        v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION
-        WHEN SQLSTATE '90000' THEN
-            RAISE;
-        WHEN OTHERS THEN
-            GET STACKED DIAGNOSTICS
-                v_err_state  = RETURNED_SQLSTATE,
-                v_err_msg    = MESSAGE_TEXT,
-                v_err_detail = PG_EXCEPTION_DETAIL,
-                v_err_hint   = PG_EXCEPTION_HINT;
-            RAISE EXCEPTION '%%', v_err_msg
-                USING ERRCODE = v_err_state,
-                      DETAIL  = COALESCE(v_err_detail, ''),
-                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
-                                    'entity', TG_TABLE_NAME,
-                                    'field',  %s));
-    END;
-    v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
-$BLOCK$,
-            v_logic_lit,
-            quote_literal(v_name),
-            v_path_sql);
-    END LOOP;
-
-    -- Validation rules: evaluate each against post-derivation v_data, raise on falsy
-    FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) - 1 LOOP
-        v_item := v_entity.validation_rules -> v_idx;
-        v_code := v_item ->> 'code';
-        v_message := v_item ->> 'message';
-        v_rule_hint := v_item ->> 'hint';
-        IF v_code IS NULL OR v_code = '' THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
-                USING ERRCODE = '90902',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF v_message IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
-                USING ERRCODE = '90903',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
-                USING ERRCODE = '90904',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-
-        -- Refused here rather than when the rule fires: PL/pgSQL accepts any
-        -- five uppercase alphanumerics as an ERRCODE, so a code like
-        -- "must_be_positive" installs happily and then fails at write time,
-        -- inside a trigger, on a row that has nothing to do with it.
-        --
-        -- "platform" is a naming convention, not a trust boundary - a
-        -- dictionary administrator can write it, and already writes the rule's
-        -- logic and message anyway.
-        IF (v_item ->> 'source_module') = 'platform' THEN
-            IF v_code !~ '^90[0-9]{3}$' THEN
-                RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
-                    USING ERRCODE = '90906',
-                          HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
-            END IF;
-        ELSIF v_code !~ '^99[0-9]{3}$' THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
-                USING ERRCODE = '90905',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
-        END IF;
-
-        v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
-
-        -- code, message and hint are admin-supplied text that lands inside the
-        -- generated function body, all three emitted as quoted literals so a
-        -- quote or a dollar sign cannot break out of the string. None of them
-        -- is a RAISE format string: the message is passed as the argument of a
-        -- '%' format instead, which is what lets a rule author write a percent
-        -- sign without escaping it.
-        --
-        -- An error thrown while the rule's logic runs is not the rule failing,
-        -- so it travels out as itself; the handler is the one above.
-        v_rules_block := v_rules_block || E'\n' || format(
-$BLOCK$    BEGIN
-        v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION
-        WHEN SQLSTATE '90000' THEN
-            RAISE;
-        WHEN OTHERS THEN
-            GET STACKED DIAGNOSTICS
-                v_err_state  = RETURNED_SQLSTATE,
-                v_err_msg    = MESSAGE_TEXT,
-                v_err_detail = PG_EXCEPTION_DETAIL,
-                v_err_hint   = PG_EXCEPTION_HINT;
-            RAISE EXCEPTION '%%', v_err_msg
-                USING ERRCODE = v_err_state,
-                      DETAIL  = COALESCE(v_err_detail, ''),
-                      HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
-                                    'entity', TG_TABLE_NAME,
-                                    'rule',   %s));
-    END;
-    IF NOT jl_truthy(v_result) THEN
-        RAISE EXCEPTION '%%', %s USING ERRCODE = %s, HINT = %s;
-    END IF;
-$BLOCK$,
-            v_logic_lit,
-            quote_literal(v_code),
-            quote_literal(v_message),
-            quote_literal(v_code),
-            'jsonb_build_object(''entity'', TG_TABLE_NAME, ''rule'', ' ||
-                quote_literal(v_code) ||
-                CASE WHEN v_rule_hint IS NULL THEN ''
-                     ELSE ', ''hint'', ' || quote_literal(v_rule_hint) END ||
-                ')::text');
-    END LOOP;
-
-    -- Write-back tail. Validation rules never modify the row, so a validation-only
-    -- entity returns NEW untouched — no need to rebuild it. An entity WITH computed
-    -- fields must fold the derived values (written into v_data by the block above)
-    -- back onto NEW.
-    --
-    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
-    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
-    -- A static call caches the target row type's tuple descriptor in the plpgsql
-    -- expression's fn_extra and does NOT refresh it when the table gains a column
-    -- LATER in the SAME transaction — so a column added and set after this trigger
-    -- first fired (e.g. an order column provisioned and then set in the same install) would be
-    -- silently dropped, reverting that write. This only surfaces in a single-txn
-    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
-    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
-    -- every call, so mid-transaction columns survive.
-    IF v_has_computed THEN
-        v_writeback := $WB$    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
-    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
-$WB$;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0340_queue.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
     ELSE
-        v_writeback := '';
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0340_queue.sql', v_msg, v_state);
     END IF;
+  END;
+  COMMIT;
 
-    -- Assemble full function.
-    v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
-DECLARE
-    v_data jsonb;
-    v_result jsonb;
-    v_uid_text text;
-    v_err_state text;
-    v_err_msg text;
-    v_err_detail text;
-    v_err_hint text;
-BEGIN
-    -- Derived through rbac (lazy context initialization), never read raw from the
-    -- client-writable app.current_user_id setting; NULL when unauthenticated.
-    v_uid_text := rbac.user_id_or_null()::text;
-    -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
-    v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
-        '$today',   to_jsonb(CURRENT_DATE),
-        '$now',     to_jsonb(CURRENT_TIMESTAMP),
-        '$user_id', CASE
-                       WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
-                       ELSE to_jsonb(v_uid_text::int)
-                   END%s
-    );
-%s
-    -- DELETE keeps no computed output; the validation rules above may still abort it.
-    IF TG_OP = 'DELETE' THEN
-        RETURN OLD;
+  -- _core.0350_raci.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0350_raci.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0350_raci.jsonc';
+      EXECUTE $pgsem__core_0350_raci_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// RACI entities (Responsible, Accountable, Consulted, Informed):
+//   processes         - the RACI process catalog
+//   raci_assignments  - the RACI matrix: roles assigned to processes
+//   process_gates     - governance registry: binds (entity, to_state) to a
+//                       process and drives the emit trigger
+//   raci_events       - notify/consult log for RACI-governed transitions
+// Constraints, indexes, NOT NULL settings and the raci_notify queue are in
+// 0360_raci_setup.once.sql; functions, the view and triggers in 0370_raci.sql.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "processes",
+        "module_name": "_core",
+        "singular": "process",
+        "singular_label": "Process",
+        "plural_label": "Processes",
+        "description": "RACI process catalog",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "name",
+        "fields": [
+          {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 10, "description": ""},
+          {"field_name": "module_id", "title": "Module", "format": "reference", "field_order": 20, "input_type": "default",
+           "description": "Owning module", "reference_table": "modules", "reference_delete_mode": "clear"},
+          {"field_name": "process_key", "title": "Process Key", "format": "text", "field_order": 30, "input_type": "required",
+           "description": "Stable snake_case identifier, unique within module", "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "description", "title": "Description", "format": "multiline", "field_order": 40, "input_type": "default",
+           "description": "", "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "ordering", "title": "Ordering", "format": "integer", "field_order": 50, "input_type": "default",
+           "description": "", "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "raci_assignments",
+        "module_name": "_core",
+        "singular": "raci_assignment",
+        "singular_label": "RACI Assignment",
+        "plural_label": "RACI Assignments",
+        "description": "RACI matrix rows assigning roles to processes",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "name",
+        // The label is a computed name mirroring the RACI letter, so raci can
+        // stay a real enum (a label column is a core TEXT field and cannot
+        // itself be an enum).
+        "computed_fields": [{"name": "name", "jsonlogic": {"var": "raci"}}],
+        "fields": [
+          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "readonly", "field_order": 5,
+           "description": "Display label — mirrors the RACI letter (computed)"},
+          {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
+           "description": "", "default_value": "", "enum_values": null,
+           "reference_table": "processes", "reference_delete_mode": "cascade"},
+          {"field_name": "role_id", "title": "Role", "format": "reference", "field_order": 20, "input_type": "required",
+           "description": "The persona role assigned this letter", "default_value": "", "enum_values": null,
+           "reference_table": "roles", "reference_delete_mode": "cascade"},
+          {"field_name": "raci", "title": "RACI", "format": "enum", "field_order": 30, "input_type": "required",
+           "description": "", "default_value": "", "enum_values": ["responsible", "accountable", "consulted", "informed"],
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "consult_mode", "title": "Consult Mode", "format": "enum", "field_order": 40, "input_type": "default",
+           "description": "How a consulted actor takes part: read (passive), notify (push) or block (gate). Applies only when raci is consulted.",
+           "default_value": "read", "enum_values": ["read", "notify", "block"],
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "origin", "title": "Origin", "format": "enum", "field_order": 50, "input_type": "default",
+           "description": "How this row was created: system (generated by the platform) or user (created or edited by a user)",
+           "default_value": "user", "enum_values": ["system", "user"],
+           "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "process_gates",
+        "module_name": "_core",
+        "singular": "process_gate",
+        "singular_label": "Process Gate",
+        "plural_label": "Process Gates",
+        "description": "Governance registry: maps entity transitions to processes",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "name",
+        // The label is a computed name mirroring gate_kind, so gate_kind can
+        // stay a real enum (a label column is a core TEXT field and cannot
+        // itself be an enum).
+        "computed_fields": [{"name": "name", "jsonlogic": {"var": "gate_kind"}}],
+        "fields": [
+          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "readonly", "field_order": 5,
+           "description": "Display label — mirrors the gate kind (computed)"},
+          {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
+           "description": "", "default_value": "", "enum_values": null,
+           "reference_table": "processes", "reference_delete_mode": "cascade"},
+          // entity is a plain TEXT natural key (the governed table name), not a
+          // reference: entities is keyed by a TEXT natural key, which the
+          // INTEGER-FK reference machinery cannot model.
+          {"field_name": "entity", "title": "Entity", "format": "text", "field_order": 20, "input_type": "required",
+           "description": "", "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "gate_kind", "title": "Gate Kind", "format": "enum", "field_order": 30, "input_type": "required",
+           "description": "", "default_value": "",
+           "enum_values": ["approval", "submit_lock", "ownership", "create", "transition"],
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "to_state", "title": "To State", "format": "text", "field_order": 40, "input_type": "default",
+           "description": "Target lifecycle state (empty for non-state-targeted gates)", "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": ""},
+          // state_column names the column of the governed table that holds the
+          // lifecycle state (default status).
+          {"field_name": "state_column", "title": "State Column", "format": "text", "field_order": 50, "input_type": "default",
+           "description": "Column that holds the lifecycle state in the governed table", "default_value": "status", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": ""},
+          // emits_events: the generic emit trigger inserts raci_events for the
+          // consulted and informed actors when a row transitions to to_state.
+          {"field_name": "emits_events", "title": "Emits Events", "format": "boolean", "field_order": 60, "input_type": "default",
+           "description": "When enabled, entering to_state inserts raci_events for the consulted and informed actors",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    },
+    {
+      // A table of its own so notifications and consultations are queryable,
+      // audited and retryable.
+      "entity": {
+        "table_name": "raci_events",
+        "module_name": "_core",
+        "singular": "raci_event",
+        "singular_label": "RACI Event",
+        "plural_label": "RACI Events",
+        "description": "Notify/consult audit log for RACI-governed record transitions",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "record_id",
+        "fields": [
+          // record_id is TEXT on purpose: entity primary keys need not be
+          // integer serials (as with entities.id_column).
+          {"field_name": "record_id", "ctype": "label", "title": "Record", "field_order": 30,
+           "description": "Governed record PK (text for non-integer PKs)"},
+          {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
+           "description": "", "default_value": "", "enum_values": null,
+           "reference_table": "processes", "reference_delete_mode": "cascade"},
+          {"field_name": "entity", "title": "Entity", "format": "text", "field_order": 20, "input_type": "required",
+           "description": "", "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "raci", "title": "RACI", "format": "enum", "field_order": 40, "input_type": "required",
+           "description": "RACI role of the actor. Only consulted and informed actors generate events, so these are the only values.",
+           "default_value": "", "enum_values": ["consulted", "informed"],
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "target_role_id", "title": "Target Role", "format": "reference", "field_order": 50, "input_type": "required",
+           "description": "Role to be notified or consulted", "default_value": "", "enum_values": null,
+           "reference_table": "roles", "reference_delete_mode": "cascade"},
+          {"field_name": "status", "title": "Status", "format": "enum", "field_order": 60, "input_type": "required",
+           "description": "pending → sent → acted; acted = the consultation input was received",
+           "default_value": "pending", "enum_values": ["pending", "sent", "acted"],
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "acted_at", "title": "Acted At", "format": "date-time", "field_order": 70, "input_type": "disabled",
+           "description": "When the consulted party responded (NULL until acted)", "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0350_raci_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0350_raci.jsonc', '65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
     END IF;
-%s    RETURN NEW;
-END;
-$TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0350_raci.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0350_raci.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-    EXECUTE v_body;
+  -- _core.0360_raci_setup.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0360_raci_setup.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0360_raci_setup.once.sql';
+      EXECUTE $pgsem__core_0360_raci_setup_once_sql$-- =====================================================
+-- RACI SYSTEM - constraints, indexes, notification queue
+-- =====================================================
+-- Runs once. The entities are defined in 0350_raci.jsonc, the functions,
+-- view and triggers in 0370_raci.sql.
 
-    -- Revoke PUBLIC execute on trigger function (security best practice)
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I() FROM PUBLIC', v_fn_name);
+ALTER TABLE processes ADD CONSTRAINT valid_process_key
+    CHECK (process_key = '' OR process_key ~ '^[a-z_][a-z0-9_]*$');
 
-    EXECUTE format(
-        'COMMENT ON FUNCTION public.%I() IS %L',
-        v_fn_name,
-        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s". Generated by build_record_logic_trigger.', p_table_name));
+-- process_key is unique within a module; the NULL-module case needs its own
+-- partial index since NULLs don't collide in a composite unique.
+CREATE UNIQUE INDEX idx_processes_module_key
+    ON processes(module_id, process_key)
+    WHERE module_id IS NOT NULL AND process_key != '';
+CREATE UNIQUE INDEX idx_processes_global_key
+    ON processes(process_key)
+    WHERE module_id IS NULL AND process_key != '';
 
-    EXECUTE format(
-        'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
-        v_trg_name, p_table_name, v_fn_name);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+-- reference columns default to nullable in the DD model; role_id is mandatory
+ALTER TABLE raci_assignments ALTER COLUMN role_id SET NOT NULL;
 
-COMMENT ON FUNCTION build_record_logic_trigger IS
-'Generates (or drops) the per-table BEFORE INSERT OR UPDATE OR DELETE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete.';
+-- Invariant: at most one accountable per process (enforced on every write)
+CREATE UNIQUE INDEX idx_raci_one_accountable
+    ON raci_assignments(process_id)
+    WHERE raci = 'accountable';
 
-REVOKE EXECUTE ON FUNCTION build_record_logic_trigger(TEXT) FROM PUBLIC;
+-- One assignment per (process, role, letter)
+ALTER TABLE raci_assignments
+    ADD CONSTRAINT raci_assignments_process_role_raci_key UNIQUE (process_id, role_id, raci);
+
+ALTER TABLE process_gates
+    ADD CONSTRAINT process_gates_process_entity_gate_state_key
+    UNIQUE (process_id, entity, gate_kind, to_state);
+
+CREATE INDEX idx_process_gates_entity ON process_gates(entity);
+CREATE INDEX idx_process_gates_emit   ON process_gates(entity) WHERE emits_events = TRUE;
+
+-- reference columns default to nullable in the DD model; target_role_id is mandatory
+ALTER TABLE raci_events ALTER COLUMN target_role_id SET NOT NULL;
+
+CREATE INDEX idx_raci_events_entity ON raci_events(entity, record_id);
+CREATE INDEX idx_raci_events_status ON raci_events(status) WHERE status != 'acted';
 
 -- =====================================================
--- STEP 2: Trigger on entities to keep per-row trigger in sync
+-- STEP 9: Queue wiring — raci_notify
 -- =====================================================
+-- Table → queue is pure configuration: insert a queue and a
+-- queue_table_events row. No new trigger code is required.
+-- Runs as the database owner (BYPASSRLS) — no role switching needed.
 
-CREATE OR REPLACE FUNCTION manage_record_logic_trigger()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_fn_name TEXT;
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        IF NEW.managed AND (
-              jsonb_array_length(COALESCE(NEW.computed_fields, '[]'::jsonb)) > 0
-           OR jsonb_array_length(COALESCE(NEW.validation_rules, '[]'::jsonb)) > 0
-        ) THEN
-            PERFORM build_record_logic_trigger(NEW.table_name);
-        END IF;
-        RETURN NEW;
+INSERT INTO queues (queue_name) VALUES ('raci_notify');
+
+-- Wire new raci_events rows to the raci_notify queue so the
+-- consumer (email/webhook dispatcher) can read and process them.
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT id, 'raci event insert', 'raci_events', 'insert'
+FROM   queues WHERE queue_name = 'raci_notify';
+$pgsem__core_0360_raci_setup_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0360_raci_setup.once.sql', '5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
     END IF;
-
-    IF TG_OP = 'UPDATE' THEN
-        IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields
-           OR OLD.validation_rules IS DISTINCT FROM NEW.validation_rules
-           OR OLD.managed IS DISTINCT FROM NEW.managed
-           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
-            PERFORM build_record_logic_trigger(NEW.table_name);
-        END IF;
-        RETURN NEW;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0360_raci_setup.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0360_raci_setup.once.sql', v_msg, v_state);
     END IF;
+  END;
+  COMMIT;
 
-    IF TG_OP = 'DELETE' THEN
-        v_fn_name := 'compute_validate_' || OLD.table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
-        RETURN OLD;
-    END IF;
-
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION manage_record_logic_trigger IS
-'Trigger function on entities that creates/updates/drops the per-table BEFORE row trigger for computed_fields and validation_rules.';
-
--- AFTER INSERT/UPDATE so it runs after create_table_trigger (which creates the
--- physical table). AFTER DELETE so it runs after delete_table_trigger drops the
--- table — at that point only the standalone trigger function survives, which we
--- explicitly drop.
-CREATE TRIGGER manage_record_logic_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION manage_record_logic_trigger();
-
-REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
-
--- =====================================================
--- STEP 3: Per-row SELECT policy generator (select_rule)
--- =====================================================
--- When an entity has a non-empty select_rule (a JsonLogic object), this
--- function generates two helper functions and rebuilds the SELECT, UPDATE and
--- DELETE policies so each row is filtered by the rule. The two-argument helper
--- merges the row with a statement context handed to it; the one-argument helper
--- resolves that context itself. Reserved variables are
--- ($today, $now, $user_id — there is no $old/$mode for a read),
--- evaluates the JsonLogic rule, and returns true only when the result is truthy.
-
--- The reserved JsonLogic variables that do not vary within a statement. RLS
--- quals reach this through an uncorrelated sub-select so the planner turns it
--- into an InitPlan and evaluates it once per statement instead of once per row;
--- 0445_test_policy_subselect_form.sql pins that shape against a well-meaning
--- edit to a bare call.
---
--- rbac.uid() is called directly and first. It is what refuses a session with no
--- valid claims, and this function is the only refusal on the select_rule read
--- path: that policy's USING clause carries no permission conjunct, and the
--- generated predicate swallows every error from rule evaluation. Reaching uid()
--- indirectly is not equivalent - rbac.ensure_context_initialized() returns early
--- on an already-initialized session without calling it, so the gate would hold
--- only on the first statement of a transaction.
---
--- The user id comes from rbac.user_id() rather than from app.current_user_id.
--- That setting is client-writable in a direct SQL session, and rbac.user_id()
--- derives the value instead of believing it. is_raci_actor and has_consultation
--- in 0210 still read the setting raw after calling ensure_context_initialized,
--- so this is not the last raw read in the codebase - it is one fewer. Going
--- through the helper also means a subject with no users row raises 42501 here,
--- the same answer the other RLS paths give.
-CREATE OR REPLACE FUNCTION public.jl_request_context()
-RETURNS JSONB AS $$
-DECLARE
-    v_uid INTEGER;
-BEGIN
-    PERFORM rbac.uid();
-    v_uid := rbac.user_id();
-    RETURN jsonb_build_object(
-        '$today',   to_jsonb(CURRENT_DATE),
-        '$now',     to_jsonb(CURRENT_TIMESTAMP),
-        -- rbac.user_id() raises rather than returning NULL, so there is no
-        -- unresolved case to fold here.
-        '$user_id', to_jsonb(v_uid)
-    );
-END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION public.jl_request_context() IS
-'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
-
-REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
-
-CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
-RETURNS VOID AS $$
-DECLARE
-    v_entity entities%ROWTYPE;
-    v_fn_name TEXT;
-    v_policy_name TEXT;
-    v_body TEXT;
-    v_logic_lit TEXT;
-BEGIN
-    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
-    IF NOT FOUND THEN
-        -- No entity by that name; drop both overloads if they exist. A DROP that
-        -- names only one signature is a silent no-op for the other, and the
-        -- CASCADE that removes the dependent policies rides on it.
-        v_fn_name := 'select_rule_' || p_table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
-        RETURN;
-    END IF;
-
-    -- Skip unmanaged tables
-    IF NOT v_entity.managed THEN
-        RETURN;
-    END IF;
-
-    v_fn_name := 'select_rule_' || p_table_name;
-    v_policy_name := p_table_name || '_select_policy';
-
-    -- Always drop both overloads before rebuilding (CASCADE removes anything
-    -- depending on them). Dropping only one leaves the other behind and the
-    -- CREATE below then fails with a duplicate-function error.
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
-
-    -- Drop the existing select policy so we can recreate it
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
-
-    -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
-    -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
-    -- If select_rule is empty, restore the default permission-only policies (read = view
-    -- permission, writes = edit permission, no per-row rule).
-    IF v_entity.select_rule = '{}'::jsonb THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_policy_name, p_table_name, v_entity.view_permission);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
-        EXECUTE format(
-            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
-        RETURN;
-    END IF;
-
-    v_logic_lit := quote_literal(v_entity.select_rule::text);
-
-    -- Build the per-row evaluation function in two overloads.
-    --
-    -- The two-argument form takes the statement-constant context as a parameter
-    -- so the policies can hoist it out of the per-row loop. It answers rule
-    -- questions for anyone able to supply a context, which is unavoidable: an
-    -- RLS qual runs with the querying role's privileges, so semantius_user must
-    -- hold EXECUTE. It returns no row data - the caller already holds the row it
-    -- passes in, and RLS still filters any relation being scanned. The
-    -- permission operators resolve against the session rather than against
-    -- $user_id, so a forged context cannot widen what a caller may see. It does
-    -- merge the context over the row, so a caller can shadow a column and aim an
-    -- operator such as has_consultation at a record it cannot read; the answer
-    -- is one boolean, never its contents.
-    --
-    -- The one-argument form supplies the context itself and is the entry point
-    -- for callers outside a policy, get_record_by_id in 0070_dd_functions.sql
-    -- among them. It carries the authentication gate for those callers, which is
-    -- why it must not be reduced to a convenience wrapper that skips it.
-    v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS $SEL$
-DECLARE
-    v_data jsonb;
-    v_result jsonb;
-BEGIN
-    v_data := to_jsonb(p_row) || p_ctx;
-
-    BEGIN
-        v_result := evaluate_json_logic(%s::jsonb, v_data);
-    EXCEPTION WHEN OTHERS THEN
-        RETURN FALSE;
-    END;
-
-    RETURN jl_truthy(v_result);
-END;
-$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
-    SELECT public.%I(p_row, public.jl_request_context());
-$SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name);
-
-    EXECUTE v_body;
-
-    -- Both overloads need their own grants and comment: privileges and comments
-    -- attach to a signature, not to a name, so an overload left out is callable
-    -- by any role and undocumented. 0060_test_security.sql and
-    -- 0240_test_no_unsafe_functions.sql sweep for exactly that.
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
-    EXECUTE format(
-        'COMMENT ON FUNCTION public.%I(public.%I, jsonb) IS %L',
-        v_fn_name, p_table_name,
-        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s" against a caller-supplied statement context. Generated by build_select_rule_policy.', p_table_name));
-
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
-    EXECUTE format(
-        'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
-        v_fn_name, p_table_name,
-        format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s", resolving the request context itself. Generated by build_select_rule_policy.', p_table_name));
-
-    -- The context sub-select is uncorrelated, so the planner lifts it to an
-    -- InitPlan and resolves the request once per statement rather than once per
-    -- scanned row. It has to appear in all three policies: a USING clause is
-    -- evaluated per row for every UPDATE and DELETE as well, so a policy left
-    -- with a bare call keeps paying per row on the write path.
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_policy_name, p_table_name, v_fn_name, p_table_name);
-
-    -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
-    -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
-    -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
-    -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
-    -- row out of its own rule.
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
-    EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
-        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it. With no select_rule set, the three policies are the permission-only form instead. The generated functions have EXECUTE revoked from PUBLIC.';
-
-REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
-
--- =====================================================
--- STEP 4: Trigger on entities to keep select_rule policy in sync
--- =====================================================
-
-CREATE OR REPLACE FUNCTION manage_select_rule_policy()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_fn_name TEXT;
-BEGIN
-    IF TG_OP = 'INSERT' THEN
-        IF NEW.managed AND NEW.select_rule IS NOT NULL AND NEW.select_rule != '{}'::jsonb THEN
-            PERFORM build_select_rule_policy(NEW.table_name);
-        END IF;
-        RETURN NEW;
-    END IF;
-
-    IF TG_OP = 'UPDATE' THEN
-        IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
-           OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
-           OR OLD.managed IS DISTINCT FROM NEW.managed
-           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
-            PERFORM build_select_rule_policy(NEW.table_name);
-        END IF;
-        RETURN NEW;
-    END IF;
-
-    IF TG_OP = 'DELETE' THEN
-        -- Both overloads, or the survivor blocks the next CREATE under this name.
-        v_fn_name := 'select_rule_' || OLD.table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, OLD.table_name);
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
-        RETURN OLD;
-    END IF;
-
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION manage_select_rule_policy IS
-'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
-
-CREATE TRIGGER manage_select_rule_policy_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION manage_select_rule_policy();
-
-REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
-
--- =====================================================
--- STEP 5: Bootstrap triggers for entities inserted before this migration
--- =====================================================
--- Core entities (roles, permission_hierarchy, etc.) may have been inserted in
--- 0060_dd_schema.sql with non-empty validation_rules/computed_fields before the
--- manage_record_logic_trigger existed. Build their triggers now.
-
-DO $$
-DECLARE
-    v_table_name TEXT;
-BEGIN
-    FOR v_table_name IN
-        SELECT e.table_name FROM entities e
-        WHERE jsonb_array_length(COALESCE(e.computed_fields, '[]'::jsonb)) > 0
-           OR jsonb_array_length(COALESCE(e.validation_rules, '[]'::jsonb)) > 0
-    LOOP
-        PERFORM build_record_logic_trigger(v_table_name);
-    END LOOP;
-END;
-$$;
-$pgsem__core_0180_computed_validation$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0180_computed_validation', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0180_computed_validation', '34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0210_raci') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0210_raci';
-    BEGIN
-      EXECUTE $pgsem__core_0210_raci$-- =====================================================
+  -- _core.0370_raci.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0370_raci.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0370_raci.sql';
+      EXECUTE $pgsem__core_0370_raci_sql$-- =====================================================
 -- RACI SYSTEM
 -- =====================================================
 -- Responsible, Accountable, Consulted, Informed (RACI)
@@ -14810,6 +17288,8 @@ $pgsem__core_0180_computed_validation$;
 -- =====================================================
 -- An agent is a service principal: a user that authenticates, holds
 -- roles, and is audited.
+-- Repeatable. The entities are defined in 0350_raci.jsonc, their constraints,
+-- indexes and the raci_notify queue in 0360_raci_setup.once.sql.
 
 -- An agent never authenticates at an identity provider, so nothing supplies
 -- its external_id - and external_id is the identity: an API key resolves to
@@ -14817,7 +17297,7 @@ $pgsem__core_0180_computed_validation$;
 -- agent inserted without one, or with an empty one, gets a generated identity
 -- here. A user gets nothing: a user's identity is the provider's sub, supplied
 -- through get_userinfo(), and a user row saved without one is refused by NOT
--- NULL and users_external_id_not_empty (0020). INSERT only, on purpose:
+-- NULL and users_external_id_not_empty (0060_rbac_schema.once.sql). INSERT only, on purpose:
 -- regenerating on UPDATE would rotate an agent's identity on an ordinary save
 -- and invalidate every token minted for it, so blanking it is refused instead.
 CREATE OR REPLACE FUNCTION assign_agent_external_id()
@@ -14833,7 +17313,7 @@ $$ LANGUAGE plpgsql SET search_path = public;
 COMMENT ON FUNCTION assign_agent_external_id IS
 'Trigger function: gives an agent (is_agent) inserted without an external_id, or with an empty one, a generated agent:<uuid>. Users are left alone and refused by the column constraints.';
 
-CREATE TRIGGER assign_agent_external_id_trigger
+CREATE OR REPLACE TRIGGER assign_agent_external_id_trigger
     BEFORE INSERT ON users
     FOR EACH ROW
     EXECUTE FUNCTION assign_agent_external_id();
@@ -14843,185 +17323,6 @@ COMMENT ON TRIGGER assign_agent_external_id_trigger ON users IS
 
 -- Revoke default PUBLIC execute on trigger function
 REVOKE EXECUTE ON FUNCTION assign_agent_external_id() FROM PUBLIC;
-
--- =====================================================
--- STEP 2: processes — the RACI process catalog
--- =====================================================
-
-INSERT INTO entities (
-    table_name, singular, plural, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column
-) VALUES (
-    'processes', 'process', 'processes', 'Process', 'Processes',
-    'RACI process catalog',
-    (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'name'
-);
-
-UPDATE fields
-   SET title = 'Name', field_order = 10, description = ''
- WHERE table_name = 'processes' AND field_name = 'name';
-
-INSERT INTO fields (
-    table_name, field_name, title, format, field_order, input_type,
-    description, reference_table, reference_delete_mode
-) VALUES
-    ('processes', 'module_id',   'Module',      'reference', 20, 'default',  'Owning module',                                      'modules', 'clear'),
-    ('processes', 'process_key', 'Process Key', 'text',      30, 'required', 'Stable snake_case identifier, unique within module', '', ''),
-    ('processes', 'description', 'Description', 'multiline', 40, 'default',  '',                '', ''),
-    ('processes', 'ordering',    'Ordering',    'integer',   50, 'default',  '',                          '', '');
-
-ALTER TABLE processes ADD CONSTRAINT valid_process_key
-    CHECK (process_key = '' OR process_key ~ '^[a-z_][a-z0-9_]*$');
-
--- process_key is unique within a module; the NULL-module case needs its own
--- partial index since NULLs don't collide in a composite unique.
-CREATE UNIQUE INDEX idx_processes_module_key
-    ON processes(module_id, process_key)
-    WHERE module_id IS NOT NULL AND process_key != '';
-CREATE UNIQUE INDEX idx_processes_global_key
-    ON processes(process_key)
-    WHERE module_id IS NULL AND process_key != '';
-
--- =====================================================
--- STEP 3: raci_assignments — the RACI matrix
--- =====================================================
--- Invariant: at most one accountable per process.
--- Enforced via a partial unique index so it holds on every write.
-
--- Label is a computed `name` mirroring the raci letter, so raci can stay a real
--- enum (a label column is a core TEXT field and can't itself be an enum).
-INSERT INTO entities (
-    table_name, singular, plural, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column, computed_fields
-) VALUES (
-    'raci_assignments', 'raci_assignment', 'raci_assignments',
-    'RACI Assignment', 'RACI Assignments',
-    'RACI matrix rows assigning roles to processes',
-    (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'name',
-    '[{"name": "name", "jsonlogic": {"var": "raci"}}]'::jsonb
-);
-
-UPDATE fields
-   SET title = 'Name', input_type = 'readonly', field_order = 5,
-       description = 'Display label — mirrors the RACI letter (computed)'
- WHERE table_name = 'raci_assignments' AND field_name = 'name';
-
-INSERT INTO fields (
-    table_name, field_name, title, format, field_order, input_type,
-    description, default_value, enum_values, reference_table, reference_delete_mode
-) VALUES
-    ('raci_assignments', 'process_id',   'Process',      'parent',    10, 'required', '',                        '',     NULL,                                                          'processes', 'cascade'),
-    ('raci_assignments', 'role_id',      'Role',         'reference', 20, 'required', 'The persona role assigned this letter',       '',     NULL,                                                          'roles', 'cascade'),
-    ('raci_assignments', 'raci',         'RACI',         'enum',      30, 'required', '',                       '',     '["responsible","accountable","consulted","informed"]'::jsonb, '', ''),
-    ('raci_assignments', 'consult_mode', 'Consult Mode', 'enum',      40, 'default',  'How a consulted actor takes part: read (passive), notify (push) or block (gate). Applies only when raci is consulted.', 'read', '["read","notify","block"]'::jsonb,                            '', ''),
-    ('raci_assignments', 'origin',       'Origin',       'enum',      50, 'default',  'How this row was created: system (generated by the platform) or user (created or edited by a user)',                    'user', '["system","user"]'::jsonb,                                    '', '');
-
--- reference columns default to nullable in the DD model; role_id is mandatory
-ALTER TABLE raci_assignments ALTER COLUMN role_id SET NOT NULL;
-
--- Invariant: at most one accountable per process (enforced on every write)
-CREATE UNIQUE INDEX idx_raci_one_accountable
-    ON raci_assignments(process_id)
-    WHERE raci = 'accountable';
-
--- One assignment per (process, role, letter)
-ALTER TABLE raci_assignments
-    ADD CONSTRAINT raci_assignments_process_role_raci_key UNIQUE (process_id, role_id, raci);
-
--- =====================================================
--- STEP 4: process_gates — governance registry + emit driver
--- =====================================================
--- Binds (entity, to_state) to a process.
--- emits_events = TRUE → the generic emit trigger inserts raci_events
--- for C/I actors when a row transitions to to_state.
--- state_column names which column in the governed table holds the
--- lifecycle state (defaults to 'status').
-
--- Label is a computed `name` mirroring gate_kind, so gate_kind can stay a real
--- enum (a label column is a core TEXT field and can't itself be an enum).
--- `entity` is a plain TEXT natural key (the governed table name), not a FK:
--- entities is keyed by a TEXT natural key, which the INTEGER-FK reference
--- machinery can't model.
-INSERT INTO entities (
-    table_name, singular, plural, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column, computed_fields
-) VALUES (
-    'process_gates', 'process_gate', 'process_gates',
-    'Process Gate', 'Process Gates',
-    'Governance registry: maps entity transitions to processes',
-    (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'name',
-    '[{"name": "name", "jsonlogic": {"var": "gate_kind"}}]'::jsonb
-);
-
-UPDATE fields
-   SET title = 'Name', input_type = 'readonly', field_order = 5,
-       description = 'Display label — mirrors the gate kind (computed)'
- WHERE table_name = 'process_gates' AND field_name = 'name';
-
-INSERT INTO fields (
-    table_name, field_name, title, format, field_order, input_type,
-    description, default_value, enum_values, reference_table, reference_delete_mode
-) VALUES
-    ('process_gates', 'process_id',   'Process',      'parent',  10, 'required', '',                                       '',       NULL,                                                                 'processes', 'cascade'),
-    ('process_gates', 'entity',       'Entity',       'text',    20, 'required', '',          '',       NULL,                                                                 '', ''),
-    ('process_gates', 'gate_kind',    'Gate Kind',    'enum',    30, 'required', '',                                    '',       '["approval","submit_lock","ownership","create","transition"]'::jsonb, '', ''),
-    ('process_gates', 'to_state',     'To State',     'text',    40, 'default',  'Target lifecycle state (empty for non-state-targeted gates)','',       NULL,                                                                 '', ''),
-    ('process_gates', 'state_column', 'State Column', 'text',    50, 'default',  'Column that holds the lifecycle state in the governed table','status', NULL,                                                                 '', ''),
-    ('process_gates', 'emits_events', 'Emits Events', 'boolean', 60, 'default',  'When enabled, entering to_state inserts raci_events for the consulted and informed actors',           '',       NULL,                                                                 '', '');
-
-ALTER TABLE process_gates
-    ADD CONSTRAINT process_gates_process_entity_gate_state_key
-    UNIQUE (process_id, entity, gate_kind, to_state);
-
-CREATE INDEX idx_process_gates_entity ON process_gates(entity);
-CREATE INDEX idx_process_gates_emit   ON process_gates(entity) WHERE emits_events = TRUE;
-
--- =====================================================
--- STEP 5: raci_events — notify/consult audit log
--- =====================================================
--- First-class table so notifications/consultations are queryable,
--- audited, and retryable. record_id is TEXT (deliberate: entity PKs
--- need not be integer serials — mirrors entities.id_column handling).
-
-INSERT INTO entities (
-    table_name, singular, plural, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column
-) VALUES (
-    'raci_events', 'raci_event', 'raci_events',
-    'RACI Event', 'RACI Events',
-    'Notify/consult audit log for RACI-governed record transitions',
-    (SELECT id FROM modules WHERE module_name = '_core'),
-    'admin', 'admin', 'id', 'record_id'
-);
-
-UPDATE fields
-   SET title = 'Record', field_order = 30,
-       description = 'Governed record PK (text for non-integer PKs)'
- WHERE table_name = 'raci_events' AND field_name = 'record_id';
-
-INSERT INTO fields (
-    table_name, field_name, title, format, field_order, input_type,
-    description, default_value, enum_values, reference_table, reference_delete_mode
-) VALUES
-    ('raci_events', 'process_id',     'Process',     'parent',    10, 'required', '',                                 '',        NULL,                                'processes', 'cascade'),
-    ('raci_events', 'entity',         'Entity',      'text',      20, 'required', '',                                  '',        NULL,                                '', ''),
-    ('raci_events', 'raci',           'RACI',        'enum',      40, 'required', 'RACI role of the actor. Only consulted and informed actors generate events, so these are the only values.',                                '',        '["consulted","informed"]'::jsonb,   '', ''),
-    ('raci_events', 'target_role_id', 'Target Role', 'reference', 50, 'required', 'Role to be notified or consulted',                     '',        NULL,                                'roles', 'cascade'),
-    ('raci_events', 'status',         'Status',      'enum',      60, 'required', 'pending → sent → acted; acted = the consultation input was received',                               'pending', '["pending","sent","acted"]'::jsonb, '', ''),
-    ('raci_events', 'acted_at',       'Acted At',    'date-time', 70, 'disabled', 'When the consulted party responded (NULL until acted)','',        NULL,                                '', '');
-
--- reference columns default to nullable in the DD model; target_role_id is mandatory
-ALTER TABLE raci_events ALTER COLUMN target_role_id SET NOT NULL;
-
-CREATE INDEX idx_raci_events_entity ON raci_events(entity, record_id);
-CREATE INDEX idx_raci_events_status ON raci_events(status) WHERE status != 'acted';
 
 -- =====================================================
 -- STEP 6: SQL functions — RACI operators
@@ -15509,698 +17810,440 @@ COMMENT ON FUNCTION raci_gates_manage_emit_trigger() IS
 'Trigger function on process_gates that (re)runs raci_install_or_drop_emit_trigger and raci_install_or_drop_gate_trigger for the affected entity/entities, so the raci_emit_on_<entity> and raci_gate_on_<entity> triggers follow the gates as they change.';
 
 -- Wire the installer to process_gates
-CREATE TRIGGER raci_gates_manage_emit_trigger
+CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON process_gates
     FOR EACH ROW
     EXECUTE FUNCTION raci_gates_manage_emit_trigger();
-
--- =====================================================
--- STEP 9: Queue wiring — raci_notify
--- =====================================================
--- Table → queue is pure configuration: insert a queue and a
--- queue_table_events row. No new trigger code is required.
--- Runs as the database owner (BYPASSRLS) — no role switching needed.
-
-INSERT INTO queues (queue_name) VALUES ('raci_notify');
-
--- Wire new raci_events rows to the raci_notify queue so the
--- consumer (email/webhook dispatcher) can read and process them.
-INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
-SELECT id, 'raci event insert', 'raci_events', 'insert'
-FROM   queues WHERE queue_name = 'raci_notify';
-$pgsem__core_0210_raci$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0210_raci', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0210_raci', '4f4e01fd3a7caa9a79d6b5b79fb81670c8b58a1359461e9a120531b9fc177945');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0230_entity_insert_defaults') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0230_entity_insert_defaults';
-    BEGIN
-      EXECUTE $pgsem__core_0230_entity_insert_defaults$-- =====================================================
--- MIGRATION: entity insert defaults (singular, singular_label)
--- =====================================================
--- When a row is inserted into entities, create_dd_table() (0070) seeds the
--- name/label field's title from entities.singular_label. Previously, if the
--- caller did not supply singular/singular_label they stayed '' (the column
--- default), so the name field was created with a blank title.
---
--- This migration fills sensible defaults BEFORE INSERT so they flow into the
--- field title automatically (create_dd_table runs AFTER INSERT and reads the
--- already-populated NEW.singular_label):
---
---   * singular        -- derived from table_name by a naive de-pluralize
---                        ('tenants' -> 'tenant', 'cities' -> 'city')
---   * singular_label  -- derived from label_column via snake_to_label()
---                        ('tenant_name' -> 'Tenant Name', 'label' -> 'Label')
---
--- Values supplied by the caller are always preserved verbatim -- defaults are
--- only applied when the column is left blank. plural is handled separately by
--- the existing auto_set_plural trigger (0060) and is not touched here.
---
--- Additive only (no objects removed), so a single forward migration covers both
--- fresh and existing/production databases.
-
--- =====================================================
--- FUNCTION: snake_to_label
--- =====================================================
--- Convert a snake_case identifier into a human-readable Title Case label.
---   'tenant_name'     -> 'Tenant Name'
---   'city'            -> 'City'
---   'address_line_1'  -> 'Address Line 1'
--- Collapses runs of underscores and trims leading/trailing ones.
-
-CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
-RETURNS TEXT
-LANGUAGE sql
-IMMUTABLE
-SET search_path = public
-AS $$
-    SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
-$$;
-
-COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
-'Converts a snake_case identifier to a Title Case label (e.g. tenant_name -> Tenant Name).';
-
-REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
--- =====================================================
--- TRIGGER FUNCTION: set_entity_defaults
--- =====================================================
--- Fills singular and singular_label from table_name / label_column when the
--- caller leaves them blank. Runs BEFORE INSERT so create_dd_table() (AFTER
--- INSERT) sees the populated values and seeds the name field title correctly.
-
-CREATE OR REPLACE FUNCTION public.set_entity_defaults()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SET search_path = public
-AS $$
-BEGIN
-    -- Derive singular from table_name (naive de-pluralize) when not provided.
-    -- Handles regular plurals and '...ies'; leaves '...ss' and irregulars alone.
-    IF NEW.singular IS NULL OR NEW.singular = '' THEN
-        NEW.singular := CASE
-            WHEN NEW.table_name ~ 'ies$'   THEN regexp_replace(NEW.table_name, 'ies$', 'y')
-            WHEN NEW.table_name ~ '[^s]s$' THEN left(NEW.table_name, length(NEW.table_name) - 1)
-            ELSE NEW.table_name
-        END;
-    END IF;
-
-    -- Derive singular_label from label_column when not provided.
-    IF NEW.singular_label IS NULL OR NEW.singular_label = '' THEN
-        NEW.singular_label := public.snake_to_label(NEW.label_column);
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
-COMMENT ON FUNCTION public.set_entity_defaults() IS
-'Trigger function that derives singular (de-pluralized table_name) and singular_label (snake_to_label of label_column) when left blank on insert.';
-
-REVOKE EXECUTE ON FUNCTION public.set_entity_defaults() FROM PUBLIC;
-
-DROP TRIGGER IF EXISTS set_entity_defaults_trigger ON entities;
-CREATE TRIGGER set_entity_defaults_trigger
-    BEFORE INSERT ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION public.set_entity_defaults();
-
-COMMENT ON TRIGGER set_entity_defaults_trigger ON entities IS
-'Derives singular and singular_label on insert when the caller leaves them blank.';
-$pgsem__core_0230_entity_insert_defaults$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0230_entity_insert_defaults', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0230_entity_insert_defaults', '07f90c9547ead8fd005717f7d8ae2987683ad8e4255330be4f9c0f9828808c2f');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0250_webhook_receiver') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0250_webhook_receiver';
-    BEGIN
-      EXECUTE $pgsem__core_0250_webhook_receiver$-- =====================================================
--- WEBHOOK RECEIVER TABLES
--- =====================================================
--- Create tables for webhook receivers and webhook receiver logs
--- These tables are created by inserting into the entities and fields tables
--- =====================================================
-
--- =====================================================
--- CREATE webhook_receivers TABLE
--- =====================================================
-
-INSERT INTO entities (
-    table_name, 
-    singular, 
-    singular_label, 
-    plural_label, 
-    description, 
-    module_id, 
-    view_permission, 
-    edit_permission, 
-    id_column, 
-    label_column
-)
-VALUES (
-    'webhook_receivers',
-    'webhook_receiver',
-    'Webhook Receiver',
-    'Webhook Receivers',
-    'Configuration for webhook endpoints',
-    1, -- _core module
-    'admin',
-    'admin',
-    'id',
-    'label'
-);
-
--- Pre-create table_name as TEXT before inserting the field metadata.
--- The 'parent' format normally maps to INTEGER in format_to_data_type(), which is designed
--- for auto-incrementing ID references. Here we need TEXT because entities.table_name is TEXT
--- (not an auto-incrementing INTEGER id). By pre-creating the column as TEXT, the DD trigger's
--- ADD COLUMN IF NOT EXISTS silently skips creation and proceeds to build the FK TEXT→TEXT.
-ALTER TABLE webhook_receivers ADD COLUMN IF NOT EXISTS table_name TEXT NOT NULL DEFAULT '';
-
--- Add fields to webhook_receivers table
-INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, reference_table, reference_delete_mode, relationship_label)
-VALUES
-    ('webhook_receivers', 'table_name',   'Entity',              'reference', FALSE, 10, 'default', 'default', 'Target table for webhook data',                           '',     NULL,                          'entities', 'cascade', 'has receivers'),
-    ('webhook_receivers', 'description',  'Description',        'text',      FALSE, 20, 'default', 'w',       '',                 '',     NULL,                          '',         '',        ''),
-    ('webhook_receivers', 'auth_type',    'Authentication Type','enum',      FALSE, 30, 'default', 'default', 'hmac = HMAC signature over the body; header = expected value in a named header',   'none', '["none", "hmac", "header"]'::jsonb, '', '',   ''),
-    ('webhook_receivers', 'secret',       'Secret',             'text',      FALSE, 40, 'default', 'default', '',                       '',     NULL,                          '',         '',        ''),
-    ('webhook_receivers', 'header_name',  'Header Name',        'text',      FALSE, 45, 'default', 'default', 'Custom header name for authentication',                   '',     NULL,                          '',         '',        ''),
-    ('webhook_receivers', 'header_value', 'Header Value',       'text',      FALSE, 46, 'default', 'default', 'Expected value for custom header authentication',         '',     NULL,                          '',         '',        ''),
-    ('webhook_receivers', 'jsonata',      'JSONata Expression', 'jsonata',   FALSE, 50, 'default', 'w',       'Optional JSONata expression to transform incoming data',  '',     NULL,                          '',         '',        '');
-
--- =====================================================
--- CREATE webhook_receiver_logs TABLE
--- =====================================================
-
-INSERT INTO entities (
-    table_name, 
-    singular, 
-    singular_label, 
-    plural_label, 
-    description, 
-    module_id, 
-    view_permission, 
-    edit_permission, 
-    id_column, 
-    label_column
-)
-VALUES (
-    'webhook_receiver_logs',
-    'webhook_receiver_log',
-    'Webhook Receiver Log',
-    'Webhook Receiver Logs',
-    'Log of webhook receiver events',
-    1, -- _core module
-    'admin',
-    'admin',
-    'id',
-    'label'
-);
-
--- Add fields to webhook_receiver_logs table
--- Note: 'label' is the label_column and is automatically created by the create_dd_table trigger
--- webhook_receiver_id is the parent reference to webhook_receivers (ON DELETE CASCADE).
--- message_id is what the receiver matches a new delivery against: when a log for the same
--- receiver and message_id already succeeded, the delivery is acknowledged and skipped.
-INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, description, default_value, enum_values, ctype, reference_table, reference_delete_mode, relationship_label)
-VALUES
-    ('webhook_receiver_logs', 'webhook_receiver_id', 'Webhook Receiver',    'parent',    FALSE,  5, 'default', 'default', '',     NULL,                 NULL,                        NULL, 'webhook_receivers', 'cascade', 'has logs'),
-    ('webhook_receiver_logs', 'message_id',          'Message',          'text',      FALSE, 10, 'default', 'default', 'The sender''s webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.', '', NULL, NULL, '', '', ''),
-    ('webhook_receiver_logs', 'webhook_timestamp',   'Webhook Timestamp',   'date-time', FALSE, 30, 'default', 'default', 'Timestamp from webhook source',                    NULL,                 NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'received_timestamp',  'Received Timestamp',  'date-time', FALSE, 40, 'disabled','default', '',              'CURRENT_TIMESTAMP',  NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'payload',             'Payload',             'json',      FALSE, 50, 'default', 'w',       '',                             NULL,                 NULL,                        NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'result',              'Result',              'enum',      FALSE, 60, 'default', 'default', 'Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error', '10', '["10", "20", "30", "40", "50", "60"]'::jsonb, NULL, '',                  '',        ''),
-    ('webhook_receiver_logs', 'error_message',       'Error Message',       'text',      FALSE, 70, 'default', 'w',       '',               '',                   NULL,                        NULL, '',                  '',        '');
-
--- =====================================================
--- ADD INDEX
--- =====================================================
--- The dynamic table system creates the foreign key and index automatically
--- via the DD trigger when the table_name field is inserted with format='parent'
--- (constraint name: webhook_receivers_table_name_fkey)
-$pgsem__core_0250_webhook_receiver$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0250_webhook_receiver', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0250_webhook_receiver', 'd82c34847a430ca0a2fcb4a55ff989855cbb7257b43dfe8c12b6505506f02aaa');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0260_dashboard') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0260_dashboard';
-    BEGIN
-      EXECUTE $pgsem__core_0260_dashboard$-- =====================================================
--- DASHBOARD TABLE
--- =====================================================
--- Create table for user-configured dashboards
--- =====================================================
-
--- =====================================================
--- CREATE dashboards TABLE
--- =====================================================
-
-INSERT INTO entities (
-    table_name,
-    singular,
-    singular_label,
-    plural_label,
-    description,
-    module_id,
-    view_permission,
-    edit_permission,
-    id_column,
-    label_column
-)
-VALUES (
-    'dashboards',
-    'dashboard',
-    'Dashboard',
-    'Dashboards',
-    'User-configured dashboard layouts and configurations',
-    1, -- _core module
-    'admin',
-    'admin',
-    'id',
-    'label'
-);
-
--- Add fields to dashboards table
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, default_value, reference_table, reference_delete_mode)
-VALUES
-    ('dashboards', 'config',   'Configuration', 'json',  10, 'default', 'w', '', '', '', ''),
-    ('dashboards', 'position', 'Position',      'int32', 20, 'default', 'default', '', '0', '', '');
-
-INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width, description, reference_table, reference_delete_mode)
-VALUES
-    ('dashboards', 'module_id',       'Module',          'reference', 30, 'default', 'default', '',     'modules',     'cascade'),
-    ('dashboards', 'view_permission', 'View Permission',  'reference', 40, 'default', 'default', 'Permission required to view this dashboard', 'permissions', 'clear');
-$pgsem__core_0260_dashboard$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0260_dashboard', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0260_dashboard', 'd4a0fadefe9e969aac7f1e56f2859cd370d8aad491f751a9f639618386996ab2');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0270_entity_order_column') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0270_entity_order_column';
-    BEGIN
-      EXECUTE $pgsem__core_0270_entity_order_column$-- =====================================================
--- MIGRATION: entities.order_column — fixed per-entity row ordering
--- =====================================================
--- Adds a generic "row order" mechanism driven by a single metadata column on
--- entities:
---
---   entities.order_column  TEXT  -- name of the INTEGER column that stores a
---                                    fixed row order on this entity's physical
---                                    table. '' (the default) = no row ordering.
---
--- behavior (all driven by AFTER INSERT/UPDATE triggers on entities, mirroring
--- the other table-altering DD triggers):
---   • When order_column is set (first time): ALTER TABLE ... ADD COLUMN
---     <order_column> INTEGER NOT NULL DEFAULT 0, and install a BEFORE INSERT
---     trigger that auto-assigns the order on inserts that don't provide a value.
---   • When order_column is changed to a different name: the previous column is
---     dropped and the new one created.
---   • When order_column is cleared ('' or NULL): the column and its auto-assign
---     trigger are dropped.
---
--- Auto-assign rule (matching the requirement): on INSERT, when the order column
--- has no value (0 / NULL), set it to MAX(order_column) + 10 over the rows whose
--- order is below 900000 (so values pinned at/above the 900,000 ceiling — e.g. the
--- created_at/updated_at audit columns at 999998/999999 — never inflate the
--- running max), or 10 for the first record.
---
-
--- =====================================================
--- 1. Generic BEFORE INSERT auto-assign trigger function
--- =====================================================
--- Installed (per entity) on the physical table by handle_entity_order_column().
--- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
--- function serves every entity that declares an order_column.
---
--- The `fields` table is special: it holds the field metadata for many entities in
--- one physical table, so its order runs independently per table_name (a new field
--- continues its own entity's 10/20/30… sequence). Every other entity is a single
--- list, so the whole physical table is one sequence.
---
--- SECURITY DEFINER so the MAX() probe sees every row (true max), not just the rows
--- the inserting user can read under RLS — otherwise concurrent inserts by limited
--- users could collide on order values.
-
-CREATE OR REPLACE FUNCTION auto_set_order_value()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_col     TEXT := TG_ARGV[0];
-    v_current JSONB;
-    v_val     BIGINT;
-    v_next    BIGINT;
-BEGIN
-    v_current := to_jsonb(NEW);
-
-    -- Current value of the order column on the incoming row ('' / NULL / 0 => unset).
-    v_val := NULLIF(v_current ->> v_col, '')::BIGINT;
-
-    IF v_val IS NULL OR v_val = 0 THEN
-        IF TG_TABLE_NAME = 'fields' THEN
-            -- Per table_name: a new field lands after that entity's existing fields.
-            SELECT (COALESCE(MAX(field_order), 0) + 10)::BIGINT
-            INTO v_next
-            FROM fields
-            WHERE field_order < 900000
-              AND table_name = (v_current ->> 'table_name');
-        ELSE
-            EXECUTE format(
-                'SELECT COALESCE(MAX(%I), 0) + 10 FROM %I.%I WHERE %I < 900000',
-                v_col, TG_TABLE_SCHEMA, TG_TABLE_NAME, v_col
-            )
-            INTO v_next;
-        END IF;
-
-        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_col, v_next));
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-COMMENT ON FUNCTION auto_set_order_value IS
-'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 900000 (or 10 for the first record). On the fields table the max is scoped per table_name. Installed per entity by handle_entity_order_column().';
-
-REVOKE EXECUTE ON FUNCTION auto_set_order_value() FROM PUBLIC;
-
--- =====================================================
--- 2. Entity-level trigger: maintain the physical order column + its trigger
--- =====================================================
--- Fires AFTER the structural create/enable triggers (zz_ prefix) so the physical
--- table already exists. Idempotent and additive-safe.
-
-CREATE OR REPLACE FUNCTION handle_entity_order_column()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_old          TEXT := '';
-    v_new          TEXT := COALESCE(NEW.order_column, '');
-    v_trigger_name TEXT := 'zz_auto_order_' || NEW.table_name;
-BEGIN
-    SET LOCAL client_min_messages = WARNING;
-
-    IF TG_OP = 'UPDATE' THEN
-        v_old := COALESCE(OLD.order_column, '');
-    END IF;
-
-    -- Only touch a physically existing table (unmanaged entities have none yet;
-    -- the column is provisioned when the table is later created/enabled).
-    IF to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
-        RETURN NEW;
-    END IF;
-
-    -- Remove the previous order column + its trigger when the name changed or cleared.
-    IF v_old <> '' AND v_old <> v_new THEN
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
-        EXECUTE format('ALTER TABLE public.%I DROP COLUMN IF EXISTS %I', NEW.table_name, v_old);
-        RAISE NOTICE 'Dropped order column "%" on table "%"', v_old, NEW.table_name;
-    END IF;
-
-    IF v_new <> '' THEN
-        -- Provision the order column (first time) and (re)install the auto-assign trigger.
-        EXECUTE format(
-            'ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS %I INTEGER NOT NULL DEFAULT 0',
-            NEW.table_name, v_new
-        );
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
-        EXECUTE format(
-            'CREATE TRIGGER %I BEFORE INSERT ON public.%I '
-            'FOR EACH ROW EXECUTE FUNCTION auto_set_order_value(%L)',
-            v_trigger_name, NEW.table_name, v_new
-        );
-        RAISE NOTICE 'Provisioned order column "%" on table "%"', v_new, NEW.table_name;
+$pgsem__core_0370_raci_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0370_raci.sql', '1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
     ELSE
-        -- Cleared: ensure no stale auto-assign trigger remains.
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
+      v_skipped := v_skipped + 1;
     END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0370_raci.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0370_raci.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+  -- _core.0380_webhook_receiver.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0380_webhook_receiver.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0380_webhook_receiver.jsonc';
+      EXECUTE $pgsem__core_0380_webhook_receiver_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Webhook receiver entities: webhook_receivers (configuration of the webhook
+// endpoints) and webhook_receiver_logs (one row per received delivery).
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "webhook_receivers",
+        "module_name": "_core",
+        "singular": "webhook_receiver",
+        "singular_label": "Webhook Receiver",
+        "plural_label": "Webhook Receivers",
+        "description": "Configuration for webhook endpoints",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "label",
+        "fields": [
+          // A reference to entities is a TEXT column (entities.table_name is
+          // TEXT). Listed first so it keeps the column position it had when it
+          // was pre-created; its NOT NULL and DEFAULT '' are set by
+          // 0390_webhook_receiver_setup.once.sql.
+          {"field_name": "table_name", "title": "Entity", "format": "reference", "is_pk": false, "field_order": 10,
+           "input_type": "default", "width": "default", "description": "Target table for webhook data",
+           "default_value": "", "enum_values": null,
+           "reference_table": "entities", "reference_delete_mode": "cascade", "relationship_label": "has receivers"},
+          {"field_name": "description", "title": "Description", "format": "text", "is_pk": false, "field_order": 20,
+           "input_type": "default", "width": "w", "description": "",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "auth_type", "title": "Authentication Type", "format": "enum", "is_pk": false, "field_order": 30,
+           "input_type": "default", "width": "default",
+           "description": "hmac = HMAC signature over the body; header = expected value in a named header",
+           "default_value": "none", "enum_values": ["none", "hmac", "header"],
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "secret", "title": "Secret", "format": "text", "is_pk": false, "field_order": 40,
+           "input_type": "default", "width": "default", "description": "",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "header_name", "title": "Header Name", "format": "text", "is_pk": false, "field_order": 45,
+           "input_type": "default", "width": "default", "description": "Custom header name for authentication",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "header_value", "title": "Header Value", "format": "text", "is_pk": false, "field_order": 46,
+           "input_type": "default", "width": "default", "description": "Expected value for custom header authentication",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "jsonata", "title": "JSONata Expression", "format": "jsonata", "is_pk": false, "field_order": 50,
+           "input_type": "default", "width": "w", "description": "Optional JSONata expression to transform incoming data",
+           "default_value": "", "enum_values": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "webhook_receiver_logs",
+        "module_name": "_core",
+        "singular": "webhook_receiver_log",
+        "singular_label": "Webhook Receiver Log",
+        "plural_label": "Webhook Receiver Logs",
+        "description": "Log of webhook receiver events",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "label",
+        "fields": [
+          // The parent reference to webhook_receivers (ON DELETE CASCADE).
+          {"field_name": "webhook_receiver_id", "title": "Webhook Receiver", "format": "parent", "is_pk": false, "field_order": 5,
+           "input_type": "default", "width": "default", "description": "",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "webhook_receivers", "reference_delete_mode": "cascade", "relationship_label": "has logs"},
+          // What the receiver matches a new delivery against: when a log for the
+          // same receiver and message_id already succeeded, the delivery is
+          // acknowledged and skipped.
+          {"field_name": "message_id", "title": "Message", "format": "text", "is_pk": false, "field_order": 10,
+           "input_type": "default", "width": "default",
+           "description": "The sender's webhook-id header, or a key derived from the request when it sends none. A delivery whose message_id already succeeded is skipped.",
+           "default_value": "", "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "webhook_timestamp", "title": "Webhook Timestamp", "format": "date-time", "is_pk": false, "field_order": 30,
+           "input_type": "default", "width": "default", "description": "Timestamp from webhook source",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "received_timestamp", "title": "Received Timestamp", "format": "date-time", "is_pk": false, "field_order": 40,
+           "input_type": "disabled", "width": "default", "description": "",
+           "default_value": "CURRENT_TIMESTAMP", "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "payload", "title": "Payload", "format": "json", "is_pk": false, "field_order": 50,
+           "input_type": "default", "width": "w", "description": "",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "result", "title": "Result", "format": "enum", "is_pk": false, "field_order": 60,
+           "input_type": "default", "width": "default",
+           "description": "Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error",
+           "default_value": "10", "enum_values": ["10", "20", "30", "40", "50", "60"], "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""},
+          {"field_name": "error_message", "title": "Error Message", "format": "text", "is_pk": false, "field_order": 70,
+           "input_type": "default", "width": "w", "description": "",
+           "default_value": "", "enum_values": null, "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": ""}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0380_webhook_receiver_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0380_webhook_receiver.jsonc', '944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0380_webhook_receiver.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0380_webhook_receiver.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-COMMENT ON FUNCTION handle_entity_order_column IS
-'AFTER INSERT/UPDATE trigger on entities: provisions or drops the physical order column named by entities.order_column and installs/removes the auto_set_order_value BEFORE INSERT trigger on the entity''s table.';
-
-REVOKE EXECUTE ON FUNCTION handle_entity_order_column() FROM PUBLIC;
-
--- INSERT: only act when an order_column was supplied at creation time.
-CREATE TRIGGER zz_entity_order_column_insert_trigger
-    AFTER INSERT ON entities
-    FOR EACH ROW
-    WHEN (COALESCE(NEW.order_column, '') <> '')
-    EXECUTE FUNCTION handle_entity_order_column();
-
--- UPDATE: act when order_column changes, or when the table is enabled (managed F->T)
--- and an order_column is already declared (so the column is provisioned on enable).
-CREATE TRIGGER zz_entity_order_column_update_trigger
-    AFTER UPDATE ON entities
-    FOR EACH ROW
-    WHEN (OLD.order_column IS DISTINCT FROM NEW.order_column
-       OR (OLD.managed = FALSE AND NEW.managed = TRUE AND COALESCE(NEW.order_column, '') <> ''))
-    EXECUTE FUNCTION handle_entity_order_column();
-
+  -- _core.0390_webhook_receiver_setup.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0390_webhook_receiver_setup.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0390_webhook_receiver_setup.once.sql';
+      EXECUTE $pgsem__core_0390_webhook_receiver_setup_once_sql$-- =====================================================
+-- WEBHOOK RECEIVER - column constraints
 -- =====================================================
--- 3. Auto-assign trigger on the fields table
--- =====================================================
--- The fields entity is seeded with order_column = 'field_order' (0060) before the
--- entities trigger above exists, so its trigger is installed here.
---
--- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
--- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
--- created_at/updated_at audit columns at 999998/999999 never inflate the max.
-CREATE TRIGGER zz_auto_order_fields
-    BEFORE INSERT ON public.fields
-    FOR EACH ROW EXECUTE FUNCTION auto_set_order_value('field_order');
-$pgsem__core_0270_entity_order_column$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0270_entity_order_column', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0270_entity_order_column', '928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+-- Runs once. The entities are defined in 0380_webhook_receiver.jsonc.
+-- webhook_receivers.table_name is a reference to entities, which the
+-- dictionary creates as a nullable TEXT column. A receiver without a target
+-- table means nothing, so the column is NOT NULL, defaulting to ''.
+ALTER TABLE webhook_receivers ALTER COLUMN table_name SET DEFAULT '';
+ALTER TABLE webhook_receivers ALTER COLUMN table_name SET NOT NULL;
+$pgsem__core_0390_webhook_receiver_setup_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0390_webhook_receiver_setup.once.sql', 'a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0390_webhook_receiver_setup.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0390_webhook_receiver_setup.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0280_user_bookmarks') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0280_user_bookmarks';
-    BEGIN
-      EXECUTE $pgsem__core_0280_user_bookmarks$-- =====================================================
--- USER BOOKMARKS
--- =====================================================
--- Personal bookmarks saved by users.
--- Each bookmark belongs to a specific user and can optionally
--- reference a specific entity and record.
--- Users can only see and edit their own bookmarks.
---
--- RLS design:
---   • A BEFORE INSERT OR UPDATE trigger (aaa_assign_user_id_user_bookmarks)
---     initializes the RBAC context and forces user_id = rbac.user_id() on
---     every write, preventing users from assigning bookmarks to other users.
---     The trigger is named with the 'aaa_' prefix so PostgreSQL's alphabetical
---     trigger-firing order guarantees it runs before any other BEFORE triggers
---     (e.g. compute_validate_trigger, zz_auto_order_*).
---   • select_rule {"==": [{"var":"user_id"},{"var":"$user_id"}]} generates a
---     per-row SELECT policy (own rows only) and scopes UPDATE/DELETE USING to
---     own rows (migration 0180).
---   • The INSERT policy is further hardened to WITH CHECK (user_id = rbac.user_id())
---     as a second layer of defense (the trigger fires first and sets the value,
---     so this check always passes for legitimate callers).
---   • order_column = 'row_order' enables drag-and-drop reordering (migration 0270).
+  -- _core.0400_dashboard.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0400_dashboard.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0400_dashboard.jsonc';
+      EXECUTE $pgsem__core_0400_dashboard_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Dashboard entity: user-configured dashboard layouts and configurations.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "dashboards",
+        "module_name": "_core",
+        "singular": "dashboard",
+        "singular_label": "Dashboard",
+        "plural_label": "Dashboards",
+        "description": "User-configured dashboard layouts and configurations",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "label",
+        "fields": [
+          {"field_name": "config", "title": "Configuration", "format": "json", "field_order": 10,
+           "input_type": "default", "width": "w", "description": "", "default_value": "",
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "position", "title": "Position", "format": "int32", "field_order": 20,
+           "input_type": "default", "width": "default", "description": "", "default_value": "0",
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "module_id", "title": "Module", "format": "reference", "field_order": 30,
+           "input_type": "default", "width": "default", "description": "",
+           "reference_table": "modules", "reference_delete_mode": "cascade"},
+          {"field_name": "view_permission", "title": "View Permission", "format": "reference", "field_order": 40,
+           "input_type": "default", "width": "default", "description": "Permission required to view this dashboard",
+           "reference_table": "permissions", "reference_delete_mode": "clear"}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0400_dashboard_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0400_dashboard.jsonc', '144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0400_dashboard.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0400_dashboard.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
--- =====================================================
--- STEP 1: Create user_bookmarks entity
--- =====================================================
+  -- _core.0410_user_bookmarks.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0410_user_bookmarks.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0410_user_bookmarks.jsonc';
+      EXECUTE $pgsem__core_0410_user_bookmarks_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
+// belongs to one user and can reference an entity and a record; users see and
+// edit only their own.
+//
+// Everything is metadata, with no hand-written trigger or policy: the
+// dictionary regenerates its own objects (compute_validate_*, the four
+// <table>_*_policy) whenever an entity's rules or permissions change, and a
+// hand-written replacement would be lost or would overwrite them.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "user_bookmarks",
+        "module_name": "_core",
+        "singular": "user_bookmark",
+        "singular_label": "User Bookmark",
+        "plural_label": "Favorites",
+        "description": "Manage and order your facorites for quick access to frequently used apps and records.",
+        "view_permission": "user:read",
+        "edit_permission": "user:read",
+        "id_column": "id",
+        "label_column": "title",
+        // Per-row SELECT policy (own rows only); also scopes UPDATE and DELETE
+        // to own rows.
+        "select_rule": {"==": [{"var": "user_id"}, {"var": "$user_id"}]},
+        // Enables drag-and-drop reordering.
+        "order_column": "row_order",
+        // The compute trigger forces user_id to the current user on every
+        // insert and update, so a bookmark can be neither created for nor handed
+        // to another user, whatever the edit_permission is. The default INSERT
+        // policy suffices: its WITH CHECK runs after the trigger.
+        "computed_fields": [{"name": "user_id", "jsonlogic": {"var": "$user_id"}}],
+        // The compute trigger reads $user_id through rbac.user_id_or_null(),
+        // which is NULL for a session without claims (migrations, maintenance
+        // scripts). This rule refuses such an insert or update rather than
+        // store a bookmark without an owner. Deletes are exempt, so deleting a
+        // user still cascades to their bookmarks from any session.
+        "validation_rules": [
+          {"code": "90207", "message": "A bookmark can only be written by an authenticated user", "source_module": "platform",
+           "jsonlogic": {"or": [{"==": [{"var": "$mode"}, "delete"]}, {"!=": [{"var": "$user_id"}, null]}]}}
+        ],
+        // id, title (the label column), created_at and updated_at are created
+        // by the dictionary.
+        "fields": [
+          {"field_name": "user_id", "title": "User", "description": "Owner of this bookmark (auto-assigned to current user)",
+           "format": "reference", "field_order": 10, "input_type": "hidden", "width": "default", "searchable": false,
+           "reference_table": "users", "reference_delete_mode": "cascade"},
+          {"field_name": "url", "title": "URL", "description": "",
+           "format": "text", "field_order": 30, "input_type": "default", "width": "w", "searchable": false,
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "entity_name", "title": "Entity", "description": "",
+           "format": "text", "field_order": 40, "input_type": "default", "width": "default", "searchable": false,
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "entity_id", "title": "Record", "description": "ID of the related record in the entity table (0 = no record)",
+           "format": "int32", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
+           "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0410_user_bookmarks_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0410_user_bookmarks.jsonc', 'd6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0410_user_bookmarks.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0410_user_bookmarks.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-INSERT INTO entities (
-    table_name, singular, singular_label, plural_label,
-    description, module_id, view_permission, edit_permission,
-    id_column, label_column,
-    select_rule, order_column
-)
-VALUES (
-    'user_bookmarks',
-    'user_bookmark',
-    'User Bookmark',
-    'Favorites',
-    'Manage and order your facorites for quick access to frequently used apps and records.',
-    (SELECT id FROM modules WHERE module_name = '_core'),
-    'user:read',
-    'user:read',
-    'id',
-    'title',
-    '{"==": [{"var": "user_id"}, {"var": "$user_id"}]}'::jsonb,
-    'row_order'
-);
-
--- =====================================================
--- STEP 2: Add fields to user_bookmarks
--- =====================================================
--- Note: 'id' (id_column), 'title' (label_column), 'created_at', 'updated_at'
--- are automatically created by the create_dd_table trigger.
-
-INSERT INTO fields (table_name, field_name, title, description, format, field_order, input_type, width, searchable, reference_table, reference_delete_mode)
-VALUES
-    ('user_bookmarks', 'user_id',     'User',      'Owner of this bookmark (auto-assigned to current user)',        'reference', 10, 'hidden',  'default', FALSE, 'users', 'cascade'),
-    ('user_bookmarks', 'url',         'URL',        '',                                                 'text',      30, 'default', 'w',       FALSE, '',      ''),
-    ('user_bookmarks', 'entity_name', 'Entity',     '',                             'text',      40, 'default', 'default', FALSE, '',      ''),
-    ('user_bookmarks', 'entity_id',   'Record',  'ID of the related record in the entity table (0 = no record)', 'int32',     50, 'default', 'default', FALSE, '',      '');
-
--- =====================================================
--- STEP 3: Auto-assign user_id on INSERT and UPDATE
--- =====================================================
--- A BEFORE INSERT OR UPDATE trigger forces user_id to the current session user.
--- It also calls rbac.ensure_context_initialized() first so that the RBAC context
--- (app.current_user_id etc.) is available to any subsequent BEFORE triggers that
--- read $user_id (e.g. compute_validate_trigger from computed_fields).
---
--- Named 'aaa_assign_user_id_user_bookmarks' so it fires first among all BEFORE
--- triggers on this table (PostgreSQL fires BEFORE triggers in alphabetical order).
-
-CREATE OR REPLACE FUNCTION assign_user_id_user_bookmarks()
-RETURNS TRIGGER AS $$
-BEGIN
-    PERFORM rbac.ensure_context_initialized();
-    NEW.user_id := rbac.user_id();
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
-
-COMMENT ON FUNCTION assign_user_id_user_bookmarks IS
-'BEFORE INSERT OR UPDATE trigger for user_bookmarks: initializes the RBAC context '
-'and forces user_id to the current session user so bookmarks cannot be created or '
-'reassigned on behalf of other users.';
-
-REVOKE EXECUTE ON FUNCTION assign_user_id_user_bookmarks() FROM PUBLIC;
-
-CREATE TRIGGER aaa_assign_user_id_user_bookmarks
-    BEFORE INSERT OR UPDATE ON user_bookmarks
-    FOR EACH ROW
-    EXECUTE FUNCTION assign_user_id_user_bookmarks();
-
-COMMENT ON TRIGGER aaa_assign_user_id_user_bookmarks ON user_bookmarks IS
-'Forces user_id to the current session user on every INSERT and UPDATE. '
-'Prefixed aaa_ to run first (alphabetical order) before other BEFORE triggers.';
-
--- =====================================================
--- STEP 4: Harden INSERT policy
--- =====================================================
--- The default INSERT policy only checks rbac.has_permission('user:read').
--- We also require the record's user_id to match the session user, as a second
--- layer of defense.  The aaa_ trigger above fires first and sets user_id, so
--- this check always passes for legitimate callers.
-
-DROP POLICY IF EXISTS user_bookmarks_insert_policy ON user_bookmarks;
-CREATE POLICY user_bookmarks_insert_policy ON user_bookmarks
-    FOR INSERT
-    TO semantius_user
-    WITH CHECK ((SELECT rbac.has_permission('user:read')) AND user_id = rbac.user_id());
-$pgsem__core_0280_user_bookmarks$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0280_user_bookmarks', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0280_user_bookmarks', '77d92fc42a24b49a8f964e385b852133735715825955c7874f2f9925c104a40d');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0282_module_version') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0282_module_version';
-    BEGIN
-      EXECUTE $pgsem__core_0282_module_version$-- =====================================================
+  -- _core.0420_module_version.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0420_module_version.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0420_module_version.sql';
+      EXECUTE $pgsem__core_0420_module_version_sql$-- =====================================================
 -- MODULE VERSION TRACKING
 -- =====================================================
 -- Maintains modules.version and modules.version_date.
@@ -16214,7 +18257,6 @@ $pgsem__core_0280_user_bookmarks$;
 -- =====================================================
 -- Increments version and sets version_date on the modules row directly.
 -- Called by AFTER triggers on modules itself.
-
 CREATE OR REPLACE FUNCTION bump_module_version()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -16357,7 +18399,7 @@ COMMENT ON FUNCTION bump_module_version_from_fields() IS
 -- TRIGGERS ON MODULES TABLE
 -- =====================================================
 
-CREATE TRIGGER bump_module_version_trigger
+CREATE OR REPLACE TRIGGER bump_module_version_trigger
     AFTER INSERT OR UPDATE ON modules
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version();
@@ -16366,27 +18408,27 @@ CREATE TRIGGER bump_module_version_trigger
 -- TRIGGERS ON RELATED TABLES
 -- =====================================================
 
-CREATE TRIGGER bump_module_version_on_entities
+CREATE OR REPLACE TRIGGER bump_module_version_on_entities
     AFTER INSERT OR UPDATE OR DELETE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_related();
 
-CREATE TRIGGER bump_module_version_on_roles
+CREATE OR REPLACE TRIGGER bump_module_version_on_roles
     AFTER INSERT OR UPDATE OR DELETE ON roles
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_related();
 
-CREATE TRIGGER bump_module_version_on_permissions
+CREATE OR REPLACE TRIGGER bump_module_version_on_permissions
     AFTER INSERT OR UPDATE OR DELETE ON permissions
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_related();
 
-CREATE TRIGGER bump_module_version_on_processes
+CREATE OR REPLACE TRIGGER bump_module_version_on_processes
     AFTER INSERT OR UPDATE OR DELETE ON processes
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_related();
 
-CREATE TRIGGER bump_module_version_on_fields
+CREATE OR REPLACE TRIGGER bump_module_version_on_fields
     AFTER INSERT OR UPDATE OR DELETE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION bump_module_version_from_fields();
@@ -16395,39 +18437,58 @@ CREATE TRIGGER bump_module_version_on_fields
 REVOKE EXECUTE ON FUNCTION bump_module_version() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION bump_module_version_from_related() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION bump_module_version_from_fields() FROM PUBLIC;
-$pgsem__core_0282_module_version$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0282_module_version', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0282_module_version', '91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
-  END IF;
+$pgsem__core_0420_module_version_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0420_module_version.sql', 'f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0420_module_version.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0420_module_version.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
 
-  IF NOT EXISTS (SELECT 1 FROM public._versions WHERE name = '_core.0290_owner_hardening') THEN
-    RAISE NOTICE 'pg_semantius: applying _core.0290_owner_hardening';
-    BEGIN
-      EXECUTE $pgsem__core_0290_owner_hardening$-- =====================================================
+  -- _core.9900_owner_hardening.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.9900_owner_hardening.sql';
+    v_found := FOUND;
+    IF v_ran OR (v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4')) THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.9900_owner_hardening.sql';
+      EXECUTE $pgsem__core_9900_owner_hardening_sql$-- =====================================================
 -- OWNER HARDENING: run the data dictionary as a non-superuser owner
 -- =====================================================
 -- Every data-dictionary trigger is SECURITY DEFINER and executes DDL as the
 -- owner of the functions and tables. Until this migration that owner was
 -- whoever installed Semantius core: on self-hosted servers the `postgres`
 -- superuser, because the extension needs a superuser to install. Any flaw in
--- the DDL assembly (see the fields.default_value hardening in 0060/0070) would
+-- the DDL assembly (see the fields.default_value hardening: the valid_default_value
+-- CHECK in 0130_dd_schema.once.sql and quote_default_value in 0160_dd_functions.sql) would
 -- therefore have handed an application administrator superuser powers
 -- (COPY ... TO PROGRAM, CREATE ROLE ... SUPERUSER, ALTER SYSTEM).
 --
@@ -16437,8 +18498,9 @@ $pgsem__core_0282_module_version$;
 -- regardless of RLS). From here on, dictionary code runs with the powers of a
 -- schema owner and nothing more; tables, functions and policies the
 -- dictionary creates later are owned by the same role, and default privileges
--- FOR ROLE semantius_owner reproduce the grants 0010/0030/0050/0150/0160 set
--- up for the installing role.
+-- FOR ROLE semantius_owner reproduce the grants 0020_settings.once.sql,
+-- 0060_rbac_schema.once.sql, 0110_rbac_grants.once.sql, 0190_audit_log.once.sql
+-- and 0310_pgmq.once.sql set up for the installing role.
 --
 -- Only a superuser can create a BYPASSRLS role, so the block runs when the
 -- installer is a superuser (CREATE EXTENSION, pgdocker, docker-postgres) and
@@ -16448,6 +18510,14 @@ $pgsem__core_0282_module_version$;
 -- Objects that belong to other extensions (pgcrypto in public, pgmq when the
 -- real extension is present) are left alone. Event triggers are not touched:
 -- PostgreSQL requires their owner to be a superuser.
+--
+-- The number puts this file last, and the runners also run it after every pass
+-- that ran any other file, including a pass in which a file failed: the files
+-- that committed before the failure must not stay owned by the installer while
+-- their grants to semantius_user are live. Such a pass can stop before `audit`
+-- or `pgmq` exist, so every schema-level statement below is guarded by the
+-- schema's existence. Re-running it is harmless: the loops only pick up
+-- objects the installing role still owns.
 
 DO $$
 DECLARE
@@ -16470,7 +18540,13 @@ BEGIN
     END IF;
 
     -- The dictionary creates tables, functions, triggers and policies at runtime.
-    GRANT USAGE, CREATE ON SCHEMA public, common, rbac, audit, pgmq TO semantius_owner;
+    FOR r IN
+        SELECT nspname FROM pg_namespace
+        WHERE nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+        ORDER BY nspname
+    LOOP
+        EXECUTE format('GRANT USAGE, CREATE ON SCHEMA %I TO semantius_owner', r.nspname);
+    END LOOP;
 
     -- Relations: tables first (their owned sequences and row types follow),
     -- then standalone sequences, then views.
@@ -16511,7 +18587,7 @@ BEGIN
 
     -- The DDL audit event trigger fires on every ALTER below. audit.log_ddl_event()
     -- is SECURITY DEFINER: from the moment its own owner changes it runs as
-    -- semantius_owner, and it calls audit.current_user_id(), which 0150 revokes
+    -- semantius_owner, and it calls audit.current_user_id(), which 0200_audit_log.sql revokes
     -- from PUBLIC. Whether that call is allowed mid-transfer depends on which of
     -- the two functions moved first, and the loop order is pg_proc heap order,
     -- which any function added or removed anywhere in the codebase can change.
@@ -16606,7 +18682,8 @@ BEGIN
     END LOOP;
 
     -- Objects the dictionary creates from now on are owned by semantius_owner:
-    -- reproduce the default privileges that 0010, 0030, 0150 and 0160
+    -- reproduce the default privileges that 0020_settings.once.sql,
+    -- 0060_rbac_schema.once.sql, 0190_audit_log.once.sql and 0310_pgmq.once.sql
     -- established for the installing role. There is deliberately no default
     -- grant on tables or sequences in public: a table the dictionary did not
     -- create has no policies, so a grant on it is unbounded access through the
@@ -16614,7 +18691,7 @@ BEGIN
     --
     -- The two revokes take back the pair an earlier release did establish here.
     -- pg_default_acl survives `deno task dropall`, so without them a database
-    -- that ever ran that release keeps the default forever; 0050 does the same
+    -- that ever ran that release keeps the default forever; 0110_rbac_grants.once.sql does the same
     -- for the installing role's own rows. No-ops on a database that never had
     -- them.
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
@@ -16623,71 +18700,107 @@ BEGIN
         REVOKE USAGE, SELECT ON SEQUENCES FROM semantius_user;
     ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA public
         REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA common
-        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA audit
-        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA rbac
-        REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
-    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA rbac
-        GRANT EXECUTE ON FUNCTIONS TO semantius_user;
-    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA pgmq
-        GRANT SELECT ON TABLES TO pg_monitor;
-    ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA pgmq
-        GRANT SELECT ON SEQUENCES TO pg_monitor;
+    IF to_regnamespace('common') IS NOT NULL THEN
+        ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA common
+            REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+    END IF;
+    IF to_regnamespace('audit') IS NOT NULL THEN
+        ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA audit
+            REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+    END IF;
+    IF to_regnamespace('rbac') IS NOT NULL THEN
+        ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA rbac
+            REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+        ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA rbac
+            GRANT EXECUTE ON FUNCTIONS TO semantius_user;
+    END IF;
+    IF to_regnamespace('pgmq') IS NOT NULL THEN
+        ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA pgmq
+            GRANT SELECT ON TABLES TO pg_monitor;
+        ALTER DEFAULT PRIVILEGES FOR ROLE semantius_owner IN SCHEMA pgmq
+            GRANT SELECT ON SEQUENCES TO pg_monitor;
+    END IF;
 
     RAISE NOTICE 'Semantius core objects are now owned by semantius_owner';
 END $$;
-$pgsem__core_0290_owner_hardening$;
-    EXCEPTION WHEN OTHERS THEN
-      -- Without this the whole embedded migration is reported as CONTEXT.
-      GET STACKED DIAGNOSTICS
-        v_state  = RETURNED_SQLSTATE,
-        v_msg    = MESSAGE_TEXT,
-        v_detail = PG_EXCEPTION_DETAIL,
-        v_hint   = PG_EXCEPTION_HINT,
-        v_ctx    = PG_EXCEPTION_CONTEXT;
-      RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
-            '_core.0290_owner_hardening', v_msg, v_state
-        USING DETAIL = coalesce(v_detail, ''),
-              HINT   = coalesce(nullif(v_hint, ''), 'at: ' ||
-                       split_part(coalesce(v_ctx, ''), E'\n', 1));
-    END;
-    INSERT INTO public._versions (name, checksum)
-      VALUES ('_core.0290_owner_hardening', '1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71');
-    v_applied := v_applied + 1;
-  ELSE
-    v_skipped := v_skipped + 1;
+$pgsem__core_9900_owner_hardening_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.9900_owner_hardening.sql', '39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.9900_owner_hardening.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.9900_owner_hardening.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+
+  IF v_failed_file IS NOT NULL THEN
+    PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+    RAISE EXCEPTION 'migration % failed: % (SQLSTATE %)',
+          v_failed_file, v_fail_msg, v_fail_state
+      USING DETAIL = v_fail_detail || v_also,
+            HINT   = v_fail_hint;
   END IF;
 
-  -- Nothing the migrations created may belong to an extension.
-  SELECT string_agg(DISTINCT e.extname, ', ') INTO v_bad
-    FROM pg_depend d
-    JOIN pg_extension e ON e.oid = d.refobjid
-    JOIN pg_class c ON c.oid = d.objid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE d.refclassid = 'pg_extension'::regclass
-     AND d.deptype = 'e'
-     AND n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
-     AND e.extname NOT IN ('pgcrypto', 'plpgsql_check');
-  IF v_bad IS NOT NULL THEN
-    RAISE EXCEPTION 'core objects became members of extension(s): %', v_bad
-      USING ERRCODE = '55000',
-            DETAIL = 'they would be dropped with that extension and skipped by pg_dump';
-  END IF;
+  BEGIN
+    -- Nothing the migrations created may belong to an extension.
+    SELECT string_agg(DISTINCT e.extname, ', ') INTO v_bad
+      FROM pg_depend d
+      JOIN pg_extension e ON e.oid = d.refobjid
+      JOIN pg_class c ON c.oid = d.objid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE d.refclassid = 'pg_extension'::regclass
+       AND d.deptype = 'e'
+       AND n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
+       AND e.extname NOT IN ('pgcrypto', 'plpgsql_check');
+    IF v_bad IS NOT NULL THEN
+      RAISE EXCEPTION 'core objects became members of extension(s): %', v_bad
+        USING ERRCODE = '55000',
+              DETAIL = 'they would be dropped with that extension and skipped by pg_dump';
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+    RAISE;
+  END;
 
   NOTIFY pgrst, 'reload schema';
+  PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
 
   RAISE NOTICE 'pg_semantius: % applied, % skipped in %',
     v_applied, v_skipped, clock_timestamp() - v_start;
-  RETURN format('%s applied, %s skipped in %s',
-                v_applied, v_skipped, clock_timestamp() - v_start);
+  summary := jsonb_build_object(
+    'applied', v_applied,
+    'skipped', v_skipped,
+    'elapsed', (clock_timestamp() - v_start)::text);
 END
 $pgsem_migrate_body$;
 
-REVOKE EXECUTE ON FUNCTION semantius.migrate() FROM PUBLIC;
-COMMENT ON FUNCTION semantius.migrate() IS
-  'Applies the bundled core migrations as ordinary objects. Superuser only. Idempotent.';
+REVOKE EXECUTE ON PROCEDURE semantius.migrate(jsonb) FROM PUBLIC;
+COMMENT ON PROCEDURE semantius.migrate(jsonb) IS
+  'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Superuser only. CALL it outside a transaction block.';
 
 -- 5. Read-only companions.
 CREATE FUNCTION semantius.pending() RETURNS SETOF text
@@ -16695,20 +18808,41 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"cac571d3dd3a6af9aab2c450231cec6741455c1c20ecbac73514956dc10d00fe","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"fa6fbb5cf836f6755059864bccf6a6a1af3752dc5be878d419ae46d711bcbef2","once":false,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"4eff03bf0a1d1fecbb60ad2ea21c70b6f85c8be0d80c094bb05c22b84f48bc9f","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"7be7583f3eadfd246d17ddfd546399b68e893b38ece863fc8b729f9cc643d3d9","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"dd3bdedb0bf2d0e4c9668bab09e765d7915184ecfac8628cdb5605e82f2696f1","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"d294e502dd8e4ac713f695d7dd22e2c2582e758cbc415a40fc3ab4f4e999a163","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"f9afb047926e47e8e19faf1fccd1c473697dd9ee488db46acc3c7b9ddb7d07a1","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"686a8b4f76bf9f153976b9c0c5686bc2de9ca9b106ab18a901eec1aaa505dfac","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"ebaf8f65f8ca306ad8b24365577645b2110fecce46de4d784d8f0d8f197e9a8e","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"1db1e6397e428babeb3c60d100631f113f1e2b5642cd66f6977531c6b55e1d0c","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"07d411cd2025f7fe813e38e7ffca60fade072328b957eaece98021d16af5e7b2","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"01767ae84a91aa5cd6d18cd55ff240c0789db9db6571d74140ebf4c167e6e8e4","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"1d2b4f346d9398a6ef6afe99529ba2e9dec4caee2f68aab35edb833c353e66ec","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"d6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  f       jsonb;
+  v_app   text;
+  v_ran   boolean := false;
+  v_has   boolean := to_regclass('public._versions') IS NOT NULL;
+  v_sum   text;
+  v_found boolean;
 BEGIN
-  -- Works before _versions exists (i.e. before the first migrate()).
-  IF to_regclass('public._versions') IS NULL THEN
-    RETURN QUERY SELECT unnest(v_all);
-  ELSE
-    RETURN QUERY SELECT x FROM unnest(v_all) AS x
-      WHERE NOT EXISTS (SELECT 1 FROM public._versions v WHERE v.name = x);
-  END IF;
+  -- The files the next migrate() would run, by the same rules: no ledger row;
+  -- a repeatable file whose checksum differs; a 9900 file after anything else
+  -- of its app. Works before _versions exists (before the first migrate()).
+  FOR f IN SELECT e FROM jsonb_array_elements(v_files) WITH ORDINALITY AS t(e, i) ORDER BY i
+  LOOP
+    IF v_app IS DISTINCT FROM f->>'app' THEN
+      v_app := f->>'app';
+      v_ran := false;
+    END IF;
+    v_found := false;
+    v_sum := NULL;
+    IF v_has THEN
+      SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = f->>'name';
+      v_found := FOUND;
+    END IF;
+    IF NOT v_found
+       OR ((f->>'final')::boolean AND v_ran)
+       OR (NOT (f->>'once')::boolean AND v_sum IS DISTINCT FROM f->>'checksum') THEN
+      v_ran := true;
+      RETURN NEXT f->>'name';
+    END IF;
+  END LOOP;
 END
 $pgsem_pending$;
 REVOKE EXECUTE ON FUNCTION semantius.pending() FROM PUBLIC;
 COMMENT ON FUNCTION semantius.pending() IS
-  'Bundled migrations not yet applied to this database.';
+  'Bundled migrations the next migrate() would run: new files, changed repeatable files, and the 9900 files that follow them.';
 
 CREATE FUNCTION semantius.version() RETURNS text
 LANGUAGE sql STABLE
@@ -16736,8 +18870,9 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_create_core', '_core.0011_session_authenticator', '_core.0012_create_cache', '_core.0015_jsonlogic', '_core.0020_rbac_schema', '_core.0030_rbac_functions', '_core.0040_rbac_seed', '_core.0050_rbac_rls', '_core.0060_dd_schema', '_core.0070_dd_functions', '_core.0072_apply_core_fts', '_core.0080_public_functions', '_core.0090_notify_triggers', '_core.0110_apikeys', '_core.0140_dd_rename', '_core.0145_managed_enable', '_core.0150_audit_log', '_core.0160_pgmq', '_core.0170_queue', '_core.0180_computed_validation', '_core.0210_raci', '_core.0230_entity_insert_defaults', '_core.0250_webhook_receiver', '_core.0260_dashboard', '_core.0270_entity_order_column', '_core.0280_user_bookmarks', '_core.0282_module_version', '_core.0290_owner_hardening'];
-  v_sums jsonb := '{"_core.0010_create_core":"d796e5f1aa23330eca9fa91d436c4d42e59cfd2dd39747c73200585af63c13fe","_core.0011_session_authenticator":"f0153eb326caba04fd7470d1100a70491ff7f35ba24bd26b2ba90ec64348f801","_core.0012_create_cache":"60b86b254b9a32f9283deb492ee450c939fd189c49835cfe78daecf0afe05af8","_core.0015_jsonlogic":"fcc854d167128a492d57bada99f3ee7c390cc73716ebc21552ae3b1908e5f756","_core.0020_rbac_schema":"e350ccf3a5e1470b08ae20eb92e53a5f979472c5335e5ff7ea897a1d9bbe54e0","_core.0030_rbac_functions":"4b4666a7d3337a0a6eeb1d6a0484ebf399c817103e2ca2334f66bcc87c950abe","_core.0040_rbac_seed":"5f4826a5dbe6bfbfbf91af29d54a74d87421e8ef5111e53dc4d186fc9f890d6f","_core.0050_rbac_rls":"548b9dd2ded90de064a19e3231de8c25efb714a9e810d7729af4c60f229c15bd","_core.0060_dd_schema":"501bad68ef6d7699433d176f943d5561f2cdfc74276318037b625ea3ddb3f841","_core.0070_dd_functions":"8dd8a4b0627e9974fd9bd6dd45f5a109a7181e398a487d08ed492b0c70fc6270","_core.0072_apply_core_fts":"09bbfca0493796d097c98c0d913add98deff6dd81d766d9d2d09e4d4f744fa34","_core.0080_public_functions":"3c67d0a53305cd19134e070425024d209eb091d4bc13bd7e9bf58fa4a1fc4623","_core.0090_notify_triggers":"c9d8ce0a486a07fbb0e55936905445a50c0dd5d4c381c878c679b9dc4a2cab35","_core.0110_apikeys":"6b2192f638a9016bc16a306677bfac25c99236883d01c29ba77f52748d30137b","_core.0140_dd_rename":"5737a1a8bea7368939e75b6708495b885f469ef170c5dfad62f62b3f2502fe07","_core.0145_managed_enable":"d90dbe504d3d304bd80c43827cc855a39411f323ae8b72e462b3fde47e3a6015","_core.0150_audit_log":"6170e6837efec7f42ac3f4c7b83578f34c98d8e14162780c2de6795b729f9f2d","_core.0160_pgmq":"78ba9d1495a6a017b37fdd004db88df80cf7cb010a7ae07ee20b3560126603d7","_core.0170_queue":"738f929680392b1f8725d2399f6bf56736a80e566fa52860c7faa030ca3f81c9","_core.0180_computed_validation":"34c3c288db0a6c6d49a1fe97100c0d3d7455dcf28ded36de1a7193c3ec12742d","_core.0210_raci":"4f4e01fd3a7caa9a79d6b5b79fb81670c8b58a1359461e9a120531b9fc177945","_core.0230_entity_insert_defaults":"07f90c9547ead8fd005717f7d8ae2987683ad8e4255330be4f9c0f9828808c2f","_core.0250_webhook_receiver":"d82c34847a430ca0a2fcb4a55ff989855cbb7257b43dfe8c12b6505506f02aaa","_core.0260_dashboard":"d4a0fadefe9e969aac7f1e56f2859cd370d8aad491f751a9f639618386996ab2","_core.0270_entity_order_column":"928c877a9a2325de7dee0cc1ac226fae6b44879c36596f66f72cb5828b327b67","_core.0280_user_bookmarks":"77d92fc42a24b49a8f964e385b852133735715825955c7874f2f9925c104a40d","_core.0282_module_version":"91bc2bf73916499026c9239dc7a388f9a3691a819a06cd66f2bef408cf0257d8","_core.0290_owner_hardening":"1ff2700e011a320fd95de591ae02c235950c17889538f1f32812ee13caaefa71"}'::jsonb;
+  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.9900_owner_hardening.sql'];
+  v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql']::text[];
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"cac571d3dd3a6af9aab2c450231cec6741455c1c20ecbac73514956dc10d00fe","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"fa6fbb5cf836f6755059864bccf6a6a1af3752dc5be878d419ae46d711bcbef2","_core.0050_jsonlogic.sql":"9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e","_core.0060_rbac_schema.once.sql":"4eff03bf0a1d1fecbb60ad2ea21c70b6f85c8be0d80c094bb05c22b84f48bc9f","_core.0070_rbac_schema.sql":"d7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5","_core.0080_rbac_functions.sql":"7be7583f3eadfd246d17ddfd546399b68e893b38ece863fc8b729f9cc643d3d9","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"dd3bdedb0bf2d0e4c9668bab09e765d7915184ecfac8628cdb5605e82f2696f1","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"d294e502dd8e4ac713f695d7dd22e2c2582e758cbc415a40fc3ab4f4e999a163","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"f9afb047926e47e8e19faf1fccd1c473697dd9ee488db46acc3c7b9ddb7d07a1","_core.0160_dd_functions.sql":"27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f","_core.0170_dd_rename.sql":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","_core.0180_managed_enable.sql":"686a8b4f76bf9f153976b9c0c5686bc2de9ca9b106ab18a901eec1aaa505dfac","_core.0190_audit_log.once.sql":"ebaf8f65f8ca306ad8b24365577645b2110fecce46de4d784d8f0d8f197e9a8e","_core.0200_audit_log.sql":"1db1e6397e428babeb3c60d100631f113f1e2b5642cd66f6977531c6b55e1d0c","_core.0210_computed_validation.sql":"07d411cd2025f7fe813e38e7ffca60fade072328b957eaece98021d16af5e7b2","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"01767ae84a91aa5cd6d18cd55ff240c0789db9db6571d74140ebf4c167e6e8e4","_core.0250_public_functions.sql":"82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3","_core.0260_notify_triggers.sql":"8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba","_core.0270_apikeys.once.sql":"1d2b4f346d9398a6ef6afe99529ba2e9dec4caee2f68aab35edb833c353e66ec","_core.0280_apikeys.sql":"16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97","_core.0290_ensure_entities.sql":"5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4","_core.0300_audit_log.jsonc":"411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","_core.0350_raci.jsonc":"65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d","_core.0380_webhook_receiver.jsonc":"944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"d6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1","_core.0420_module_version.sql":"f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
@@ -16775,15 +18910,18 @@ BEGIN
       INTO unknown_versions
       FROM public._versions v
      WHERE v.name LIKE '%.%' AND NOT (v.name = ANY(v_all));
-    -- Applied rows whose source text has changed since (Flyway's validate).
+    -- Run-once files whose source text has changed since they were applied
+    -- (Flyway's validate). They are not re-run, so the database keeps what
+    -- the old text created. A changed repeatable file is not listed here: the
+    -- next migrate() runs it, and pending() already says so.
     SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
       INTO changed_versions
       FROM public._versions v
-     WHERE v.name = ANY(v_all)
+     WHERE v.name = ANY(v_once)
        AND v.checksum IS NOT NULL
        AND v.checksum IS DISTINCT FROM (v_sums ->> v.name);
   END IF;
-  pending := array_length(v_all, 1) - applied;
+  SELECT count(*)::int INTO pending FROM semantius.pending();
 
   SELECT count(*)::int INTO unowned_objects
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -16805,4 +18943,4 @@ END
 $pgsem_status$;
 REVOKE EXECUTE ON FUNCTION semantius.status() FROM PUBLIC;
 COMMENT ON FUNCTION semantius.status() IS
-  'Install health: version drift, unknown or changed migrations, ownership and default-ACL drift after a restore, and whether the JWT audience is pinned.';
+  'Install health: version drift, pending, unknown or changed run-once migrations, ownership and default-ACL drift after a restore, and whether the JWT audience is pinned.';

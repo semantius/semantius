@@ -9,7 +9,7 @@
  * both work.
  *
  * The type mapping mirrors public.format_to_data_type() and public.is_nullable()
- * from apps/_core/migrations/0070_dd_functions.sql, so the generated schema
+ * from apps/_core/migrations/0160_dd_functions.sql, so the generated schema
  * matches the physical tables the catalog produces. `enum` fields become
  * text(col, { enum: [...] }) — a TEXT column typed as a literal union, matching
  * the DB's TEXT + CHECK (not a native PG enum type).

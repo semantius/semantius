@@ -3,7 +3,7 @@
 -- =====================================================
 -- The pg_semantius extension is a THIN INSTALLER: `CREATE EXTENSION` creates
 -- only the cluster roles, the `semantius` schema and that schema's functions,
--- and `SELECT semantius.migrate()` then installs the core schema as ORDINARY
+-- and `CALL semantius.migrate()` then installs the core schema as ORDINARY
 -- objects. This file pins the properties that whole design rests on:
 --
 --   1. membership: the ONLY members are the schema and its functions, and
@@ -170,10 +170,14 @@ SELECT CASE WHEN (SELECT ext FROM ext_ctx) THEN
        'no semantius function is SECURITY DEFINER')
 ELSE pass('migrate path (no extension): prosecdef check skipped') END;
 
+-- The migrate() PROCEDURE is exempt: it commits after every file, and a
+-- procedure with a SET clause cannot commit, so it pins search_path with
+-- set_config() before every file instead.
 SELECT CASE WHEN (SELECT ext FROM ext_ctx) THEN
     is((SELECT count(*)::int FROM pg_proc p
           JOIN pg_namespace n ON n.oid = p.pronamespace
          WHERE n.nspname = 'semantius'
+           AND p.prokind <> 'p'
            AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) AS c
                             WHERE c LIKE 'search\_path=%')), 0,
        'every semantius function pins search_path')
@@ -223,7 +227,7 @@ SELECT is((SELECT count(*)::int FROM public._versions
 
 SELECT CASE WHEN (SELECT ext FROM ext_ctx) THEN
     throws_ok(
-      'SET LOCAL ROLE authenticated; SELECT semantius.migrate()',
+      'SET LOCAL ROLE authenticated; CALL semantius.migrate()',
       '42501',
       NULL,
       'a non-superuser cannot run semantius.migrate()')

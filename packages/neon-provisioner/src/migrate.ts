@@ -9,19 +9,12 @@
  * with Cloudflare Workers via WebSocket connections.
  *
  * The migration logic itself is shared with @semantius/triggerdev through
- * the @semantius/core package (ensureVersionsTable, executeMigrations).
+ * the @semantius/core package (runMigrations), including the run rules.
  */
 
 import { Pool } from "@neondatabase/serverless";
-import {
-  ensureVersionsTable,
-  executeMigrations,
-  type MigrationFile,
-} from "@semantius/core";
-import {
-  getBundledAppNames,
-  getBundledMigrations,
-} from "./migrations-bundle.js";
+import { type AppMigrations, runMigrations } from "@semantius/core";
+import { getBundledMigrations } from "./migrations-bundle.js";
 
 export interface MigrateOptions {
   /** If true, enables verbose logging. Defaults to false. */
@@ -39,7 +32,8 @@ export interface MigrateResult {
  *
  * @param databaseUrl  PostgreSQL connection URL (e.g. postgresql://user:pass@host/db)
  * @param modules      List of module/app names to migrate.
- *                     Defaults to all bundled apps if not provided.
+ *                     Defaults to "_core" alone: a sample module such as
+ *                     nwind is bundled too, and must be asked for by name.
  *                     The "_core" module is always prepended automatically.
  * @param options      Optional configuration (verbose logging, etc.)
  */
@@ -60,10 +54,8 @@ export async function migrate(
   // Determine which apps to migrate
   let appsToMigrate: string[];
   if (!modules || modules.length === 0) {
-    appsToMigrate = getBundledAppNames();
-    logVerbose(
-      `No modules specified - using all bundled apps: ${appsToMigrate.join(", ")}`,
-    );
+    appsToMigrate = ["_core"];
+    logVerbose("No modules specified - migrating _core only");
   } else {
     // Always ensure _core is first
     const withoutCore = modules.filter((m) => m !== "_core");
@@ -71,66 +63,44 @@ export async function migrate(
     logVerbose(`Modules to migrate: ${appsToMigrate.join(", ")}`);
   }
 
-  // Use neon's WebSocket-based Pool - supports multi-statement queries
+  // Use neon's WebSocket-based Pool - supports multi-statement queries.
+  // ONE client for the whole pass: pool.query() may hand every query to a
+  // different pooled connection, so BEGIN / file / COMMIT would not be one
+  // transaction and the session lock would be held by some other connection.
   const pool = new Pool({ connectionString: databaseUrl });
+  const client = await pool.connect();
 
-  // Wrap pool client to match the DatabaseClient interface expected by core
+  // Wrap the client to match the DatabaseClient interface expected by core
   const dbClient = {
     queryObject: async (
       query: string,
       params?: unknown[],
     ): Promise<{ rows: Record<string, unknown>[] }> => {
       const result = params && params.length > 0
-        ? await pool.query(query, params as unknown[])
-        : await pool.query(query);
+        ? await client.query(query, params as unknown[])
+        : await client.query(query);
       return { rows: result.rows as Record<string, unknown>[] };
     },
   };
 
-  // Acquire advisory lock to prevent concurrent migrations
-  const lockResult = await dbClient.queryObject(
-    "SELECT pg_try_advisory_lock(hashtext('migrate')) AS acquired",
-  );
-  const lockAcquired = (lockResult.rows[0] as { acquired: boolean }).acquired;
-
-  if (!lockAcquired) {
-    throw new Error(
-      "Failed to acquire migration lock. Another migration may already be running.",
-    );
+  const apps: AppMigrations[] = [];
+  for (const appName of appsToMigrate) {
+    const migrations = getBundledMigrations(appName);
+    if (migrations.length === 0) {
+      log(`No bundled migrations found for app: ${appName} - skipping`);
+      continue;
+    }
+    log(`Migrating app: ${appName} (${migrations.length} file(s))`);
+    apps.push({ app: appName, migrations });
   }
 
-  logVerbose("Migration lock acquired");
-
   try {
-    for (const appName of appsToMigrate) {
-      const migrations: MigrationFile[] = getBundledMigrations(appName);
-
-      if (migrations.length === 0) {
-        log(`No bundled migrations found for app: ${appName} - skipping`);
-        continue;
-      }
-
-      log(`Migrating app: ${appName} (${migrations.length} file(s))`);
-      await ensureVersionsTable(dbClient);
-      await executeMigrations(appName, migrations, dbClient);
-      log(`Completed: ${appName}`);
-    }
-
-    log("All migrations completed successfully.");
+    const result = await runMigrations(dbClient, apps);
+    log(
+      `All migrations completed successfully (${result.applied} applied, ${result.skipped} skipped).`,
+    );
   } finally {
-    try {
-      await dbClient.queryObject(
-        "SELECT pg_advisory_unlock(hashtext('migrate'))",
-      );
-      logVerbose("Migration lock released");
-    } catch (unlockError) {
-      console.error(
-        "[semantius/neon-provisioner] Warning: failed to release migration lock:",
-        unlockError instanceof Error
-          ? unlockError.message
-          : String(unlockError),
-      );
-    }
+    client.release();
     await pool.end();
   }
 

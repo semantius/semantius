@@ -158,8 +158,8 @@ if init_done "$C_ON"; then
       "$(q "$C_ON" "SELECT count(*) FROM modules m JOIN permissions p ON p.permission_name = m.view_permission WHERE m.module_slug = 'nwind'")"
     check "the Northwind Sales role is seeded" "1" \
       "$(q "$C_ON" "SELECT count(*) FROM roles WHERE slug = 'northwind_sales'")"
-    # 0020 is the half the FK abort never reached: entities without rows would
-    # mean the seed stopped between the two merged migrations.
+    # The rows come from 0020_nwind_data.jsonc, the tables from 0010_nwind.jsonc:
+    # entities without rows would mean the pass stopped between the two files.
     check "sample rows loaded (customers)" "t" \
       "$(q "$C_ON" "SELECT count(*) > 0 FROM customers")"
     check "sample rows loaded (orders)" "t" \
@@ -167,7 +167,7 @@ if init_done "$C_ON"; then
     # Derived from the directory, never a literal count: hardcoding the file
     # list is what let the image ship a module missing a migration while every
     # check still passed.
-    want_n="$(ls "$REPO_ROOT"/apps/nwind/migrations/*.sql | wc -l | tr -d ' ')"
+    want_n="$(ls "$REPO_ROOT"/apps/nwind/migrations/ | grep -cE '\.(sql|jsonc)$')"
     check "every nwind migration recorded in _versions" "$want_n" \
       "$(q "$C_ON" "SELECT count(*) FROM public._versions WHERE name LIKE 'nwind.%'")"
 
@@ -176,8 +176,9 @@ if init_done "$C_ON"; then
     # checksum `migrate --apps nwind` writes - SHA-256 of the LF-normalized
     # file. A NULL here means the image recorded the migration without applying
     # it through anything that knows what it applied.
-    for f in "$REPO_ROOT"/apps/nwind/migrations/*.sql; do
-      n="$(basename "$f" .sql)"
+    for f in "$REPO_ROOT"/apps/nwind/migrations/*.sql "$REPO_ROOT"/apps/nwind/migrations/*.jsonc; do
+      [ -f "$f" ] || continue
+      n="$(basename "$f")"
       check "nwind.$n recorded with the CLI's checksum" \
         "$(tr -d '\r' < "$f" | sha256sum | cut -d ' ' -f 1)" \
         "$(q "$C_ON" "SELECT coalesce(checksum, '<null>') FROM public._versions WHERE name = 'nwind.$n'")"

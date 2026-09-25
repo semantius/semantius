@@ -1,0 +1,194 @@
+-- =====================================================
+-- MODULE VERSION TRACKING
+-- =====================================================
+-- Maintains modules.version and modules.version_date.
+-- Automatically increments version and sets version_date when
+-- modules or any related table (entities, roles, permissions,
+-- processes) is modified.
+-- =====================================================
+
+-- =====================================================
+-- TRIGGER FUNCTION: bump_module_version
+-- =====================================================
+-- Increments version and sets version_date on the modules row directly.
+-- Called by AFTER triggers on modules itself.
+CREATE OR REPLACE FUNCTION bump_module_version()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- On INSERT or UPDATE, bump the version for the affected module
+    IF TG_OP = 'DELETE' THEN
+        -- No version bump needed when module itself is deleted
+        RETURN OLD;
+    END IF;
+
+    -- Use a direct UPDATE bypassing triggers by using a session variable guard
+    IF current_setting('app.bumping_module_version', TRUE) = 'true' THEN
+        RETURN NEW;
+    END IF;
+
+    PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+    UPDATE modules
+    SET version = version + 1,
+        version_date = CURRENT_TIMESTAMP
+    WHERE id = NEW.id;
+
+    PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- =====================================================
+-- TRIGGER FUNCTION: bump_module_version_from_related
+-- =====================================================
+-- Increments version on the parent module when a related table changes.
+-- Expects the related table to have a module_id column.
+
+CREATE OR REPLACE FUNCTION bump_module_version_from_related()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_module_id INTEGER;
+BEGIN
+    -- Determine the module_id from the affected row
+    IF TG_OP = 'DELETE' THEN
+        v_module_id := OLD.module_id;
+    ELSE
+        v_module_id := NEW.module_id;
+    END IF;
+
+    -- If module_id is NULL, nothing to bump
+    IF v_module_id IS NULL THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    -- Guard against recursive calls
+    IF current_setting('app.bumping_module_version', TRUE) = 'true' THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+    UPDATE modules
+    SET version = version + 1,
+        version_date = CURRENT_TIMESTAMP
+    WHERE id = v_module_id;
+
+    PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+
+    -- On UPDATE, if module_id changed, also bump the old module
+    IF TG_OP = 'UPDATE' AND OLD.module_id IS DISTINCT FROM NEW.module_id AND OLD.module_id IS NOT NULL THEN
+        PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+        UPDATE modules
+        SET version = version + 1,
+            version_date = CURRENT_TIMESTAMP
+        WHERE id = OLD.module_id;
+
+        PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- =====================================================
+-- TRIGGER FUNCTION: bump_module_version_from_fields
+-- =====================================================
+-- Same job as bump_module_version_from_related, for the one module-scoped table
+-- with no module_id: fields resolves its module through entities.table_name.
+-- Resolving to nothing is not an error - a cascading entity DELETE removes the
+-- entities row first, and its own DELETE has already bumped.
+
+CREATE OR REPLACE FUNCTION bump_module_version_from_fields()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_module_id INTEGER;
+    v_old_module_id INTEGER;
+BEGIN
+    IF TG_OP <> 'DELETE' THEN
+        SELECT e.module_id INTO v_module_id FROM entities e WHERE e.table_name = NEW.table_name;
+    END IF;
+    IF TG_OP <> 'INSERT' THEN
+        SELECT e.module_id INTO v_old_module_id FROM entities e WHERE e.table_name = OLD.table_name;
+    END IF;
+
+    -- The UPDATE below writes modules, whose own AFTER trigger would otherwise
+    -- bump a second time.
+    IF current_setting('app.bumping_module_version', TRUE) IS DISTINCT FROM 'true' THEN
+        PERFORM set_config('app.bumping_module_version', 'true', TRUE);
+
+        UPDATE modules
+        SET version = version + 1,
+            version_date = CURRENT_TIMESTAMP
+        WHERE id = v_module_id
+           OR id = v_old_module_id;
+
+        PERFORM set_config('app.bumping_module_version', 'false', TRUE);
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION bump_module_version() IS
+'Trigger function on modules that increments the module version when a version-relevant column changes, unless a related-table bump is already in progress (guarded by app.bumping_module_version).';
+COMMENT ON FUNCTION bump_module_version_from_related() IS
+'Trigger function on module-scoped tables (entities, roles, permissions, processes, …) that bumps the owning module''s version when a related row changes, using app.bumping_module_version to avoid recursive double-bumps.';
+COMMENT ON FUNCTION bump_module_version_from_fields() IS
+'Trigger function on fields that bumps the owning module''s version, resolving the module through entities.table_name because fields has no module_id. A field edit changes what get_schema() returns, so it is a model change.';
+
+-- =====================================================
+-- TRIGGERS ON MODULES TABLE
+-- =====================================================
+
+CREATE OR REPLACE TRIGGER bump_module_version_trigger
+    AFTER INSERT OR UPDATE ON modules
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version();
+
+-- =====================================================
+-- TRIGGERS ON RELATED TABLES
+-- =====================================================
+
+CREATE OR REPLACE TRIGGER bump_module_version_on_entities
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE OR REPLACE TRIGGER bump_module_version_on_roles
+    AFTER INSERT OR UPDATE OR DELETE ON roles
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE OR REPLACE TRIGGER bump_module_version_on_permissions
+    AFTER INSERT OR UPDATE OR DELETE ON permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE OR REPLACE TRIGGER bump_module_version_on_processes
+    AFTER INSERT OR UPDATE OR DELETE ON processes
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_related();
+
+CREATE OR REPLACE TRIGGER bump_module_version_on_fields
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION bump_module_version_from_fields();
+
+-- Revoke default PUBLIC execute on trigger functions
+REVOKE EXECUTE ON FUNCTION bump_module_version() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION bump_module_version_from_related() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION bump_module_version_from_fields() FROM PUBLIC;

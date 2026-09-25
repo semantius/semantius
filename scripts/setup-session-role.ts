@@ -3,7 +3,8 @@
  * setup-session-role.ts  -  give `semantius_authenticator` a LOGIN + password on
  * a MANAGED platform (Supabase / Neon), over the privileged OWNER connection.
  *
- * The core migrations (apps/_core/migrations/0011) create the role NOLOGIN
+ * The core migrations (apps/_core/migrations/0030_session_authenticator.sql)
+ * create the role NOLOGIN
  * NOSUPERUSER NOINHERIT and GRANT it `authenticated` on every deployment. On
  * local pgdocker, init/11-session-role.sh sets the LOGIN + password. On managed
  * platforms there is no such init hook, so run THIS once, as the owner, to flip
@@ -72,7 +73,8 @@ async function main(): Promise<number> {
     console.log(`connected as "${who[0]}" (rolsuper=${who[1]})`);
 
     // Ensure the role exists with the right floor + membership (idempotent).
-    // Created by 0011 on a migrated DB; this covers running before migrate too.
+    // Created by 0030_session_authenticator.sql on a migrated DB; this covers
+    // running before migrate too.
     await client.queryArray(`
       DO $$
       BEGIN

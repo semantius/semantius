@@ -1,0 +1,212 @@
+-- =====================================================
+-- POSTGREST SCHEMA RELOAD NOTIFICATIONS
+-- =====================================================
+-- Send NOTIFY pgrst commands when tables or fields are modified.
+-- All notifications go through common.refresh_schema_cache() which
+-- also keeps the db_version timestamp in _settings up to date.
+-- =====================================================
+
+-- =====================================================
+-- COMMON: SCHEMA CACHE REFRESH
+-- =====================================================
+-- Central function called by all DDL and DML triggers.
+-- Sends NOTIFY pgrst, 'reload schema' and writes the current
+-- timestamp into _settings(name='db_version') so clients can
+-- detect that the schema has changed without polling PostgREST.
+CREATE OR REPLACE FUNCTION common.refresh_schema_cache() RETURNS void AS $$
+DECLARE
+    v_db_version_ts TEXT;
+    v_current       TEXT;
+BEGIN
+    -- ISO 8601 datetime (e.g. 2026-03-20T22:21:49.813267+00:00)
+    v_db_version_ts := to_char(clock_timestamp() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"+00:00"');
+
+    -- Update db_version only when the stored value is outdated (or missing)
+    SELECT value INTO v_current FROM _settings WHERE name = 'db_version';
+    IF NOT FOUND OR v_current < v_db_version_ts THEN
+        INSERT INTO _settings (name, value) VALUES ('db_version', v_db_version_ts)
+        ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;
+    END IF;
+
+    -- Notify PostgREST to reload its schema cache
+    NOTIFY pgrst, 'reload schema';
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION common.refresh_schema_cache() IS
+'Notifies PostgREST to reload its schema cache and updates the db_version timestamp in _settings.';
+
+-- =====================================================
+-- TRIGGER FUNCTION: NOTIFY ON TABLES CHANGES
+-- =====================================================
+-- SECURITY DEFINER, like its sibling below, because it fires on a DML statement
+-- issued by the request role and common.refresh_schema_cache() is not callable
+-- by that role: an entities write would otherwise fail with 42501. Safe to run
+-- as the owner - the body takes no argument, builds no dynamic SQL, and reaches
+-- exactly one fully qualified function - and search_path is pinned so the name
+-- it reaches cannot be redirected by the caller.
+
+CREATE OR REPLACE FUNCTION notify_pgrst_tables()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM common.refresh_schema_cache();
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION notify_pgrst_tables IS
+'Trigger function that notifies PostgREST to reload schema when entities are modified.';
+
+-- Apply trigger on entities table
+CREATE OR REPLACE TRIGGER notify_pgrst_on_tables_change
+    AFTER INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_pgrst_tables();
+
+-- =====================================================
+-- TRIGGER FUNCTION: NOTIFY ON FIELDS CHANGES
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION notify_pgrst_fields()
+RETURNS TRIGGER AS $$
+BEGIN
+    PERFORM common.refresh_schema_cache();
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+
+COMMENT ON FUNCTION notify_pgrst_fields IS
+'Trigger function that notifies PostgREST to reload schema when fields are modified.';
+
+-- Apply trigger on fields table
+CREATE OR REPLACE TRIGGER notify_pgrst_on_fields_change
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_pgrst_fields();
+
+-- =====================================================
+-- DDL EVENT TRIGGERS: NOTIFY ON SCHEMA CHANGES
+-- =====================================================
+-- Fire on every DDL command that PostgREST cares about so its
+-- schema cache stays in sync automatically.
+
+-- Watch CREATE and ALTER commands
+CREATE OR REPLACE FUNCTION pgrst_ddl_watch() RETURNS event_trigger AS $$
+DECLARE
+    cmd record;
+BEGIN
+    FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
+    LOOP
+        IF cmd.command_tag IN (
+          'CREATE SCHEMA', 'ALTER SCHEMA'
+        , 'CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO', 'ALTER TABLE'
+        , 'CREATE FOREIGN TABLE', 'ALTER FOREIGN TABLE'
+        , 'CREATE VIEW', 'ALTER VIEW'
+        , 'CREATE MATERIALIZED VIEW', 'ALTER MATERIALIZED VIEW'
+        , 'CREATE FUNCTION', 'ALTER FUNCTION'
+        , 'CREATE TRIGGER'
+        , 'CREATE TYPE', 'ALTER TYPE'
+        , 'CREATE RULE'
+        , 'COMMENT'
+        )
+        -- Only the schemas Semantius owns: DDL in a foreign schema cannot change
+        -- the API surface PostgREST exposes, and pg_temp is excluded by the same
+        -- list, so a CREATE TEMP TABLE notifies nobody. A NULL schema_name
+        -- (GRANT, REVOKE, ALTER DEFAULT PRIVILEGES, CREATE SCHEMA) reports no
+        -- schema but can still change that surface, so it stays in scope.
+        AND (cmd.schema_name IS NULL
+             OR cmd.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
+        THEN
+            PERFORM common.refresh_schema_cache();
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+-- Watch DROP commands
+CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
+DECLARE
+    obj record;
+BEGIN
+    FOR obj IN SELECT * FROM pg_event_trigger_dropped_objects()
+    LOOP
+        IF obj.object_type IN (
+          'schema'
+        , 'table'
+        , 'foreign table'
+        , 'view'
+        , 'materialized view'
+        , 'function'
+        , 'trigger'
+        , 'type'
+        , 'rule'
+        )
+        AND obj.is_temporary IS false -- no pg_temp objects
+        -- and only for the schemas Semantius owns, matching pgrst_ddl_watch:
+        -- without this a DROP in a foreign schema still reloaded the cache. A
+        -- NULL schema_name here means the dropped object IS a schema, which
+        -- can change what PostgREST exposes, so it stays in scope.
+        AND (obj.schema_name IS NULL
+             OR obj.schema_name IN ('public', 'common', 'rbac', 'audit', 'pgmq'))
+        THEN
+            PERFORM common.refresh_schema_cache();
+        END IF;
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION pgrst_ddl_watch() IS
+'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';
+COMMENT ON FUNCTION pgrst_drop_watch() IS
+'Event-trigger function (sql_drop) that refreshes the PostgREST schema cache when a relevant object is dropped.';
+
+DROP EVENT TRIGGER IF EXISTS pgrst_ddl_watch;
+CREATE EVENT TRIGGER pgrst_ddl_watch
+    ON ddl_command_end
+    EXECUTE PROCEDURE pgrst_ddl_watch();
+
+DROP EVENT TRIGGER IF EXISTS pgrst_drop_watch;
+CREATE EVENT TRIGGER pgrst_drop_watch
+    ON sql_drop
+    EXECUTE PROCEDURE pgrst_drop_watch();
+
+-- Revoke default PUBLIC execute on notify trigger functions
+REVOKE EXECUTE ON FUNCTION notify_pgrst_tables() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION notify_pgrst_fields() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pgrst_ddl_watch() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
+
+-- Nothing outside this file calls common.refresh_schema_cache(). Its four
+-- callers are the two DML trigger functions and the two event-trigger functions
+-- above, and they reach it by two different routes: the DML pair are SECURITY
+-- DEFINER and run as the owner, while pgrst_ddl_watch and pgrst_drop_watch are
+-- SECURITY INVOKER and run as whoever executed the DDL.
+--
+-- That second route is why this revoke is safe only as long as the request role
+-- cannot run DDL. It holds today because semantius_user has CREATE on no schema
+-- and owns nothing, so it can never fire an event trigger. A temp table is the
+-- one thing it can create, and pg_temp is filtered out by the schema allow-list
+-- above before refresh_schema_cache is reached. Grant the request role CREATE
+-- anywhere and DDL starts failing with 42501 from inside an event trigger.
+--
+-- Left callable by the request role the function is a free amplifier: one RPC
+-- per request makes PostgREST rebuild its schema cache, and no identity check
+-- would help, because a NOTIFY costs the same whoever sends it.
+REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
+REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
+
+-- USAGE on the schema stays: it reaches nothing on its own (every function in
+-- `common` is now revoked from both PUBLIC and semantius_user, and common._cache
+-- has RLS with no policies and no table grant), and dropping it is a separate
+-- change with a wider blast radius than this one.
+GRANT USAGE ON SCHEMA common TO semantius_user;

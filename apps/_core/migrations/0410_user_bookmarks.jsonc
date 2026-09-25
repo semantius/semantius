@@ -1,0 +1,62 @@
+// User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
+// belongs to one user and can reference an entity and a record; users see and
+// edit only their own.
+//
+// Everything is metadata, with no hand-written trigger or policy: the
+// dictionary regenerates its own objects (compute_validate_*, the four
+// <table>_*_policy) whenever an entity's rules or permissions change, and a
+// hand-written replacement would be lost or would overwrite them.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "user_bookmarks",
+        "module_name": "_core",
+        "singular": "user_bookmark",
+        "singular_label": "User Bookmark",
+        "plural_label": "Favorites",
+        "description": "Manage and order your facorites for quick access to frequently used apps and records.",
+        "view_permission": "user:read",
+        "edit_permission": "user:read",
+        "id_column": "id",
+        "label_column": "title",
+        // Per-row SELECT policy (own rows only); also scopes UPDATE and DELETE
+        // to own rows.
+        "select_rule": {"==": [{"var": "user_id"}, {"var": "$user_id"}]},
+        // Enables drag-and-drop reordering.
+        "order_column": "row_order",
+        // The compute trigger forces user_id to the current user on every
+        // insert and update, so a bookmark can be neither created for nor handed
+        // to another user, whatever the edit_permission is. The default INSERT
+        // policy suffices: its WITH CHECK runs after the trigger.
+        "computed_fields": [{"name": "user_id", "jsonlogic": {"var": "$user_id"}}],
+        // The compute trigger reads $user_id through rbac.user_id_or_null(),
+        // which is NULL for a session without claims (migrations, maintenance
+        // scripts). This rule refuses such an insert or update rather than
+        // store a bookmark without an owner. Deletes are exempt, so deleting a
+        // user still cascades to their bookmarks from any session.
+        "validation_rules": [
+          {"code": "90207", "message": "A bookmark can only be written by an authenticated user", "source_module": "platform",
+           "jsonlogic": {"or": [{"==": [{"var": "$mode"}, "delete"]}, {"!=": [{"var": "$user_id"}, null]}]}}
+        ],
+        // id, title (the label column), created_at and updated_at are created
+        // by the dictionary.
+        "fields": [
+          {"field_name": "user_id", "title": "User", "description": "Owner of this bookmark (auto-assigned to current user)",
+           "format": "reference", "field_order": 10, "input_type": "hidden", "width": "default", "searchable": false,
+           "reference_table": "users", "reference_delete_mode": "cascade"},
+          {"field_name": "url", "title": "URL", "description": "",
+           "format": "text", "field_order": 30, "input_type": "default", "width": "w", "searchable": false,
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "entity_name", "title": "Entity", "description": "",
+           "format": "text", "field_order": 40, "input_type": "default", "width": "default", "searchable": false,
+           "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "entity_id", "title": "Record", "description": "ID of the related record in the entity table (0 = no record)",
+           "format": "int32", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
+           "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    }
+  ]
+}

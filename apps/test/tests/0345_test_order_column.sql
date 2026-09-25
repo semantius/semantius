@@ -1,7 +1,7 @@
 -- =====================================================
 -- TEST: entities.order_column — fixed per-entity row ordering
 -- =====================================================
--- Covers (migration 0270):
+-- Covers (migration 0230_entity_order_column.sql):
 --   • Assigning order_column to a brand-new entity provisions the physical
 --     INTEGER column + auto-assign BEFORE INSERT trigger.
 --   • Records inserted WITHOUT a value get MAX(order below 900000)+10 (or 10

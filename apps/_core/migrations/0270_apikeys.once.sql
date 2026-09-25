@@ -1,0 +1,39 @@
+-- =====================================================
+-- API KEYS TABLE AND FUNCTIONS
+-- =====================================================
+-- Internal table for storing API keys with hashed secrets.
+-- RLS is enabled with no policies so it is only accessible
+-- internally via SECURITY DEFINER functions (same pattern as _settings).
+-- No entries in entities/fields - not exposed in the UI.
+
+-- =====================================================
+-- _APIKEYS TABLE
+-- =====================================================
+-- Runs once: the table, its indexes, deny-all policy and grants. The
+-- functions are in 0280_apikeys.sql.
+
+CREATE TABLE _apikeys (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    key_id TEXT NOT NULL UNIQUE,
+    secret_hash TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    last_used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_apikeys_user_id ON _apikeys(user_id);
+CREATE UNIQUE INDEX idx_apikeys_key_id ON _apikeys(key_id);
+
+ALTER TABLE _apikeys ENABLE ROW LEVEL SECURITY;
+
+-- Deny-all policy so the table is never exposed through PostgREST / the Data API.
+-- SECURITY DEFINER functions can still read and write it.
+CREATE POLICY apikeys_deny_all ON _apikeys
+    FOR ALL
+    TO semantius_user
+    USING (false)
+    WITH CHECK (false);
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON _apikeys TO semantius_user;
+GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;

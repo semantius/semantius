@@ -1,0 +1,114 @@
+// Audit log entities: registers the audit tables audit_record_logs and
+// audit_ddl_logs (created by 0190_audit_log.once.sql) in the data dictionary.
+//
+// These are core system tables. managed: false means the dictionary creates no
+// table and runs no DDL for them; the entities/fields rows only make them
+// queryable through the standard API (get_schema, etc.). Every field is
+// registered explicitly, core ones included, because an unmanaged entity gets
+// no generated fields.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "audit_record_logs",
+        "module_name": "_core",
+        "singular": "audit_record_log",
+        "singular_label": "Audit Record Log",
+        "plural_label": "Audit Record Logs",
+        "description": "DML audit trail for entity table records",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "table_name",
+        "managed": false,
+        "fields": [
+          {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
+           "input_type": "readonly", "width": "default", "ctype": "id", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "record_id", "title": "Record UUID", "description": "Deterministic UUID computed from table OID and primary key values",
+           "format": "uuid", "is_pk": false, "field_order": 10,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "old_record_id", "title": "Old Record UUID", "description": "Record id before update/delete",
+           "format": "uuid", "is_pk": false, "field_order": 20,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "record_pk", "title": "Record Primary Key", "description": "",
+           "format": "text", "is_pk": false, "field_order": 25,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "op", "title": "Operation", "description": "DML operation type: INSERT, UPDATE, DELETE, TRUNCATE",
+           "format": "text", "is_pk": false, "field_order": 30,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "ts", "title": "Timestamp", "description": "",
+           "format": "date-time", "is_pk": false, "field_order": 40,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable",
+           "format": "int32", "is_pk": false, "field_order": 50,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "db_role", "title": "DB Role",
+           "description": "session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.",
+           "format": "text", "is_pk": false, "field_order": 52,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "is_superuser", "title": "Is Superuser",
+           "description": "Whether the writing session had superuser privileges. On a data row that means RLS was bypassed. Reports the session, not the owner of a SECURITY DEFINER function.",
+           "format": "boolean", "is_pk": false, "field_order": 54,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "client_addr", "title": "Client Addr",
+           "description": "Connecting client address (inet_client_addr()); NULL for a unix-socket connection, which means a shell on the database host rather than a client on the network",
+           "format": "text", "is_pk": false, "field_order": 56,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "table_oid", "title": "Table OID", "description": "PostgreSQL internal object identifier for the table",
+           "format": "int32", "is_pk": false, "field_order": 60,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "table_schema", "title": "Table Schema", "description": "",
+           "format": "text", "is_pk": false, "field_order": 70,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "table_name", "title": "Table Name", "description": "",
+           "format": "text", "is_pk": false, "field_order": 80,
+           "input_type": "readonly", "width": "default", "ctype": "label", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "record", "title": "Record", "description": "Full record after INSERT/UPDATE (JSONB)",
+           "format": "json", "is_pk": false, "field_order": 90,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "old_record", "title": "Old Record", "description": "Previous record before UPDATE/DELETE (JSONB)",
+           "format": "json", "is_pk": false, "field_order": 100,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "audit_ddl_logs",
+        "module_name": "_core",
+        "singular": "audit_ddl_log",
+        "singular_label": "Audit DDL Log",
+        "plural_label": "Audit DDL Logs",
+        "description": "DDL audit trail for schema change events",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "command_tag",
+        "managed": false,
+        "fields": [
+          {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
+           "input_type": "readonly", "width": "default", "ctype": "id", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "event_time", "title": "Event Finish Time", "description": "",
+           "format": "date-time", "is_pk": false, "field_order": 10,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable, e.g. during migrations",
+           "format": "int32", "is_pk": false, "field_order": 20,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "command_tag", "title": "Command Tag", "description": "DDL command type (e.g. CREATE TABLE, ALTER TABLE)",
+           "format": "text", "is_pk": false, "field_order": 30,
+           "input_type": "readonly", "width": "default", "ctype": "label", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "object_type", "title": "Object Type", "description": "",
+           "format": "text", "is_pk": false, "field_order": 40,
+           "input_type": "readonly", "width": "default", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "object_identity", "title": "Object Identity", "description": "Fully qualified name of the affected object",
+           "format": "text", "is_pk": false, "field_order": 50,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
+          {"field_name": "query_text", "title": "Query Text", "description": "The SQL statement that triggered the event",
+           "format": "text", "is_pk": false, "field_order": 60,
+           "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""}
+        ]
+      }
+    }
+  ]
+}

@@ -135,7 +135,7 @@ sample apps run unchanged on local pgdocker, Neon, and Supabase by flipping
 
 ### The role: `semantius_authenticator`
 
-Created by the **core migrations** ([../apps/_core/migrations/0011_session_authenticator.sql](../apps/_core/migrations/0011_session_authenticator.sql)),
+Created by the **core migrations** ([../apps/_core/migrations/0030_session_authenticator.sql](../apps/_core/migrations/0030_session_authenticator.sql)),
 so every deployment — local, Neon, Supabase — gets the *same* role automatically:
 
 ```sql
@@ -328,7 +328,7 @@ deno task extension 0.5.0    # writes ../extension/{pg_semantius.control, pg_sem
 The extension variant uses a separate compose file
 ([docker-compose.ext.yml](docker-compose.ext.yml)) and Dockerfile
 ([Dockerfile.ext](Dockerfile.ext)), and runs `CREATE EXTENSION pg_semantius`
-followed by `SELECT semantius.migrate()` (no `CASCADE`)
+followed by `CALL semantius.migrate()` (no `CASCADE`)
 via [init-ext/20-extension.sql](init-ext/20-extension.sql). It has the **same full
 set of lifecycle scripts** as the CLI stack, under the `pg-ext-*` prefix
 (`pg-ext-start`, `pg-ext-stop`, `pg-ext-status`, `pg-ext-test`, `pg-ext-delete`) —
@@ -374,12 +374,12 @@ extension already seeded the `_versions` run-once guards, so every `_core.*`
 migration is **skipped** (not re-run) and only `test`/`nwind` are
 deployed onto the extension's `_core` — the exact same app set Path A migrates,
 so the two paths run the identical suite over an identical schema. (The
-`webhook_receivers`/`dashboards` tables that `test.0030_seed` and several test
+`webhook_receivers`/`dashboards` tables that test's `0030_seed.once.sql` and several test
 files use are now part of `_core` itself, so they come from the extension —
 no separate app needed.) That seed (plus the
 `_versions` table the extension now creates) is what lets an extension-installed
 database be managed by the CLI; it is also the fix for the `CREATE EXTENSION`
-install itself (`_core/0050` attaches an RLS policy to `_versions`).
+install itself (`_core/0100_rbac_rls.sql` attaches an RLS policy to `_versions`).
 
 > The connection is not hard-coded: `pg-cli-retest` uses the `.env.pgdocker-cli`
 > profile, while `pg-ext-retest` reads `POSTGRES_PASSWORD` from `pgdocker/.env`

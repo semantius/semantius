@@ -1,0 +1,86 @@
+// Queue entities: queues (each row is a pgmq queue) and queue_table_events
+// (maps table DML events to a queue, so inserts, updates and deletes on
+// managed tables are enqueued as messages). The functions and triggers behind
+// them are in 0340_queue.sql; the columns' NOT NULL settings in
+// 0330_queue_setup.once.sql.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "queues",
+        "module_name": "_core",
+        "singular": "queue",
+        "singular_label": "Queue",
+        "plural_label": "Queues",
+        "description": "Message queues backed by pgmq",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "queue_name",
+        "fields": [
+          // The label column queue_name is created by the dictionary; a queue
+          // name is unique and required.
+          {"field_name": "queue_name", "ctype": "label", "unique_value": true, "input_type": "required"},
+          // Per-queue authorization for the RPC consumers, declared as
+          // dictionary fields like entities.view_permission so the UI can
+          // manage them. view_permission gates queue_read; manage_permission
+          // gates queue_pop, queue_archive and queue_delete. Both default to
+          // admin, and being references to permissions(permission_name) is what
+          // makes a name that is not a registered permission impossible to
+          // store and a permission a queue names impossible to delete.
+          {"field_name": "view_permission", "title": "View Permission", "format": "reference", "is_pk": false,
+           "field_order": 30, "input_type": "default", "width": "default",
+           "description": "Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue.",
+           "default_value": "admin", "enum_values": null, "ctype": null,
+           "reference_table": "permissions", "reference_delete_mode": "restrict", "relationship_label": "gates reading",
+           "unique_value": false},
+          {"field_name": "manage_permission", "title": "Manage Permission", "format": "reference", "is_pk": false,
+           "field_order": 40, "input_type": "default", "width": "default",
+           "description": "Permission required to pop, archive or delete messages from this queue.",
+           "default_value": "admin", "enum_values": null, "ctype": null,
+           "reference_table": "permissions", "reference_delete_mode": "restrict", "relationship_label": "gates managing",
+           "unique_value": false}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "queue_table_events",
+        "module_name": "_core",
+        "singular": "queue_table_event",
+        "singular_label": "Queue Table Event",
+        "plural_label": "Queue Table Events",
+        "description": "Maps table DML events to queues",
+        "view_permission": "admin",
+        "edit_permission": "admin",
+        "id_column": "id",
+        "label_column": "event_name",
+        "fields": [
+          // A reference to entities is a TEXT column (entities.table_name is
+          // TEXT). Listed first so it keeps the column position it had when it
+          // was pre-created; its NOT NULL and DEFAULT '' are set by
+          // 0330_queue_setup.once.sql.
+          {"field_name": "table_name", "title": "Entity", "format": "reference", "is_pk": false,
+           "field_order": 10, "input_type": "required", "width": "default",
+           "description": "Table whose DML events are captured",
+           "default_value": "", "enum_values": null, "ctype": null,
+           "reference_table": "entities", "reference_delete_mode": "cascade", "relationship_label": "has queue events",
+           "unique_value": true},
+          {"field_name": "queue_id", "title": "Queue", "format": "parent", "is_pk": false,
+           "field_order": 5, "input_type": "default", "width": "default",
+           "description": "",
+           "default_value": null, "enum_values": null, "ctype": null,
+           "reference_table": "queues", "reference_delete_mode": "cascade", "relationship_label": "has events",
+           "unique_value": false},
+          {"field_name": "event_handler", "title": "Event Handler", "format": "enum", "is_pk": false,
+           "field_order": 20, "input_type": "required", "width": "default",
+           "description": "Which DML operations trigger a queue message",
+           "default_value": "", "enum_values": ["insert", "update", "upsert", "delete", "change"], "ctype": null,
+           "reference_table": "", "reference_delete_mode": "", "relationship_label": "",
+           "unique_value": false}
+        ]
+      }
+    }
+  ]
+}

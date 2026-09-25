@@ -17,8 +17,11 @@
 --
 -- CASCADE is deliberately absent: it would install pgcrypto into the caller's
 -- default creation schema, while migrate() creates it in `public`, which is
--- where 0110's unqualified gen_random_bytes/crypt/gen_salt calls need it.
+-- where 0280_apikeys.sql's unqualified gen_random_bytes/crypt/gen_salt calls need it.
 -- -----------------------------------------------------------------------------
 
 CREATE EXTENSION IF NOT EXISTS pg_semantius;
-SELECT semantius.migrate();
+-- A procedure that commits after every migration file: psql runs this file in
+-- autocommit mode, which CALL needs (inside a transaction block it fails with
+-- 2D000 before anything is written).
+CALL semantius.migrate();

@@ -1,5 +1,5 @@
 -- Test raci_gates_manage_emit_trigger / raci_install_or_drop_emit_trigger
--- (0210_raci.sql): the AFTER trigger on process_gates that installs the
+-- (0370_raci.sql): the AFTER trigger on process_gates that installs the
 -- raci_emit_on_<entity> trigger on the governed table while any gate for that
 -- entity has emits_events = TRUE, and drops it when none do.
 --
@@ -7,7 +7,7 @@
 -- INSTALLER: install, idempotent reinstall, keep-while-another-gate-needs-it,
 -- entity-move rerouting, drop-on-delete, and the missing-table branch.
 --
--- Fixtures (0030_seed.sql): user3=admin.
+-- Fixtures (apps/test/migrations/0030_seed.once.sql): user3=admin.
 BEGIN;
 
 SELECT plan(11);

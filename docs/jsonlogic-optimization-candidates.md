@@ -4,7 +4,7 @@ Last updated 2026-09-06.
 
 Semantius stores row-visibility, computed-column and validation rules as
 JsonLogic in the data dictionary, and evaluates them with the interpreter in
-`0015_jsonlogic.sql`. That interpreter runs **once per row**, and it is opaque to the
+`0050_jsonlogic.sql`. That interpreter runs **once per row**, and it is opaque to the
 query planner: no index on a column named in a rule can ever be used to satisfy
 that rule.
 
@@ -31,7 +31,7 @@ document is its only record.
 
 Postponed because **nothing is slow today and no caller can reach it.** Exactly
 one entity ships a `select_rule` - `user_bookmarks`
-(`0280_user_bookmarks.sql:45`), a per-user bookmarks table that will not grow.
+(`0410_user_bookmarks.jsonc`), a per-user bookmarks table that will not grow.
 The other rule shapes measured alongside it on 2026-09-05 - four uses of
 `{"or":[{"has_permission":...},...]}` - are test fixtures created and rolled
 back inside tests; they do not exist in an installation. Their numbers are not
@@ -69,8 +69,8 @@ Two generated functions carry every rule, one pair per entity:
 
 | Function | Built by | Rules it carries |
 |---|---|---|
-| `select_rule_<table>(row, ctx)` | `build_select_rule_policy` (`0180`) | the entity's `select_rule`, called from all three RLS policies |
-| `compute_validate_<table>()` | `build_record_logic_trigger` (`0180`) | the entity's computed-column expressions and validation rules, called from a row trigger |
+| `select_rule_<table>(row, ctx)` | `build_select_rule_policy` (`0210_computed_validation.sql`) | the entity's `select_rule`, called from all three RLS policies |
+| `compute_validate_<table>()` | `build_record_logic_trigger` (`0210_computed_validation.sql`) | the entity's computed-column expressions and validation rules, called from a row trigger |
 
 Because the name carries the table, **per-function statistics give you a
 per-entity ranking for free**. That is the whole basis of the method below.
@@ -292,8 +292,8 @@ not obvious and were each established the hard way; the rest is bookkeeping.
 
 ### The mechanical parts
 
-- a branch in `evaluate_json_logic` (`0015_jsonlogic.sql`)
-- native emission in `build_select_rule_policy` (`0180_computed_validation.sql`)
+- a branch in `evaluate_json_logic` (`0050_jsonlogic.sql`)
+- native emission in `build_select_rule_policy` (`0210_computed_validation.sql`)
 - corpus cases in `apps/test/tests/0015_test_jsonlogic.json`, regenerated with
   `deno task testgen_jsonlogic`
 - a test that the interpreted and native forms agree, including on NULL
@@ -322,16 +322,16 @@ consequence, not a gap to close later.
 ### 2. Resolve the column against the catalog, not against `format`
 
 Check `pg_attribute.atttypid` against an explicit allowlist. Do **not** derive
-the type from the field's `format`: `format_to_data_type` (`0070_dd_functions.sql:14-54`)
+the type from the field's `format`: `format_to_data_type` (`0160_dd_functions.sql`)
 falls through to `TEXT` for anything it does not recognize, and a native
 `text = int` has no operator — so `CREATE POLICY` would fail *inside* a `fields`
 trigger, at DDL time, where it is worst. A `boolean` column diverges for a
-different reason (`jl_loose_eq` coerces it through `jl_to_number`,
-`0015_jsonlogic.sql:83-84`).
+different reason (`jl_loose_eq` in `0050_jsonlogic.sql` coerces it through
+`jl_to_number`).
 
-The same check is what stops migration `0280_user_bookmarks.sql` failing: the
-entity row carrying the rule is inserted at `:45`, its `user_id` field only at
-`:56`, so at policy-build time the column does not exist yet. The emission must
+The same check is what stops migration `0410_user_bookmarks.jsonc` failing:
+`ensure_entities` inserts the entity row carrying the rule before its fields,
+`user_id` among them, so at policy-build time the column does not exist yet. The emission must
 degrade to the interpreted form rather than raise.
 
 ### 3. The `fields` lifecycle hook — three arms, all AFTER
@@ -339,20 +339,20 @@ degrade to the interpreted form rather than raise.
 Naming a column inside an RLS policy creates a column-level dependency the
 interpreted helper never had, and the data-dictionary field lifecycle was
 written assuming no such dependency exists. Model the trigger on
-`dd_label_fn_sync_field` / `zzz_label_fn_field_*` (`0145_managed_enable.sql:1049-1096`) — the
+`dd_label_fn_sync_field` / `zzz_label_fn_field_*` (`0180_managed_enable.sql`) — the
 same shape, not a novel construct — with the `entities.select_rule <> '{}'` gate
 *inside* the function, because a trigger `WHEN` clause cannot query `entities`.
 
 - **AFTER INSERT.** Fields arrive after the entity row, so an operator that could
   not resolve its column at entity-insert must be retried once the column exists.
-  Must sort after `add_field_trigger` (`0070_dd_functions.sql:794`), which runs the
+  Must sort after `add_field_trigger` (`0160_dd_functions.sql`), which runs the
   `ALTER TABLE ... ADD COLUMN`; a `zzz_` prefix guarantees that.
 - **AFTER DELETE — mandatory.** `delete_dd_field` runs `DROP COLUMN ... CASCADE`
-  from a BEFORE DELETE trigger (`0070_dd_functions.sql:1164`). Against a native policy that
+  from a BEFORE DELETE trigger (`0160_dd_functions.sql`). Against a native policy that
   CASCADE drops all three policies, leaving RLS enabled with none — every read
   returns zero rows and nothing raises. This is the failure that must not ship.
 - **AFTER UPDATE, with `field_name` in the `WHEN` clause.** Keep the clause tight
-  or `rename_dd_reference_tables` (`0140_dd_rename.sql:272`) rebuilds a policy for every
+  or `rename_dd_reference_tables` (`0170_dd_rename.sql`) rebuilds a policy for every
   referencing entity on every table rename.
 
 Renaming a column named by an operator is **not** covered by this: nothing
