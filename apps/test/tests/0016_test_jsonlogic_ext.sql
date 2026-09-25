@@ -443,27 +443,30 @@ SELECT is(
 -- =====================================================
 -- get_record_by_id / set_record: RLS bypass must be CLOSED
 -- =====================================================
--- get_record_by_id is SECURITY DEFINER (bypasses RLS), so it must enforce the
--- entity's view_permission itself. The 'modules' entity requires 'admin'. A
--- non-admin user must NOT be able to read a module via get_record_by_id, nor
--- via the JsonLogic set_record operator that wraps it.
+-- get_record_by_id is SECURITY DEFINER (bypasses RLS), so it must return exactly
+-- what the RLS SELECT policy lets the caller see - no more and no less. For
+-- 'modules' that policy admits an admin or a holder of the module row's own
+-- view_permission; the Northwind module's is nwind:view. So user1 (no
+-- nwind:view) gets NULL, here and through the JsonLogic set_record operator that
+-- wraps get_record_by_id, while user2 (nwind:view through Northwind Sales) gets
+-- the same row a direct SELECT returns.
 
--- user1 (basic, no admin) must NOT read a module directly
+-- user1 (basic, no nwind:view) must NOT read the Northwind module
 SELECT authenticate_as('user1');
 
 SELECT is(
     get_record_by_id('modules', (SELECT id FROM nw)),
     NULL,
-    'security: user1 (no admin) must get NULL from get_record_by_id on modules (no RLS bypass)'
+    'security: user1 (no nwind:view) must get NULL from get_record_by_id on modules (no RLS bypass)'
 );
 
--- user2 (sales, no admin) must NOT read a module directly either
+-- user2 (Northwind Sales, holds nwind:view) reads the module as RLS allows
 SELECT authenticate_as('user2');
 
 SELECT is(
-    get_record_by_id('modules', (SELECT id FROM nw)),
-    NULL,
-    'security: user2 (no admin) must get NULL from get_record_by_id on modules (no RLS bypass)'
+    (get_record_by_id('modules', (SELECT id FROM nw))) ->> 'module_name',
+    'Northwind',
+    'security: user2 (holds nwind:view) reads the Northwind module via get_record_by_id, as RLS allows'
 );
 
 -- user1 must NOT read a module field via the set_record operator
