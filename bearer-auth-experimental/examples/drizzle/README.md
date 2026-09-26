@@ -152,8 +152,10 @@ parser keyed by its OID — the exact decoding node-postgres does internally.
 
 The result is real JS values, which are precisely what Drizzle's column mappers
 expect: `integer` → number, `boolean` → boolean, `timestamp`/`date` → `Date`,
-`jsonb` → object, `numeric`/`bigint` → string (matching node-postgres). So a typed
-`db.select()` returns correctly-typed rows, not strings.
+`jsonb` → object, `numeric`/`bigint` → string (matching node-postgres). The
+64-bit keys and references are declared `bigint(..., { mode: "number" })`, whose
+Drizzle mapper turns that string into a number (exact up to 2^53, as PostgREST).
+So a typed `db.select()` returns correctly-typed rows, not strings.
 
 See [`../transport`](../transport) for the transport's other caveats (one
 connection, token-first, no TLS).

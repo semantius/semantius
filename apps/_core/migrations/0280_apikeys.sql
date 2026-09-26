@@ -14,10 +14,14 @@
 -- Returns the full API key (only time the secret is visible in plaintext).
 -- Accessible via PostgREST RPC by all authenticated users.
 
-CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
+-- p_user_id follows users.id (BIGINT). An INTEGER version left behind by an
+-- older build is a separate overload with grants of its own, so it is dropped.
+DROP FUNCTION IF EXISTS public.generate_api_key(INTEGER, TEXT);
+
+CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id BIGINT, p_description TEXT DEFAULT '')
 RETURNS JSONB AS $$
 DECLARE
-    v_target_user_id INTEGER;
+    v_target_user_id BIGINT;
     v_key_prefix TEXT;
     v_new_key_id TEXT;
     v_new_secret TEXT;
@@ -77,8 +81,8 @@ COMMENT ON FUNCTION public.generate_api_key IS
 'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.generate_api_key(BIGINT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.generate_api_key(BIGINT, TEXT) TO semantius_user;
 
 -- =====================================================
 -- VALIDATE API KEY FUNCTION (INTERNAL ONLY)
@@ -89,8 +93,19 @@ GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_us
 -- Updates last_used_at on successful validation.
 -- NOT accessible via PostgREST (no GRANT to semantius_user).
 
+-- CREATE OR REPLACE cannot change a return type, so a copy that still returns
+-- the INTEGER of the int4 user keys is dropped first; the catalog test keeps a
+-- re-run from dropping the current version.
+DO $$
+BEGIN
+    IF (SELECT prorettype FROM pg_catalog.pg_proc
+         WHERE oid = pg_catalog.to_regprocedure('public.validate_api_key(text)')) = 'pg_catalog.int4'::regtype THEN
+        DROP FUNCTION public.validate_api_key(TEXT);
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION public.validate_api_key(p_api_key TEXT)
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
     v_key_id TEXT;
     v_secret TEXT;
@@ -167,10 +182,13 @@ REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
 -- When p_user_id <> 0, requires admin permission.
 -- Accessible via PostgREST RPC by all authenticated users.
 
-CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id INTEGER DEFAULT 0)
+-- p_user_id follows users.id (BIGINT); see generate_api_key for the drop.
+DROP FUNCTION IF EXISTS public.list_api_keys(INTEGER);
+
+CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id BIGINT DEFAULT 0)
 RETURNS JSONB AS $$
 DECLARE
-    v_target_user_id INTEGER;
+    v_target_user_id BIGINT;
 BEGIN
     -- Authenticate the caller
     PERFORM rbac.uid();
@@ -212,8 +230,8 @@ COMMENT ON FUNCTION public.list_api_keys IS
 'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.list_api_keys(INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.list_api_keys(BIGINT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_api_keys(BIGINT) TO semantius_user;
 
 -- =====================================================
 -- DELETE API KEY FUNCTION
@@ -228,7 +246,7 @@ GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
 CREATE OR REPLACE FUNCTION public.delete_api_key(p_key_id TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE
-    v_current_user_id INTEGER;
+    v_current_user_id BIGINT;
     v_record RECORD;
 BEGIN
     -- Authenticate the caller
@@ -262,3 +280,10 @@ COMMENT ON FUNCTION public.delete_api_key IS
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
 REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.delete_api_key(TEXT) TO semantius_user;
+
+-- An API key's id is set once, like every other auto_increment key; see the
+-- pk_immutable triggers in 0070_rbac_schema.sql. _apikeys has no entities row,
+-- so the dictionary does not install it.
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON _apikeys
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');

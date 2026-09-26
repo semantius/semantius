@@ -191,6 +191,42 @@ single field record.  Called by enable_dd_table() and update_dd_field() to
 create columns that were defined while managed=false.';
 
 -- =====================================================
+-- HELPER FUNCTION: dd_check_id_field
+-- =====================================================
+-- Refuses to switch an entity to managed when it already has an id field row
+-- whose format is not the one its id_type gives the key (90239). An unmanaged
+-- entity gets no generated id row, so whoever registered it wrote one, and an
+-- old export may say int32 where the key is now int64. Switching managed on
+-- must not rewrite metadata somebody wrote - switching it on and off again has
+-- to leave everything as it was - so the difference is reported instead of
+-- fixed. Only the format is compared: it is what describes the key's type,
+-- while input_type and input_type_rule are presentation the author may choose.
+-- A missing row is not a difference; enable_dd_table creates it.
+CREATE OR REPLACE FUNCTION dd_check_id_field(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_format TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_actual TEXT;
+BEGIN
+    SELECT format INTO v_actual
+      FROM fields WHERE table_name = p_table_name AND field_name = p_id_column;
+    IF FOUND AND v_actual IS DISTINCT FROM p_format THEN
+        RAISE EXCEPTION 'Entity ${table} cannot be managed: its id field ${id_column} has format ${actual_format}, but id_type ${id_type} needs ${expected_format}'
+            USING ERRCODE = '90239',
+                  HINT = jsonb_build_object(
+                      'table', p_table_name,
+                      'id_column', p_id_column,
+                      'actual_format', v_actual,
+                      'id_type', p_id_type,
+                      'expected_format', p_format,
+                      'hint', 'Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.')::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) IS
+'Raises 90239 when an entity about to become managed has an id field row whose format differs from the one its id_type gives the key. Called by enable_dd_table before it changes anything.';
+
+-- =====================================================
 -- TRIGGER FUNCTION: ENABLE TABLE WHEN managed F→T
 -- =====================================================
 
@@ -200,6 +236,7 @@ DECLARE
     v_create_sql TEXT;
     v_field      fields%ROWTYPE;
     v_sequence_name TEXT;
+    v_key        RECORD;
 BEGIN
     -- Guard: only proceed when managed transitions FALSE → TRUE
     IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
@@ -208,6 +245,11 @@ BEGIN
 
     SET LOCAL client_min_messages = WARNING;
 
+    -- The refusals come first, before anything is changed: 90234 for id_type
+    -- computed, 90239 for an id field row that describes another key type.
+    v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
+    PERFORM dd_check_id_field(NEW.table_name, NEW.id_column, NEW.id_type, v_key.id_format);
+
     -- ── Create the physical table if it does not yet exist ──────────────
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables
@@ -215,12 +257,12 @@ BEGIN
     ) THEN
         v_create_sql := format(
             'CREATE TABLE IF NOT EXISTS public.%I (
-                %I SERIAL PRIMARY KEY,
+                %s,
                 %I TEXT NOT NULL DEFAULT '''',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )',
-            NEW.table_name, NEW.id_column, NEW.label_column
+            NEW.table_name, v_key.column_ddl, NEW.label_column
         );
         EXECUTE v_create_sql;
 
@@ -243,7 +285,15 @@ BEGIN
         );
 
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
+    ELSE
+        -- Adoption: the table's key has to be the one id_type describes, and
+        -- it has to be there already. A missing key column is refused rather
+        -- than added by the loop further down, because adding a primary key
+        -- to a table that has rows is not something to do as a side effect.
+        PERFORM dd_check_id_column(NEW.table_name, NEW.id_column, NEW.id_type);
     END IF;
+
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
 
     -- ── Secure the table ─────────────────────────────────────────────────
     -- Unconditionally, whatever the table carried before. Becoming managed means
@@ -331,8 +381,8 @@ BEGIN
     -- ── Insert core field records if they were never created ─────────────
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
+    SELECT NEW.table_name, NEW.id_column, 'Id', v_key.id_format, TRUE, 10, v_key.input_type, 'default', 'id', FALSE, '', '', v_key.input_type_rule
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -441,6 +491,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_external_id_unique ON users(external_id)
 
 REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 
 -- =====================================================
 -- COMPOSED RECORD LABELS  (label_parent + _label / <fk>_label)

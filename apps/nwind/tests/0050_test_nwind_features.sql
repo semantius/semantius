@@ -260,7 +260,7 @@ SELECT is(
 
 -- Test 31
 SELECT is(
-    ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::integer,
+    ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::bigint,
     (SELECT id FROM modules WHERE module_slug = 'nwind'),
     'customers table.module_id should be the Northwind module id'
 );

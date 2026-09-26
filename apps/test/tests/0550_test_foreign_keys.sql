@@ -180,7 +180,7 @@ SELECT lives_ok(
 -- Test 16: verify the update
 SELECT is(
     (SELECT category_id FROM products WHERE product_name = 'FK Probe Product'),
-    2,
+    2::bigint,
     'Product category_id should be updated to 2'
 );
 
@@ -193,22 +193,22 @@ SELECT lives_ok(
 );
 
 -- =====================================================
--- TEST: Format 'reference' is properly mapped to INTEGER
+-- TEST: Format 'reference' is properly mapped to the referenced key's BIGINT
 -- =====================================================
 
 -- Test 18/19
 SELECT is(
     (SELECT data_type FROM information_schema.columns
      WHERE table_name = 'products' AND column_name = 'category_id'),
-    'integer',
-    'products.category_id column should have INTEGER data type'
+    'bigint',
+    'products.category_id column should have BIGINT data type (the type of categories.id)'
 );
 
 SELECT is(
     (SELECT data_type FROM information_schema.columns
      WHERE table_name = 'orders' AND column_name = 'customer_id'),
-    'integer',
-    'orders.customer_id column should have INTEGER data type'
+    'bigint',
+    'orders.customer_id column should have BIGINT data type (the type of customers.id)'
 );
 
 -- =====================================================
@@ -241,7 +241,7 @@ SELECT lives_ok(
 -- Test 22: the report survives with reports_to cleared
 SELECT is(
     (SELECT reports_to FROM employees WHERE last_name = 'FK Probe Report'),
-    NULL::integer,
+    NULL::bigint,
     'reports_to should be set to NULL after the manager is deleted (delete mode clear)'
 );
 

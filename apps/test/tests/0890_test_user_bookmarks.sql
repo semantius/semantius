@@ -126,7 +126,7 @@ VALUES ('My Bookmark', 'https://example.com');
 
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'My Bookmark'),
-    1001,
+    1001::bigint,
     'user_id should be auto-assigned to the current user (user1 = 1001) on INSERT'
 );
 
@@ -136,7 +136,7 @@ VALUES ('Override Attempt', 'https://example.org', 1002);
 
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'Override Attempt'),
-    1001,
+    1001::bigint,
     'user_id should always be forced to the current user, ignoring any caller value'
 );
 
@@ -144,7 +144,7 @@ SELECT is(
 UPDATE user_bookmarks SET user_id = 1002 WHERE title = 'Override Attempt';
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'Override Attempt'),
-    1001,
+    1001::bigint,
     'an UPDATE of user_id is forced back to the current user'
 );
 
@@ -252,7 +252,7 @@ SELECT authenticate_as('user1');
 INSERT INTO user_bookmarks (title) VALUES ('Policy Check');
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'Policy Check'),
-    1001,
+    1001::bigint,
     'INSERT policy: user_id must equal the session user (1001) after insert'
 );
 
@@ -302,7 +302,7 @@ SELECT authenticate_as('user1');
 INSERT INTO user_bookmarks (title, user_id) VALUES ('After Permission Change', 1003);
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'After Permission Change'),
-    1001,
+    1001::bigint,
     'after an edit_permission change, user_id is still forced to the current user'
 );
 

@@ -121,7 +121,7 @@ VALUES (1001, 2);
 
 SELECT is(
     (SELECT assigned_by FROM user_roles WHERE user_id = 1001 AND role_id = 2),
-    1003,
+    1003::bigint,
     'assigned_by should default to current user (1003) when not provided'
 );
 
@@ -134,7 +134,7 @@ VALUES (1001, 2, 1002);
 
 SELECT is(
     (SELECT assigned_by FROM user_roles WHERE user_id = 1001 AND role_id = 2),
-    1002,
+    1002::bigint,
     'assigned_by should preserve explicit value (1002) when provided'
 );
 

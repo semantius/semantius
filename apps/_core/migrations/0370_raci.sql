@@ -78,11 +78,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
     PERFORM rbac.ensure_context_initialized();
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::INTEGER;
+    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
     IF v_user_id IS NULL THEN
         RETURN FALSE;
     END IF;
@@ -121,7 +121,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
     PERFORM rbac.ensure_context_initialized();
@@ -133,7 +133,7 @@ BEGIN
     -- governs (entity, to_state). A consulted-gate is always evaluated by an actor who is a RACI
     -- participant (R/A initiating the transition), so legitimate use is unaffected; a non-
     -- participant probe fails closed (FALSE), indistinguishable from "not yet consulted".
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::INTEGER;
+    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
     IF v_user_id IS NULL THEN
         RETURN FALSE;
     END IF;

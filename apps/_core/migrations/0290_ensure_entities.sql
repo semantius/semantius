@@ -242,7 +242,10 @@ DECLARE
     -- implied by the document's structure.
     c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
         'created_at', 'updated_at', 'module_id', 'search_vector'];
-    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'catalog_entity_code',
+    -- id_type is create-only because the key column is typed from it when the
+    -- table is created (rule 90233 refuses a change). id_prefix is not: a
+    -- changed prefix in the file is applied like any other difference.
+    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'catalog_entity_code',
         'catalog_entity_aliases'];
     -- Written once the fields exist, because they name fields.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
@@ -277,7 +280,7 @@ DECLARE
         'fields_not_in_definition', '[]'::jsonb,
         'records', '{}'::jsonb);
     v_module    JSONB;
-    v_module_id INTEGER;
+    v_module_id BIGINT;
     v_entries   JSONB;
     v_entry     JSONB;
     v_entity    JSONB;
@@ -292,7 +295,7 @@ DECLARE
     v_idx       INTEGER;
     v_batch     JSONB;
     v_batch_n   INTEGER;
-    v_role_id   INTEGER;
+    v_role_id   BIGINT;
     v_label     TEXT;
     v_n         BIGINT;
     v_m         BIGINT;

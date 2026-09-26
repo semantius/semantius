@@ -94,7 +94,7 @@ SELECT is(
 );
 
 SELECT is(
-    (SELECT (public.jl_request_context() ->> '$user_id')::int),
+    (SELECT (public.jl_request_context() ->> '$user_id')::bigint),
     (SELECT rbac.user_id()),
     'authenticated: $user_id is the internal user id, not the JWT subject'
 );

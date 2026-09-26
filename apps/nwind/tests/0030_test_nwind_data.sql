@@ -36,7 +36,7 @@ SELECT ok(
 -- Test 2: the highest loaded order id is 11077
 SELECT is(
     (SELECT MAX(id) FROM orders),
-    11077,
+    11077::bigint,
     'Highest loaded order id should be 11077'
 );
 

@@ -72,6 +72,14 @@ const OVERRIDES: Record<string, Override> = {
       "install time is an INSERT trigger carrying only tgnewtable; the DELETE " +
       "binding that would supply old_rows exists only for entities that opt in.",
   },
+  "common.typeid_assign": {
+    relid: "public.user_bookmarks",
+    reason:
+      "bound only to the tables of typeid entities, and a fresh install has " +
+      "none. The body reads and writes the key column through to_jsonb(NEW) " +
+      "and jsonb_populate_record by the name in TG_ARGV, so any rowtype " +
+      "type-checks it.",
+  },
   "pgmq.notify_queue_listeners": {
     skip: true,
     reason:

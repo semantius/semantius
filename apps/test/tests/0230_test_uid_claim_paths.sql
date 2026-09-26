@@ -201,7 +201,7 @@ SELECT pg_temp.blank_neon_claims();
 SELECT set_config('request.jwt.claims',
     '{"sub":"x","roles":["authenticated"],"iss":"https://login.microsoftonline.com/tenant-1/v2.0",'
     '"tid":"tenant-1","oid":"object-1"}', true);
-SELECT is(rbac.user_id(), 9410, 'user_id: an Entra token finds the user stored as entra.<tid>.<oid>');
+SELECT is(rbac.user_id(), 9410::bigint, 'user_id: an Entra token finds the user stored as entra.<tid>.<oid>');
 SELECT is(current_setting('app.current_external_id', true), 'entra.tenant-1.object-1',
     'user_id: the context caches the Entra subject, which the warm path then matches');
 

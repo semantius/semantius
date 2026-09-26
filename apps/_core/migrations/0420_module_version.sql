@@ -48,7 +48,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 CREATE OR REPLACE FUNCTION bump_module_version_from_related()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_module_id INTEGER;
+    v_module_id BIGINT;
 BEGIN
     -- Determine the module_id from the affected row
     IF TG_OP = 'DELETE' THEN
@@ -112,8 +112,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 CREATE OR REPLACE FUNCTION bump_module_version_from_fields()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_module_id INTEGER;
-    v_old_module_id INTEGER;
+    v_module_id BIGINT;
+    v_old_module_id BIGINT;
 BEGIN
     IF TG_OP <> 'DELETE' THEN
         SELECT e.module_id INTO v_module_id FROM entities e WHERE e.table_name = NEW.table_name;

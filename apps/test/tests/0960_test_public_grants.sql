@@ -93,7 +93,7 @@ RESET ROLE;
 -- =====================================================
 -- user2 holds the Northwind Sales role (nwind:view + nwind:manage), so the
 -- insert exercises the table grant and the sequence grant together: without
--- USAGE on the id sequence the SERIAL default alone would raise 42501.
+-- USAGE on the id sequence the identity default alone would raise 42501.
 
 SELECT authenticate_as('user3');
 
@@ -140,7 +140,7 @@ RESET ROLE;
 -- both the dictionary and the console-made table and nothing is needed.
 
 CREATE TABLE public.grant_probe_adopt (
-    id serial PRIMARY KEY,
+    id bigserial PRIMARY KEY,
     label text NOT NULL DEFAULT ''
 );
 
@@ -229,7 +229,7 @@ SELECT ok(
 RESET ROLE;
 
 CREATE TABLE public.grant_probe_secured (
-    id SERIAL PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
     label TEXT NOT NULL DEFAULT ''
 );
 

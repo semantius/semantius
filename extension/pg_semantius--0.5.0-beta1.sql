@@ -754,6 +754,526 @@ $pgsem__core_0040_cache_sql$;
   END;
   COMMIT;
 
+  -- _core.0045_typeid.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0045_typeid.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0045_typeid.sql';
+      EXECUTE $pgsem__core_0045_typeid_sql$-- =====================================================
+-- UUIDv7 AND TYPEID HELPERS
+-- =====================================================
+-- based on https://github.com/jetify-com/typeid-sql
+-- (commit 92ff72a2c1c9a97baf3769bcf8eb2238222d0396), files sql/01_uuidv7.sql,
+-- sql/02_base32.sql and the text functions of sql/03_typeid.sql
+-- Copyright (c) Jetify Inc., Apache License 2.0
+-- (full text and notice in THIRD_PARTY_NOTICES.md at the repository root)
+-- modified: schema-qualified into common; only the text subset is kept (no
+-- composite typeid type, no operators, no typeid_parse/typeid_print);
+-- typeid_check_text is a one-argument, non-raising boolean check; the prefix
+-- is read by typeid_prefix; base32_decode raises 22P02, checks the byte length
+-- and is STABLE; uuid_v7 uses the native uuidv7() on PostgreSQL 18.
+--
+-- Repeatable: functions only. The common.typeid domain, which the key columns
+-- of typeid entities are declared with, is in 0046_typeid.once.sql, because a
+-- domain is a type and types run once.
+--
+-- Everything lives in `common`, not `public`: PostgREST exposes every function
+-- in `public` as an RPC, and these are building blocks of column defaults,
+-- triggers and a domain check, not calls a client makes.
+--
+-- Grants. A column default, a trigger body and a domain CHECK all run with the
+-- rights of the role that writes the row, which on the request path is
+-- semantius_user, so the value functions are granted to it; the default
+-- REVOKE from PUBLIC does not hold on its own, see 0020_settings.once.sql.
+-- The two trigger functions are not granted: PostgreSQL checks EXECUTE on a
+-- trigger function when the trigger is created, not when it fires.
+
+-- -----------------------------------------------------
+-- common.uuid_v7()
+-- -----------------------------------------------------
+-- A version 7 UUID: 48 bits of Unix milliseconds, then random bits, so values
+-- sort by creation time and index like a sequence rather than scattering
+-- inserts across a B-tree the way gen_random_uuid() does.
+--
+-- PostgreSQL 18 has uuidv7() built in, with sub-millisecond precision and a
+-- monotonic counter within a backend. PostgreSQL 17 does not, so the body is
+-- chosen once, here, by the server version at migration time: a per-call test
+-- would cost a version lookup on every insert. The PL/pgSQL fallback is
+-- jetify's, and only has millisecond precision, so two values generated in the
+-- same millisecond are ordered randomly - ordering is by time, not strict.
+DO $do$
+BEGIN
+    IF current_setting('server_version_num')::int >= 180000 THEN
+        EXECUTE $fn$
+            CREATE OR REPLACE FUNCTION common.uuid_v7()
+            RETURNS uuid
+            LANGUAGE sql
+            VOLATILE PARALLEL SAFE
+            SET search_path = common, pg_catalog
+            AS $body$ SELECT pg_catalog.uuidv7() $body$
+        $fn$;
+    ELSE
+        EXECUTE $fn$
+            CREATE OR REPLACE FUNCTION common.uuid_v7()
+            RETURNS uuid
+            LANGUAGE plpgsql
+            VOLATILE PARALLEL SAFE
+            SET search_path = common, pg_catalog
+            AS $body$
+            DECLARE
+              unix_ts_ms bytea;
+              uuid_bytes bytea;
+            BEGIN
+              unix_ts_ms = substring(int8send(floor(extract(epoch from clock_timestamp()) * 1000)::bigint) from 3);
+              uuid_bytes = uuid_send(gen_random_uuid());
+              uuid_bytes = overlay(uuid_bytes placing unix_ts_ms from 1 for 6);
+              uuid_bytes = set_byte(uuid_bytes, 6, (b'0111' || get_byte(uuid_bytes, 6)::bit(4))::bit(8)::int);
+              RETURN encode(uuid_bytes, 'hex')::uuid;
+            END
+            $body$
+        $fn$;
+    END IF;
+END
+$do$;
+
+COMMENT ON FUNCTION common.uuid_v7() IS
+'Generates a version 7 (time-ordered) UUID. Native uuidv7() on PostgreSQL 18, a PL/pgSQL fallback with millisecond precision on PostgreSQL 17; the body is chosen once when the migration runs. The default of uuid entity keys.';
+
+-- -----------------------------------------------------
+-- common.base32_encode(uuid) / common.base32_decode(text)
+-- -----------------------------------------------------
+-- The TypeID suffix: the 128 bits of a UUID as 26 characters of Crockford's
+-- lowercase base32 alphabet, 2 padding bits first, so the first character is
+-- always 0-7. Written out byte by byte, as jetify does, because PL/pgSQL has
+-- no bit-string slicing that beats it.
+CREATE OR REPLACE FUNCTION common.base32_encode(id uuid)
+RETURNS text
+LANGUAGE plpgsql
+IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog
+AS $$
+DECLARE
+  bytes bytea;
+  alphabet bytea = '0123456789abcdefghjkmnpqrstvwxyz';
+  output text = '';
+BEGIN
+  bytes = uuid_send(id);
+
+  -- 10 byte timestamp
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 0) & 224) >> 5));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 0) & 31)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 1) & 248) >> 3));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 1) & 7) << 2) | ((get_byte(bytes, 2) & 192) >> 6)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 2) & 62) >> 1));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 2) & 1) << 4) | ((get_byte(bytes, 3) & 240) >> 4)));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 3) & 15) << 1) | ((get_byte(bytes, 4) & 128) >> 7)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 4) & 124) >> 2));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 4) & 3) << 3) | ((get_byte(bytes, 5) & 224) >> 5)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 5) & 31)));
+
+  -- 16 bytes of entropy
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 6) & 248) >> 3));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 6) & 7) << 2) | ((get_byte(bytes, 7) & 192) >> 6)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 7) & 62) >> 1));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 7) & 1) << 4) | ((get_byte(bytes, 8) & 240) >> 4)));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 8) & 15) << 1) | ((get_byte(bytes, 9) & 128) >> 7)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 9) & 124) >> 2));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 9) & 3) << 3) | ((get_byte(bytes, 10) & 224) >> 5)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 10) & 31)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 11) & 248) >> 3));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 11) & 7) << 2) | ((get_byte(bytes, 12) & 192) >> 6)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 12) & 62) >> 1));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 12) & 1) << 4) | ((get_byte(bytes, 13) & 240) >> 4)));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 13) & 15) << 1) | ((get_byte(bytes, 14) & 128) >> 7)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 14) & 124) >> 2));
+  output = output || chr(get_byte(alphabet, ((get_byte(bytes, 14) & 3) << 3) | ((get_byte(bytes, 15) & 224) >> 5)));
+  output = output || chr(get_byte(alphabet, (get_byte(bytes, 15) & 31)));
+
+  RETURN output;
+END
+$$;
+
+COMMENT ON FUNCTION common.base32_encode(uuid) IS
+'Encodes a UUID as the 26-character Crockford base32 suffix of a TypeID.';
+
+-- Decoding raises on malformed input, unlike the check below: a caller that
+-- decodes has already decided the text is a TypeID suffix and wants the UUID,
+-- and a NULL would hide the bad value. The raises are PostgreSQL's
+-- invalid_text_representation, the SQLSTATE a failed cast to uuid gives.
+-- STABLE rather than jetify's IMMUTABLE: convert_to() is STABLE, since an
+-- encoding conversion could in principle change. Nothing indexes on it.
+CREATE OR REPLACE FUNCTION common.base32_decode(s text)
+RETURNS uuid
+LANGUAGE plpgsql
+STABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog
+AS $$
+DECLARE
+  dec bytea = '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF 00 01'::bytea ||
+              '\x02 03 04 05 06 07 08 09 FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF 0A 0B 0C'::bytea ||
+              '\x0D 0E 0F 10 11 FF 12 13 FF 14'::bytea ||
+              '\x15 FF 16 17 18 19 1A FF 1B 1C'::bytea ||
+              '\x1D 1E 1F FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
+              '\xFF FF FF FF FF FF'::bytea;
+  v bytea = convert_to(s, 'UTF8');
+  id bytea = '\x00000000000000000000000000000000';
+BEGIN
+  -- The byte-length test also stops a multi-byte character from indexing past
+  -- the 256-entry table, which get_byte would report as an out-of-range error.
+  IF length(s) <> 26 OR octet_length(v) <> 26 THEN
+    RAISE EXCEPTION 'typeid suffix must be 26 characters' USING ERRCODE = 'invalid_text_representation';
+  END IF;
+
+  IF get_byte(dec, get_byte(v, 0)) = 255 or
+     get_byte(dec, get_byte(v, 1)) = 255 or
+     get_byte(dec, get_byte(v, 2)) = 255 or
+     get_byte(dec, get_byte(v, 3)) = 255 or
+     get_byte(dec, get_byte(v, 4)) = 255 or
+     get_byte(dec, get_byte(v, 5)) = 255 or
+     get_byte(dec, get_byte(v, 6)) = 255 or
+     get_byte(dec, get_byte(v, 7)) = 255 or
+     get_byte(dec, get_byte(v, 8)) = 255 or
+     get_byte(dec, get_byte(v, 9)) = 255 or
+     get_byte(dec, get_byte(v, 10)) = 255 or
+     get_byte(dec, get_byte(v, 11)) = 255 or
+     get_byte(dec, get_byte(v, 12)) = 255 or
+     get_byte(dec, get_byte(v, 13)) = 255 or
+     get_byte(dec, get_byte(v, 14)) = 255 or
+     get_byte(dec, get_byte(v, 15)) = 255 or
+     get_byte(dec, get_byte(v, 16)) = 255 or
+     get_byte(dec, get_byte(v, 17)) = 255 or
+     get_byte(dec, get_byte(v, 18)) = 255 or
+     get_byte(dec, get_byte(v, 19)) = 255 or
+     get_byte(dec, get_byte(v, 20)) = 255 or
+     get_byte(dec, get_byte(v, 21)) = 255 or
+     get_byte(dec, get_byte(v, 22)) = 255 or
+     get_byte(dec, get_byte(v, 23)) = 255 or
+     get_byte(dec, get_byte(v, 24)) = 255 or
+     get_byte(dec, get_byte(v, 25)) = 255
+  THEN
+    RAISE EXCEPTION 'typeid suffix must only use characters from the base32 alphabet' USING ERRCODE = 'invalid_text_representation';
+  END IF;
+
+  IF chr(get_byte(v, 0)) > '7' THEN
+    RAISE EXCEPTION 'typeid suffix must start with 0-7' USING ERRCODE = 'invalid_text_representation';
+  END IF;
+  -- Transform base32 to binary array
+  -- 6 bytes timestamp (48 bits)
+  id = set_byte(id, 0, (get_byte(dec, get_byte(v, 0)) << 5) | get_byte(dec, get_byte(v, 1)));
+  id = set_byte(id, 1, (get_byte(dec, get_byte(v, 2)) << 3) | (get_byte(dec, get_byte(v, 3)) >> 2));
+  id = set_byte(id, 2, ((get_byte(dec, get_byte(v, 3)) & 3) << 6) | (get_byte(dec, get_byte(v, 4)) << 1) | (get_byte(dec, get_byte(v, 5)) >> 4));
+  id = set_byte(id, 3, ((get_byte(dec, get_byte(v, 5)) & 15) << 4) | (get_byte(dec, get_byte(v, 6)) >> 1));
+  id = set_byte(id, 4, ((get_byte(dec, get_byte(v, 6)) & 1) << 7) | (get_byte(dec, get_byte(v, 7)) << 2) | (get_byte(dec, get_byte(v, 8)) >> 3));
+  id = set_byte(id, 5, ((get_byte(dec, get_byte(v, 8)) & 7) << 5) | get_byte(dec, get_byte(v, 9)));
+
+  -- 10 bytes of entropy (80 bits)
+  id = set_byte(id, 6, (get_byte(dec, get_byte(v, 10)) << 3) | (get_byte(dec, get_byte(v, 11)) >> 2));
+  id = set_byte(id, 7, ((get_byte(dec, get_byte(v, 11)) & 3) << 6) | (get_byte(dec, get_byte(v, 12)) << 1) | (get_byte(dec, get_byte(v, 13)) >> 4));
+  id = set_byte(id, 8, ((get_byte(dec, get_byte(v, 13)) & 15) << 4) | (get_byte(dec, get_byte(v, 14)) >> 1));
+  id = set_byte(id, 9, ((get_byte(dec, get_byte(v, 14)) & 1) << 7) | (get_byte(dec, get_byte(v, 15)) << 2) | (get_byte(dec, get_byte(v, 16)) >> 3));
+  id = set_byte(id, 10, ((get_byte(dec, get_byte(v, 16)) & 7) << 5) | get_byte(dec, get_byte(v, 17)));
+  id = set_byte(id, 11, (get_byte(dec, get_byte(v, 18)) << 3) | (get_byte(dec, get_byte(v, 19)) >> 2));
+  id = set_byte(id, 12, ((get_byte(dec, get_byte(v, 19)) & 3) << 6) | (get_byte(dec, get_byte(v, 20)) << 1) | (get_byte(dec, get_byte(v, 21)) >> 4));
+  id = set_byte(id, 13, ((get_byte(dec, get_byte(v, 21)) & 15) << 4) | (get_byte(dec, get_byte(v, 22)) >> 1));
+  id = set_byte(id, 14, ((get_byte(dec, get_byte(v, 22)) & 1) << 7) | (get_byte(dec, get_byte(v, 23)) << 2) | (get_byte(dec, get_byte(v, 24)) >> 3));
+  id = set_byte(id, 15, ((get_byte(dec, get_byte(v, 24)) & 7) << 5) | get_byte(dec, get_byte(v, 25)));
+  RETURN encode(id, 'hex')::uuid;
+END
+$$;
+
+COMMENT ON FUNCTION common.base32_decode(text) IS
+'Decodes a 26-character TypeID suffix back into its UUID. Raises invalid_text_representation (22P02) on a malformed suffix.';
+
+-- -----------------------------------------------------
+-- common.typeid_check_text(text)
+-- -----------------------------------------------------
+-- TRUE when the text is a well-formed TypeID: an optional prefix of up to 63
+-- lowercase letters and underscores that starts and ends with a letter, an
+-- underscore separating it, and a 26-character base32 suffix whose first
+-- character is 0-7 (the spec's two padding bits must be zero, or the suffix
+-- would not fit 128 bits). That is exactly what jetify's parser accepts, as
+-- one regular expression.
+--
+-- It never raises, so a malformed value fails the common.typeid domain's
+-- named CHECK constraint (23514 typeid_format) rather than surfacing whatever
+-- the parser happened to throw, and it is IMMUTABLE, which a domain CHECK
+-- requires to be trustworthy. NULL in, NULL out: a domain CHECK passes NULL,
+-- and nullability belongs to the column.
+CREATE OR REPLACE FUNCTION common.typeid_check_text(typeid_str text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog
+AS $$
+    SELECT typeid_str ~ '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0-9abcdefghjkmnpqrstvwxyz]{25}$'
+$$;
+
+COMMENT ON FUNCTION common.typeid_check_text(text) IS
+'TRUE when the text is a well-formed TypeID (optional prefix, underscore, 26-character base32 suffix starting 0-7). Never raises; the check behind the common.typeid domain.';
+
+-- -----------------------------------------------------
+-- common.typeid_prefix(text)
+-- -----------------------------------------------------
+-- The prefix of a TypeID, '' when it has none. The suffix alphabet has no
+-- underscore, so the prefix is everything before the last one. Meaningful only
+-- for text that passes typeid_check_text.
+CREATE OR REPLACE FUNCTION common.typeid_prefix(typeid_str text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog
+AS $$
+    SELECT coalesce(substring(typeid_str FROM '^(.*)_[^_]*$'), '')
+$$;
+
+COMMENT ON FUNCTION common.typeid_prefix(text) IS
+'Returns the prefix of a TypeID, or an empty string when it has none.';
+
+-- -----------------------------------------------------
+-- common.typeid_generate_text(prefix)
+-- -----------------------------------------------------
+-- A new TypeID with the given prefix: prefix, underscore, base32 of a fresh
+-- UUIDv7. An empty prefix gives the bare suffix, as the spec defines. The
+-- prefix is validated because it is concatenated into the value: an
+-- entity's prefix is already held to this shape by the entities CHECK, so a
+-- failure here means a caller outside the dictionary passed a bad one.
+CREATE OR REPLACE FUNCTION common.typeid_generate_text(prefix text)
+RETURNS text
+LANGUAGE plpgsql
+VOLATILE PARALLEL SAFE
+SET search_path = common, pg_catalog
+AS $$
+BEGIN
+  IF (prefix IS NULL) OR NOT (prefix ~ '^([a-z]([a-z_]{0,61}[a-z])?)?$') THEN
+    RAISE EXCEPTION 'typeid prefix must match the regular expression ^([a-z]([a-z_]{0,61}[a-z])?)?$'
+        USING ERRCODE = 'invalid_parameter_value';
+  END IF;
+  IF prefix = '' THEN
+    RETURN common.base32_encode(common.uuid_v7());
+  END IF;
+  RETURN prefix || '_' || common.base32_encode(common.uuid_v7());
+END
+$$;
+
+COMMENT ON FUNCTION common.typeid_generate_text(text) IS
+'Generates a new TypeID with the given prefix from a fresh UUIDv7. Raises invalid_parameter_value (22023) for a prefix outside the TypeID spec.';
+
+-- -----------------------------------------------------
+-- common.typeid_assign()  - BEFORE INSERT trigger of typeid entity tables
+-- -----------------------------------------------------
+-- TG_ARGV[0] is the key column, TG_ARGV[1] the entity's current prefix. A row
+-- without an id gets a generated one; a row that brings its own id must carry
+-- the current prefix. Only the prefix is checked here: the column's
+-- common.typeid domain already holds the value to the TypeID format, and it
+-- would reject a malformed id whatever this trigger did.
+--
+-- The prefix travels as a trigger argument, not as a lookup in entities, so
+-- the check costs no query per row; changing an entity's prefix recreates the
+-- trigger (dd_sync_typeid_prefix in 0160_dd_functions.sql). Only inserts are
+-- checked: a key can never be updated (common.reject_pk_change), so a row that
+-- was valid when it was written stays valid, and rows written under an earlier
+-- prefix keep their ids.
+--
+-- The column is read and written through jsonb because PL/pgSQL cannot address
+-- a record field whose name is only known at run time.
+CREATE OR REPLACE FUNCTION common.typeid_assign()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = common, pg_catalog
+AS $$
+DECLARE
+    v_column TEXT := TG_ARGV[0];
+    v_prefix TEXT := TG_ARGV[1];
+    v_id     TEXT := to_jsonb(NEW) ->> TG_ARGV[0];
+BEGIN
+    IF v_id IS NULL THEN
+        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_column, common.typeid_generate_text(v_prefix)));
+    ELSIF common.typeid_prefix(v_id) IS DISTINCT FROM v_prefix THEN
+        RAISE EXCEPTION 'Id ${id} does not carry the prefix ${prefix} of ${table}'
+            USING ERRCODE = '90237',
+                  HINT = jsonb_build_object('id', v_id, 'prefix', v_prefix, 'table', TG_TABLE_NAME)::text;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+COMMENT ON FUNCTION common.typeid_assign() IS
+'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix). Generates the id when none is supplied and rejects a supplied id without the current prefix (90237).';
+
+-- -----------------------------------------------------
+-- common.reject_pk_change()  - BEFORE UPDATE OF <key> trigger
+-- -----------------------------------------------------
+-- TG_ARGV[0] is the key column. A record's key is set once: foreign keys,
+-- bookmarks, audit rows, exported files and URLs all hold it, and ON UPDATE
+-- CASCADE would only repair the first of those. The comparison is IS DISTINCT
+-- FROM, not "the column was in the SET list", because a client that PATCHes a
+-- whole record sends its unchanged id back and must not be refused for it.
+-- Installed on every dictionary-created table and on users, modules, roles and
+-- _apikeys; not on entities and permissions, whose natural keys are renamable,
+-- nor on the junction tables, whose generated keys follow their key columns.
+CREATE OR REPLACE FUNCTION common.reject_pk_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = common, pg_catalog
+AS $$
+BEGIN
+    IF (to_jsonb(NEW) -> TG_ARGV[0]) IS DISTINCT FROM (to_jsonb(OLD) -> TG_ARGV[0]) THEN
+        RAISE EXCEPTION 'The key ${column} of ${table} cannot be changed'
+            USING ERRCODE = '90236',
+                  HINT = jsonb_build_object('column', TG_ARGV[0], 'table', TG_TABLE_NAME)::text;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+COMMENT ON FUNCTION common.reject_pk_change() IS
+'BEFORE UPDATE OF <key> trigger (TG_ARGV: key column): refuses a change of a record key with 90236. An update that writes the unchanged key back passes.';
+
+REVOKE EXECUTE ON FUNCTION common.uuid_v7() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.base32_encode(uuid) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.base32_decode(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typeid_check_text(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typeid_prefix(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typeid_generate_text(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typeid_assign() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.reject_pk_change() FROM PUBLIC;
+
+GRANT EXECUTE ON FUNCTION common.uuid_v7() TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.base32_encode(uuid) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.base32_decode(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.typeid_check_text(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.typeid_prefix(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.typeid_generate_text(text) TO semantius_user;
+$pgsem__core_0045_typeid_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0045_typeid.sql', '1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0045_typeid.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0045_typeid.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0046_typeid.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0046_typeid.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0046_typeid.once.sql';
+      EXECUTE $pgsem__core_0046_typeid_once_sql$-- =====================================================
+-- common.typeid DOMAIN
+-- =====================================================
+-- Runs once: a domain is a type. Its check function is in the repeatable
+-- 0045_typeid.sql, which sorts before this file.
+--
+-- The key column of a typeid entity is declared with this domain, and
+-- field_data_type() (0160_dd_functions.sql) copies a referenced key's declared
+-- type, so every reference or parent column pointing at a typeid key gets the
+-- same domain, collation and check without the dictionary knowing about it.
+--
+-- COLLATE "C": a TypeID's suffix is base32 of a UUIDv7, so byte order is
+-- creation order, and "C" makes the B-tree sort and compare it as bytes rather
+-- than through the database's linguistic collation, which is slower and may
+-- order '_' and letters differently. Declaring it on the domain rather than on
+-- each column is what keeps a key and the foreign keys that point at it on the
+-- same collation; a join between two collations raises instead of planning.
+--
+-- The CHECK is named so a client can translate the refusal: a violation
+-- arrives as PostgreSQL's 23514 naming typeid_format.
+CREATE DOMAIN common.typeid AS text COLLATE "C"
+    CONSTRAINT typeid_format CHECK (common.typeid_check_text(VALUE));
+
+COMMENT ON DOMAIN common.typeid IS
+'A TypeID (https://github.com/jetify-com/typeid): optional lowercase prefix, underscore, 26-character base32 UUIDv7 suffix. Byte-ordered (COLLATE "C"). The key type of typeid entities and of the columns that reference them.';
+
+-- USAGE on a type is granted to PUBLIC by default; stated here so the request
+-- role's need is on record: it writes rows whose columns carry this domain.
+GRANT USAGE ON DOMAIN common.typeid TO semantius_user;
+$pgsem__core_0046_typeid_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0046_typeid.once.sql', 'b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0046_typeid.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0046_typeid.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
   -- _core.0050_jsonlogic.sql
   PERFORM pg_catalog.set_config('search_path', 'public', true);
   PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
@@ -762,7 +1282,7 @@ $pgsem__core_0040_cache_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -1153,11 +1673,21 @@ BEGIN
     -- Loads an entity record by id and stores it in data under the given name.
     -- Usage: {"set_record":["varName", "entityName", idExpression, logic]}
     -- Calls get_record_by_id(entityName, id) and stores the result like let.
+    -- The id goes over as text, so a text, uuid or TypeID key works as well as
+    -- a number; get_record_by_id casts it to the key's type. A whole JSON
+    -- number is written without its fraction first (5.0 -> 5), because
+    -- arithmetic in a rule yields 5.0 and '5.0' is not a valid bigint. A
+    -- malformed id raises get_record_by_id's 90238.
     IF op = 'set_record' THEN
         var_key := vals ->> 0;
         txt_a := vals ->> 1;
         result := evaluate_json_logic(vals -> 2, data);
-        nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
+        IF jsonb_typeof(result) = 'number' AND (result::numeric) = trunc(result::numeric) THEN
+            txt_b := trunc(result::numeric)::text;
+        ELSE
+            txt_b := result #>> '{}';
+        END IF;
+        nav := get_record_by_id(txt_a, txt_b);
         RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
 
@@ -1687,7 +2217,7 @@ GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', '9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e')
+        VALUES ('_core.0050_jsonlogic.sql', '207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -1740,7 +2270,7 @@ $pgsem__core_0050_jsonlogic_sql$;
 
 -- Modules: Logical groupings for roles and permissions
 CREATE TABLE modules (
-    id SERIAL PRIMARY KEY,
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     module_name TEXT UNIQUE NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     module_type TEXT NOT NULL DEFAULT 'domain',
@@ -1788,7 +2318,7 @@ CREATE TABLE modules (
 CREATE TABLE permissions (
     permission_name TEXT PRIMARY KEY,
     description TEXT DEFAULT '',
-    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+    module_id BIGINT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     -- Two things depend on this alphabet, and only two. A scope string is split
@@ -1808,7 +2338,7 @@ CREATE TABLE permissions (
 
 -- Roles: Groups of permissions
 CREATE TABLE roles (
-    id SERIAL PRIMARY KEY,
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     role_name TEXT UNIQUE NOT NULL DEFAULT '',
     slug TEXT NOT NULL DEFAULT '' UNIQUE,
     -- Catalog/blueprint lineage (v0.1.2): the catalog persona this role was provisioned from.
@@ -1816,7 +2346,7 @@ CREATE TABLE roles (
     catalog_role_code TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     origin TEXT NOT NULL DEFAULT 'user',
-    module_id INTEGER REFERENCES modules(id) ON DELETE CASCADE,
+    module_id BIGINT REFERENCES modules(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT valid_role_origin CHECK (origin IN ('system', 'model', 'model_master', 'user')),
@@ -1826,7 +2356,7 @@ CREATE TABLE roles (
 -- Users and agents. A session is a JWT, and the caller is the row whose
 -- external_id equals the sub claim.
 CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     -- external_id is the identity, so every principal needs one - agents
     -- included: an API key resolves to users.id, and the JWT minted from it
     -- carries this column as its sub. A user brings theirs from the
@@ -1860,30 +2390,30 @@ CREATE TABLE users (
 -- User-Role mapping
 CREATE TABLE user_roles (
     id TEXT GENERATED ALWAYS AS (user_id || '.' || role_id) STORED PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    assigned_by INTEGER REFERENCES users(id),
+    assigned_by BIGINT REFERENCES users(id),
     UNIQUE (user_id, role_id)
 );
 
 -- Role-Permission mapping
 CREATE TABLE role_permissions (
     id TEXT GENERATED ALWAYS AS (role_id || '.' || permission_name) STORED PRIMARY KEY,
-    role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by INTEGER REFERENCES users(id),
+    granted_by BIGINT REFERENCES users(id),
     UNIQUE (role_id, permission_name)
 );
 
 -- User-Permission mapping (direct per-user permissions)
 CREATE TABLE user_permissions (
     id TEXT GENERATED ALWAYS AS (user_id || '.' || permission_name) STORED PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by INTEGER REFERENCES users(id),
+    granted_by BIGINT REFERENCES users(id),
     UNIQUE (user_id, permission_name)
 );
 
@@ -1912,9 +2442,9 @@ ALTER TABLE modules ADD COLUMN manage_permission TEXT
     REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE modules ADD COLUMN admin_permission TEXT
     REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE modules ADD COLUMN default_viewer_role_id INTEGER REFERENCES roles(id);
-ALTER TABLE modules ADD COLUMN default_manager_role_id INTEGER REFERENCES roles(id);
-ALTER TABLE modules ADD COLUMN default_admin_role_id INTEGER REFERENCES roles(id);
+ALTER TABLE modules ADD COLUMN default_viewer_role_id BIGINT REFERENCES roles(id);
+ALTER TABLE modules ADD COLUMN default_manager_role_id BIGINT REFERENCES roles(id);
+ALTER TABLE modules ADD COLUMN default_admin_role_id BIGINT REFERENCES roles(id);
 
 -- =====================================================
 -- INDEXES
@@ -1994,7 +2524,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
 $pgsem__core_0060_rbac_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0060_rbac_schema.once.sql', 'fced4031b7a7c182924d8d9ca968fe71c1444699eaf3d13ce93831563876ff14')
+        VALUES ('_core.0060_rbac_schema.once.sql', '6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -2031,7 +2561,7 @@ $pgsem__core_0060_rbac_schema_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0070_rbac_schema.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0070_rbac_schema.sql';
       EXECUTE $pgsem__core_0070_rbac_schema_sql$-- =====================================================
@@ -2133,10 +2663,34 @@ CREATE OR REPLACE TRIGGER update_roles_updated_at
 CREATE OR REPLACE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column('last_seen');
+
+-- =====================================================
+-- IMMUTABLE KEYS
+-- =====================================================
+-- A user's, module's or role's id is set once: role and permission grants,
+-- API keys, audit rows, bookmarks and every JWT-derived context hold it, and
+-- ON UPDATE CASCADE would reach only the first of those. The same trigger the
+-- dictionary puts on every table it creates (dd_install_id_triggers in
+-- 0160_dd_functions.sql); common.reject_pk_change is in 0045_typeid.sql.
+-- entities and permissions have none: their natural keys are renamable and
+-- cascade. Neither do the junction tables, whose generated keys follow the
+-- pair they are generated from.
+
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON modules
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');
+
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON roles
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');
+
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON users
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');
 $pgsem__core_0070_rbac_schema_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0070_rbac_schema.sql', 'd7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5')
+        VALUES ('_core.0070_rbac_schema.sql', 'd60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -2173,7 +2727,7 @@ $pgsem__core_0070_rbac_schema_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'eb857f94b819bd66b5793f4e071cf3a8f469240e1f6a4ecd67643ddf0d7dde83') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
       EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
@@ -2568,12 +3122,34 @@ COMMENT ON FUNCTION rbac.uid IS
 -- the call free - a textual call runs the full validation and a _settings read
 -- every time, which is why the hot paths carry a warm test instead - but this
 -- function is not a hot path, and the self branch needs the subject anyway.
+-- CREATE OR REPLACE cannot change a return type, so a database whose copy of
+-- this function (or of upsert_user_from_jwt, user_id, user_id_or_null below)
+-- still returns the INTEGER of the int4 user keys gets it dropped first. The
+-- test on the catalog keeps a re-run from dropping the current version, whose
+-- grants would otherwise be lost for no reason.
+DO $$
+DECLARE
+    v_sig TEXT;
+BEGIN
+    FOREACH v_sig IN ARRAY ARRAY[
+        'rbac.get_user_by_external_id(text)',
+        'rbac.upsert_user_from_jwt(text, text, text, text, text)',
+        'rbac.user_id()',
+        'rbac.user_id_or_null()'
+    ] LOOP
+        IF (SELECT prorettype FROM pg_catalog.pg_proc
+             WHERE oid = pg_catalog.to_regprocedure(v_sig)) = 'pg_catalog.int4'::regtype THEN
+            EXECUTE 'DROP FUNCTION ' || v_sig;
+        END IF;
+    END LOOP;
+END $$;
+
 CREATE OR REPLACE FUNCTION rbac.get_user_by_external_id(
     p_external_id TEXT
 )
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     IF p_external_id IS DISTINCT FROM rbac.uid() THEN
         PERFORM rbac.require_permission('admin');
@@ -2606,9 +3182,9 @@ CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_first_name TEXT DEFAULT NULL,
     p_last_name TEXT DEFAULT NULL
 )
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
-    v_id           INTEGER;
+    v_id           BIGINT;
     v_last_seen    TIMESTAMPTZ;
     v_email        TEXT;
     v_display_name TEXT;
@@ -2723,7 +3299,7 @@ CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
     v_external_id TEXT;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
     v_permissions TEXT;
     v_cached_external_id TEXT;
 BEGIN
@@ -3277,7 +3853,11 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- outside guard test 0900_test_security.sql's rule that every definer calls
 -- rbac.uid(): an internal helper with no identity of its own to authenticate
 -- should not satisfy that rule by pretense.
-CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id INTEGER)
+-- The parameter follows users.id; an INTEGER overload left behind by an older
+-- build would keep its own grants and resolve int4 arguments, so it is dropped.
+DROP FUNCTION IF EXISTS rbac.get_user_permissions_by_id(INTEGER);
+
+CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id BIGINT)
 RETURNS TABLE (permission_name TEXT) AS $$
 BEGIN
     -- A disabled user has no permissions. The comparison with FALSE is on
@@ -3319,7 +3899,7 @@ own - see the comment above this function for why that is safe.';
 -- one. The explicit revoke from semantius_user is required regardless of that:
 -- the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql grants EXECUTE on
 -- every function created in this schema.
-REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(INTEGER) FROM PUBLIC, semantius_user;
+REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(BIGINT) FROM PUBLIC, semantius_user;
 
 -- Get all effective permissions for a user (including implied)
 CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
@@ -3329,7 +3909,7 @@ RETURNS TABLE (
     permission_name TEXT
 ) AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id. The guard cannot
     -- recurse through the context: rbac.ensure_context_initialized builds the
@@ -3456,7 +4036,7 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- reasoning for the ordering and for what the subject comparison does and does
 -- not guarantee; this copy relies on the same invariants.
 CREATE OR REPLACE FUNCTION rbac.user_id()
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
     v_external_id TEXT;
 BEGIN
@@ -3476,7 +4056,7 @@ BEGIN
             PERFORM rbac.ensure_context_initialized();
         END IF;
     END IF;
-    RETURN current_setting('app.current_user_id', true)::INTEGER;
+    RETURN current_setting('app.current_user_id', true)::BIGINT;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
@@ -3492,7 +4072,7 @@ straight back with no further call; a cold context is rebuilt via rbac.uid()
 -- context. Goes through ensure_context_initialized(), so the value is
 -- derived, never read raw from the client-writable app.current_user_id setting.
 CREATE OR REPLACE FUNCTION rbac.user_id_or_null()
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 BEGIN
     RETURN rbac.user_id();
 EXCEPTION
@@ -3614,7 +4194,7 @@ COMMENT ON FUNCTION rbac.whoami IS
 CREATE OR REPLACE FUNCTION rbac.grant_permission_to_administrator()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_administrator_role_id INTEGER;
+    v_administrator_role_id BIGINT;
 BEGIN
     -- Get Administrator role id (role_name = 'Administrator')
     SELECT id INTO v_administrator_role_id
@@ -3658,7 +4238,7 @@ REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
 $pgsem__core_0080_rbac_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0080_rbac_functions.sql', 'eb857f94b819bd66b5793f4e071cf3a8f469240e1f6a4ecd67643ddf0d7dde83')
+        VALUES ('_core.0080_rbac_functions.sql', '807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -3837,7 +4417,7 @@ $pgsem__core_0090_rbac_seed_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8f88116fee612ca5572a57e1d3e56f6d1d0ede62987187d92f906c4f73d98612') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
       EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
@@ -4175,7 +4755,7 @@ COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
 CREATE OR REPLACE FUNCTION rbac.default_assigned_by()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_current_user_id INTEGER;
+    v_current_user_id BIGINT;
 BEGIN
     IF NEW.assigned_by IS NULL THEN
         BEGIN
@@ -4209,7 +4789,7 @@ COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 CREATE OR REPLACE FUNCTION rbac.default_granted_by()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_current_user_id INTEGER;
+    v_current_user_id BIGINT;
 BEGIN
     IF NEW.granted_by IS NULL THEN
         BEGIN
@@ -4244,7 +4824,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
 $pgsem__core_0100_rbac_rls_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0100_rbac_rls.sql', '8f88116fee612ca5572a57e1d3e56f6d1d0ede62987187d92f906c4f73d98612')
+        VALUES ('_core.0100_rbac_rls.sql', '408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -4638,7 +5218,7 @@ CREATE TABLE IF NOT EXISTS entities (
     plural_label TEXT NOT NULL DEFAULT '',
     icon_url TEXT DEFAULT '',
     description TEXT DEFAULT '',
-    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+    module_id BIGINT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     -- RESTRICT, not the deferred NO ACTION modules.view_permission needs: an
     -- entity is always created after the permissions it names, so an immediate
     -- check fails early instead of at commit.
@@ -4647,6 +5227,16 @@ CREATE TABLE IF NOT EXISTS entities (
     edit_permission TEXT NOT NULL DEFAULT 'admin'
         REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     id_column TEXT NOT NULL DEFAULT 'id',
+    -- The key type of the entity's table, chosen when the entity is created
+    -- and never changed afterwards (rule 90233 in 0150_dd_bootstrap.once.sql):
+    -- changing it would rewrite every key and every foreign key pointing at
+    -- one. auto_increment is a 64-bit identity; computed labels only the system
+    -- tables whose key is a generated column, and no managed entity may take it.
+    id_type TEXT NOT NULL DEFAULT 'auto_increment',
+    -- The TypeID prefix of a typeid entity, '' for every other key type. Unlike
+    -- id_type it may change: new ids take the new prefix, existing ids keep
+    -- theirs, because a key is never rewritten.
+    id_prefix TEXT NOT NULL DEFAULT '',
     label_column TEXT NOT NULL DEFAULT 'label',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
@@ -4695,10 +5285,27 @@ CREATE TABLE IF NOT EXISTS entities (
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
     CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
-    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$')
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$'),
+    -- Inline, like valid_entity_type and for the same reason: the id_type
+    -- field row is seeded before the dictionary's enum trigger exists.
+    CONSTRAINT valid_id_type CHECK (id_type IN
+        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'computed')),
+    -- The TypeID prefix grammar: up to 63 lowercase letters and underscores,
+    -- starting and ending with a letter. It is concatenated into every id, so
+    -- nothing outside it may get in.
+    CONSTRAINT valid_id_prefix CHECK (id_prefix = '' OR id_prefix ~ '^[a-z]([a-z_]{0,61}[a-z])?$'),
+    -- A typeid entity has a prefix and no other kind has one. The spec allows
+    -- an empty prefix, but a bare suffix says nothing about which entity an id
+    -- belongs to, which is the reason to choose TypeIDs at all.
+    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type = 'typeid') = (id_prefix <> ''))
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
+-- Only the prefixes in use now are unique. An entity that changes its prefix
+-- releases the old one, and another entity may take it, so two entities can
+-- have ids with the same prefix: an id's prefix names the entity it was minted
+-- for at the time, not necessarily the one that holds it today.
+CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_prefix <> '';
 -- The two permission columns are RESTRICT foreign keys, so every permission
 -- delete and every rename scans them. The dictionary builds idx_<table>_<field>
 -- for a reference field it creates; these are declared by hand, so their
@@ -4793,7 +5400,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', 'd294e502dd8e4ac713f695d7dd22e2c2582e758cbc415a40fc3ab4f4e999a163')
+        VALUES ('_core.0130_dd_schema.once.sql', 'e60729e5f40ed23f6e3e77fb3bed19c9c83199e57732aebc06db51551f603540')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5043,23 +5650,23 @@ $pgsem__core_0140_dd_schema_sql$;
 -- through get_schema() and its siblings. Expressing the rule as metadata rather
 -- than as a hand-written policy is what lets get_record_by_id and set_record,
 -- which apply the dictionary's predicate, return exactly what RLS returns.
-INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule)
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule, id_type)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'text'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
-     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order', '{}'::jsonb),
-    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
+     '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order', '{}'::jsonb, 'computed'),
+    ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'auto_increment'),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
-     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''","source_module":"platform","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]}}]'::jsonb, 'unclassified', TRUE, '', '{"or": [{"has_permission": "admin"}, {"has_permission": {"var": "view_permission"}}]}'::jsonb),
+     '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''","source_module":"platform","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]}}]'::jsonb, 'unclassified', TRUE, '', '{"or": [{"has_permission": "admin"}, {"has_permission": {"var": "view_permission"}}]}'::jsonb, 'auto_increment'),
     ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
-     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}},{"code":"90206","message":"catalog_role_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_role_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_role_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
-    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles and organized via hierarchy', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb),
-    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb),
-    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb),
-    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb),
+     '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}},{"code":"90206","message":"catalog_role_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_role_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_role_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'auto_increment'),
+    ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles and organized via hierarchy', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'text'),
+    ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed'),
+    ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed'),
+    ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed'),
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
-     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '', '{}'::jsonb);
+     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed');
 
 -- =====================================================
 -- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
@@ -5197,10 +5804,21 @@ VALUES
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        '', NULL),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '', NULL);
 
+-- The key type and TypeID prefix of an entity. Their own INSERT because they
+-- carry an input_type_rule, which the statement above does not list.
+-- id_type is readonly once the entity exists (created_at is set by the
+-- database, so a record being created has none): rule 90233 refuses the
+-- change anyway, and the UI should not offer it. id_prefix is asked for only
+-- when the key type is typeid, where it is required.
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values, input_type_rule)
+VALUES
+    ('entities', 'id_type', 'Id Type', 'Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. computed: system tables whose key is generated from other columns; not available for new entities.', 'auto_increment', 'enum', FALSE, 101, 'required', 'default', 'core', FALSE, '', '', '', '["auto_increment", "bigint", "text", "uuid", "typeid", "computed"]'::jsonb, '{"if":[{"var":"created_at"},"readonly","required"]}'::jsonb),
+    ('entities', 'id_prefix', 'Id Prefix', 'TypeID prefix of a typeid entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. May change later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted.', '', 'text', FALSE, 102, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"==":[{"var":"id_type"},"typeid"]},"required","hidden"]}'::jsonb);
+
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
 VALUES
-    ('users', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
+    ('users', 'id', 'Id', '', 'int64', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
     ('users', 'external_id', 'External Identity', 'Identity: the JWT sub claim from the authentication provider, or entra.<tenant id>.<object id> for a Microsoft Entra ID token. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
     ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'label', TRUE, '', '', '', FALSE),
     ('users', 'first_name', 'First Name', '', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
@@ -5216,7 +5834,7 @@ VALUES
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, enum_values, default_value)
 VALUES
-    ('modules', 'id', 'Id', '', 'int32', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL, ''),
+    ('modules', 'id', 'Id', '', 'int64', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', NULL, ''),
     ('modules', 'module_name', 'Module Name', '', 'text', FALSE, 10, 'required', 'default', 'label', TRUE, '', '', NULL, ''),
     ('modules', 'description', 'Description', '', 'text', FALSE, 20, 'default', 'w', 'core', TRUE, '', '', NULL, ''),
     ('modules', 'module_type', 'Module Type', 'domain = normal module; master = promoted for sharing', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '["domain", "master"]'::jsonb, 'domain'),
@@ -5243,7 +5861,7 @@ VALUES
 -- Insert fields metadata for roles table (slug's unique_value matches the UNIQUE constraint on the table)
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, unique_value, enum_values, default_value)
 VALUES
-    ('roles', 'id',          'Id',          '',                              'int32',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL, ''),
+    ('roles', 'id',          'Id',          '',                              'int64',     TRUE,  1,  'readonly', 'default', 'id',    FALSE, '',        '',      '', FALSE, NULL, ''),
     ('roles', 'role_name',   'Role Name',   '',              'text',      FALSE, 10, 'required', 'default', 'label', TRUE,  '',        '',      '', FALSE, NULL, ''),
     ('roles', 'slug',        'Slug',        'Snake_case unique identifier for the role, derived from role_name when omitted. Cannot be changed on a system role.', 'text', FALSE, 15, 'default', 'default', 'core', FALSE, '', '', '', TRUE, NULL, ''),
     ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', '', FALSE, NULL, ''),
@@ -5304,7 +5922,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', 'f9afb047926e47e8e19faf1fccd1c473697dd9ee488db46acc3c7b9ddb7d07a1')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', 'b7bc793a94c564c5f6558f4c4abdaf85302df569b76f586ab6630e0e3da7e3d2')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5341,7 +5959,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5f44f8f81bf7d7e4a3472a3bc5a90aff5e3130098af06ef40434c65c18ab3f68') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -5366,8 +5984,11 @@ BEGIN
         WHEN 'int32' THEN 'INTEGER'
         WHEN 'int64' THEN 'BIGINT'
         WHEN 'integer' THEN 'INTEGER'
-        WHEN 'reference' THEN 'INTEGER'  -- Foreign key references use INTEGER
-        WHEN 'parent' THEN 'INTEGER'     -- Parent references use INTEGER (like reference)
+        -- The fallback for a reference whose target key cannot be read (see
+        -- field_data_type): BIGINT, the type of an auto_increment key, which is
+        -- what an entity gets unless it declares otherwise.
+        WHEN 'reference' THEN 'BIGINT'
+        WHEN 'parent' THEN 'BIGINT'
         
         -- Number formats
         WHEN 'float' THEN 'REAL'
@@ -5405,6 +6026,201 @@ COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
 
 -- =====================================================
+-- ENTITY KEY TYPES (entities.id_type)
+-- =====================================================
+-- Every entity declares the type of its key. The helpers below are the one
+-- place that turns an id_type into DDL, a field row and the key's triggers, so
+-- the create path (create_dd_table) and the adoption path (enable_dd_table,
+-- 0180_managed_enable.sql) cannot drift apart.
+--
+--   id_type         column                                       id field format
+--   auto_increment  BIGINT GENERATED BY DEFAULT AS IDENTITY       int64
+--   bigint          BIGINT, supplied by the caller                int64
+--   text            TEXT, supplied by the caller                  text
+--   uuid            UUID DEFAULT common.uuid_v7()                 uuid
+--   typeid          common.typeid, filled by common.typeid_assign string
+--   computed        system tables only: a generated column        text
+--
+-- BY DEFAULT rather than ALWAYS: seeds, imports and ensure_entities write
+-- explicit ids, and afterwards move the sequence past them (fix_id_sequence).
+-- A caller may bring its own uuid or typeid too; only the typeid prefix is
+-- checked.
+
+-- The column type an id_type gives a key, upper-cased like field_data_type's
+-- answers. Also what a reference to a registered entity without a table gets.
+CREATE OR REPLACE FUNCTION dd_id_type_data_type(p_id_type TEXT)
+RETURNS TEXT AS $$
+    SELECT CASE p_id_type
+        WHEN 'auto_increment' THEN 'BIGINT'
+        WHEN 'bigint'         THEN 'BIGINT'
+        WHEN 'uuid'           THEN 'UUID'
+        WHEN 'typeid'         THEN 'COMMON.TYPEID'
+        ELSE 'TEXT'  -- text, and computed, whose system keys are generated TEXT
+    END;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_id_type_data_type(TEXT) IS
+'Column type of an entity key for a given id_type (BIGINT, TEXT, UUID or COMMON.TYPEID), upper-cased like field_data_type.';
+
+-- The key column's DDL and the values of its fields row, for one entity.
+--   column_ddl       the column definition inside CREATE TABLE, PRIMARY KEY included
+--   id_format        the fields.format of the key
+--   input_type       the key's static input_type: readonly for generated keys;
+--                    required for bigint and text, which the caller supplies
+--   input_type_rule  for bigint and text, required while the key is empty and
+--                    readonly once it is set, because a key never changes; the
+--                    rule reads the entity's real id_column, not a fixed "id"
+-- Raises 90234 for computed: those keys are generated columns over other
+-- columns of a system table, which the dictionary cannot define.
+CREATE OR REPLACE FUNCTION dd_id_column_ddl(
+    p_table_name TEXT,
+    p_id_column TEXT,
+    p_id_type TEXT,
+    OUT column_ddl TEXT,
+    OUT id_format TEXT,
+    OUT input_type TEXT,
+    OUT input_type_rule JSONB
+) AS $$
+BEGIN
+    input_type := 'readonly';
+    input_type_rule := '{}'::jsonb;
+    CASE p_id_type
+        WHEN 'auto_increment' THEN
+            column_ddl := format('%I BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY', p_id_column);
+            id_format := 'int64';
+        WHEN 'bigint' THEN
+            column_ddl := format('%I BIGINT PRIMARY KEY', p_id_column);
+            id_format := 'int64';
+        WHEN 'text' THEN
+            -- No default: an empty string could be saved as a key, and only once.
+            column_ddl := format('%I TEXT PRIMARY KEY', p_id_column);
+            id_format := 'text';
+        WHEN 'uuid' THEN
+            column_ddl := format('%I UUID PRIMARY KEY DEFAULT common.uuid_v7()', p_id_column);
+            id_format := 'uuid';
+        WHEN 'typeid' THEN
+            -- No default: common.typeid_assign fills the key before the NOT
+            -- NULL of the primary key is checked, and it knows the prefix.
+            column_ddl := format('%I common.typeid PRIMARY KEY', p_id_column);
+            id_format := 'string';
+        ELSE
+            RAISE EXCEPTION 'id_type ${id_type} is reserved for system tables and cannot be used for entity ${table}'
+                USING ERRCODE = '90234',
+                      HINT = jsonb_build_object('id_type', p_id_type, 'table', p_table_name)::text;
+    END CASE;
+    IF p_id_type IN ('bigint', 'text') THEN
+        input_type := 'required';
+        input_type_rule := jsonb_build_object('if',
+            jsonb_build_array(jsonb_build_object('var', p_id_column), 'readonly', 'required'));
+    END IF;
+END;
+-- STABLE, not IMMUTABLE: format() is STABLE.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) IS
+'Key column DDL and id field row values (format, input_type, input_type_rule) for an entity''s id_type. Used by create_dd_table and enable_dd_table so both paths build the same key. Raises 90234 for computed.';
+
+-- Refuses to adopt an existing table whose key column does not match the
+-- entity's id_type (90235). Registering an entity onto a table that already
+-- exists - an INSERT whose CREATE TABLE IF NOT EXISTS finds one, or a flip of
+-- managed to true - must not leave the dictionary describing a key the table
+-- does not have: every reference to the entity is typed from id_type while the
+-- table does not exist, and from the real column once it does, so the two
+-- would disagree. A table with no key column at all is refused the same way;
+-- the administrator adds the column first.
+--
+-- auto_increment accepts a BIGINT filled by an identity or by a sequence
+-- default (bigserial): both assign ids the same way and fix_id_sequence can
+-- move either. An int4 serial is refused, it is the 2.1 billion ceiling the
+-- 64-bit keys exist to remove.
+CREATE OR REPLACE FUNCTION dd_check_id_column(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_type_oid   OID;
+    v_actual     TEXT;
+    v_identity   "char";
+    v_default    TEXT;
+    v_matches    BOOLEAN;
+    v_expected   TEXT;
+BEGIN
+    SELECT a.atttypid, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attidentity,
+           pg_catalog.pg_get_expr(d.adbin, d.adrelid)
+      INTO v_type_oid, v_actual, v_identity, v_default
+      FROM pg_catalog.pg_attribute a
+      LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+     WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', p_table_name))::oid
+       AND a.attname = p_id_column
+       AND a.attnum > 0
+       AND NOT a.attisdropped;
+
+    v_expected := CASE p_id_type
+        WHEN 'auto_increment' THEN 'bigint with an identity or sequence default'
+        WHEN 'bigint'         THEN 'bigint'
+        WHEN 'text'           THEN 'text'
+        WHEN 'uuid'           THEN 'uuid'
+        WHEN 'typeid'         THEN 'common.typeid'
+        ELSE p_id_type
+    END;
+
+    v_matches := CASE p_id_type
+        WHEN 'auto_increment' THEN v_type_oid = 'pg_catalog.int8'::regtype
+                                   AND (v_identity <> '' OR v_default LIKE 'nextval(%')
+        WHEN 'bigint'         THEN v_type_oid = 'pg_catalog.int8'::regtype
+        WHEN 'text'           THEN v_type_oid = 'pg_catalog.text'::regtype
+        WHEN 'uuid'           THEN v_type_oid = 'pg_catalog.uuid'::regtype
+        WHEN 'typeid'         THEN v_type_oid = 'common.typeid'::regtype
+        ELSE FALSE
+    END;
+
+    IF NOT COALESCE(v_matches, FALSE) THEN
+        RAISE EXCEPTION 'Table ${table} cannot be adopted: its key column ${id_column} is ${actual_type}, but id_type ${id_type} needs ${expected_type}'
+            USING ERRCODE = '90235',
+                  HINT = jsonb_build_object(
+                      'table', p_table_name,
+                      'id_column', p_id_column,
+                      'actual_type', COALESCE(v_actual, 'missing'),
+                      'id_type', p_id_type,
+                      'expected_type', v_expected,
+                      'hint', 'Change the table''s key column to ${expected_type}, or declare the entity with the id_type that matches it.')::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) IS
+'Raises 90235 when an existing table''s key column does not match the entity''s id_type (or is missing). auto_increment accepts a BIGINT identity or bigserial.';
+
+-- The key's triggers on an entity table:
+--   pk_immutable  BEFORE UPDATE OF <key>: common.reject_pk_change, for every
+--                 key type - keys are set once
+--   typeid_assign BEFORE INSERT: common.typeid_assign with the current prefix,
+--                 for typeid keys only
+-- Neither name embeds the table name, so rename_dd_table has nothing to
+-- rename, and both are dropped with the table. The prefix is a trigger
+-- argument, quoted with %L; dd_sync_typeid_prefix below recreates the trigger
+-- when it changes.
+CREATE OR REPLACE FUNCTION dd_install_id_triggers(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_id_prefix TEXT)
+RETURNS VOID AS $$
+BEGIN
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER pk_immutable BEFORE UPDATE OF %I ON public.%I
+            FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change(%L)',
+        p_id_column, p_table_name, p_id_column);
+
+    IF p_id_type = 'typeid' THEN
+        EXECUTE format(
+            'CREATE OR REPLACE TRIGGER typeid_assign BEFORE INSERT ON public.%I
+                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%L, %L)',
+            p_table_name, p_id_column, p_id_prefix);
+    END IF;
+END;
+-- SECURITY INVOKER: its callers (create_dd_table, enable_dd_table,
+-- dd_sync_typeid_prefix) are SECURITY DEFINER and already run as the owner.
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) IS
+'Creates the pk_immutable trigger (every key type) and, for typeid keys, the typeid_assign insert trigger carrying the current prefix, on an entity table.';
+
+-- =====================================================
 -- HELPER FUNCTION: FIELD TO COLUMN DATA TYPE
 -- =====================================================
 -- The type a field's column actually gets. For everything except a reference
@@ -5412,20 +6228,29 @@ COMMENT ON FUNCTION format_to_data_type IS
 -- the key the field points at, read from the catalog.
 --
 -- A reference cannot be typed from its format alone. `permissions` is keyed by
--- TEXT, `users` by INTEGER, and format_to_data_type() sees only the word
--- "reference", so it can only guess - and a column typed differently from the
--- key it is about to be constrained to makes the ADD CONSTRAINT fail. Reading
--- the key is the only answer that is right for every entity.
+-- TEXT, `users` by BIGINT, a typeid entity by the common.typeid domain, and
+-- format_to_data_type() sees only the word "reference", so it can only guess -
+-- and a column typed differently from the key it is about to be constrained to
+-- makes the ADD CONSTRAINT fail. Reading the key is the only answer that is
+-- right for every entity.
 --
--- The catalog lookup returns nothing when the referenced entity is unknown, or
--- is registered with no physical table yet (to_regclass gives NULL). The format
--- then stands, which keeps INTEGER for reference and parent. What happens next
--- depends on which case it was: with no table to point at, the ADD CONSTRAINT
--- fails on the missing relation; with a table that is simply not a registered
--- entity, it succeeds or fails on whether that table's key is an INTEGER.
+-- Three sources, in order:
+--   1. the declared type of the referenced key column in the catalog, when
+--      the referenced entity has a physical table;
+--   2. the referenced entity's id_type, when it is registered but its table
+--      does not exist yet (an unmanaged entity, or one whose table is created
+--      later in the same definition) - the type its key will get;
+--   3. the format, which gives BIGINT for reference and parent, when the
+--      referenced entity is unknown. With no table to point at, the ADD
+--      CONSTRAINT then fails on the missing relation.
 --
 -- The result is upper-cased so quote_default_value's INTEGER/BOOLEAN tests and
--- the DDL builders' NOT NULL default table keep matching on it.
+-- the DDL builders' NOT NULL default table keep matching on it. A key declared
+-- with the common.typeid domain comes back as COMMON.TYPEID: format_type()
+-- schema-qualifies it because this function's search_path does not include
+-- `common`, and the DDL builders emit the type unquoted, so PostgreSQL folds
+-- it back to common.typeid. Quoting it would break that, which is why the
+-- builders interpolate it with %s rather than %I.
 CREATE OR REPLACE FUNCTION field_data_type(
     p_format TEXT,
     p_precision SMALLINT DEFAULT NULL,
@@ -5434,15 +6259,22 @@ CREATE OR REPLACE FUNCTION field_data_type(
 RETURNS TEXT AS $$
     SELECT COALESCE(
         CASE
-            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN (
-                SELECT upper(pg_catalog.format_type(a.atttypid, a.atttypmod))
-                FROM entities e
-                JOIN pg_catalog.pg_attribute a
-                  ON a.attrelid = pg_catalog.to_regclass(format('public.%I', e.table_name))::oid
-                 AND a.attname = e.id_column
-                 AND a.attnum > 0
-                 AND NOT a.attisdropped
-                WHERE e.table_name = p_reference_table
+            WHEN p_format IN ('reference', 'parent') AND COALESCE(p_reference_table, '') <> '' THEN COALESCE(
+                (
+                    SELECT upper(pg_catalog.format_type(a.atttypid, a.atttypmod))
+                    FROM entities e
+                    JOIN pg_catalog.pg_attribute a
+                      ON a.attrelid = pg_catalog.to_regclass(format('public.%I', e.table_name))::oid
+                     AND a.attname = e.id_column
+                     AND a.attnum > 0
+                     AND NOT a.attisdropped
+                    WHERE e.table_name = p_reference_table
+                ),
+                (
+                    SELECT dd_id_type_data_type(e.id_type)
+                    FROM entities e
+                    WHERE e.table_name = p_reference_table
+                )
             )
         END,
         format_to_data_type(p_format, p_precision)
@@ -5450,7 +6282,7 @@ RETURNS TEXT AS $$
 $$ LANGUAGE sql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION field_data_type IS
-'PostgreSQL type for a field''s column. Same as format_to_data_type except for reference/parent, which take the type of the referenced entity''s key column so the foreign key can be created. Falls back to the format when the referenced entity is unknown or has no physical table.';
+'PostgreSQL type for a field''s column. Same as format_to_data_type except for reference/parent, which take the type of the referenced entity''s key column so the foreign key can be created: the catalog type when the table exists, else the type the entity''s id_type gives its key. Falls back to the format (BIGINT) when the referenced entity is unknown.';
 
 -- =====================================================
 -- HELPER FUNCTION: FORMAT TO JSON SCHEMA TYPE
@@ -5777,28 +6609,41 @@ DECLARE
     v_policy_sql TEXT;
     v_comment    TEXT;
     v_sequence_name TEXT;
+    v_key        RECORD;
+    v_existed    BOOLEAN;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
         RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
         RETURN NEW;
     END IF;
-    
+
+    -- Raises 90234 for id_type computed, before anything is created.
+    v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
+    v_existed := to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL;
+
     -- Build CREATE TABLE statement
     v_create_sql := format(
         'CREATE TABLE IF NOT EXISTS public.%I (
-            %I SERIAL PRIMARY KEY,
+            %s,
             %I TEXT NOT NULL DEFAULT '''',
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )',
         NEW.table_name,
-        NEW.id_column,
+        v_key.column_ddl,
         NEW.label_column
     );
-    
+
     -- Create the table
     EXECUTE v_create_sql;
+
+    -- An entity registered onto a table that was already there adopts it, and
+    -- its key has to be the key id_type describes.
+    IF v_existed THEN
+        PERFORM dd_check_id_column(NEW.table_name, NEW.id_column, NEW.id_type);
+    END IF;
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
     
     -- Set table comment: plural label summary + optional description
     v_comment := dd_table_comment(NEW.plural_label, NEW.description);
@@ -5835,11 +6680,11 @@ BEGIN
         'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
         NEW.table_name
     );
-    -- CREATE TABLE above is IF NOT EXISTS, so an entity can be registered onto a
-    -- table somebody else made, whose key column need not exist at all.
-    -- pg_get_serial_sequence raises on a column that is not there rather than
-    -- returning NULL, so the column is checked first. A key that is not a serial
-    -- has no sequence and needs no grant.
+    -- An identity column's sequence is owned by it, so pg_get_serial_sequence
+    -- finds it as it finds a serial's. The column exists: a table that was
+    -- already there passed dd_check_id_column above, and pg_get_serial_sequence
+    -- raises on a missing column rather than returning NULL, so the test stays
+    -- as the guard it was. A key that is not a sequence has no grant to give.
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public'
@@ -5862,12 +6707,12 @@ BEGIN
     -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
     -- The label column is marked as searchable=TRUE for full-text search.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
     VALUES
-        (NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''),
-        (NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''),
-        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', ''),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '');
+        (NEW.table_name, NEW.id_column, 'Id', v_key.id_format, TRUE, 10, v_key.input_type, 'default', 'id', FALSE, '', '', v_key.input_type_rule),
+        (NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '', '{}'::jsonb),
+        (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb),
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb);
 
     -- entities.searchable needs no write here. The INSERT above is a statement
     -- of its own even inside this trigger, so handle_field_searchable_insert_trigger
@@ -6752,6 +7597,38 @@ COMMENT ON TRIGGER update_entity_policies_trigger ON entities IS
 'Rebuilds INSERT/UPDATE/DELETE RLS policies when entities.edit_permission is updated';
 
 -- =====================================================
+-- TRIGGER FUNCTION: typeid prefix change
+-- =====================================================
+-- A typeid entity's prefix lives in two places: entities.id_prefix and the
+-- argument of its table's typeid_assign trigger, which is what generates and
+-- checks ids. Recreating the trigger takes a brief lock on the table and scans
+-- nothing: existing rows keep the ids they were given, because a key never
+-- changes, and there is no CHECK over the prefix that would have to be
+-- re-validated. From the next insert on, new ids carry the new prefix and an
+-- id with the old one is refused, so re-importing an export taken before the
+-- change fails for the rows it would add.
+CREATE OR REPLACE FUNCTION dd_sync_typeid_prefix()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT NEW.managed OR NEW.id_type <> 'typeid'
+       OR to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+        RETURN NEW;
+    END IF;
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_sync_typeid_prefix() IS
+'AFTER UPDATE OF id_prefix trigger on entities: recreates the typeid_assign trigger of a managed typeid entity''s table with the new prefix. Takes a brief lock, scans nothing; existing ids keep their prefix.';
+
+CREATE OR REPLACE TRIGGER sync_typeid_prefix_trigger
+    AFTER UPDATE OF id_prefix ON entities
+    FOR EACH ROW
+    WHEN (OLD.id_prefix IS DISTINCT FROM NEW.id_prefix)
+    EXECUTE FUNCTION dd_sync_typeid_prefix();
+
+-- =====================================================
 -- FULL-TEXT SEARCH FUNCTIONS AND TRIGGERS
 -- =====================================================
 -- Manages search_vector column and GIN index based on searchable fields
@@ -7278,8 +8155,21 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 -- Looks up an entity by table_name, reads its id_column, then queries the
 -- physical table for the row matching the supplied id value. Returns the
 -- full row as JSONB, or NULL when the entity or record does not exist.
+--
+-- The id is TEXT so one function serves every key type; it is cast to the
+-- key column's own type inside the query, which keeps the primary key index
+-- usable (comparing the column as text would not). An id that cannot be cast
+-- raises 90238 rather than returning NULL: a malformed id is the caller's
+-- mistake, not a record that is missing. The test is pg_input_is_valid, not a
+-- caught cast error, because an exception block opens a subtransaction on
+-- every call and set_record can reach this once per row; it covers the
+-- common.typeid domain's CHECK as well as the base type's syntax and range.
+--
+-- get_record_by_id(TEXT, BIGINT) below keeps numeric callers working.
 
-CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id INTEGER)
+DROP FUNCTION IF EXISTS get_record_by_id(TEXT, INTEGER);
+
+CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id TEXT)
 RETURNS JSONB AS $$
 DECLARE
     v_id_column       TEXT;
@@ -7287,6 +8177,8 @@ DECLARE
     v_select_rule     JSONB;
     v_result          JSONB;
     v_allowed         BOOLEAN;
+    v_key_type        TEXT;
+    v_valid           BOOLEAN;
 BEGIN
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
@@ -7302,7 +8194,43 @@ BEGIN
     WHERE table_name = p_entity_name;
 
     -- Entity not found
-    IF NOT FOUND THEN
+    IF NOT FOUND OR p_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- The key's declared type, as format_type spells it (a domain comes back
+    -- schema-qualified, since `common` is not on this function's search_path),
+    -- so it can be interpolated as a type name. No column means no table: an
+    -- unmanaged entity registered without one.
+    SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
+      INTO v_key_type
+      FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', p_entity_name))::oid
+       AND a.attname = v_id_column
+       AND a.attnum > 0
+       AND NOT a.attisdropped;
+    IF v_key_type IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- Through EXECUTE, not as a PL/pgSQL expression: pg_input_is_valid parses
+    -- its type-name argument once and keeps it for later calls whenever that
+    -- argument looks constant to the executor, which a PL/pgSQL variable does,
+    -- and PL/pgSQL keeps the expression's state for the whole transaction. The
+    -- second get_record_by_id of a transaction would then check the id against
+    -- the first call's key type. A dynamic statement starts from scratch.
+    EXECUTE format('SELECT pg_catalog.pg_input_is_valid($1, %L)', v_key_type)
+       INTO v_valid USING p_id;
+
+    -- Only a caller who may see the entity's schema learns that the id was
+    -- malformed; anybody else gets the NULL that also answers "no such entity",
+    -- so the refusal does not reveal that the entity exists or what its key is.
+    IF NOT v_valid THEN
+        IF rbac.has_permission(v_view_permission) THEN
+            RAISE EXCEPTION 'Invalid record id ${id} for entity ${table}'
+                USING ERRCODE = '90238',
+                      HINT = jsonb_build_object('id', p_id, 'table', p_entity_name)::text;
+        END IF;
         RETURN NULL;
     END IF;
 
@@ -7316,15 +8244,15 @@ BEGIN
             RETURN NULL;
         END IF;
         EXECUTE format(
-            'SELECT row_to_json(t)::jsonb FROM %I t WHERE %I = $1 LIMIT 1',
-            p_entity_name, v_id_column
+            'SELECT row_to_json(t)::jsonb FROM %I t WHERE t.%I = $1::%s LIMIT 1',
+            p_entity_name, v_id_column, v_key_type
         ) INTO v_result USING p_id;
     ELSE
         -- select_rule REPLACES view_permission: evaluate the per-row rule for THIS row.
         -- (The select_rule_<table>() helper is created by build_select_rule_policy.)
         EXECUTE format(
-            'SELECT row_to_json(t)::jsonb, public.%I(t) FROM %I t WHERE %I = $1 LIMIT 1',
-            'select_rule_' || p_entity_name, p_entity_name, v_id_column
+            'SELECT row_to_json(t)::jsonb, public.%I(t) FROM %I t WHERE t.%I = $1::%s LIMIT 1',
+            'select_rule_' || p_entity_name, p_entity_name, v_id_column, v_key_type
         ) INTO v_result, v_allowed USING p_id;
         IF NOT COALESCE(v_allowed, FALSE) THEN
             RETURN NULL;
@@ -7335,12 +8263,34 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION get_record_by_id IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table. SECURITY DEFINER: authenticates via rbac.uid() and enforces the entity''s view_permission (the same access boundary as RLS / get_schema). Returns NULL when the entity or record does not exist, or when the caller lacks view permission (the two cases are indistinguishable, to avoid leaking record existence).';
+COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table; the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the entity''s canonical read predicate (the same access boundary as RLS / get_schema). Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
+
+-- Numeric callers: a bigint or integer argument resolves here rather than to
+-- the TEXT version, since PostgreSQL casts neither to text implicitly. The
+-- parameter names differ from the TEXT version's on purpose: PostgREST picks
+-- an RPC overload by the names of the JSON keys, so {p_entity_name, p_id} and
+-- {p_entity, p_record_id} each reach exactly one function and never raise
+-- PGRST203 (ambiguous overload). SECURITY INVOKER: the TEXT version does the
+-- authentication and the access check.
+CREATE OR REPLACE FUNCTION get_record_by_id(p_entity TEXT, p_record_id BIGINT)
+RETURNS JSONB AS $$
+    SELECT public.get_record_by_id(p_entity, p_record_id::text);
+$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION get_record_by_id(TEXT, BIGINT) IS
+'Numeric-key convenience overload of get_record_by_id(TEXT, TEXT): same result, same access checks.';
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
-REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, INTEGER) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, BIGINT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, BIGINT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_id_type_data_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_sync_typeid_prefix() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_data_type(TEXT, SMALLINT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
@@ -7377,7 +8327,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f')
+        VALUES ('_core.0160_dd_functions.sql', '5f44f8f81bf7d7e4a3472a3bc5a90aff5e3130098af06ef40434c65c18ab3f68')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7988,7 +8938,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '57b0d73ef7cede81036a7c7a8f6604a9986a9db3946af04a53bbd5b66abd8193') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e40a672e59f2a0ba4051b8c2eb9ac178a56cf75b328e8cc18503650efcd30d78') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -8184,6 +9134,42 @@ single field record.  Called by enable_dd_table() and update_dd_field() to
 create columns that were defined while managed=false.';
 
 -- =====================================================
+-- HELPER FUNCTION: dd_check_id_field
+-- =====================================================
+-- Refuses to switch an entity to managed when it already has an id field row
+-- whose format is not the one its id_type gives the key (90239). An unmanaged
+-- entity gets no generated id row, so whoever registered it wrote one, and an
+-- old export may say int32 where the key is now int64. Switching managed on
+-- must not rewrite metadata somebody wrote - switching it on and off again has
+-- to leave everything as it was - so the difference is reported instead of
+-- fixed. Only the format is compared: it is what describes the key's type,
+-- while input_type and input_type_rule are presentation the author may choose.
+-- A missing row is not a difference; enable_dd_table creates it.
+CREATE OR REPLACE FUNCTION dd_check_id_field(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_format TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_actual TEXT;
+BEGIN
+    SELECT format INTO v_actual
+      FROM fields WHERE table_name = p_table_name AND field_name = p_id_column;
+    IF FOUND AND v_actual IS DISTINCT FROM p_format THEN
+        RAISE EXCEPTION 'Entity ${table} cannot be managed: its id field ${id_column} has format ${actual_format}, but id_type ${id_type} needs ${expected_format}'
+            USING ERRCODE = '90239',
+                  HINT = jsonb_build_object(
+                      'table', p_table_name,
+                      'id_column', p_id_column,
+                      'actual_format', v_actual,
+                      'id_type', p_id_type,
+                      'expected_format', p_format,
+                      'hint', 'Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.')::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) IS
+'Raises 90239 when an entity about to become managed has an id field row whose format differs from the one its id_type gives the key. Called by enable_dd_table before it changes anything.';
+
+-- =====================================================
 -- TRIGGER FUNCTION: ENABLE TABLE WHEN managed F→T
 -- =====================================================
 
@@ -8193,6 +9179,7 @@ DECLARE
     v_create_sql TEXT;
     v_field      fields%ROWTYPE;
     v_sequence_name TEXT;
+    v_key        RECORD;
 BEGIN
     -- Guard: only proceed when managed transitions FALSE → TRUE
     IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
@@ -8201,6 +9188,11 @@ BEGIN
 
     SET LOCAL client_min_messages = WARNING;
 
+    -- The refusals come first, before anything is changed: 90234 for id_type
+    -- computed, 90239 for an id field row that describes another key type.
+    v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
+    PERFORM dd_check_id_field(NEW.table_name, NEW.id_column, NEW.id_type, v_key.id_format);
+
     -- ── Create the physical table if it does not yet exist ──────────────
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables
@@ -8208,12 +9200,12 @@ BEGIN
     ) THEN
         v_create_sql := format(
             'CREATE TABLE IF NOT EXISTS public.%I (
-                %I SERIAL PRIMARY KEY,
+                %s,
                 %I TEXT NOT NULL DEFAULT '''',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )',
-            NEW.table_name, NEW.id_column, NEW.label_column
+            NEW.table_name, v_key.column_ddl, NEW.label_column
         );
         EXECUTE v_create_sql;
 
@@ -8236,7 +9228,15 @@ BEGIN
         );
 
         RAISE NOTICE 'Created table "%" (managed changed to true)', NEW.table_name;
+    ELSE
+        -- Adoption: the table's key has to be the one id_type describes, and
+        -- it has to be there already. A missing key column is refused rather
+        -- than added by the loop further down, because adding a primary key
+        -- to a table that has rows is not something to do as a side effect.
+        PERFORM dd_check_id_column(NEW.table_name, NEW.id_column, NEW.id_type);
     END IF;
+
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
 
     -- ── Secure the table ─────────────────────────────────────────────────
     -- Unconditionally, whatever the table carried before. Becoming managed means
@@ -8324,8 +9324,8 @@ BEGIN
     -- ── Insert core field records if they were never created ─────────────
     -- create_dd_table inserts these when managed=true on INSERT, but when
     -- an entity was created with managed=false those records do not exist.
-    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.id_column, 'Id', 'int32', TRUE, 10, 'readonly', 'default', 'id', FALSE, '', ''
+    INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
+    SELECT NEW.table_name, NEW.id_column, 'Id', v_key.id_format, TRUE, 10, v_key.input_type, 'default', 'id', FALSE, '', '', v_key.input_type_rule
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -8434,6 +9434,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS users_external_id_unique ON users(external_id)
 
 REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 
 -- =====================================================
 -- COMPOSED RECORD LABELS  (label_parent + _label / <fk>_label)
@@ -8926,7 +9927,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '57b0d73ef7cede81036a7c7a8f6604a9986a9db3946af04a53bbd5b66abd8193')
+        VALUES ('_core.0180_managed_enable.sql', 'e40a672e59f2a0ba4051b8c2eb9ac178a56cf75b328e8cc18503650efcd30d78')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -9023,7 +10024,7 @@ CREATE TABLE IF NOT EXISTS public.audit_record_logs (
     record_pk      TEXT NOT NULL DEFAULT '',
     op             audit.operation NOT NULL,
     ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_id        INTEGER NOT NULL DEFAULT 0,
+    user_id        BIGINT NOT NULL DEFAULT 0,
     db_role        TEXT,
     is_superuser   BOOLEAN,
     client_addr    INET,
@@ -9111,7 +10112,7 @@ CREATE INDEX IF NOT EXISTS audit_record_logs_superuser
 CREATE TABLE IF NOT EXISTS public.audit_ddl_logs (
     id              BIGSERIAL PRIMARY KEY,
     event_time      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_id         INTEGER NOT NULL DEFAULT 0,
+    user_id         BIGINT NOT NULL DEFAULT 0,
     command_tag     TEXT NOT NULL DEFAULT '',
     object_type     TEXT NOT NULL DEFAULT '',
     object_identity TEXT NOT NULL DEFAULT '',
@@ -9139,7 +10140,7 @@ GRANT USAGE ON SCHEMA audit TO semantius_user;
 $pgsem__core_0190_audit_log_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0190_audit_log.once.sql', 'ebaf8f65f8ca306ad8b24365577645b2110fecce46de4d784d8f0d8f197e9a8e')
+        VALUES ('_core.0190_audit_log.once.sql', 'c1f0cf2da643b02c93d76d841c21b29a0ee036254c8d563212dd8cd6110a4214')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -9176,7 +10177,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3af7443022c205369fc4571e7639278763b4fc2f6bbf651860ad91e6af6c55dc') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -9265,8 +10266,20 @@ COMMENT ON FUNCTION audit.extract_record_pk IS
 For single-column PKs, returns the value directly. For composite PKs, returns colon-separated values.';
 
 -- Helper: safely get current user_id from JWT context, returning 0 when unavailable
+--
+-- CREATE OR REPLACE cannot change a return type, so a copy that still returns
+-- the INTEGER of the int4 user keys is dropped first; the catalog test keeps a
+-- re-run from dropping the current version.
+DO $$
+BEGIN
+    IF (SELECT prorettype FROM pg_catalog.pg_proc
+         WHERE oid = pg_catalog.to_regprocedure('audit.current_user_id()')) = 'pg_catalog.int4'::regtype THEN
+        DROP FUNCTION audit.current_user_id();
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION audit.current_user_id()
-    RETURNS INTEGER
+    RETURNS BIGINT
     STABLE
     LANGUAGE plpgsql
     SET search_path = public
@@ -9304,7 +10317,7 @@ DECLARE
     record_id        UUID;
     old_record_id    UUID;
     v_record_pk      TEXT;
-    v_user_id        INTEGER;
+    v_user_id        BIGINT;
 BEGIN
     -- This trigger is AFTER UPDATE only, so NEW and OLD always both exist and
     -- carry final generated values - a last_seen-only write leaves
@@ -9396,7 +10409,7 @@ CREATE OR REPLACE FUNCTION audit.insert_trigger()
 AS $$
 DECLARE
     pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
-    v_user_id INTEGER = audit.current_user_id();
+    v_user_id BIGINT = audit.current_user_id();
 BEGIN
     INSERT INTO public.audit_record_logs(
         record_id,
@@ -9446,7 +10459,7 @@ CREATE OR REPLACE FUNCTION audit.delete_trigger()
 AS $$
 DECLARE
     pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
-    v_user_id INTEGER = audit.current_user_id();
+    v_user_id BIGINT = audit.current_user_id();
 BEGIN
     INSERT INTO public.audit_record_logs(
         record_id,
@@ -9723,7 +10736,7 @@ SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
     obj RECORD;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
@@ -9811,7 +10824,7 @@ SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
     obj RECORD;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     IF to_regclass('public.audit_ddl_logs') IS NULL THEN
         RETURN;
@@ -10046,7 +11059,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', '3af7443022c205369fc4571e7639278763b4fc2f6bbf651860ad91e6af6c55dc')
+        VALUES ('_core.0200_audit_log.sql', 'eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -10083,7 +11096,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '87df310a8ba720ad34d293f61881e783725cd59c43cbe8cea4b48e4302fb1849') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -10421,7 +11434,7 @@ BEGIN
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
-                       ELSE to_jsonb(v_uid_text::int)
+                       ELSE to_jsonb(v_uid_text::bigint)
                    END%s
     );
 %s
@@ -10543,7 +11556,7 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 CREATE OR REPLACE FUNCTION public.jl_request_context()
 RETURNS JSONB AS $$
 DECLARE
-    v_uid INTEGER;
+    v_uid BIGINT;
 BEGIN
     PERFORM rbac.uid();
     v_uid := rbac.user_id();
@@ -10762,7 +11775,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '87df310a8ba720ad34d293f61881e783725cd59c43cbe8cea4b48e4302fb1849')
+        VALUES ('_core.0210_computed_validation.sql', 'c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -11367,7 +12380,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -11420,7 +12433,7 @@ DECLARE
     v_display_name TEXT;
     v_first_name TEXT;
     v_last_name TEXT;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
@@ -11649,6 +12662,13 @@ BEGIN
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
             COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- The key type the property holds a value of: the entity's own for
+            -- its key column, the referenced entity's for a reference. Drives
+            -- the TypeID pattern below.
+            CASE
+                WHEN f.field_name = v_table_record.id_column THEN v_table_record.id_type
+                WHEN f.format IN ('reference', 'parent') THEN t.id_type
+            END AS key_id_type,
             -- The property's JSON type. A reference takes the type of the key it
             -- points at, so entities/permissions come out "string" and users
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
@@ -11698,6 +12718,17 @@ BEGIN
                 ELSE '{}'::jsonb
             END ||
             jsonb_build_object('format', format) ||
+            -- A TypeID key, and every reference to one, is described by its
+            -- shape: TypeID is a key type, not a field format (the format stays
+            -- string), so this is where a client learns what a valid value
+            -- looks like. The pattern accepts any valid prefix; which prefix a
+            -- new id must carry is enforced by the database on insert, and a
+            -- reference may hold ids minted under an entity's earlier prefix.
+            CASE
+                WHEN key_id_type = 'typeid'
+                THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
+                ELSE '{}'::jsonb
+            END ||
             -- Add enum field if enum_values is present
             CASE
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
@@ -11734,7 +12765,7 @@ BEGIN
                     jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
-                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
                         WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
                         WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
                         WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
@@ -11746,7 +12777,10 @@ BEGIN
                 -- and '' names no row, so a client that saves the default fails the foreign key.
                 -- With no default the client starts it empty and leaves it out of the write, as it
                 -- does for a reference to an integer-keyed entity.
-                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent') THEN jsonb_build_object('default', '')
+                -- Nor for the key: '' is not a key a text entity may be saved
+                -- under, and a uuid or TypeID key is generated when it is left out.
+                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
+                     AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
                 WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
@@ -11808,15 +12842,21 @@ BEGIN
     ),
     -- Keep this a CTE, not a statement of its own: the function runs once per
     -- entity, so every extra statement costs an SPI round trip per entity.
+    -- The key is required when the caller supplies it (bigint, text) and left
+    -- out when the database generates it.
     required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND is_nullable(format) = FALSE
-          AND field_name != v_table_record.id_column
-          AND field_name NOT IN ('created_at', 'updated_at')
-          AND default_value IS NULL
-          AND format NOT IN ('json', 'jsonlogic')
+          AND (
+              (field_name = v_table_record.id_column
+               AND v_table_record.id_type IN ('bigint', 'text'))
+              OR (is_nullable(format) = FALSE
+                  AND field_name != v_table_record.id_column
+                  AND field_name NOT IN ('created_at', 'updated_at')
+                  AND default_value IS NULL
+                  AND format NOT IN ('json', 'jsonlogic'))
+          )
         ORDER BY field_order
     )
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
@@ -12230,7 +13270,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3')
+        VALUES ('_core.0250_public_functions.sql', 'e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12267,7 +13307,7 @@ $pgsem__core_0250_public_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0260_notify_triggers.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0260_notify_triggers.sql';
       EXECUTE $pgsem__core_0260_notify_triggers_sql$-- =====================================================
@@ -12477,15 +13517,17 @@ REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
 
--- USAGE on the schema stays: it reaches nothing on its own (every function in
--- `common` is now revoked from both PUBLIC and semantius_user, and common._cache
--- has RLS with no policies and no table grant), and dropping it is a separate
--- change with a wider blast radius than this one.
+-- USAGE on the schema stays, and is needed: the key helpers of
+-- 0045_typeid.sql (common.uuid_v7, the TypeID functions, the common.typeid
+-- domain) are granted to semantius_user because column defaults, triggers and
+-- domain checks run as the role that writes the row. Everything else in
+-- `common` is revoked from both PUBLIC and semantius_user, and common._cache
+-- has RLS with no policies and no table grant.
 GRANT USAGE ON SCHEMA common TO semantius_user;
 $pgsem__core_0260_notify_triggers_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0260_notify_triggers.sql', '8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba')
+        VALUES ('_core.0260_notify_triggers.sql', '64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12540,8 +13582,8 @@ $pgsem__core_0260_notify_triggers_sql$;
 -- functions are in 0280_apikeys.sql.
 
 CREATE TABLE _apikeys (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     key_id TEXT NOT NULL UNIQUE,
     secret_hash TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -12567,7 +13609,7 @@ GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
 $pgsem__core_0270_apikeys_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0270_apikeys.once.sql', '1d2b4f346d9398a6ef6afe99529ba2e9dec4caee2f68aab35edb833c353e66ec')
+        VALUES ('_core.0270_apikeys.once.sql', 'fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12604,7 +13646,7 @@ $pgsem__core_0270_apikeys_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0280_apikeys.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0280_apikeys.sql';
       EXECUTE $pgsem__core_0280_apikeys_sql$-- =====================================================
@@ -12623,10 +13665,14 @@ $pgsem__core_0270_apikeys_once_sql$;
 -- Returns the full API key (only time the secret is visible in plaintext).
 -- Accessible via PostgREST RPC by all authenticated users.
 
-CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id INTEGER, p_description TEXT DEFAULT '')
+-- p_user_id follows users.id (BIGINT). An INTEGER version left behind by an
+-- older build is a separate overload with grants of its own, so it is dropped.
+DROP FUNCTION IF EXISTS public.generate_api_key(INTEGER, TEXT);
+
+CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id BIGINT, p_description TEXT DEFAULT '')
 RETURNS JSONB AS $$
 DECLARE
-    v_target_user_id INTEGER;
+    v_target_user_id BIGINT;
     v_key_prefix TEXT;
     v_new_key_id TEXT;
     v_new_secret TEXT;
@@ -12686,8 +13732,8 @@ COMMENT ON FUNCTION public.generate_api_key IS
 'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.generate_api_key(BIGINT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.generate_api_key(BIGINT, TEXT) TO semantius_user;
 
 -- =====================================================
 -- VALIDATE API KEY FUNCTION (INTERNAL ONLY)
@@ -12698,8 +13744,19 @@ GRANT EXECUTE ON FUNCTION public.generate_api_key(INTEGER, TEXT) TO semantius_us
 -- Updates last_used_at on successful validation.
 -- NOT accessible via PostgREST (no GRANT to semantius_user).
 
+-- CREATE OR REPLACE cannot change a return type, so a copy that still returns
+-- the INTEGER of the int4 user keys is dropped first; the catalog test keeps a
+-- re-run from dropping the current version.
+DO $$
+BEGIN
+    IF (SELECT prorettype FROM pg_catalog.pg_proc
+         WHERE oid = pg_catalog.to_regprocedure('public.validate_api_key(text)')) = 'pg_catalog.int4'::regtype THEN
+        DROP FUNCTION public.validate_api_key(TEXT);
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION public.validate_api_key(p_api_key TEXT)
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
     v_key_id TEXT;
     v_secret TEXT;
@@ -12776,10 +13833,13 @@ REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
 -- When p_user_id <> 0, requires admin permission.
 -- Accessible via PostgREST RPC by all authenticated users.
 
-CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id INTEGER DEFAULT 0)
+-- p_user_id follows users.id (BIGINT); see generate_api_key for the drop.
+DROP FUNCTION IF EXISTS public.list_api_keys(INTEGER);
+
+CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id BIGINT DEFAULT 0)
 RETURNS JSONB AS $$
 DECLARE
-    v_target_user_id INTEGER;
+    v_target_user_id BIGINT;
 BEGIN
     -- Authenticate the caller
     PERFORM rbac.uid();
@@ -12821,8 +13881,8 @@ COMMENT ON FUNCTION public.list_api_keys IS
 'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
-REVOKE EXECUTE ON FUNCTION public.list_api_keys(INTEGER) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION public.list_api_keys(BIGINT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_api_keys(BIGINT) TO semantius_user;
 
 -- =====================================================
 -- DELETE API KEY FUNCTION
@@ -12837,7 +13897,7 @@ GRANT EXECUTE ON FUNCTION public.list_api_keys(INTEGER) TO semantius_user;
 CREATE OR REPLACE FUNCTION public.delete_api_key(p_key_id TEXT)
 RETURNS BOOLEAN AS $$
 DECLARE
-    v_current_user_id INTEGER;
+    v_current_user_id BIGINT;
     v_record RECORD;
 BEGIN
     -- Authenticate the caller
@@ -12871,10 +13931,17 @@ COMMENT ON FUNCTION public.delete_api_key IS
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
 REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.delete_api_key(TEXT) TO semantius_user;
+
+-- An API key's id is set once, like every other auto_increment key; see the
+-- pk_immutable triggers in 0070_rbac_schema.sql. _apikeys has no entities row,
+-- so the dictionary does not install it.
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON _apikeys
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');
 $pgsem__core_0280_apikeys_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0280_apikeys.sql', '16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97')
+        VALUES ('_core.0280_apikeys.sql', 'e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12911,7 +13978,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -13158,7 +14225,10 @@ DECLARE
     -- implied by the document's structure.
     c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
         'created_at', 'updated_at', 'module_id', 'search_vector'];
-    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'catalog_entity_code',
+    -- id_type is create-only because the key column is typed from it when the
+    -- table is created (rule 90233 refuses a change). id_prefix is not: a
+    -- changed prefix in the file is applied like any other difference.
+    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'catalog_entity_code',
         'catalog_entity_aliases'];
     -- Written once the fields exist, because they name fields.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
@@ -13193,7 +14263,7 @@ DECLARE
         'fields_not_in_definition', '[]'::jsonb,
         'records', '{}'::jsonb);
     v_module    JSONB;
-    v_module_id INTEGER;
+    v_module_id BIGINT;
     v_entries   JSONB;
     v_entry     JSONB;
     v_entity    JSONB;
@@ -13208,7 +14278,7 @@ DECLARE
     v_idx       INTEGER;
     v_batch     JSONB;
     v_batch_n   INTEGER;
-    v_role_id   INTEGER;
+    v_role_id   BIGINT;
     v_label     TEXT;
     v_n         BIGINT;
     v_m         BIGINT;
@@ -13812,7 +14882,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', '5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4')
+        VALUES ('_core.0290_ensure_entities.sql', 'be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13849,7 +14919,7 @@ $pgsem__core_0290_ensure_entities_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0300_audit_log.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0300_audit_log.jsonc';
       EXECUTE $pgsem__core_0300_audit_log_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Audit log entities: registers the audit tables audit_record_logs and
@@ -13895,7 +14965,7 @@ $pgsem__core_0290_ensure_entities_sql$;
            "format": "date-time", "is_pk": false, "field_order": 40,
            "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable",
-           "format": "int32", "is_pk": false, "field_order": 50,
+           "format": "int64", "is_pk": false, "field_order": 50,
            "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "db_role", "title": "DB Role",
            "description": "session_user: the role that authenticated the connection. Unchanged by SET ROLE and by SECURITY DEFINER, so it names the connection rather than the execution context. The API writes as the authenticator role; any other value is an out-of-band write.",
@@ -13947,7 +15017,7 @@ $pgsem__core_0290_ensure_entities_sql$;
            "format": "date-time", "is_pk": false, "field_order": 10,
            "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable, e.g. during migrations",
-           "format": "int32", "is_pk": false, "field_order": 20,
+           "format": "int64", "is_pk": false, "field_order": 20,
            "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "command_tag", "title": "Command Tag", "description": "DDL command type (e.g. CREATE TABLE, ALTER TABLE)",
            "format": "text", "is_pk": false, "field_order": 30,
@@ -13970,7 +15040,7 @@ $pgsem_jsonc$));
 $pgsem__core_0300_audit_log_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0300_audit_log.jsonc', '411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e')
+        VALUES ('_core.0300_audit_log.jsonc', '61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17263,7 +18333,7 @@ $pgsem__core_0360_raci_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0370_raci.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0370_raci.sql';
       EXECUTE $pgsem__core_0370_raci_sql$-- =====================================================
@@ -17346,11 +18416,11 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
     PERFORM rbac.ensure_context_initialized();
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::INTEGER;
+    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
     IF v_user_id IS NULL THEN
         RETURN FALSE;
     END IF;
@@ -17389,7 +18459,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
     PERFORM rbac.ensure_context_initialized();
@@ -17401,7 +18471,7 @@ BEGIN
     -- governs (entity, to_state). A consulted-gate is always evaluated by an actor who is a RACI
     -- participant (R/A initiating the transition), so legitimate use is unaffected; a non-
     -- participant probe fails closed (FALSE), indistinguishable from "not yet consulted".
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::INTEGER;
+    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
     IF v_user_id IS NULL THEN
         RETURN FALSE;
     END IF;
@@ -17817,7 +18887,7 @@ CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
 $pgsem__core_0370_raci_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0370_raci.sql', '1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d')
+        VALUES ('_core.0370_raci.sql', 'c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18134,7 +19204,7 @@ $pgsem__core_0400_dashboard_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0410_user_bookmarks.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0410_user_bookmarks.jsonc';
       EXECUTE $pgsem__core_0410_user_bookmarks_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
@@ -18192,7 +19262,7 @@ $pgsem__core_0400_dashboard_jsonc$;
            "format": "text", "field_order": 40, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "entity_id", "title": "Record", "description": "ID of the related record in the entity table (0 = no record)",
-           "format": "int32", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
+           "format": "int64", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""}
         ]
       }
@@ -18203,7 +19273,7 @@ $pgsem_jsonc$));
 $pgsem__core_0410_user_bookmarks_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0410_user_bookmarks.jsonc', 'd6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1')
+        VALUES ('_core.0410_user_bookmarks.jsonc', '3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18240,7 +19310,7 @@ $pgsem__core_0410_user_bookmarks_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0420_module_version.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0420_module_version.sql';
       EXECUTE $pgsem__core_0420_module_version_sql$-- =====================================================
@@ -18293,7 +19363,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 CREATE OR REPLACE FUNCTION bump_module_version_from_related()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_module_id INTEGER;
+    v_module_id BIGINT;
 BEGIN
     -- Determine the module_id from the affected row
     IF TG_OP = 'DELETE' THEN
@@ -18357,8 +19427,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 CREATE OR REPLACE FUNCTION bump_module_version_from_fields()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_module_id INTEGER;
-    v_old_module_id INTEGER;
+    v_module_id BIGINT;
+    v_old_module_id BIGINT;
 BEGIN
     IF TG_OP <> 'DELETE' THEN
         SELECT e.module_id INTO v_module_id FROM entities e WHERE e.table_name = NEW.table_name;
@@ -18440,7 +19510,7 @@ REVOKE EXECUTE ON FUNCTION bump_module_version_from_fields() FROM PUBLIC;
 $pgsem__core_0420_module_version_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0420_module_version.sql', 'f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486')
+        VALUES ('_core.0420_module_version.sql', 'ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18808,7 +19878,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"fced4031b7a7c182924d8d9ca968fe71c1444699eaf3d13ce93831563876ff14","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"eb857f94b819bd66b5793f4e071cf3a8f469240e1f6a4ecd67643ddf0d7dde83","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"8f88116fee612ca5572a57e1d3e56f6d1d0ede62987187d92f906c4f73d98612","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"d294e502dd8e4ac713f695d7dd22e2c2582e758cbc415a40fc3ab4f4e999a163","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"f9afb047926e47e8e19faf1fccd1c473697dd9ee488db46acc3c7b9ddb7d07a1","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"57b0d73ef7cede81036a7c7a8f6604a9986a9db3946af04a53bbd5b66abd8193","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"ebaf8f65f8ca306ad8b24365577645b2110fecce46de4d784d8f0d8f197e9a8e","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"3af7443022c205369fc4571e7639278763b4fc2f6bbf651860ad91e6af6c55dc","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"87df310a8ba720ad34d293f61881e783725cd59c43cbe8cea4b48e4302fb1849","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"1d2b4f346d9398a6ef6afe99529ba2e9dec4caee2f68aab35edb833c353e66ec","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"d6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"e60729e5f40ed23f6e3e77fb3bed19c9c83199e57732aebc06db51551f603540","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"b7bc793a94c564c5f6558f4c4abdaf85302df569b76f586ab6630e0e3da7e3d2","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"5f44f8f81bf7d7e4a3472a3bc5a90aff5e3130098af06ef40434c65c18ab3f68","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"e40a672e59f2a0ba4051b8c2eb9ac178a56cf75b328e8cc18503650efcd30d78","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c1f0cf2da643b02c93d76d841c21b29a0ee036254c8d563212dd8cd6110a4214","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -18870,9 +19940,9 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.9900_owner_hardening.sql'];
-  v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0050_jsonlogic.sql":"9aec6f8f09b05712e90599d2fa77dbf74818b191cdcabf9f5f9ce3c2fd49480e","_core.0060_rbac_schema.once.sql":"fced4031b7a7c182924d8d9ca968fe71c1444699eaf3d13ce93831563876ff14","_core.0070_rbac_schema.sql":"d7a7e715b2a0be9be3aa655260e59c70e0de1ec537f08c7559bcabd149bc46d5","_core.0080_rbac_functions.sql":"eb857f94b819bd66b5793f4e071cf3a8f469240e1f6a4ecd67643ddf0d7dde83","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"8f88116fee612ca5572a57e1d3e56f6d1d0ede62987187d92f906c4f73d98612","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"d294e502dd8e4ac713f695d7dd22e2c2582e758cbc415a40fc3ab4f4e999a163","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"f9afb047926e47e8e19faf1fccd1c473697dd9ee488db46acc3c7b9ddb7d07a1","_core.0160_dd_functions.sql":"27fbdc276b8998f080fb0b39d740e7c5a94e9a875c89fddfb160bd9e75f5b38f","_core.0170_dd_rename.sql":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","_core.0180_managed_enable.sql":"57b0d73ef7cede81036a7c7a8f6604a9986a9db3946af04a53bbd5b66abd8193","_core.0190_audit_log.once.sql":"ebaf8f65f8ca306ad8b24365577645b2110fecce46de4d784d8f0d8f197e9a8e","_core.0200_audit_log.sql":"3af7443022c205369fc4571e7639278763b4fc2f6bbf651860ad91e6af6c55dc","_core.0210_computed_validation.sql":"87df310a8ba720ad34d293f61881e783725cd59c43cbe8cea4b48e4302fb1849","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"82b13302eb73c3f7a897ebe6af319eb91c1fe0f122a339de77a807a6fb3f9df3","_core.0260_notify_triggers.sql":"8fb518ac0481a77cc4aa86f4f18ed1c9ea5166057fa2010b87d38959b348d0ba","_core.0270_apikeys.once.sql":"1d2b4f346d9398a6ef6afe99529ba2e9dec4caee2f68aab35edb833c353e66ec","_core.0280_apikeys.sql":"16cd665e20481680121b0dc88ae818f7968ccb602922cb9eb4545285d001ef97","_core.0290_ensure_entities.sql":"5a448dbc3b4d13959f2ea5f6e7e890457d3a68a76f2ae62f1936db7433d439d4","_core.0300_audit_log.jsonc":"411e556200dafa2499b8ef555808567af4de487f6a6dfdb5784a9da9723bb78e","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","_core.0350_raci.jsonc":"65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"1bb8fc8433501f33d7a25b4b9cbf17ca804bdba808792a8d0c0deab6b445392d","_core.0380_webhook_receiver.jsonc":"944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"d6d00fbc0bacba25d3849fba8b04d5ddbb639843f08c9f9228b6a122489110e1","_core.0420_module_version.sql":"f473c2225d8b33b2312172f1e3d06391baf38342e778ca9aace60e6a53b5a486","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.9900_owner_hardening.sql'];
+  v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql']::text[];
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"e60729e5f40ed23f6e3e77fb3bed19c9c83199e57732aebc06db51551f603540","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"b7bc793a94c564c5f6558f4c4abdaf85302df569b76f586ab6630e0e3da7e3d2","_core.0160_dd_functions.sql":"5f44f8f81bf7d7e4a3472a3bc5a90aff5e3130098af06ef40434c65c18ab3f68","_core.0170_dd_rename.sql":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","_core.0180_managed_enable.sql":"e40a672e59f2a0ba4051b8c2eb9ac178a56cf75b328e8cc18503650efcd30d78","_core.0190_audit_log.once.sql":"c1f0cf2da643b02c93d76d841c21b29a0ee036254c8d563212dd8cd6110a4214","_core.0200_audit_log.sql":"eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73","_core.0210_computed_validation.sql":"c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f","_core.0300_audit_log.jsonc":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","_core.0350_raci.jsonc":"65a4e0ae99434317c34d8825f0b73c69f92ad7f43b16244509986b15e2138433","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54","_core.0380_webhook_receiver.jsonc":"944c2dd7db98bae42849aaa14dec37552dad17ade83c06e846fd2ac54aff49fe","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

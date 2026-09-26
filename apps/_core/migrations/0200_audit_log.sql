@@ -84,8 +84,20 @@ COMMENT ON FUNCTION audit.extract_record_pk IS
 For single-column PKs, returns the value directly. For composite PKs, returns colon-separated values.';
 
 -- Helper: safely get current user_id from JWT context, returning 0 when unavailable
+--
+-- CREATE OR REPLACE cannot change a return type, so a copy that still returns
+-- the INTEGER of the int4 user keys is dropped first; the catalog test keeps a
+-- re-run from dropping the current version.
+DO $$
+BEGIN
+    IF (SELECT prorettype FROM pg_catalog.pg_proc
+         WHERE oid = pg_catalog.to_regprocedure('audit.current_user_id()')) = 'pg_catalog.int4'::regtype THEN
+        DROP FUNCTION audit.current_user_id();
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION audit.current_user_id()
-    RETURNS INTEGER
+    RETURNS BIGINT
     STABLE
     LANGUAGE plpgsql
     SET search_path = public
@@ -123,7 +135,7 @@ DECLARE
     record_id        UUID;
     old_record_id    UUID;
     v_record_pk      TEXT;
-    v_user_id        INTEGER;
+    v_user_id        BIGINT;
 BEGIN
     -- This trigger is AFTER UPDATE only, so NEW and OLD always both exist and
     -- carry final generated values - a last_seen-only write leaves
@@ -215,7 +227,7 @@ CREATE OR REPLACE FUNCTION audit.insert_trigger()
 AS $$
 DECLARE
     pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
-    v_user_id INTEGER = audit.current_user_id();
+    v_user_id BIGINT = audit.current_user_id();
 BEGIN
     INSERT INTO public.audit_record_logs(
         record_id,
@@ -265,7 +277,7 @@ CREATE OR REPLACE FUNCTION audit.delete_trigger()
 AS $$
 DECLARE
     pkey_cols TEXT[] = audit.primary_key_columns(TG_RELID);
-    v_user_id INTEGER = audit.current_user_id();
+    v_user_id BIGINT = audit.current_user_id();
 BEGIN
     INSERT INTO public.audit_record_logs(
         record_id,
@@ -542,7 +554,7 @@ SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
     obj RECORD;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
@@ -630,7 +642,7 @@ SET search_path = ''
 LANGUAGE plpgsql AS $$
 DECLARE
     obj RECORD;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     IF to_regclass('public.audit_ddl_logs') IS NULL THEN
         RETURN;

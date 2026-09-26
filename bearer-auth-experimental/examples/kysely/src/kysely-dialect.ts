@@ -17,9 +17,10 @@
 // RowDescription also carries each column's type OID (exposed as `fieldTypes`).
 // That's all we need: we run each value through node-postgres' own `pg-types`
 // parser keyed by that OID — the exact decoding node-postgres does internally —
-// so integers come back as numbers, booleans as booleans, timestamps as Dates,
-// jsonb as objects, etc. The kysely-raw dialect skips this and leaves everything
-// a string (that example has no types to honor).
+// so integers (int8 included, see below) come back as numbers, booleans as
+// booleans, timestamps as Dates, jsonb as objects, etc. The kysely-raw dialect
+// skips this and leaves everything a string (that example has no types to
+// honor).
 //
 // This is intentionally minimal (one connection, no pool). See pg-oauthbearer.ts
 // for the caveats.
@@ -40,8 +41,16 @@ import {
   type QueryResult,
   type TransactionSettings,
 } from "kysely";
-import { getTypeParser } from "pg-types";
+import { getTypeParser, setTypeParser } from "pg-types";
 import { PgOAuthConnection, type PgConnectOptions } from "./pg-oauthbearer";
+
+// int8 as a number. Semantius keys are 64-bit (BIGINT identities), and the
+// generated ./types declares them `number`, as PostgREST returns them;
+// pg-types' own default for int8 is a string. The setting is process-wide - it
+// changes every int8 value pg-types decodes in this process - and a value above
+// 2^53 loses precision, the same limit PostgREST has. The header of ./types
+// asks for exactly this setup.
+setTypeParser(20, Number);
 
 export interface OAuthBearerDialectConfig extends PgConnectOptions {}
 

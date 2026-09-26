@@ -300,7 +300,7 @@ SELECT ok(EXISTS (SELECT 1 FROM rbac.get_user_permissions('user1') WHERE permiss
     'get_user_permissions: the self answer is the real permission set');
 SELECT ok(NOT rbac.user_has_permission('user1', 'admin'),
     'user_has_permission: a plain user may ask about itself');
-SELECT is(rbac.get_user_by_external_id('user1'), 1001,
+SELECT is(rbac.get_user_by_external_id('user1'), 1001::bigint,
     'get_user_by_external_id: a plain user may look itself up');
 SELECT is((SELECT count(*)::int FROM rbac.validate_oauth_scopes('user1', 'admin')), 1,
     'validate_oauth_scopes: a plain user may validate its own scopes');
@@ -332,9 +332,9 @@ SELECT ok(EXISTS (SELECT 1 FROM rbac.get_user_permissions('user1') WHERE permiss
     'get_user_permissions: an administrator may read another principal''s permissions');
 SELECT ok(NOT rbac.user_has_permission('user1', 'nwind:view'),
     'user_has_permission: an administrator may ask about another principal');
-SELECT is(rbac.get_user_by_external_id('user1'), 1001,
+SELECT is(rbac.get_user_by_external_id('user1'), 1001::bigint,
     'get_user_by_external_id: an administrator may look another principal up');
-SELECT is(rbac.get_user_by_external_id('does_not_exist'), NULL::integer,
+SELECT is(rbac.get_user_by_external_id('does_not_exist'), NULL::bigint,
     'get_user_by_external_id: NULL for an unknown subject is an administrator answer');
 SELECT is((SELECT is_valid FROM rbac.validate_oauth_scopes('user1', 'admin')), false,
     'validate_oauth_scopes: an administrator may validate another principal''s scopes');

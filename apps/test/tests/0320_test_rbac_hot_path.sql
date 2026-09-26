@@ -135,7 +135,7 @@ SELECT isnt(nullif(current_setting('app.current_user_id', true), ''), NULL,
 -- fresh lookup. 1099 is not user2's real id; a rebuild would return that
 -- instead.
 SELECT set_config('app.current_user_id', '1099', true);
-SELECT is(rbac.user_id(), 1099,
+SELECT is(rbac.user_id(), 1099::bigint,
     'warm hit: user_id answers from the cache, not from a rebuild');
 
 -- =====================================================

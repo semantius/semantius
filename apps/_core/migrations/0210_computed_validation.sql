@@ -333,7 +333,7 @@ BEGIN
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE
                        WHEN v_uid_text IS NULL OR v_uid_text = '' THEN 'null'::jsonb
-                       ELSE to_jsonb(v_uid_text::int)
+                       ELSE to_jsonb(v_uid_text::bigint)
                    END%s
     );
 %s
@@ -455,7 +455,7 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 CREATE OR REPLACE FUNCTION public.jl_request_context()
 RETURNS JSONB AS $$
 DECLARE
-    v_uid INTEGER;
+    v_uid BIGINT;
 BEGIN
     PERFORM rbac.uid();
     v_uid := rbac.user_id();

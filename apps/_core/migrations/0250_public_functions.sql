@@ -48,7 +48,7 @@ DECLARE
     v_display_name TEXT;
     v_first_name TEXT;
     v_last_name TEXT;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
     v_result JSONB;
     v_roles JSONB;
     v_permissions JSONB;
@@ -277,6 +277,13 @@ BEGIN
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
             COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- The key type the property holds a value of: the entity's own for
+            -- its key column, the referenced entity's for a reference. Drives
+            -- the TypeID pattern below.
+            CASE
+                WHEN f.field_name = v_table_record.id_column THEN v_table_record.id_type
+                WHEN f.format IN ('reference', 'parent') THEN t.id_type
+            END AS key_id_type,
             -- The property's JSON type. A reference takes the type of the key it
             -- points at, so entities/permissions come out "string" and users
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
@@ -326,6 +333,17 @@ BEGIN
                 ELSE '{}'::jsonb
             END ||
             jsonb_build_object('format', format) ||
+            -- A TypeID key, and every reference to one, is described by its
+            -- shape: TypeID is a key type, not a field format (the format stays
+            -- string), so this is where a client learns what a valid value
+            -- looks like. The pattern accepts any valid prefix; which prefix a
+            -- new id must carry is enforced by the database on insert, and a
+            -- reference may hold ids minted under an entity's earlier prefix.
+            CASE
+                WHEN key_id_type = 'typeid'
+                THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
+                ELSE '{}'::jsonb
+            END ||
             -- Add enum field if enum_values is present
             CASE
                 WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
@@ -362,7 +380,7 @@ BEGIN
                     jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
                 WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                     CASE
-                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::INTEGER))
+                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
                         WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
                         WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
                         WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
@@ -374,7 +392,10 @@ BEGIN
                 -- and '' names no row, so a client that saves the default fails the foreign key.
                 -- With no default the client starts it empty and leaves it out of the write, as it
                 -- does for a reference to an integer-keyed entity.
-                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent') THEN jsonb_build_object('default', '')
+                -- Nor for the key: '' is not a key a text entity may be saved
+                -- under, and a uuid or TypeID key is generated when it is left out.
+                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
+                     AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
                 -- For JSON types without explicit default, add empty object default
                 WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
                 ELSE '{}'::jsonb
@@ -436,15 +457,21 @@ BEGIN
     ),
     -- Keep this a CTE, not a statement of its own: the function runs once per
     -- entity, so every extra statement costs an SPI round trip per entity.
+    -- The key is required when the caller supplies it (bigint, text) and left
+    -- out when the database generates it.
     required_fields AS (
         SELECT field_name, field_order
         FROM fields
         WHERE table_name = p_table_name
-          AND is_nullable(format) = FALSE
-          AND field_name != v_table_record.id_column
-          AND field_name NOT IN ('created_at', 'updated_at')
-          AND default_value IS NULL
-          AND format NOT IN ('json', 'jsonlogic')
+          AND (
+              (field_name = v_table_record.id_column
+               AND v_table_record.id_type IN ('bigint', 'text'))
+              OR (is_nullable(format) = FALSE
+                  AND field_name != v_table_record.id_column
+                  AND field_name NOT IN ('created_at', 'updated_at')
+                  AND default_value IS NULL
+                  AND format NOT IN ('json', 'jsonlogic'))
+          )
         ORDER BY field_order
     )
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary

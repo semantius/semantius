@@ -175,7 +175,7 @@ SELECT is(
 -- user who holds that same role, and a user with no roles or grants at all.
 RESET ROLE;
 
-CREATE FUNCTION pg_temp.old_get_user_permissions_by_id(p_user_id INTEGER)
+CREATE FUNCTION pg_temp.old_get_user_permissions_by_id(p_user_id BIGINT)
 RETURNS TABLE (permission_name TEXT) AS $$
     WITH RECURSIVE permission_tree AS (
         SELECT DISTINCT rp.permission_name
@@ -295,7 +295,7 @@ SELECT is(
 );
 
 SELECT ok(
-    NOT pg_catalog.has_function_privilege('semantius_user', 'rbac.get_user_permissions_by_id(integer)', 'EXECUTE'),
+    NOT pg_catalog.has_function_privilege('semantius_user', 'rbac.get_user_permissions_by_id(bigint)', 'EXECUTE'),
     'get_user_permissions_by_id is not executable by semantius_user'
 );
 

@@ -10,7 +10,7 @@ select authenticate_as('user1');
 -- Test rbac.user_id() returns 1001
 SELECT is(
     rbac.user_id(),
-    1001::integer,
+    1001::bigint,
     'rbac.user_id() should return 1001'
 );
 

@@ -48,7 +48,7 @@ SELECT is(public.fix_id_sequence('fixseq_test'), 6::bigint,
     'a second call changes nothing');
 SELECT lives_ok($$INSERT INTO fixseq_test (label) VALUES ('ordinary')$$,
     'an ordinary insert after the repair does not collide');
-SELECT is((SELECT id FROM fixseq_test WHERE label = 'ordinary'), 6,
+SELECT is((SELECT id FROM fixseq_test WHERE label = 'ordinary'), 6::bigint,
     'the ordinary insert took the id the call returned');
 
 -- A sequence that has already handed out ids (is_called) continues after them.

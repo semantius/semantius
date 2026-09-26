@@ -243,7 +243,7 @@ INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES
     ('cv_reserved_test', 'today_iso', 'Today',     'text',    10),
     ('cv_reserved_test', 'now_iso',   'Now',       'text',    20),
-    ('cv_reserved_test', 'writer_id', 'Writer Id', 'integer', 30);
+    ('cv_reserved_test', 'writer_id', 'Writer Id', 'int64',   30);
 
 INSERT INTO cv_reserved_test (label) VALUES ('probe');
 

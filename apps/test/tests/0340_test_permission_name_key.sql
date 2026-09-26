@@ -268,12 +268,12 @@ SELECT is(
     'integer',
     'a reference to an integer-keyed entity is still typed integer');
 
--- The fallback arm. An entity with no physical table cannot be looked up in the
--- catalog, and the answer has to stay what it was before the resolver existed:
--- INTEGER, so the ADD CONSTRAINT that follows fails on the missing relation
--- rather than on a type nobody chose. Both resolvers are LANGUAGE sql, so a
--- profiler reports no statements for them and only an assertion like this one
--- reaches the arm.
+-- The second arm. An entity with no physical table cannot be looked up in the
+-- catalog, so the key type comes from its id_type: the default auto_increment
+-- gives BIGINT, the type its key will have once the table exists. Both
+-- resolvers are LANGUAGE sql, so a profiler reports no statements for them and
+-- only an assertion like this one reaches the arm. The other id_types, and the
+-- fallback for an unknown entity, are pinned by 0435_test_entity_id_types.sql.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                       module_id, view_permission, edit_permission, managed)
 VALUES ('pnkx_ghost', 'pnkx_ghost', 'Ghost', 'Ghosts', 'unmanaged fixture',
@@ -285,8 +285,8 @@ RESET ROLE;
 
 SELECT is(
     field_data_type('reference', NULL, 'pnkx_ghost'),
-    'INTEGER',
-    'a reference to an entity with no physical table falls back to the format');
+    'BIGINT',
+    'a reference to an entity with no physical table is typed from its id_type');
 
 -- field_data_type and field_json_type read different sources - the catalog for
 -- one, the referenced key field's declared format for the other - and nothing

@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS public.audit_record_logs (
     record_pk      TEXT NOT NULL DEFAULT '',
     op             audit.operation NOT NULL,
     ts             TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_id        INTEGER NOT NULL DEFAULT 0,
+    user_id        BIGINT NOT NULL DEFAULT 0,
     db_role        TEXT,
     is_superuser   BOOLEAN,
     client_addr    INET,
@@ -143,7 +143,7 @@ CREATE INDEX IF NOT EXISTS audit_record_logs_superuser
 CREATE TABLE IF NOT EXISTS public.audit_ddl_logs (
     id              BIGSERIAL PRIMARY KEY,
     event_time      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    user_id         INTEGER NOT NULL DEFAULT 0,
+    user_id         BIGINT NOT NULL DEFAULT 0,
     command_tag     TEXT NOT NULL DEFAULT '',
     object_type     TEXT NOT NULL DEFAULT '',
     object_identity TEXT NOT NULL DEFAULT '',

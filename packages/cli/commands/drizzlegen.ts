@@ -8,9 +8,11 @@
  * relations() so the relational query API and Drizzle Studio's relationship view
  * both work.
  *
- * The type mapping mirrors public.format_to_data_type() and public.is_nullable()
- * from apps/_core/migrations/0160_dd_functions.sql, so the generated schema
- * matches the physical tables the catalog produces. `enum` fields become
+ * The type mapping mirrors public.format_to_data_type(), public.is_nullable()
+ * and dd_id_column_ddl() from apps/_core/migrations/0160_dd_functions.sql, so
+ * the generated schema matches the physical tables the catalog produces. A key
+ * column is built from its entity's id_type. 64-bit integers use
+ * { mode: "number" }, as PostgREST returns them: exact up to 2^53. `enum` fields become
  * text(col, { enum: [...] }) — a TEXT column typed as a literal union, matching
  * the DB's TEXT + CHECK (not a native PG enum type).
  *
@@ -31,6 +33,7 @@ interface EntityRecord {
   table_name: string;
   module_id: number | null;
   id_column: string;
+  id_type: string;
   description: string;
 }
 
@@ -110,14 +113,21 @@ function effectiveEnumValues(
  *
  * `keyFormatByTable` maps an entity to the format of its key field, and a
  * reference or parent is built from THAT rather than from its own format: the
- * column has the type of the key it points at, so a reference to `users` is an
- * integer and one to `entities` or `permissions` is text. Mirrors
- * field_data_type() in the database.
+ * column has the type of the key it points at, so a reference to `users` is a
+ * bigint and one to `entities` or `permissions` is text. Mirrors
+ * field_data_type() in the database. A reference whose target is unknown falls
+ * back to bigint, the type of an auto_increment key, as the database does.
+ *
+ * The key itself is built from `idType`, the entity's id_type, as
+ * dd_id_column_ddl() builds the column. `modifier` carries what goes after the
+ * builder call for a key: the identity, or the default of a generated key, so
+ * Drizzle's insert type leaves it optional.
  */
 function baseBuilder(
   field: FieldRecord,
   keyFormatByTable: Map<string, string>,
-): { fn: string; args: string } {
+  idType?: string,
+): { fn: string; args: string; modifier?: string } {
   const name = JSON.stringify(field.field_name);
   let f = field.format;
 
@@ -128,25 +138,48 @@ function baseBuilder(
     const keyFormat = keyFormatByTable.get(field.reference_table)!;
     // A key is never itself a reference, so this cannot recurse.
     f = keyFormat === "reference" || keyFormat === "parent"
-      ? "integer"
+      ? "int64"
       : keyFormat as FieldRecord["format"];
   }
 
-  // Auto-increment primary keys: managed tables use SERIAL (see create_dd_table).
-  // Read from field.format, not f: only the field's own format can make it a key.
-  if (field.is_pk && (field.format === "int32" || field.format === "integer")) {
-    return { fn: "serial", args: name };
-  }
-  if (field.is_pk && field.format === "int64") {
-    return { fn: "bigserial", args: `${name}, { mode: "number" }` };
+  if (field.is_pk && idType) {
+    switch (idType) {
+      case "auto_increment":
+        return {
+          fn: "bigint",
+          args: `${name}, { mode: "number" }`,
+          modifier: ".generatedByDefaultAsIdentity()",
+        };
+      case "bigint":
+        return { fn: "bigint", args: `${name}, { mode: "number" }` };
+      case "uuid":
+        return {
+          fn: "uuid",
+          args: name,
+          modifier: ".default(sql`common.uuid_v7()`)",
+        };
+      case "typeid":
+        // No column default: the typeid_assign trigger fills a missing key.
+        // An omitted key must reach the database as DEFAULT, which $default
+        // arranges and which also makes the key optional in the insert type.
+        return {
+          fn: "text",
+          args: name,
+          modifier: ".$default(() => sql`DEFAULT`)",
+        };
+      // text, and computed: the generated TEXT keys of the system tables.
+      default:
+        return { fn: "text", args: name };
+    }
   }
 
   switch (f) {
     case "int32":
     case "integer":
+      return { fn: "integer", args: name };
     case "reference":
     case "parent":
-      return { fn: "integer", args: name };
+      return { fn: "bigint", args: `${name}, { mode: "number" }` };
     case "int64":
       return { fn: "bigint", args: `${name}, { mode: "number" }` };
     case "float":
@@ -251,7 +284,7 @@ export async function drizzlegenCommand(
       "SELECT id, module_name, module_slug FROM modules ORDER BY id",
     )).rows;
     const entities = (await client.queryObject<EntityRecord>(
-      "SELECT table_name, module_id, id_column, description FROM entities ORDER BY table_name",
+      "SELECT table_name, module_id, id_column, id_type, description FROM entities ORDER BY table_name",
     )).rows;
     const fields = (await client.queryObject<FieldRecord>(
       "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, precision, reference_table, reference_delete_mode FROM fields ORDER BY table_name, field_order",
@@ -273,7 +306,9 @@ export async function drizzlegenCommand(
     const tableToSlug = new Map<string, string>();
     const tableToIdCol = new Map<string, string>();
     const tableToVar = new Map<string, string>();
+    const idTypeByTable = new Map<string, string>();
     for (const e of entities) {
+      idTypeByTable.set(e.table_name, e.id_type);
       const slug = (e.module_id != null && slugByModuleId.has(e.module_id))
         ? slugByModuleId.get(e.module_id)!
         : "unassigned";
@@ -370,6 +405,7 @@ export async function drizzlegenCommand(
         tableToIdCol,
         tableToVar,
         keyFormatByTable,
+        idTypeByTable,
         fieldsByTable,
         fks,
         oneName,
@@ -412,6 +448,7 @@ interface RenderCtx {
   tableToIdCol: Map<string, string>;
   tableToVar: Map<string, string>;
   keyFormatByTable: Map<string, string>;
+  idTypeByTable: Map<string, string>;
   fieldsByTable: Map<string, FieldRecord[]>;
   fks: Fk[];
   oneName: Map<string, string>;
@@ -428,6 +465,7 @@ function renderModuleFile(
   let needRelations = false;
   let needBytea = false;
   let needAnyPgColumn = false;
+  let needSql = false;
   // external table var -> set, grouped by the file (slug) it lives in
   const externalImports = new Map<string, Set<string>>();
 
@@ -451,12 +489,20 @@ function renderModuleFile(
     const colLines: string[] = [];
     for (const field of fieldList) {
       const prop = camelCase(field.field_name);
-      const { fn, args } = baseBuilder(field, ctx.keyFormatByTable);
+      const { fn, args, modifier } = baseBuilder(
+        field,
+        ctx.keyFormatByTable,
+        ctx.idTypeByTable.get(table),
+      );
       pgCore.add(fn);
       if (fn === "bytea") needBytea = true;
 
       let expr = `${fn}(${args})`;
       if (field.is_pk) expr += ".primaryKey()";
+      if (modifier) {
+        expr += modifier;
+        if (modifier.includes("sql`")) needSql = true;
+      }
 
       // Foreign key as an inline .references() thunk. The `: AnyPgColumn` return
       // annotation is required so circular references (e.g. modules <-> permissions
@@ -549,7 +595,9 @@ function renderModuleFile(
   if (needAnyPgColumn) {
     lines.push(`import type { AnyPgColumn } from "drizzle-orm/pg-core";`);
   }
-  if (needRelations) lines.push(`import { relations } from "drizzle-orm";`);
+  const ormImports = [needRelations ? "relations" : "", needSql ? "sql" : ""]
+    .filter(Boolean).join(", ");
+  if (ormImports) lines.push(`import { ${ormImports} } from "drizzle-orm";`);
   for (const targetSlug of [...externalImports.keys()].sort()) {
     const vars = [...externalImports.get(targetSlug)!].sort().join(", ");
     lines.push(`import { ${vars} } from "./${targetSlug}";`);

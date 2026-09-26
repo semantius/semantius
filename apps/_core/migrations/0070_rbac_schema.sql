@@ -97,3 +97,27 @@ CREATE OR REPLACE TRIGGER update_roles_updated_at
 CREATE OR REPLACE TRIGGER update_users_updated_at
     BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column('last_seen');
+
+-- =====================================================
+-- IMMUTABLE KEYS
+-- =====================================================
+-- A user's, module's or role's id is set once: role and permission grants,
+-- API keys, audit rows, bookmarks and every JWT-derived context hold it, and
+-- ON UPDATE CASCADE would reach only the first of those. The same trigger the
+-- dictionary puts on every table it creates (dd_install_id_triggers in
+-- 0160_dd_functions.sql); common.reject_pk_change is in 0045_typeid.sql.
+-- entities and permissions have none: their natural keys are renamable and
+-- cascade. Neither do the junction tables, whose generated keys follow the
+-- pair they are generated from.
+
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON modules
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');
+
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON roles
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');
+
+CREATE OR REPLACE TRIGGER pk_immutable
+    BEFORE UPDATE OF id ON users
+    FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change('id');

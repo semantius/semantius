@@ -435,6 +435,13 @@ the JSON hint that fill their `${name}` placeholders.
 | `90230` | `90230` | `label_parent on ${table} via ${label_parent} would create a cycle in the identity spine` | - | `table`, `label_parent` | |
 | `90231` | `90231` | `Table ${table} is not an entity` | - | `table` | `fix_id_sequence` on a name no entity has. The answer an administrator gets; everyone else gets 90106. Also `create_entity_policies`, which only dictionary code and migrations call. |
 | `90232` | `90232` | `Table ${table} is busy, try again` | `Another transaction is writing to ${table}. Retry when it has finished.` | `table` | `fix_id_sequence` waited 2 s for its table lock. Safe to retry. |
+| `90233` | `90233` | `id_type is set when an entity is created and cannot be changed` | - | - | Platform rule on `entities`. Every key and every foreign key pointing at one was built from it. |
+| `90234` | `90234` | `id_type ${id_type} is reserved for system tables and cannot be used for entity ${table}` | - | `id_type`, `table` | `computed` describes the system tables whose key is a generated column; the dictionary cannot build one. Raised when a managed entity is created or switched to managed. |
+| `90235` | `90235` | `Table ${table} cannot be adopted: its key column ${id_column} is ${actual_type}, but id_type ${id_type} needs ${expected_type}` | `Change the table's key column to ${expected_type}, or declare the entity with the id_type that matches it.` | `table`, `id_column`, `actual_type`, `id_type`, `expected_type` | Registering an entity onto an existing table, or switching `managed` on for one, when the key column does not match `id_type`. `actual_type` is `missing` when there is no key column. |
+| `90236` | `90236` | `The key ${column} of ${table} cannot be changed` | - | `column`, `table` | A record key is set once. Writing the unchanged key back passes. |
+| `90237` | `90237` | `Id ${id} does not carry the prefix ${prefix} of ${table}` | - | `id`, `prefix`, `table` | An insert into a typeid entity that brings its own id with another prefix, a former prefix of the entity included. |
+| `90238` | `90238` | `Invalid record id ${id} for entity ${table}` | - | `id`, `table` | `get_record_by_id` (and JsonLogic `set_record` through it) with an id that is not a valid value of the entity's key type. Raised only to a caller who may see the entity; anybody else gets the `NULL` of a missing record. |
+| `90239` | `90239` | `Entity ${table} cannot be managed: its id field ${id_column} has format ${actual_format}, but id_type ${id_type} needs ${expected_format}` | `Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.` | `table`, `id_column`, `actual_format`, `id_type`, `expected_format` | Switching `managed` on for an entity whose id field row (written while it was unmanaged) describes another key type. Switching managed on never rewrites metadata, so the difference is refused, not fixed. |
 
 ### 903xx - schema and record RPCs
 
@@ -517,17 +524,22 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 |---|---|---|---|
 | `catalog_entity_aliases_is_array` | `entities` | CHECK | `catalog_entity_aliases` must be a JSON array |
 | `computed_fields_is_array` | `entities` | CHECK | `computed_fields` must be a JSON array |
+| `id_prefix_matches_id_type` | `entities` | CHECK | a typeid entity has an `id_prefix`, and no other entity has one |
 | `plural_matches_table_name` | `entities` | CHECK | `plural` must equal `table_name` |
 | `select_rule_is_object` | `entities` | CHECK | `select_rule` must be a JSON object |
 | `valid_cube_mode` | `entities` | CHECK | `cube_mode` is `disabled` or `auto` |
 | `valid_edit_mode` | `entities` | CHECK | `edit_mode` is `auto`, `sidebar`, `modal` or `page` |
 | `valid_entity_type` | `entities` | CHECK | `entity_type` is one of the six classifications |
+| `valid_id_prefix` | `entities` | CHECK | `id_prefix` is empty or a TypeID prefix: up to 63 lowercase letters and underscores, starting and ending with a letter |
+| `valid_id_type` | `entities` | CHECK | `id_type` is `auto_increment`, `bigint`, `text`, `uuid`, `typeid` or `computed` |
 | `valid_id_column` | `entities` | CHECK | `id_column` is a lowercase identifier |
 | `valid_label_column` | `entities` | CHECK | `label_column` is a lowercase identifier |
 | `valid_label_parent` | `entities` | CHECK | `label_parent` is empty or a lowercase identifier |
 | `valid_order_column` | `entities` | CHECK | `order_column` is empty or a lowercase identifier |
 | `valid_table_name` | `entities` | CHECK | `table_name` is a lowercase identifier |
 | `validation_rules_is_array` | `entities` | CHECK | `validation_rules` must be a JSON array |
+| `unique_current_id_prefix` | `entities` | UNIQUE (index) | no two entities use the same `id_prefix` at the same time |
+| `typeid_format` | domain `common.typeid` | CHECK | a TypeID key, or a column referencing one, holds a well-formed TypeID |
 | `fields_table_field_unique` | `fields` | UNIQUE | one row per (`table_name`, `field_name`) |
 | `fields_table_name_fkey` | `fields` | FOREIGN KEY | `table_name` must name an entity |
 | `reference_requires_table` | `fields` | CHECK | a `reference` or `parent` field must name a `reference_table` |

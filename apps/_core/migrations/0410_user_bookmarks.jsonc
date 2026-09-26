@@ -53,7 +53,7 @@
            "format": "text", "field_order": 40, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "entity_id", "title": "Record", "description": "ID of the related record in the entity table (0 = no record)",
-           "format": "int32", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
+           "format": "int64", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""}
         ]
       }

@@ -17,6 +17,8 @@ interface EntityRecord {
   view_permission: string;
   edit_permission: string;
   id_column: string;
+  id_type: string;
+  id_prefix: string;
   label_column: string;
   managed: boolean;
   searchable: boolean;
@@ -169,6 +171,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
           displayValue = String(fieldValue);
         } else if (field.field_name === 'table_name' || field.field_name === 'view_permission' || 
                    field.field_name === 'edit_permission' || field.field_name === 'id_column' || 
+                   field.field_name === 'id_type' || field.field_name === 'id_prefix' ||
                    field.field_name === 'label_column') {
           displayValue = `\`${fieldValue}\``;
         } else {

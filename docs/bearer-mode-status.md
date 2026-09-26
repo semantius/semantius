@@ -183,7 +183,7 @@ degrades to "slow", never to "open".
 
 ```sql
 CREATE OR REPLACE FUNCTION rbac.context_mac(
-    p_external_id TEXT, p_user_id INTEGER, p_permissions TEXT, p_scopes TEXT
+    p_external_id TEXT, p_user_id BIGINT, p_permissions TEXT, p_scopes TEXT
 ) RETURNS TEXT AS $$
 DECLARE
     v_secret TEXT;
@@ -200,7 +200,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
-REVOKE EXECUTE ON FUNCTION rbac.context_mac(TEXT, INTEGER, TEXT, TEXT)
+REVOKE EXECUTE ON FUNCTION rbac.context_mac(TEXT, BIGINT, TEXT, TEXT)
     FROM PUBLIC, semantius_user;
 ```
 
@@ -221,7 +221,7 @@ add an assertion that neither is executable by `semantius_user`.
 
 ```sql
 CREATE OR REPLACE FUNCTION rbac.write_context(
-    p_external_id TEXT, p_user_id INTEGER, p_permissions TEXT, p_scopes TEXT DEFAULT NULL
+    p_external_id TEXT, p_user_id BIGINT, p_permissions TEXT, p_scopes TEXT DEFAULT NULL
 ) RETURNS void AS $$
 BEGIN
     PERFORM set_config('app.current_user_id',     p_user_id::text, true);
@@ -236,7 +236,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
 
-REVOKE EXECUTE ON FUNCTION rbac.write_context(TEXT, INTEGER, TEXT, TEXT)
+REVOKE EXECUTE ON FUNCTION rbac.write_context(TEXT, BIGINT, TEXT, TEXT)
     FROM PUBLIC, semantius_user;
 ```
 

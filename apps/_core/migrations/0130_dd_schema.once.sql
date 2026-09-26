@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS entities (
     plural_label TEXT NOT NULL DEFAULT '',
     icon_url TEXT DEFAULT '',
     description TEXT DEFAULT '',
-    module_id INTEGER NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+    module_id BIGINT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     -- RESTRICT, not the deferred NO ACTION modules.view_permission needs: an
     -- entity is always created after the permissions it names, so an immediate
     -- check fails early instead of at commit.
@@ -30,6 +30,16 @@ CREATE TABLE IF NOT EXISTS entities (
     edit_permission TEXT NOT NULL DEFAULT 'admin'
         REFERENCES permissions(permission_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     id_column TEXT NOT NULL DEFAULT 'id',
+    -- The key type of the entity's table, chosen when the entity is created
+    -- and never changed afterwards (rule 90233 in 0150_dd_bootstrap.once.sql):
+    -- changing it would rewrite every key and every foreign key pointing at
+    -- one. auto_increment is a 64-bit identity; computed labels only the system
+    -- tables whose key is a generated column, and no managed entity may take it.
+    id_type TEXT NOT NULL DEFAULT 'auto_increment',
+    -- The TypeID prefix of a typeid entity, '' for every other key type. Unlike
+    -- id_type it may change: new ids take the new prefix, existing ids keep
+    -- theirs, because a key is never rewritten.
+    id_prefix TEXT NOT NULL DEFAULT '',
     label_column TEXT NOT NULL DEFAULT 'label',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
@@ -78,10 +88,27 @@ CREATE TABLE IF NOT EXISTS entities (
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
     CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
-    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$')
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$'),
+    -- Inline, like valid_entity_type and for the same reason: the id_type
+    -- field row is seeded before the dictionary's enum trigger exists.
+    CONSTRAINT valid_id_type CHECK (id_type IN
+        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'computed')),
+    -- The TypeID prefix grammar: up to 63 lowercase letters and underscores,
+    -- starting and ending with a letter. It is concatenated into every id, so
+    -- nothing outside it may get in.
+    CONSTRAINT valid_id_prefix CHECK (id_prefix = '' OR id_prefix ~ '^[a-z]([a-z_]{0,61}[a-z])?$'),
+    -- A typeid entity has a prefix and no other kind has one. The spec allows
+    -- an empty prefix, but a bare suffix says nothing about which entity an id
+    -- belongs to, which is the reason to choose TypeIDs at all.
+    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type = 'typeid') = (id_prefix <> ''))
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
+-- Only the prefixes in use now are unique. An entity that changes its prefix
+-- releases the old one, and another entity may take it, so two entities can
+-- have ids with the same prefix: an id's prefix names the entity it was minted
+-- for at the time, not necessarily the one that holds it today.
+CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_prefix <> '';
 -- The two permission columns are RESTRICT foreign keys, so every permission
 -- delete and every rename scans them. The dictionary builds idx_<table>_<field>
 -- for a reference field it creates; these are declared by hand, so their

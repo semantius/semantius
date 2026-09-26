@@ -390,12 +390,34 @@ COMMENT ON FUNCTION rbac.uid IS
 -- the call free - a textual call runs the full validation and a _settings read
 -- every time, which is why the hot paths carry a warm test instead - but this
 -- function is not a hot path, and the self branch needs the subject anyway.
+-- CREATE OR REPLACE cannot change a return type, so a database whose copy of
+-- this function (or of upsert_user_from_jwt, user_id, user_id_or_null below)
+-- still returns the INTEGER of the int4 user keys gets it dropped first. The
+-- test on the catalog keeps a re-run from dropping the current version, whose
+-- grants would otherwise be lost for no reason.
+DO $$
+DECLARE
+    v_sig TEXT;
+BEGIN
+    FOREACH v_sig IN ARRAY ARRAY[
+        'rbac.get_user_by_external_id(text)',
+        'rbac.upsert_user_from_jwt(text, text, text, text, text)',
+        'rbac.user_id()',
+        'rbac.user_id_or_null()'
+    ] LOOP
+        IF (SELECT prorettype FROM pg_catalog.pg_proc
+             WHERE oid = pg_catalog.to_regprocedure(v_sig)) = 'pg_catalog.int4'::regtype THEN
+            EXECUTE 'DROP FUNCTION ' || v_sig;
+        END IF;
+    END LOOP;
+END $$;
+
 CREATE OR REPLACE FUNCTION rbac.get_user_by_external_id(
     p_external_id TEXT
 )
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     IF p_external_id IS DISTINCT FROM rbac.uid() THEN
         PERFORM rbac.require_permission('admin');
@@ -428,9 +450,9 @@ CREATE OR REPLACE FUNCTION rbac.upsert_user_from_jwt(
     p_first_name TEXT DEFAULT NULL,
     p_last_name TEXT DEFAULT NULL
 )
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
-    v_id           INTEGER;
+    v_id           BIGINT;
     v_last_seen    TIMESTAMPTZ;
     v_email        TEXT;
     v_display_name TEXT;
@@ -545,7 +567,7 @@ CREATE OR REPLACE FUNCTION rbac.ensure_context_initialized()
 RETURNS void AS $$
 DECLARE
     v_external_id TEXT;
-    v_user_id INTEGER;
+    v_user_id BIGINT;
     v_permissions TEXT;
     v_cached_external_id TEXT;
 BEGIN
@@ -1099,7 +1121,11 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- outside guard test 0900_test_security.sql's rule that every definer calls
 -- rbac.uid(): an internal helper with no identity of its own to authenticate
 -- should not satisfy that rule by pretense.
-CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id INTEGER)
+-- The parameter follows users.id; an INTEGER overload left behind by an older
+-- build would keep its own grants and resolve int4 arguments, so it is dropped.
+DROP FUNCTION IF EXISTS rbac.get_user_permissions_by_id(INTEGER);
+
+CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id BIGINT)
 RETURNS TABLE (permission_name TEXT) AS $$
 BEGIN
     -- A disabled user has no permissions. The comparison with FALSE is on
@@ -1141,7 +1167,7 @@ own - see the comment above this function for why that is safe.';
 -- one. The explicit revoke from semantius_user is required regardless of that:
 -- the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql grants EXECUTE on
 -- every function created in this schema.
-REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(INTEGER) FROM PUBLIC, semantius_user;
+REVOKE EXECUTE ON FUNCTION rbac.get_user_permissions_by_id(BIGINT) FROM PUBLIC, semantius_user;
 
 -- Get all effective permissions for a user (including implied)
 CREATE OR REPLACE FUNCTION rbac.get_user_permissions(
@@ -1151,7 +1177,7 @@ RETURNS TABLE (
     permission_name TEXT
 ) AS $$
 DECLARE
-    v_user_id INTEGER;
+    v_user_id BIGINT;
 BEGIN
     -- Self-or-admin, as at rbac.get_user_by_external_id. The guard cannot
     -- recurse through the context: rbac.ensure_context_initialized builds the
@@ -1278,7 +1304,7 @@ COMMENT ON FUNCTION rbac.validate_oauth_scopes IS
 -- reasoning for the ordering and for what the subject comparison does and does
 -- not guarantee; this copy relies on the same invariants.
 CREATE OR REPLACE FUNCTION rbac.user_id()
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 DECLARE
     v_external_id TEXT;
 BEGIN
@@ -1298,7 +1324,7 @@ BEGIN
             PERFORM rbac.ensure_context_initialized();
         END IF;
     END IF;
-    RETURN current_setting('app.current_user_id', true)::INTEGER;
+    RETURN current_setting('app.current_user_id', true)::BIGINT;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
 
@@ -1314,7 +1340,7 @@ straight back with no further call; a cold context is rebuilt via rbac.uid()
 -- context. Goes through ensure_context_initialized(), so the value is
 -- derived, never read raw from the client-writable app.current_user_id setting.
 CREATE OR REPLACE FUNCTION rbac.user_id_or_null()
-RETURNS INTEGER AS $$
+RETURNS BIGINT AS $$
 BEGIN
     RETURN rbac.user_id();
 EXCEPTION
@@ -1436,7 +1462,7 @@ COMMENT ON FUNCTION rbac.whoami IS
 CREATE OR REPLACE FUNCTION rbac.grant_permission_to_administrator()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_administrator_role_id INTEGER;
+    v_administrator_role_id BIGINT;
 BEGIN
     -- Get Administrator role id (role_name = 'Administrator')
     SELECT id INTO v_administrator_role_id

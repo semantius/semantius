@@ -28,7 +28,7 @@ SELECT is(rbac.is_bearer_session(), false,
     'is_bearer_session: a SCRAM/local DBA session is not a bearer session');
 SELECT is(rbac.user_id_or_null(), NULL,
     'user_id_or_null: NULL without a JWT');
-SELECT is(audit.current_user_id(), 0,
+SELECT is(audit.current_user_id(), 0::bigint,
     'audit.current_user_id: 0 without a JWT');
 
 -- =====================================================
@@ -38,7 +38,7 @@ SELECT authenticate_as('user3');
 
 SELECT is(rbac.is_bearer_session(), false,
     'is_bearer_session: still false after SET ROLE in a SCRAM session');
-SELECT is(rbac.user_id_or_null(), 1003,
+SELECT is(rbac.user_id_or_null(), 1003::bigint,
     'user_id_or_null: the internal id of the authenticated user');
 SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'status' AND key = 'permission_cache'),
     'enabled', 'whoami: the permission cache is enabled outside bearer sessions');
@@ -54,20 +54,20 @@ VALUES ('bearer_probe', 'bearer_probe', 'Probe', 'Probes', 'S2 user-id probe',
     '[{"name": "writer_id", "jsonlogic": {"var": "$user_id"}}]'::jsonb);
 
 INSERT INTO fields (table_name, field_name, title, format, field_order)
-VALUES ('bearer_probe', 'writer_id', 'Writer Id', 'integer', 10);
+VALUES ('bearer_probe', 'writer_id', 'Writer Id', 'int64', 10);
 
 -- Nothing initialized the context before this write: the trigger has to derive it.
 SELECT set_config('app.context_initialized', '', true);
 SELECT set_config('app.current_user_id', '', true);
 INSERT INTO bearer_probe (label) VALUES ('first statement');
-SELECT is((SELECT writer_id FROM bearer_probe WHERE label = 'first statement'), 1003,
+SELECT is((SELECT writer_id FROM bearer_probe WHERE label = 'first statement'), 1003::bigint,
     '$user_id: derived on the first statement of an uninitialized context');
 
 -- A hand-written app.current_user_id without an initialized context is ignored.
 SELECT set_config('app.context_initialized', '', true);
 SELECT set_config('app.current_user_id', '1002', true);
 INSERT INTO bearer_probe (label) VALUES ('forged setting');
-SELECT is((SELECT writer_id FROM bearer_probe WHERE label = 'forged setting'), 1003,
+SELECT is((SELECT writer_id FROM bearer_probe WHERE label = 'forged setting'), 1003::bigint,
     '$user_id: a hand-written app.current_user_id is not read raw');
 
 -- =====================================================
@@ -78,9 +78,9 @@ SELECT is((SELECT writer_id FROM bearer_probe WHERE label = 'forged setting'), 1
 RESET ROLE;
 SELECT set_config('app.context_initialized', '', true);
 SELECT set_config('app.current_user_id', '1002', true);
-SELECT is(audit.current_user_id(), 1003,
+SELECT is(audit.current_user_id(), 1003::bigint,
     'audit.current_user_id: derived from the JWT, not from app.current_user_id');
-SELECT is(rbac.user_id_or_null(), 1003,
+SELECT is(rbac.user_id_or_null(), 1003::bigint,
     'user_id_or_null: unaffected by a hand-written app.current_user_id');
 SELECT is(current_setting('app.current_user_id', true), '1003',
     'ensure_context_initialized: the rebuild overwrote the hand-written value');

@@ -205,8 +205,10 @@ REVOKE EXECUTE ON FUNCTION pgrst_drop_watch() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
 
--- USAGE on the schema stays: it reaches nothing on its own (every function in
--- `common` is now revoked from both PUBLIC and semantius_user, and common._cache
--- has RLS with no policies and no table grant), and dropping it is a separate
--- change with a wider blast radius than this one.
+-- USAGE on the schema stays, and is needed: the key helpers of
+-- 0045_typeid.sql (common.uuid_v7, the TypeID functions, the common.typeid
+-- domain) are granted to semantius_user because column defaults, triggers and
+-- domain checks run as the role that writes the row. Everything else in
+-- `common` is revoked from both PUBLIC and semantius_user, and common._cache
+-- has RLS with no policies and no table grant.
 GRANT USAGE ON SCHEMA common TO semantius_user;

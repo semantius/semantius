@@ -152,7 +152,7 @@ SELECT is(
 
 -- Test table.module_id (the nwind module, resolved by slug — never the literal id)
 SELECT is(
-    ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::INTEGER,
+    ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::BIGINT,
     (SELECT nwind_module_id FROM sch_ids),
     'get_schema() table object should contain module_id of the nwind module'
 );
@@ -360,7 +360,7 @@ SELECT is(
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'id'->>'type',
     'integer',
-    'get_schema() should map int32 format to integer type'
+    'get_schema() should map the int64 id format to integer type'
 );
 
 -- Test boolean type mapping
@@ -423,11 +423,11 @@ SELECT is(
     'get_schema() should return correct field_order for customer_id field (30)'
 );
 
--- Test that the int32 format appears in output alongside type: integer
+-- Test that the int64 format appears in output alongside type: integer
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'id'->>'format',
-    'int32',
-    'get_schema() should include format int32 for the int32 id field'
+    'int64',
+    'get_schema() should include format int64 for the int64 id field'
 );
 
 SELECT is(

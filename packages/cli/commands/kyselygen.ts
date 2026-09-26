@@ -15,11 +15,18 @@
  * (apps/_core/migrations/0160_dd_functions.sql) AND the runtime value decoding
  * the example does via node-postgres' `pg-types` (keyed by column type OID). So
  * the generated types match what a query actually returns: integers are numbers,
- * timestamps are Dates, bigint/numeric come back as strings, jsonb as objects.
+ * timestamps are Dates, numeric comes back as a string, jsonb as an object.
  *
- * Columns the database fills (auto-increment PKs, created_at/updated_at, any
- * field with a default) are wrapped in `Generated<T>` so they are optional on
- * insert. `enum` fields become a literal-union type ('a' | 'b' | …), matching
+ * 64-bit integers (int64 fields, and every auto_increment key and reference to
+ * one) are typed `number`, as PostgREST returns them. node-postgres returns
+ * int8 as a string by default, so the generated file's header tells the reader
+ * to install `pg.types.setTypeParser(20, Number)`: that parser is process-wide,
+ * affects every int8 column, and loses precision above 2^53 - the same limit
+ * PostgREST has.
+ *
+ * Columns the database fills (auto_increment, uuid and typeid keys,
+ * created_at/updated_at, any field with a default) are wrapped in
+ * `Generated<T>` so they are optional on insert. `enum` fields become a literal-union type ('a' | 'b' | …), matching
  * the DB's TEXT + CHECK (not a native PG enum) — with '' included for
  * non-required enums, mirroring public.effective_enum_values().
  *
@@ -37,6 +44,7 @@ interface ModuleRecord {
 interface EntityRecord {
   table_name: string;
   id_column: string;
+  id_type: string;
 }
 
 interface FieldRecord {
@@ -95,14 +103,15 @@ function effectiveEnumValues(
 
 /**
  * True when the database supplies the value, so the column is optional on insert
- * and should be wrapped in Kysely's `Generated<T>`: auto-increment (SERIAL /
- * BIGSERIAL) PKs, the created_at/updated_at bookkeeping columns, and any field
- * carrying a catalog default_value.
+ * and should be wrapped in Kysely's `Generated<T>`: a key the database generates
+ * (id_type auto_increment, uuid or typeid; a caller may still supply one), the
+ * created_at/updated_at bookkeeping columns, and any field carrying a catalog
+ * default_value.
  */
-function isGenerated(field: FieldRecord): boolean {
-  const f = field.format;
-  if (field.is_pk && (f === "int32" || f === "integer" || f === "int64")) {
-    return true; // SERIAL / BIGSERIAL
+function isGenerated(field: FieldRecord, idType?: string): boolean {
+  if (field.is_pk) {
+    return idType === "auto_increment" || idType === "uuid" ||
+      idType === "typeid";
   }
   if (field.field_name === "created_at" || field.field_name === "updated_at") {
     return true; // DEFAULT now()
@@ -113,16 +122,32 @@ function isGenerated(field: FieldRecord): boolean {
 // ---- column type mapping ----------------------------------------------------
 
 /** Helper type aliases this generator may emit; only the used ones are written. */
-type Alias = "Timestamp" | "Numeric" | "Int8" | "Json";
+type Alias = "Timestamp" | "Numeric" | "Json";
 
 const ALIAS_DEFS: Record<Exclude<Alias, "Json">, string> = {
   Timestamp:
     "export type Timestamp = ColumnType<Date, Date | string, Date | string>;",
   Numeric:
     "export type Numeric = ColumnType<string, number | string, number | string>;",
-  Int8:
-    "export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;",
 };
+
+/**
+ * Header lines of the generated file: the driver setup the `number` typing of
+ * 64-bit integers depends on.
+ */
+const INT8_NOTE = [
+  "//",
+  "// 64-bit integer columns (bigint keys, references to them, int64 fields) are",
+  "// typed `number`, as PostgREST returns them. node-postgres returns int8 as a",
+  "// string unless told otherwise, so install this once before the first query:",
+  "//",
+  '//   import pg from "pg";',
+  "//   pg.types.setTypeParser(20, Number); // 20 = int8",
+  "//",
+  "// The parser is process-wide: it applies to every int8 value of every pool in",
+  "// the process, and values above 2^53 lose precision - the same limit PostgREST",
+  "// has.",
+];
 
 /** The five mutually-referencing aliases emitted when any jsonb column is present. */
 const JSON_DEFS = [
@@ -142,6 +167,7 @@ function columnType(
   field: FieldRecord,
   used: Set<Alias>,
   keyFormatByTable: Map<string, string>,
+  idType?: string,
 ): string {
   let base: string;
   // A reference is typed after the key it points at, not after its own format:
@@ -155,21 +181,22 @@ function columnType(
   ) {
     const keyFormat = keyFormatByTable.get(field.reference_table)!;
     format = keyFormat === "reference" || keyFormat === "parent"
-      ? "integer"
+      ? "int64"
       : keyFormat;
   }
   switch (format) {
     case "int32":
     case "integer":
-    case "reference":
-    case "parent":
     case "float":
     case "double":
       base = "number";
       break;
+    // int64, and a reference whose target is unknown (the database falls back
+    // to BIGINT): number, given the int8 type parser the file header asks for.
     case "int64":
-      used.add("Int8");
-      base = "Int8";
+    case "reference":
+    case "parent":
+      base = "number";
       break;
     case "number":
       used.add("Numeric");
@@ -216,7 +243,7 @@ function columnType(
   }
 
   if (!field.is_pk && isNullable(field.format)) base = `${base} | null`;
-  if (isGenerated(field)) base = `Generated<${base}>`;
+  if (isGenerated(field, idType)) base = `Generated<${base}>`;
   return base;
 }
 
@@ -236,7 +263,7 @@ export async function kyselygenCommand(
       "SELECT id FROM modules ORDER BY id",
     )).rows;
     const entities = (await client.queryObject<EntityRecord>(
-      "SELECT table_name, id_column FROM entities ORDER BY table_name",
+      "SELECT table_name, id_column, id_type FROM entities ORDER BY table_name",
     )).rows;
     const fields = (await client.queryObject<FieldRecord>(
       "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, reference_table FROM fields ORDER BY table_name, field_order",
@@ -245,6 +272,7 @@ export async function kyselygenCommand(
     // The format of each entity's key field, so a reference can be typed after
     // the key it points at.
     const idColByTable = new Map(entities.map((e) => [e.table_name, e.id_column]));
+    const idTypeByTable = new Map(entities.map((e) => [e.table_name, e.id_type]));
     const keyFormatByTable = new Map<string, string>();
     for (const f of fields) {
       if (f.field_name === idColByTable.get(f.table_name)) {
@@ -266,7 +294,12 @@ export async function kyselygenCommand(
     // Single file, kysely-codegen style: helper aliases, every table interface,
     // then the `DB` map. Tables (and the DB keys) are sorted by physical name.
     const allTables = entities.map((e) => e.table_name).sort();
-    const content = renderFile(allTables, fieldsByTable, keyFormatByTable);
+    const content = renderFile(
+      allTables,
+      fieldsByTable,
+      keyFormatByTable,
+      idTypeByTable,
+    );
 
     const dir = dirname(outputFile);
     if (dir && dir !== ".") await Deno.mkdir(dir, { recursive: true });
@@ -299,6 +332,7 @@ function renderFile(
   allTables: string[],
   fieldsByTable: Map<string, FieldRecord[]>,
   keyFormatByTable: Map<string, string>,
+  idTypeByTable: Map<string, string>,
 ): string {
   const used = new Set<Alias>();
   let needGenerated = false;
@@ -307,11 +341,12 @@ function renderFile(
   for (const table of allTables) {
     const fieldList = fieldsByTable.get(table) ?? [];
     const colLines: string[] = [];
+    const idType = idTypeByTable.get(table);
     for (const field of fieldList) {
-      if (isGenerated(field)) needGenerated = true;
+      if (isGenerated(field, idType)) needGenerated = true;
       colLines.push(
         `  ${key(field.field_name)}: ${
-          columnType(field, used, keyFormatByTable)
+          columnType(field, used, keyFormatByTable, idType)
         };`,
       );
     }
@@ -328,11 +363,12 @@ function renderFile(
 
   const lines: string[] = [];
   lines.push("// AUTO-GENERATED by `deno task kyselygen`. Do not edit by hand.");
+  lines.push(...INT8_NOTE);
   lines.push("");
 
-  // ColumnType backs the Timestamp/Numeric/Int8 aliases and the Generated helper.
+  // ColumnType backs the Timestamp/Numeric aliases and the Generated helper.
   const needColumnType = needGenerated || used.has("Timestamp") ||
-    used.has("Numeric") || used.has("Int8");
+    used.has("Numeric");
   if (needColumnType) {
     lines.push(`import type { ColumnType } from "kysely";`);
     lines.push("");
@@ -351,7 +387,7 @@ function renderFile(
 
   // Helper aliases (only the used ones), ColumnType-backed first, then Json set.
   const aliasLines: string[] = [];
-  for (const a of ["Timestamp", "Numeric", "Int8"] as const) {
+  for (const a of ["Timestamp", "Numeric"] as const) {
     if (used.has(a)) aliasLines.push(ALIAS_DEFS[a]);
   }
   if (used.has("Json")) aliasLines.push(JSON_DEFS);

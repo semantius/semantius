@@ -333,7 +333,7 @@ COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
 CREATE OR REPLACE FUNCTION rbac.default_assigned_by()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_current_user_id INTEGER;
+    v_current_user_id BIGINT;
 BEGIN
     IF NEW.assigned_by IS NULL THEN
         BEGIN
@@ -367,7 +367,7 @@ COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 CREATE OR REPLACE FUNCTION rbac.default_granted_by()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_current_user_id INTEGER;
+    v_current_user_id BIGINT;
 BEGIN
     IF NEW.granted_by IS NULL THEN
         BEGIN

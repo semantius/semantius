@@ -386,11 +386,21 @@ BEGIN
     -- Loads an entity record by id and stores it in data under the given name.
     -- Usage: {"set_record":["varName", "entityName", idExpression, logic]}
     -- Calls get_record_by_id(entityName, id) and stores the result like let.
+    -- The id goes over as text, so a text, uuid or TypeID key works as well as
+    -- a number; get_record_by_id casts it to the key's type. A whole JSON
+    -- number is written without its fraction first (5.0 -> 5), because
+    -- arithmetic in a rule yields 5.0 and '5.0' is not a valid bigint. A
+    -- malformed id raises get_record_by_id's 90238.
     IF op = 'set_record' THEN
         var_key := vals ->> 0;
         txt_a := vals ->> 1;
         result := evaluate_json_logic(vals -> 2, data);
-        nav := get_record_by_id(txt_a, jl_to_number(result)::integer);
+        IF jsonb_typeof(result) = 'number' AND (result::numeric) = trunc(result::numeric) THEN
+            txt_b := trunc(result::numeric)::text;
+        ELSE
+            txt_b := result #>> '{}';
+        END IF;
+        nav := get_record_by_id(txt_a, txt_b);
         RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
 

@@ -28,7 +28,7 @@ SELECT has_table('public', 'users', 'Users table should exist');
 -- Test rbac.user_id() returns 1001
 SELECT is(
     rbac.user_id(),
-    1001::integer,
+    1001::bigint,
     'rbac.user_id() should return 1001'
 );
 
@@ -74,7 +74,7 @@ SELECT throws_ok(
 -- still get, is in 0310_test_rbac_helpers.sql.
 SELECT is(
     rbac.get_user_by_external_id('user1'),
-    1001::integer,
+    1001::bigint,
     'rbac.get_user_by_external_id should return 1001 for user1'
 );
 
