@@ -172,39 +172,6 @@
             "npm:typescript@^5.8.2"
           ]
         }
-      },
-      "packages/neon-provisioner": {
-        "packageJson": {
-          "dependencies": [
-            "npm:@cloudflare/workers-types@^4.20250408.0",
-            "npm:@neondatabase/serverless@^1.0.2",
-            "npm:hono@^4.12.7",
-            "npm:typescript@^5.8.2",
-            "npm:wrangler@4"
-          ]
-        }
-      },
-      "packages/provisioning": {
-        "packageJson": {
-          "dependencies": [
-            "npm:@cloudflare/workers-types@^4.20250408.0",
-            "npm:@neondatabase/serverless@^1.0.2",
-            "npm:hono@^4.12.7",
-            "npm:typescript@^5.8.2",
-            "npm:wrangler@4"
-          ]
-        }
-      },
-      "packages/triggerdev": {
-        "packageJson": {
-          "dependencies": [
-            "npm:@trigger.dev/sdk@^4.4.3",
-            "npm:@types/node@^22.13.10",
-            "npm:@types/pg@^8.11.11",
-            "npm:pg@^8.13.3",
-            "npm:typescript@^5.8.2"
-          ]
-        }
       }
     }
   }
