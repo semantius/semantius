@@ -172,8 +172,12 @@ has the upgrade side):
   missing and updates what differs, never deletes, and matches metadata by name.
   An admin edit survives until the file changes. Nothing may hand-write an object
   the dictionary generates (`<t>_*_policy`, `select_rule_<t>`, `compute_validate_<t>`,
-  `<t>_<f>_fkey/_check/_unique`, `idx_<t>_<f>`): express it through metadata, and
-  extend the dictionary when metadata cannot say it.
+  `common.record_rules_<t>`, `<t>_<f>_fkey/_check/_unique`, `idx_<t>_<f>`, and for
+  an is_a or has_a entity its view `<t>`, its table `<t>_ext`,
+  `common.record_write_<t>`, `common.view_write_<t>` and the root's
+  `common.is_a_dispatch_<root>`): express it through metadata, and extend the
+  dictionary when metadata cannot say it. An entities file lists a base before
+  the entities based on it.
 - **After a release, forward only and additive only**: never edit a released
   `.once.` file, never rename or remove a released file, never rename, drop or
   retype a table or column (add, move the data, deprecate). A file added after a
@@ -339,6 +343,28 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
   renamable natural keys below and the generated junction keys. TypeID is a key
   type, not a field format: the id field's format stays `string`. The helpers
   live in `common` (`0045_typeid.sql`), not `public`.
+- **Families: `is_a` and `has_a`**: two more key types share the TypeID key of
+  the entity named in `entities.id_refentity`, set once (90241). An `is_a`
+  entity is a subtype of a `typeid` or `is_a` entity, with a fixed prefix of its
+  own (90245): every record is exactly one type, named by its id's prefix. A
+  `has_a` entity is an optional 0..1 extension of a `typeid` entity. Such an
+  entity is the view `<t>` (`security_invoker`) over its own fields in the
+  table `<t>_ext` and the tables of its bases; entity names ending in `_ext` are
+  reserved. Writes go through the view's INSTEAD OF trigger, or through the
+  root table's dispatch trigger, to `common.record_write_<t>` of the record's own
+  type, which writes every part, runs every derived level's rules and locks every
+  level it writes. Deletes never cascade into parts. The machinery (views, write
+  routines, checks 90240-90252) is the ENTITY FAMILIES sections of
+  `0160_dd_functions.sql`, rebuilt by `dd_refresh_family` whenever a family's
+  fields or members change; `dd_family_fields(t)` is the one source of the
+  fields a record has, and `dd_relation(t)` names the table holding an entity's
+  own columns.
+- **Module triggers must not write family tables.** The `_ext` write guard and
+  the root's `typeid_assign` let a write through at `pg_trigger_depth() > 1`,
+  because that is where the generated write routines run; a module's own trigger
+  that wrote an `_ext` table, or inserted a subtype-prefixed row into an is_a
+  root, would pass that test and split a record. Write through the entity's
+  view instead.
 - **EXCEPTION 1**: `entities` uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
   - The table was called `tables` until `0170_dd_rename.sql` renamed it
   - Foreign keys to it reference `table_name`: `REFERENCES entities(table_name)`
@@ -499,7 +525,8 @@ The `public.get_schema()` function returns JSON Schema with:
   - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
   - NOT included in the required array since they are auto-maintained by database triggers
   - Should not be submitted in INSERT/UPDATE operations
-- **table object**: The get_schema() output includes a 'table' object with ALL columns from the entities table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, id_type, id_prefix, label_column, managed, searchable, created_at, updated_at)
+- **table object**: The get_schema() output includes a 'table' object with ALL columns from the entities table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, id_type, id_prefix, id_refentity, label_column, managed, searchable, created_at, updated_at)
+- **is_a / has_a entities**: the properties are the whole record's (`dd_family_fields`): the key, the root's and each level's fields, then the entity's own; an inherited property carries `inherited_from`. A has_a base lists `extensions: [{table, properties, required}]`. Every schema RPC gates on the view permission of every level (`dd_entity_viewable`)
 - **properties object**: The get_schema() output includes a 'properties' object with ALL columns from the fields table as field properties
 
 **CRITICAL: JSON Field Naming Convention**

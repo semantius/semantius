@@ -158,6 +158,31 @@ CREATE INDEX IF NOT EXISTS audit_ddl_logs_event_time
     USING BRIN(event_time);
 
 -- =====================================================
+-- STEP 3b: DDL the dictionary regenerates (audit.generated_ddl)
+-- =====================================================
+-- A row for the current transaction while dd_refresh_family
+-- (0160_dd_functions.sql) rebuilds the views, write routines and triggers of an
+-- is_a/has_a family. The DDL audit skips events while it exists: the rebuild
+-- follows from the change that caused it - a field or entity write, whose own
+-- DDL and DML are logged - and would otherwise log a dozen rows for every
+-- field edit, GRANT and REVOKE included, which carry no object to filter on.
+--
+-- A table the owner alone can write, not a session setting: any session can
+-- set a setting, and one that could turn the DDL audit off would let whoever
+-- holds it hide their own DDL. Writing this table takes the owner, who can
+-- disable the event triggers anyway. No grants; RLS on with no policy, so a
+-- grant added by mistake still reads and writes nothing.
+CREATE TABLE IF NOT EXISTS audit.generated_ddl (
+    transaction_id xid8 PRIMARY KEY DEFAULT pg_current_xact_id()
+);
+
+COMMENT ON TABLE audit.generated_ddl IS
+'A row per transaction while dd_refresh_family rebuilds an is_a/has_a family; the DDL audit event triggers skip the events it causes. Written only by the owner.';
+
+ALTER TABLE audit.generated_ddl ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON audit.generated_ddl FROM PUBLIC;
+
+-- =====================================================
 -- STEP 11: RLS on audit tables
 -- =====================================================
 -- Audit tables are in public schema, so PostgREST can expose them.

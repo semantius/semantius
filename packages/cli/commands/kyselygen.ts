@@ -268,10 +268,10 @@ export async function kyselygenCommand(
       "SELECT id FROM modules ORDER BY id",
     )).rows;
     const entities = (await client.queryObject<EntityRecord>(
-      "SELECT table_name, id_column, id_type FROM entities ORDER BY table_name",
+      "SELECT table_name, id_column, id_type FROM entities ORDER BY table_name COLLATE \"C\"",
     )).rows;
     const fields = (await client.queryObject<FieldRecord>(
-      "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, reference_table FROM fields ORDER BY table_name, field_order",
+      "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, reference_table FROM fields ORDER BY table_name COLLATE \"C\", field_order, field_name COLLATE \"C\"",
     )).rows;
 
     // The format of each entity's key field, so a reference can be typed after

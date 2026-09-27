@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. get_record_by_id honors select_rule
 --   2. Read-helper completeness
+--   3. get_record_by_id over an is_a chain
 BEGIN;
 
-SELECT plan(11);
+SELECT plan(15);
 
 -- =====================================================
 -- PART 1: get_record_by_id honors select_rule
@@ -233,6 +234,58 @@ SELECT is(
      WHERE u.external_id = 'b9_boss' AND ur.role_id = 2),
     0,
     'a user created with last_seen is NOT elected while an administrator exists');
+
+-- =====================================================
+-- PART 3: get_record_by_id over an is_a chain
+-- =====================================================
+-- A record of rh_hot (is_a rh_leads, is_a rh_parties) is stored in three
+-- tables. get_record_by_id reads it through the view and applies the
+-- canonical predicate of every level, which is what the security_invoker
+-- view gives the same caller under RLS.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, view_permission)
+VALUES ('rh_parties', 'Party', 'Parties', 1, 'typeid', 'rhpty', 'public:read');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rh_parties', 'region', 'Region', 'text', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity, view_permission)
+VALUES ('rh_leads', 'Lead', 'Leads', 1, 'is_a', 'rhled', 'rh_parties', 'nwind:view');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rh_leads', 'score', 'Score', 'int32', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      view_permission, select_rule)
+VALUES ('rh_hot', 'Hot Lead', 'Hot Leads', 1, 'is_a', 'rhhot', 'rh_leads', 'public:read',
+        '{"==":[{"var":"region"},"north"]}'::jsonb);
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rh_hot', 'heat', 'Heat', 'int32', 30);
+
+INSERT INTO rh_hot (label, region, score, heat) VALUES ('h1', 'north', 1, 90), ('h2', 'south', 2, 80);
+
+SELECT is(
+    (SELECT get_record_by_id('rh_hot', (SELECT id FROM rh_hot WHERE label = 'h1')) ->> 'region')
+    || ' ' || (SELECT get_record_by_id('rh_hot', (SELECT id FROM rh_hot WHERE label = 'h1')) ->> 'heat'),
+    'north 90',
+    'get_record_by_id: a three-level record comes back whole, root fields included');
+
+SELECT authenticate_as('user2');
+SELECT ok(
+    get_record_by_id('rh_hot', (SELECT id::text FROM rh_parties WHERE label = 'h1')) IS NOT NULL
+    AND get_record_by_id('rh_hot', (SELECT id::text FROM rh_parties WHERE label = 'h2')) IS NULL,
+    'get_record_by_id: the select_rule of a level decides, over the whole record');
+
+SELECT authenticate_as('user1');
+SELECT is(
+    get_record_by_id('rh_hot', (SELECT id::text FROM rh_parties WHERE label = 'h1')),
+    NULL,
+    'get_record_by_id: without the view permission of a middle level the record is not found');
+
+SELECT is(
+    (SELECT count(*)::int FROM rh_hot),
+    0,
+    'get_record_by_id: ... which is what the view gives the same caller');
 
 SELECT * FROM finish();
 ROLLBACK;

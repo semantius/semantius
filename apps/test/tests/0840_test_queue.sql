@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. Queue system
 --   2. Queue RPC mutators
+--   3. no queue mapping on an is_a or has_a entity (90249)
 BEGIN;
 
-SELECT plan(80);
+SELECT plan(81);
 
 -- =====================================================
 -- PART 1: Queue system
@@ -631,6 +632,28 @@ SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$, '90504', N
 
 RESET ROLE;
 DELETE FROM queues WHERE queue_name = 'rpc_q';
+
+-- =====================================================
+-- PART 3: no queue mapping on an is_a or has_a entity
+-- =====================================================
+-- Its records span several tables, so a statement trigger on one of them
+-- would see parts of records, not records (90249).
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('q_parties', 'Party', 'Parties', 1, 'typeid', 'qpty');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('q_clients', 'Client', 'Clients', 1, 'has_a', 'q_parties');
+INSERT INTO queues (queue_name) VALUES ('fam_q');
+
+SELECT throws_ok(
+    $$ INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+       SELECT id, 'client change', 'q_clients', 'change' FROM queues WHERE queue_name = 'fam_q' $$,
+    '90249', NULL,
+    'a queue mapping on a has_a entity is refused');
 
 SELECT * FROM finish();
 ROLLBACK;

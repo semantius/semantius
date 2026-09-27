@@ -324,6 +324,14 @@ in the message, by constraint name parsed out of `message`; "Constraint
 names" at the end of this page lists the ones that exist. Vendored pgmq text
 is upstream text and is never edited.
 
+Two more native errors reach a client from an is_a or has_a entity. An upsert
+on its view (`ON CONFLICT`, PostgREST's merge-duplicates and `PUT`) fails with
+42P10 when the statement is planned, before any trigger of ours runs; an
+entities file imports such records with an insert followed by an update
+instead. And PostgreSQL truncates identifiers longer than 63 bytes, which the
+names generated from a long entity name (`<entity>_ext_<field>_fkey`,
+`record_write_<entity>`) can reach, as any generated name can.
+
 ## Client rules
 
 1. A `hint` that starts with `{` is parsed as a JSON object; if it does not
@@ -438,10 +446,23 @@ the JSON hint that fill their `${name}` placeholders.
 | `90233` | `90233` | `id_type is set when an entity is created and cannot be changed` | - | - | Platform rule on `entities`. Every key and every foreign key pointing at one was built from it. |
 | `90234` | `90234` | `id_type ${id_type} is reserved for system tables and cannot be used for entity ${table}` | - | `id_type`, `table` | `computed` describes the system tables whose key is a generated column; the dictionary cannot build one. Raised when a managed entity is created or switched to managed. |
 | `90235` | `90235` | `Table ${table} cannot be adopted: its key column ${id_column} is ${actual_type}, but id_type ${id_type} needs ${expected_type}` | `Change the table's key column to ${expected_type}, or declare the entity with the id_type that matches it.` | `table`, `id_column`, `actual_type`, `id_type`, `expected_type` | Registering an entity onto an existing table, or switching `managed` on for one, when the key column does not match `id_type`. `actual_type` is `missing` when there is no key column. |
-| `90236` | `90236` | `The key ${column} of ${table} cannot be changed` | - | `column`, `table` | A record key is set once. Writing the unchanged key back passes. |
-| `90237` | `90237` | `Id ${id} does not carry the prefix ${prefix} of ${table}` | - | `id`, `prefix`, `table` | An insert into a typeid entity that brings its own id with another prefix, a former prefix of the entity included. |
+| `90236` | `90236` | `The key ${column} of ${table} cannot be changed` | - | `column`, `table` | A record key is set once. Writing the unchanged key back passes. Also raised by the write routine of an is_a or has_a entity, naming the entity. |
+| `90237` | `90237` | `Id ${id} does not carry the prefix ${prefix} of ${table}` | - | `id`, `prefix`, `table` | An insert into a typeid entity that brings its own id with another prefix, a former prefix of the entity included. Also an is_a insert whose id lacks the is_a entity's prefix, a direct insert into an is_a root with a subtype's prefix, and a has_a insert that creates its base record with an id lacking the base's prefix. |
 | `90238` | `90238` | `Invalid record id ${id} for entity ${table}` | - | `id`, `table` | `get_record_by_id` (and JsonLogic `set_record` through it) with an id that is not a valid value of the entity's key type. Raised only to a caller who may see the entity; anybody else gets the `NULL` of a missing record. |
 | `90239` | `90239` | `Entity ${table} cannot be managed: its id field ${id_column} has format ${actual_format}, but id_type ${id_type} needs ${expected_format}` | `Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.` | `table`, `id_column`, `actual_format`, `id_type`, `expected_format` | Switching `managed` on for an entity whose id field row (written while it was unmanaged) describes another key type. Switching managed on never rewrites metadata, so the difference is refused, not fixed. |
+| `90240` | `90240` | `Entity ${table} cannot be based on ${base}` | `An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.` | `table`, `base` | Creating an is_a or has_a entity whose `id_refentity` has the wrong key type, is unmanaged, or is the entity itself. |
+| `90241` | `90241` | `id_refentity is set when an entity is created and cannot be changed` | - | `table` | The records of an is_a or has_a entity are stored in its base. A rename of the base, which `ON UPDATE CASCADE` carries to `id_refentity`, is the one change it takes. |
+| `90242` | `90242` | `label_column and label_parent of ${table} come from its base ${base}` | - | `table`, `base` | An is_a or has_a entity's record is labeled by its root, so both are set from the base when the entity is created and cannot be changed on it. |
+| `90243` | `90243` | `Field ${field_name} of ${table} collides with ${other}, which shares its records` | - | `field_name`, `table`, `other` | A field name already used by an entity above or below this one in its is_a/has_a chain; the views show the fields of the whole chain side by side. Siblings may repeat a name; the key and the audit fields are each entity's own. |
+| `90244` | `90244` | `${relation} stores part of ${table} records; write them through ${table}` | - | `relation`, `table` | A direct write to `<entity>_ext`. Only the entity's write routines write it, so every part and every level's rules are written together. |
+| `90245` | `90245` | `id_prefix of an is_a entity is set when it is created` | - | - | Platform rule on `entities`. An is_a record's type is read from the prefix of its id, so the prefix has to mean the same thing for good. |
+| `90246` | `90246` | `Attaching ${table} to ${base} record ${id}: ${field} differs from the stored value; change it through ${base}` | - | `table`, `base`, `id`, `field` | An insert into a has_a entity with the id of an existing base record attaches to it and writes no base field; a base value in the insert that is neither the stored one nor the column default, or one a computed field changed, is refused. |
+| `90247` | `90247` | `Entity ${table} still has records; delete them first` | - | `table` | Deleting an is_a/has_a entity, or the base of one, while it has records. Their records span several tables, so they are deleted through the entity first. Also refuses a module delete whose cascade reaches such an entity. |
+| `90248` | `90248` | `Entity ${table} cannot be deleted while ${dependents} are based on it` | - | `table`, `dependents` | `dependents` is one comma-separated string. A dependent in the module being deleted does not count. |
+| `90249` | `90249` | `${feature} is not available for ${id_type} entity ${table}` | - | `feature`, `id_type`, `table` | `feature` is an identifier: `order_column`, `queue_table_events` and `process_gates` on an is_a or has_a entity, `cascade` on a reference field of an is_a entity (an RI cascade would delete one part of a record and leave the rest). |
+| `90250` | `90250` | `Table name ${relation} is already in use` | - | `relation` | Creating or renaming an is_a or has_a entity whose view name or `<entity>_ext` name is taken by another relation. |
+| `90251` | `90251` | `Record ${id} of ${table} still has a ${extension} record; remove it through ${extension} first` | - | `id`, `table`, `extension` | Deleting a has_a base record that an extension is attached to. Deletes never cascade into the parts of a record. |
+| `90252` | `90252` | `Entity ${table} cannot become unmanaged while ${dependents} are based on it` | - | `table`, `dependents` | Switching `managed` off on a base; its dependents' views and write routines are built on its table. |
 
 ### 903xx - schema and record RPCs
 
@@ -524,22 +545,26 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 |---|---|---|---|
 | `catalog_entity_aliases_is_array` | `entities` | CHECK | `catalog_entity_aliases` must be a JSON array |
 | `computed_fields_is_array` | `entities` | CHECK | `computed_fields` must be a JSON array |
-| `id_prefix_matches_id_type` | `entities` | CHECK | a typeid entity has an `id_prefix`, and no other entity has one |
+| `derived_entity_managed` | `entities` | CHECK | an is_a or has_a entity is managed |
+| `entities_id_refentity_fkey` | `entities` | FOREIGN KEY | `id_refentity` must name an entity; an entity cannot be deleted while entities are based on it, and an entities file must list a base before the entities based on it |
+| `id_prefix_matches_id_type` | `entities` | CHECK | a typeid or is_a entity has an `id_prefix`, and no other entity has one |
+| `id_refentity_matches_id_type` | `entities` | CHECK | an is_a or has_a entity names its base in `id_refentity`, and no other entity names one |
 | `plural_matches_table_name` | `entities` | CHECK | `plural` must equal `table_name` |
 | `select_rule_is_object` | `entities` | CHECK | `select_rule` must be a JSON object |
 | `valid_cube_mode` | `entities` | CHECK | `cube_mode` is `disabled` or `auto` |
 | `valid_edit_mode` | `entities` | CHECK | `edit_mode` is `auto`, `sidebar`, `modal` or `page` |
 | `valid_entity_type` | `entities` | CHECK | `entity_type` is one of the six classifications |
 | `valid_id_prefix` | `entities` | CHECK | `id_prefix` is empty or a TypeID prefix: up to 63 lowercase letters and underscores, starting and ending with a letter |
-| `valid_id_type` | `entities` | CHECK | `id_type` is `auto_increment`, `bigint`, `text`, `uuid`, `typeid` or `computed` |
+| `valid_id_type` | `entities` | CHECK | `id_type` is `auto_increment`, `bigint`, `text`, `uuid`, `typeid`, `is_a`, `has_a` or `computed` |
 | `valid_id_column` | `entities` | CHECK | `id_column` is a lowercase identifier |
 | `valid_label_column` | `entities` | CHECK | `label_column` is a lowercase identifier |
 | `valid_label_parent` | `entities` | CHECK | `label_parent` is empty or a lowercase identifier |
 | `valid_order_column` | `entities` | CHECK | `order_column` is empty or a lowercase identifier |
-| `valid_table_name` | `entities` | CHECK | `table_name` is a lowercase identifier |
+| `valid_table_name` | `entities` | CHECK | `table_name` is a lowercase identifier that does not end in `_ext` (reserved for the tables of is_a and has_a entities) |
 | `validation_rules_is_array` | `entities` | CHECK | `validation_rules` must be a JSON array |
 | `unique_current_id_prefix` | `entities` | UNIQUE (index) | no two entities use the same `id_prefix` at the same time |
 | `typeid_format` | domain `common.typeid` | CHECK | a TypeID key, or a column referencing one, holds a well-formed TypeID |
+| `<entity>_ext_id_fkey` | `<entity>_ext` | FOREIGN KEY | the record still has a part stored in `<entity>_ext`; delete it through `<entity>`. This is what a cascade into an is_a root hits for a subtype record |
 | `fields_table_field_unique` | `fields` | UNIQUE | one row per (`table_name`, `field_name`) |
 | `fields_table_name_fkey` | `fields` | FOREIGN KEY | `table_name` must name an entity |
 | `reference_requires_table` | `fields` | CHECK | a `reference` or `parent` field must name a `reference_table` |

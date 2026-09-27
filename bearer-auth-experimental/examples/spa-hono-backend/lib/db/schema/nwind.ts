@@ -30,18 +30,18 @@ export const customers = pgTable("customers", {
 });
 
 export const employeeTerritories = pgTable("employee_territories", {
-  id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
   employeeId: bigint("employee_id", { mode: "number" }).references((): AnyPgColumn => employees.id, { onDelete: "cascade" }).notNull(),
-  territoryId: bigint("territory_id", { mode: "number" }).references((): AnyPgColumn => territories.id, { onDelete: "cascade" }).notNull(),
+  id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
   label: text("label").notNull(),
+  territoryId: bigint("territory_id", { mode: "number" }).references((): AnyPgColumn => territories.id, { onDelete: "cascade" }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
 export const employees = pgTable("employees", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
-  lastName: text("last_name").notNull(),
   firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
   title: text("title").notNull(),
   titleOfCourtesy: text("title_of_courtesy", { enum: ["Mr.", "Mrs.", "Ms.", "Dr.", ""] }).notNull(),
   birthDate: date("birth_date"),
@@ -124,8 +124,8 @@ export const shippers = pgTable("shippers", {
 
 export const suppliers = pgTable("suppliers", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
-  contactName: text("contact_name").notNull(),
   companyName: text("company_name").notNull(),
+  contactName: text("contact_name").notNull(),
   contactTitle: text("contact_title").notNull(),
   address: text("address").notNull(),
   city: text("city").notNull(),
@@ -140,8 +140,8 @@ export const suppliers = pgTable("suppliers", {
 });
 
 export const territories = pgTable("territories", {
-  territoryId: text("territory_id").notNull(),
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  territoryId: text("territory_id").notNull(),
   territoryDescription: text("territory_description").notNull(),
   regionId: bigint("region_id", { mode: "number" }).references((): AnyPgColumn => regions.id),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

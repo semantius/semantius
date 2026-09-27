@@ -5,9 +5,12 @@
 --
 -- Schema for entities.computed_fields and entities.validation_rules lives in
 -- 0130_dd_schema.once.sql alongside the rest of the entities table; this file
--- contains only the runtime: a per-table BEFORE INSERT OR UPDATE OR DELETE
--- trigger function that is (re)generated whenever either array is non-empty, and
--- dropped when both are empty or the entity itself is deleted.
+-- contains only the runtime: a per-entity rule function,
+-- common.record_rules_<entity>, and a per-table BEFORE INSERT OR UPDATE OR
+-- DELETE trigger wrapping it, both (re)generated whenever either array is
+-- non-empty, and dropped when both are empty or the entity itself is deleted.
+-- An is_a or has_a entity gets the function only: its generated write routine
+-- (0160_dd_functions.sql) calls it over the whole record.
 --
 -- Reserved variables injected into the JsonLogic data:
 --   $today    -> server date
@@ -68,6 +71,7 @@ RETURNS VOID AS $$
 DECLARE
     v_entity entities%ROWTYPE;
     v_fn_name TEXT;
+    v_rules_name TEXT;
     v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
     v_body TEXT;
     v_rules_block TEXT := '';
@@ -79,18 +83,24 @@ DECLARE
     v_message TEXT;
     v_rule_hint TEXT;
     v_has_computed BOOLEAN;
+    v_needs_old BOOLEAN := FALSE;
     v_writeback TEXT;
     v_all_logic TEXT;
     v_extra_ctx TEXT := '';
+    v_derived BOOLEAN;
+    v_had_rules BOOLEAN;
 BEGIN
+    v_fn_name := 'compute_validate_' || p_table_name;
+    v_rules_name := 'record_rules_' || p_table_name;
+
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
         -- No entity by that name. Every caller passes one it just read, and the
-        -- entities DELETE arm drops the function itself, so this is reached only
-        -- by a caller naming a table the dictionary does not know - drop
-        -- whatever is there under that name and leave.
-        v_fn_name := 'compute_validate_' || p_table_name;
+        -- entities DELETE arm drops the functions itself, so this is reached
+        -- only by a caller naming a table the dictionary does not know - drop
+        -- whatever is there under those names and leave.
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', v_rules_name);
         RETURN;
     END IF;
 
@@ -99,15 +109,28 @@ BEGIN
         RETURN;
     END IF;
 
-    v_fn_name := 'compute_validate_' || p_table_name;
+    -- An is_a or has_a entity has no rule trigger: its rules run inside its
+    -- generated write routine, common.record_write_<entity>, over the whole
+    -- record. Whether record_rules_<entity> exists decides whether that routine
+    -- calls it, so a change in its existence rebuilds the family.
+    v_derived := v_entity.id_type IN ('is_a', 'has_a');
+    v_had_rules := to_regprocedure(format('common.%I(text, jsonb, jsonb)', v_rules_name)) IS NOT NULL;
 
-    -- Drop any existing trigger + function so we can recreate cleanly
-    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
+    -- Drop any existing trigger + wrapper so we can recreate cleanly. The rule
+    -- function is replaced in place further down, not dropped, so the write
+    -- routines that call it keep resolving the same function.
+    IF NOT v_derived THEN
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
+    END IF;
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
 
     -- Both arrays empty → nothing to install
     IF jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) = 0
        AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', v_rules_name);
+        IF v_derived AND v_had_rules THEN
+            PERFORM dd_refresh_family(ARRAY[p_table_name]);
+        END IF;
         RETURN;
     END IF;
 
@@ -139,12 +162,13 @@ BEGIN
     IF v_all_logic LIKE '%$old%'
        OR v_all_logic LIKE '%value_changed%'
        OR v_all_logic LIKE '%"var": {%' THEN
+        v_needs_old := TRUE;
         v_extra_ctx := v_extra_ctx || $CTX$,
-        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END$CTX$;
+        '$old',     COALESCE(p_old, 'null'::jsonb)$CTX$;
     END IF;
 
     v_extra_ctx := v_extra_ctx || $CTX$,
-        '$mode',    to_jsonb(lower(TG_OP))$CTX$;
+        '$mode',    to_jsonb(p_mode)$CTX$;
 
     -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
@@ -176,6 +200,11 @@ BEGIN
         -- category and matches every code whose first two characters agree.
         -- Our own catalog errors therefore pass through untouched, and only
         -- everything else is re-raised with the locating keys merged in.
+        --
+        -- The entity is written into the body as a literal rather than read
+        -- from TG_TABLE_NAME: the function is not a trigger, and for an is_a
+        -- or has_a entity the table that is being written is <entity>_ext or
+        -- a base's, while the hint has to name the entity that owns the rule.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
@@ -192,12 +221,13 @@ $BLOCK$    BEGIN
                 USING ERRCODE = v_err_state,
                       DETAIL  = COALESCE(v_err_detail, ''),
                       HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
-                                    'entity', TG_TABLE_NAME,
+                                    'entity', %s,
                                     'field',  %s));
     END;
     v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
 $BLOCK$,
             v_logic_lit,
+            quote_literal(p_table_name),
             quote_literal(v_name),
             v_path_sql);
     END LOOP;
@@ -271,7 +301,7 @@ $BLOCK$    BEGIN
                 USING ERRCODE = v_err_state,
                       DETAIL  = COALESCE(v_err_detail, ''),
                       HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
-                                    'entity', TG_TABLE_NAME,
+                                    'entity', %s,
                                     'rule',   %s));
     END;
     IF NOT jl_truthy(v_result) THEN
@@ -279,42 +309,31 @@ $BLOCK$    BEGIN
     END IF;
 $BLOCK$,
             v_logic_lit,
+            quote_literal(p_table_name),
             quote_literal(v_code),
             quote_literal(v_message),
             quote_literal(v_code),
-            'jsonb_build_object(''entity'', TG_TABLE_NAME, ''rule'', ' ||
+            'jsonb_build_object(''entity'', ' || quote_literal(p_table_name) || ', ''rule'', ' ||
                 quote_literal(v_code) ||
                 CASE WHEN v_rule_hint IS NULL THEN ''
                      ELSE ', ''hint'', ' || quote_literal(v_rule_hint) END ||
                 ')::text');
     END LOOP;
 
-    -- Write-back tail. Validation rules never modify the row, so a validation-only
-    -- entity returns NEW untouched — no need to rebuild it. An entity WITH computed
-    -- fields must fold the derived values (written into v_data by the block above)
-    -- back onto NEW.
+    -- The rules of one entity as a function of the record: p_mode is insert,
+    -- update or delete, p_old the previous record (NULL on insert), p_data the
+    -- record being written. It returns p_data with the computed fields applied
+    -- and raises when a validation rule fails. On delete the result is
+    -- discarded; the rules may still abort the delete.
     --
-    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
-    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
-    -- A static call caches the target row type's tuple descriptor in the plpgsql
-    -- expression's fn_extra and does NOT refresh it when the table gains a column
-    -- LATER in the SAME transaction — so a column added and set after this trigger
-    -- first fired (e.g. an order column provisioned and then set in the same install) would be
-    -- silently dropped, reverting that write. This only surfaces in a single-txn
-    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
-    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
-    -- every call, so mid-transaction columns survive.
-    IF v_has_computed THEN
-        v_writeback := $WB$    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
-    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
-$WB$;
-    ELSE
-        v_writeback := '';
-    END IF;
-
-    -- Assemble full function.
+    -- SECURITY DEFINER, as the rule trigger always was: the rule block calls
+    -- jl_error_hint, which the request role may not execute, so under invoker
+    -- rights a failing rule would surface as 42501 instead of its own code.
+    -- Granted to the request role because the write routines of is_a and
+    -- has_a entities, which run as the caller, call it. It lives in common,
+    -- which PostgREST does not expose, so it is no RPC.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS $RULES$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -327,8 +346,7 @@ BEGIN
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.
     v_uid_text := rbac.user_id_or_null()::text;
-    -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
-    v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
+    v_data := p_data || jsonb_build_object(
         '$today',   to_jsonb(CURRENT_DATE),
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE
@@ -337,6 +355,60 @@ BEGIN
                    END%s
     );
 %s
+    RETURN v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+END;
+$RULES$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_rules_name, v_extra_ctx, v_rules_block);
+
+    EXECUTE v_body;
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) TO semantius_user', v_rules_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION common.%I(text, jsonb, jsonb) IS %L',
+        v_rules_name,
+        format('Evaluates the computed_fields and validation_rules of entity "%s" over a record (p_mode insert/update/delete, p_old the previous record, p_data the record written) and returns the record with the computed values applied. Generated by build_record_logic_trigger.', p_table_name));
+
+    IF v_derived THEN
+        IF NOT v_had_rules THEN
+            PERFORM dd_refresh_family(ARRAY[p_table_name]);
+        END IF;
+        RETURN;
+    END IF;
+
+    -- The trigger of a plain entity (a family root included) is a thin
+    -- wrapper: the row as jsonb in, the result back into NEW. Validation rules
+    -- never modify the row, so a validation-only entity returns NEW untouched —
+    -- no need to rebuild it. An entity WITH computed fields must fold the
+    -- derived values back onto NEW.
+    --
+    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
+    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
+    -- A static call caches the target row type's tuple descriptor in the plpgsql
+    -- expression's fn_extra and does NOT refresh it when the table gains a column
+    -- LATER in the SAME transaction — so a column added and set after this trigger
+    -- first fired (e.g. an order column provisioned and then set in the same install) would be
+    -- silently dropped, reverting that write. This only surfaces in a single-txn
+    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
+    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
+    -- every call, so mid-transaction columns survive.
+    IF v_has_computed THEN
+        v_writeback := $WB$    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
+$WB$;
+    ELSE
+        v_writeback := '';
+    END IF;
+
+    -- On DELETE there is no NEW row; the rules evaluate against the row being
+    -- removed (OLD), which is also $old.
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+DECLARE
+    v_data jsonb;
+BEGIN
+    v_data := common.%I(
+        lower(TG_OP),
+        %s,
+        to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END));
     -- DELETE keeps no computed output; the validation rules above may still abort it.
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
@@ -344,7 +416,11 @@ BEGIN
 %s    RETURN NEW;
 END;
 $TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
+$FUNC$, v_fn_name, v_rules_name,
+        CASE WHEN v_needs_old
+             THEN $OLD$CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) END$OLD$
+             ELSE 'NULL' END,
+        v_writeback);
 
     EXECUTE v_body;
 
@@ -354,7 +430,7 @@ $FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I() IS %L',
         v_fn_name,
-        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s". Generated by build_record_logic_trigger.', p_table_name));
+        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s" through common.%s. Generated by build_record_logic_trigger.', p_table_name, v_rules_name));
 
     EXECUTE format(
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
@@ -363,7 +439,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_record_logic_trigger IS
-'Generates (or drops) the per-table BEFORE INSERT OR UPDATE OR DELETE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete.';
+'Generates (or drops) the rule function common.record_rules_<entity> evaluating an entity''s computed_fields and validation_rules over a record, and for an entity with a table of its own the per-table BEFORE INSERT OR UPDATE OR DELETE trigger wrapping it. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete. An is_a or has_a entity gets no trigger: its write routine calls the rule function.';
 
 REVOKE EXECUTE ON FUNCTION build_record_logic_trigger(TEXT) FROM PUBLIC;
 
@@ -399,6 +475,7 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         v_fn_name := 'compute_validate_' || OLD.table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', 'record_rules_' || OLD.table_name);
         RETURN OLD;
     END IF;
 
@@ -407,7 +484,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION manage_record_logic_trigger IS
-'Trigger function on entities that creates/updates/drops the per-table BEFORE row trigger for computed_fields and validation_rules.';
+'Trigger function on entities that creates/updates/drops the rule function and the per-table BEFORE row trigger for computed_fields and validation_rules.';
 
 -- AFTER INSERT/UPDATE so it runs after create_table_trigger (which creates the
 -- physical table). AFTER DELETE so it runs after delete_table_trigger drops the
@@ -483,6 +560,8 @@ DECLARE
     v_policy_name TEXT;
     v_body TEXT;
     v_logic_lit TEXT;
+    v_rel TEXT;
+    v_row_data TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -500,17 +579,21 @@ BEGIN
         RETURN;
     END IF;
 
+    -- The policies and the rule functions belong to the entity's physical
+    -- relation, <entity>_ext for an is_a or has_a entity, and are named after
+    -- it; the functions keep the entity's name.
+    v_rel := dd_relation(p_table_name, v_entity.id_type);
     v_fn_name := 'select_rule_' || p_table_name;
-    v_policy_name := p_table_name || '_select_policy';
+    v_policy_name := v_rel || '_select_policy';
 
     -- Always drop both overloads before rebuilding (CASCADE removes anything
     -- depending on them). Dropping only one leaves the other behind and the
     -- CREATE below then fails with a duplicate-function error.
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, v_rel);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, v_rel);
 
     -- Drop the existing select policy so we can recreate it
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
     -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
@@ -519,19 +602,35 @@ BEGIN
     IF v_entity.select_rule = '{}'::jsonb THEN
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_policy_name, p_table_name, v_entity.view_permission);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+            v_policy_name, v_rel, v_entity.view_permission);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
+            v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_entity.edit_permission);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
+            v_rel || '_delete_policy', v_rel, v_entity.edit_permission);
         RETURN;
     END IF;
 
     v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- The data the rule sees. A policy on <entity>_ext hands the function
+    -- that table's row, which holds the entity's own fields only, so the rule
+    -- of an is_a or has_a entity also gets its base's row - the whole record
+    -- up to the root, since the base of an is_a is itself read through its
+    -- view - merged under the own row. As the definer, which bypasses RLS, the
+    -- base row is read whatever the caller may see: the rule decides about
+    -- this part of the record, and the base's own policies decide about the
+    -- base's part.
+    IF v_rel = p_table_name THEN
+        v_row_data := 'to_jsonb(p_row)';
+    ELSE
+        v_row_data := format(
+            'COALESCE((SELECT to_jsonb(b) FROM public.%I b WHERE b.%I = p_row.%I), ''{}''::jsonb) || to_jsonb(p_row)',
+            v_entity.id_refentity, v_entity.id_column, v_entity.id_column);
+    END IF;
 
     -- Build the per-row evaluation function in two overloads.
     --
@@ -557,7 +656,7 @@ DECLARE
     v_data jsonb;
     v_result jsonb;
 BEGIN
-    v_data := to_jsonb(p_row) || p_ctx;
+    v_data := %s || p_ctx;
 
     BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
@@ -572,7 +671,7 @@ $SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
     SELECT public.%I(p_row, public.jl_request_context());
 $SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name);
+$FUNC$, v_fn_name, v_rel, v_row_data, v_logic_lit, v_fn_name, v_rel, v_fn_name);
 
     EXECUTE v_body;
 
@@ -580,18 +679,18 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name
     -- attach to a signature, not to a name, so an overload left out is callable
     -- by any role and undocumented. 0900_test_security.sql and
     -- 0910_test_no_unsafe_functions.sql sweep for exactly that.
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, v_rel);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, v_rel);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I(public.%I, jsonb) IS %L',
-        v_fn_name, p_table_name,
+        v_fn_name, v_rel,
         format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s" against a caller-supplied statement context. Generated by build_select_rule_policy.', p_table_name));
 
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, v_rel);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, v_rel);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
-        v_fn_name, p_table_name,
+        v_fn_name, v_rel,
         format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s", resolving the request context itself. Generated by build_select_rule_policy.', p_table_name));
 
     -- The context sub-select is uncorrelated, so the planner lifts it to an
@@ -601,21 +700,21 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name
     -- with a bare call keeps paying per row on the write path.
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_policy_name, p_table_name, v_fn_name, p_table_name);
+        v_policy_name, v_rel, v_fn_name, v_rel);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
     -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
     -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
     -- row out of its own rule.
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
+        v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel, v_entity.edit_permission);
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
-        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
+        v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -653,8 +752,8 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         -- Both overloads, or the survivor blocks the next CREATE under this name.
         v_fn_name := 'select_rule_' || OLD.table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, OLD.table_name);
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
         RETURN OLD;
     END IF;
 

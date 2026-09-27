@@ -33,10 +33,10 @@ export const auditRecordLogs = pgTable("audit_record_logs", {
 });
 
 export const dashboards = pgTable("dashboards", {
-  id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
   config: jsonb("config").notNull(),
-  position: integer("position").notNull().default(0),
+  id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
   label: text("label").notNull(),
+  position: integer("position").notNull().default(0),
   moduleId: bigint("module_id", { mode: "number" }).references((): AnyPgColumn => modules.id, { onDelete: "cascade" }),
   viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -55,8 +55,9 @@ export const entities = pgTable("entities", {
   viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName),
   editPermission: text("edit_permission").references((): AnyPgColumn => permissions.permissionName),
   idColumn: text("id_column").notNull().default("id"),
-  idType: text("id_type", { enum: ["auto_increment", "bigint", "text", "uuid", "typeid", "computed"] }).notNull().default("auto_increment"),
+  idType: text("id_type", { enum: ["auto_increment", "bigint", "text", "uuid", "typeid", "is_a", "has_a", "computed"] }).notNull().default("auto_increment"),
   idPrefix: text("id_prefix").notNull(),
+  idRefentity: text("id_refentity").references((): AnyPgColumn => entities.tableName),
   labelColumn: text("label_column").notNull().default("label"),
   labelParent: text("label_parent").notNull(),
   orderColumn: text("order_column").notNull(),
@@ -114,8 +115,8 @@ export const modules = pgTable("modules", {
   viewPermission: text("view_permission").references((): AnyPgColumn => permissions.permissionName),
   logoColor: text("logo_color").notNull(),
   iconName: text("icon_name").notNull(),
-  moduleSlug: text("module_slug").notNull(),
   homePage: text("home_page").notNull().default("/"),
+  moduleSlug: text("module_slug").notNull(),
   managePermission: text("manage_permission").references((): AnyPgColumn => permissions.permissionName, { onDelete: "set null" }),
   adminPermission: text("admin_permission").references((): AnyPgColumn => permissions.permissionName, { onDelete: "set null" }),
   defaultViewerRoleId: bigint("default_viewer_role_id", { mode: "number" }).references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
@@ -150,8 +151,8 @@ export const permissions = pgTable("permissions", {
 
 export const processGates = pgTable("process_gates", {
   name: text("name").notNull(),
-  processId: bigint("process_id", { mode: "number" }).references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  processId: bigint("process_id", { mode: "number" }).references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
   entity: text("entity").notNull(),
   gateKind: text("gate_kind", { enum: ["approval", "submit_lock", "ownership", "create", "transition"] }).notNull(),
   toState: text("to_state").notNull(),
@@ -162,8 +163,8 @@ export const processGates = pgTable("process_gates", {
 });
 
 export const processes = pgTable("processes", {
-  name: text("name").notNull(),
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  name: text("name").notNull(),
   moduleId: bigint("module_id", { mode: "number" }).references((): AnyPgColumn => modules.id, { onDelete: "set null" }),
   processKey: text("process_key").notNull(),
   description: text("description").notNull(),
@@ -204,8 +205,8 @@ export const raciAssignments = pgTable("raci_assignments", {
 });
 
 export const raciEvents = pgTable("raci_events", {
-  processId: bigint("process_id", { mode: "number" }).references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  processId: bigint("process_id", { mode: "number" }).references((): AnyPgColumn => processes.id, { onDelete: "cascade" }).notNull(),
   entity: text("entity").notNull(),
   recordId: text("record_id").notNull(),
   raci: text("raci", { enum: ["consulted", "informed"] }).notNull(),
@@ -237,8 +238,8 @@ export const roles = pgTable("roles", {
 });
 
 export const userBookmarks = pgTable("user_bookmarks", {
-  userId: bigint("user_id", { mode: "number" }).references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
+  userId: bigint("user_id", { mode: "number" }).references((): AnyPgColumn => users.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   url: text("url").notNull(),
   entityName: text("entity_name").notNull(),
@@ -295,8 +296,8 @@ export const webhookReceiverLogs = pgTable("webhook_receiver_logs", {
 export const webhookReceivers = pgTable("webhook_receivers", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedByDefaultAsIdentity(),
   tableName: text("table_name").references((): AnyPgColumn => entities.tableName, { onDelete: "cascade" }),
-  label: text("label").notNull(),
   description: text("description").notNull(),
+  label: text("label").notNull(),
   authType: text("auth_type", { enum: ["none", "hmac", "header", ""] }).notNull().default("none"),
   secret: text("secret").notNull(),
   headerName: text("header_name").notNull(),
@@ -315,6 +316,8 @@ export const entitiesRelations = relations(entities, ({ one, many }) => ({
   module: one(modules, { fields: [entities.moduleId], references: [modules.id], relationName: "entities_module_id" }),
   viewPermission: one(permissions, { fields: [entities.viewPermission], references: [permissions.permissionName], relationName: "entities_view_permission" }),
   editPermission: one(permissions, { fields: [entities.editPermission], references: [permissions.permissionName], relationName: "entities_edit_permission" }),
+  idRefentity: one(entities, { fields: [entities.idRefentity], references: [entities.tableName], relationName: "entities_id_refentity" }),
+  entities: many(entities, { relationName: "entities_id_refentity" }),
   fields: many(fields, { relationName: "fields_table_name" }),
   queueTableEvents: many(queueTableEvents, { relationName: "queue_table_events_table_name" }),
   webhookReceivers: many(webhookReceivers, { relationName: "webhook_receivers_table_name" }),

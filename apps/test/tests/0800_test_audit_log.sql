@@ -4,9 +4,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. Audit log
 --   2. TRUNCATE audit path
+--   3. audit of is_a and has_a records
 BEGIN;
 
-SELECT plan(56);
+SELECT plan(61);
 
 -- =====================================================
 -- PART 1: Audit log
@@ -708,6 +709,69 @@ SELECT is(
     (SELECT table_schema::text || '.' || table_name::text
        FROM audit_record_logs WHERE table_name = 'audit_trunc_items' AND op = 'TRUNCATE'),
     'public.audit_trunc_items', 'the TRUNCATE audit row names the truncated table');
+
+-- =====================================================
+-- PART 3: audit of is_a and has_a records
+-- =====================================================
+-- Audit is per physical table: a derived entity's audit_log flag audits its
+-- own <entity>_ext, and the part in its base's table is logged when the base
+-- is audited.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, audit_log)
+VALUES ('au_parties', 'Party', 'Parties', 1, 'typeid', 'aupty', TRUE);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity, audit_log)
+VALUES ('au_orgs', 'Org', 'Orgs', 1, 'is_a', 'auorg', 'au_parties', TRUE);
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('au_orgs', 'vat', 'VAT', 'text', 30);
+
+INSERT INTO au_orgs (label, vat) VALUES ('o1', 'X1');
+
+SELECT is(
+    (SELECT string_agg(table_name || ':' || op, ', ' ORDER BY table_name)
+       FROM audit_record_logs WHERE table_name IN ('au_parties', 'au_orgs', 'au_orgs_ext')),
+    'au_orgs_ext:INSERT, au_parties:INSERT',
+    'family audit: each part of a record is logged by the table that stores it');
+
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.au_orgs_ext'::regclass AND tgname = 'audit_i')
+    AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.au_orgs'::regclass AND tgname LIKE 'audit\_%'),
+    'family audit: the audit triggers sit on <entity>_ext, not on the view');
+
+-- A field change on a family entity rebuilds the family's views, write
+-- routines and triggers. The rebuild follows from the change and stays out of
+-- audit_ddl_logs: the field insert logs the same DDL as one on a plain entity,
+-- on the family entity's own table.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id)
+VALUES ('au_plain', 'Plain', 'Plains', 1);
+CREATE TEMP TABLE au_ddl_marks (step TEXT, max_id BIGINT);
+INSERT INTO au_ddl_marks SELECT 'start', coalesce(max(id), 0) FROM audit_ddl_logs;
+INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('au_plain', 'note', 'Note', 'text', 40);
+INSERT INTO au_ddl_marks SELECT 'plain', coalesce(max(id), 0) FROM audit_ddl_logs;
+INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('au_orgs', 'note', 'Note', 'text', 40);
+
+SELECT is(
+    (SELECT string_agg(command_tag || ' ' || replace(object_identity, 'au_orgs_ext', '<t>'), ', ' ORDER BY id)
+       FROM audit_ddl_logs WHERE id > (SELECT max_id FROM au_ddl_marks WHERE step = 'plain')),
+    (SELECT string_agg(command_tag || ' ' || replace(object_identity, 'au_plain', '<t>'), ', ' ORDER BY id)
+       FROM audit_ddl_logs
+      WHERE id > (SELECT max_id FROM au_ddl_marks WHERE step = 'start')
+        AND id <= (SELECT max_id FROM au_ddl_marks WHERE step = 'plain')),
+    'family audit: a field insert logs its own DDL only, not the rebuild of the family''s views and routines');
+
+RESET ROLE;
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM audit.generated_ddl)
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.au_orgs'::regclass AND attname = 'note'),
+    'family audit: the rebuild ran, and its marker is gone once it is done, so later DDL is logged again');
+
+SELECT authenticate_as('user3');
+SELECT throws_ok($$ INSERT INTO audit.generated_ddl DEFAULT VALUES $$,
+    '42501', NULL,
+    'family audit: the request role cannot mark DDL as generated, so it cannot keep its own out of the log');
 
 SELECT * FROM finish();
 ROLLBACK;

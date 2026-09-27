@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-09-27T16:15:56.824Z
+**Generated:** 2026-09-27T19:33:19.747Z
 
 ---
 
@@ -25,6 +25,7 @@ DDL audit trail for schema change events
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `command_tag` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -75,6 +76,7 @@ DML audit trail for entity table records
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `table_name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -133,6 +135,7 @@ User-configured dashboard layouts and configurations
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -154,10 +157,10 @@ User-configured dashboard layouts and configurations
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `config` | json | Configuration | - | json | false | - | 10 | default | w | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `position` | int32 | Position | - | integer | false | 0 | 20 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `label` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `position` | int32 | Position | - | integer | false | 0 | 20 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `module_id` | reference | Module | - | integer | false | - | 30 | default | default | - | false | - | 2 | modules | cascade | has | - | - | false | auto | - | - |
 | `view_permission` | reference | View Permission | Permission required to view this dashboard | string | false | - | 40 | default | default | - | false | - | 2 | permissions | clear | has | - | - | false | auto | - | - |
 
@@ -182,6 +185,7 @@ Catalog of tables in Semantius
 | id_column | Id Column | `table_name` |
 | id_type | Id Type | `text` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `singular_label` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -193,7 +197,7 @@ Catalog of tables in Semantius
 | audit_log | Audit Log | true |
 | entity_type | Entity Type | unclassified |
 | computed_fields | Computed Fields | - |
-| validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
+| validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
 | select_rule | Select Rule | - |
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
@@ -214,8 +218,9 @@ Catalog of tables in Semantius
 | `view_permission` (core) | reference | View Permission | Permission required to SELECT from this table | string | false | public:read | 80 | default | default | core | false | - | 2 | permissions | restrict | gates viewing | - | - | false | auto | - | - |
 | `edit_permission` (core) | reference | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | false | admin | 90 | default | default | core | false | - | 2 | permissions | restrict | gates editing | - | - | false | auto | - | - |
 | `id_column` (core) | text | Id Column | Name of primary key column | string | false | id | 100 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
-| `id_type` (core) | enum | Id Type | Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. computed: system tables whose key is generated from other columns; not available for new entities. | string | false | auto_increment | 101 | required | default | core | false | [{"label":"Auto-increment number","value":"auto_increment"},{"label":"Number (supplied by the caller)","value":"bigint"},{"label":"Text (supplied by the caller)","value":"text"},{"label":"UUIDv7","value":"uuid"},{"label":"TypeID","value":"typeid"},{"label":"Computed (system tables only)","value":"computed"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"var":"created_at"},"readonly","required"]} | - |
-| `id_prefix` (core) | text | Id Prefix | TypeID prefix of a typeid entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. May change later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted. | string | false | - | 102 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"id_type"},"typeid"]},"required","hidden"]} | - |
+| `id_type` (core) | enum | Id Type | Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. is_a: a subtype of the typeid or is_a entity named in id_refentity; each record is exactly one type, shares the key of its base record and carries the subtype's own prefix. has_a: an optional extension of the typeid entity named in id_refentity; a base record has at most one, and it takes the base record's key. computed: system tables whose key is generated from other columns; not available for new entities. | string | false | auto_increment | 101 | required | default | core | false | [{"label":"Auto-increment number","value":"auto_increment"},{"label":"Number (supplied by the caller)","value":"bigint"},{"label":"Text (supplied by the caller)","value":"text"},{"label":"UUIDv7","value":"uuid"},{"label":"TypeID","value":"typeid"},{"label":"Subtype of another entity (is_a)","value":"is_a"},{"label":"Extension of another entity (has_a)","value":"has_a"},{"label":"Computed (system tables only)","value":"computed"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"var":"created_at"},"readonly","required"]} | - |
+| `id_prefix` (core) | text | Id Prefix | TypeID prefix of a typeid or is_a entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. A typeid entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is. | string | false | - | 102 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"id_type"},["typeid","is_a"]]},"required","hidden"]} | - |
+| `id_refentity` (core) | reference | Base Entity | The entity an is_a or has_a entity is based on, whose key its records share. An is_a entity is based on a typeid or is_a entity, a has_a entity on a typeid entity. Set when the entity is created and never changed; empty for every other key type. | string | false | - | 103 | hidden | default | core | false | - | 2 | entities | restrict | is the base of | - | - | false | auto | {"if":[{"in":[{"var":"id_type"},["is_a","has_a"]]},{"if":[{"var":"created_at"},"readonly","required"]},"hidden"]} | - |
 | `label_column` (core) | text | Label Column | Name of label/display column | string | false | label | 110 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `label_parent` (core) | text | Label Parent | Names the reference/parent FK that is this entity's identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label). | string | false | - | 111 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `order_column` (core) | text | Order Column | Store a fixed row order in this column | string | false | - | 112 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
@@ -254,6 +259,7 @@ Catalog of the fields that make up a table
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `title` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | field_order |
@@ -321,6 +327,7 @@ Groups of related tables and permissions
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `module_name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -385,6 +392,7 @@ Defines permission inclusion (including permission implies included permissions)
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -432,6 +440,7 @@ System permissions that can be assigned to roles and organized via hierarchy
 | id_column | Id Column | `permission_name` |
 | id_type | Id Type | `text` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `permission_name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -459,55 +468,6 @@ System permissions that can be assigned to roles and organized via hierarchy
 
 ---
 
-## Entity: processes
-
-RACI process catalog
-
-| field_name | label | value |
-|------------|-------|-------|
-| table_name | Table Name | `processes` |
-| singular | Singular | process |
-| plural | Plural | processes |
-| singular_label | Singular Label | Process |
-| plural_label | Plural Label | Processes |
-| icon_url | Icon URL | - |
-| description | Description | RACI process catalog |
-| module_id | Module | 1 |
-| view_permission | View Permission | `admin` |
-| edit_permission | Edit Permission | `admin` |
-| id_column | Id Column | `id` |
-| id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
-| label_column | Label Column | `name` |
-| label_parent | Label Parent | - |
-| order_column | Order Column | - |
-| managed | Managed | true |
-| searchable | Searchable | true |
-| is_child | Is Child | false |
-| edit_mode | Edit Mode | auto |
-| cube_mode | Cube Mode | auto |
-| audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
-| computed_fields | Computed Fields | - |
-| validation_rules | Validation Rules | - |
-| select_rule | Select Rule | - |
-| catalog_entity_code | Catalog Entity Code | - |
-| catalog_owner_module | Catalog Owner Module | - |
-| catalog_entity_aliases | Catalog Entity Aliases | - |
-
-### Fields
-
-| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `name` (label) | text | Name | - | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `module_id` | reference | Module | Owning module | integer | false | - | 20 | default | default | - | false | - | 2 | modules | clear | has | - | - | false | auto | - | - |
-| `process_key` | text | Process Key | Stable snake_case identifier, unique within module | string | false | - | 30 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `description` | multiline | Description | - | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `ordering` | integer | Ordering | - | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-
----
-
 ## Entity: process_gates
 
 Governance registry: maps entity transitions to processes
@@ -527,6 +487,7 @@ Governance registry: maps entity transitions to processes
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -559,26 +520,27 @@ Governance registry: maps entity transitions to processes
 
 ---
 
-## Entity: queues
+## Entity: processes
 
-Message queues backed by pgmq
+RACI process catalog
 
 | field_name | label | value |
 |------------|-------|-------|
-| table_name | Table Name | `queues` |
-| singular | Singular | queue |
-| plural | Plural | queues |
-| singular_label | Singular Label | Queue |
-| plural_label | Plural Label | Queues |
+| table_name | Table Name | `processes` |
+| singular | Singular | process |
+| plural | Plural | processes |
+| singular_label | Singular Label | Process |
+| plural_label | Plural Label | Processes |
 | icon_url | Icon URL | - |
-| description | Description | Message queues backed by pgmq |
+| description | Description | RACI process catalog |
 | module_id | Module | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
-| label_column | Label Column | `queue_name` |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
 | managed | Managed | true |
@@ -600,9 +562,11 @@ Message queues backed by pgmq
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `queue_name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | - | - |
-| `view_permission` | reference | View Permission | Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue. | string | false | admin | 30 | default | default | - | false | - | 2 | permissions | restrict | gates reading | - | - | false | auto | - | - |
-| `manage_permission` | reference | Manage Permission | Permission required to pop, archive or delete messages from this queue. | string | false | admin | 40 | default | default | - | false | - | 2 | permissions | restrict | gates managing | - | - | false | auto | - | - |
+| `name` (label) | text | Name | - | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `module_id` | reference | Module | Owning module | integer | false | - | 20 | default | default | - | false | - | 2 | modules | clear | has | - | - | false | auto | - | - |
+| `process_key` | text | Process Key | Stable snake_case identifier, unique within module | string | false | - | 30 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `description` | multiline | Description | - | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `ordering` | integer | Ordering | - | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 
 ---
 
@@ -625,6 +589,7 @@ Maps table DML events to queues
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `event_name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -654,6 +619,54 @@ Maps table DML events to queues
 
 ---
 
+## Entity: queues
+
+Message queues backed by pgmq
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `queues` |
+| singular | Singular | queue |
+| plural | Plural | queues |
+| singular_label | Singular Label | Queue |
+| plural_label | Plural Label | Queues |
+| icon_url | Icon URL | - |
+| description | Description | Message queues backed by pgmq |
+| module_id | Module | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `auto_increment` |
+| id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `queue_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | unclassified |
+| computed_fields | Computed Fields | - |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `queue_name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | true | auto | - | - |
+| `view_permission` | reference | View Permission | Permission required to read messages from this queue (queue_read). Readers see the table, id and operation of every table mapped to this queue. | string | false | admin | 30 | default | default | - | false | - | 2 | permissions | restrict | gates reading | - | - | false | auto | - | - |
+| `manage_permission` | reference | Manage Permission | Permission required to pop, archive or delete messages from this queue. | string | false | admin | 40 | default | default | - | false | - | 2 | permissions | restrict | gates managing | - | - | false | auto | - | - |
+
+---
+
 ## Entity: raci_assignments
 
 RACI matrix rows assigning roles to processes
@@ -673,6 +686,7 @@ RACI matrix rows assigning roles to processes
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -723,6 +737,7 @@ Notify/consult audit log for RACI-governed record transitions
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `record_id` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -744,8 +759,8 @@ Notify/consult audit log for RACI-governed record transitions
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `process_id` | parent | Process | - | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | - | - |
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `process_id` | parent | Process | - | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | - | - |
 | `entity` | text | Entity | - | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `record_id` (label) | text | Record | Governed record PK (text for non-integer PKs) | string | false | - | 30 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `raci` | enum | RACI | RACI role of the actor. Only consulted and informed actors generate events, so these are the only values. | string | false | - | 40 | required | default | - | false | [{"label":"Consulted (C)","value":"consulted"},{"label":"Informed (I)","value":"informed"}] | 2 | - | - | has | - | - | false | auto | - | - |
@@ -774,6 +789,7 @@ Many-to-many mapping between roles and permissions
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -822,6 +838,7 @@ Groups of permissions that can be assigned to users
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `role_name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -872,6 +889,7 @@ Manage and order your facorites for quick access to frequently used apps and rec
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `title` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | row_order |
@@ -921,6 +939,7 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -969,6 +988,7 @@ Many-to-many mapping between users and roles
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -1017,6 +1037,7 @@ Users and agents
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `email` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -1070,6 +1091,7 @@ Log of webhook receiver events
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
@@ -1122,6 +1144,7 @@ Configuration for webhook endpoints
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |

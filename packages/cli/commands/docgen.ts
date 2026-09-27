@@ -19,6 +19,7 @@ interface EntityRecord {
   id_column: string;
   id_type: string;
   id_prefix: string;
+  id_refentity: string | null;
   label_column: string;
   managed: boolean;
   searchable: boolean;
@@ -111,7 +112,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
     
     // Query entities for module_id = 1 (_core module)
     const entitiesResult = await client.queryObject<EntityRecord>(
-      "SELECT * FROM entities WHERE module_id = 1 ORDER BY table_name"
+      "SELECT * FROM entities WHERE module_id = 1 ORDER BY table_name COLLATE \"C\""
     );
     
     // The format of every entity's key field, so a reference can be documented
@@ -153,7 +154,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       
       // Query fields for 'entities' table to dynamically build entity metadata
       const entityFieldsResult = await client.queryObject<FieldRecord>(
-        "SELECT * FROM fields WHERE table_name = 'entities' AND field_name NOT IN ('created_at', 'updated_at') ORDER BY field_order"
+        "SELECT * FROM fields WHERE table_name = 'entities' AND field_name NOT IN ('created_at', 'updated_at') ORDER BY field_order, field_name"
       );
       
       // Entity metadata table
@@ -172,7 +173,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
         } else if (field.field_name === 'table_name' || field.field_name === 'view_permission' || 
                    field.field_name === 'edit_permission' || field.field_name === 'id_column' || 
                    field.field_name === 'id_type' || field.field_name === 'id_prefix' ||
-                   field.field_name === 'label_column') {
+                   field.field_name === 'id_refentity' || field.field_name === 'label_column') {
           displayValue = `\`${fieldValue}\``;
         } else {
           displayValue = cellText(fieldValue);
@@ -204,7 +205,7 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
       
       // Query fields for this entity
       const fieldsResult = await client.queryObject<FieldRecord>(
-        "SELECT * FROM fields WHERE table_name = $1 ORDER BY field_order",
+        "SELECT * FROM fields WHERE table_name = $1 ORDER BY field_order, field_name",
         [entity.table_name]
       );
       

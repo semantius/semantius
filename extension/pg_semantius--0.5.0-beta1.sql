@@ -762,7 +762,7 @@ $pgsem__core_0040_cache_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0045_typeid.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0045_typeid.sql';
       EXECUTE $pgsem__core_0045_typeid_sql$-- =====================================================
@@ -791,7 +791,7 @@ $pgsem__core_0040_cache_sql$;
 -- rights of the role that writes the row, which on the request path is
 -- semantius_user, so the value functions are granted to it; the default
 -- REVOKE from PUBLIC does not hold on its own, see 0020_settings.once.sql.
--- The two trigger functions are not granted: PostgreSQL checks EXECUTE on a
+-- The trigger functions are not granted: PostgreSQL checks EXECUTE on a
 -- trigger function when the trigger is created, not when it fires.
 
 -- -----------------------------------------------------
@@ -1093,12 +1093,23 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 -- common.typeid domain already holds the value to the TypeID format, and it
 -- would reject a malformed id whatever this trigger did.
 --
--- The prefix travels as a trigger argument, not as a lookup in entities, so
--- the check costs no query per row; changing an entity's prefix recreates the
--- trigger (dd_sync_typeid_prefix in 0160_dd_functions.sql). Only inserts are
--- checked: a key can never be updated (common.reject_pk_change), so a row that
--- was valid when it was written stays valid, and rows written under an earlier
--- prefix keep their ids.
+-- The root table of an is_a family also holds the root rows of its subtypes'
+-- records, whose ids carry the subtype's prefix. Those prefixes follow as
+-- TG_ARGV[2] onwards and are accepted only at pg_trigger_depth() > 1, i.e.
+-- from the generated common.record_write_<entity> routine, which inserts the
+-- root row and every part of the record together and checks the prefix of
+-- every id it inserts. A direct insert (depth 1) with a subtype prefix would
+-- create a root row without its parts, so it is refused. That depth test holds
+-- only while nothing else inserts into a root table from inside a trigger: the
+-- dictionary's own triggers do not, RI actions never insert, and module
+-- authors are told not to (AGENTS.md).
+--
+-- The prefixes travel as trigger arguments, not as a lookup in entities, so
+-- the check costs no query per row; changing an entity's prefix, or its
+-- subtypes, recreates the trigger (dd_install_id_triggers in
+-- 0160_dd_functions.sql). Only inserts are checked: a key can never be updated
+-- (common.reject_pk_change), so a row that was valid when it was written stays
+-- valid, and rows written under an earlier prefix keep their ids.
 --
 -- The column is read and written through jsonb because PL/pgSQL cannot address
 -- a record field whose name is only known at run time.
@@ -1114,7 +1125,8 @@ DECLARE
 BEGIN
     IF v_id IS NULL THEN
         NEW := jsonb_populate_record(NEW, jsonb_build_object(v_column, common.typeid_generate_text(v_prefix)));
-    ELSIF common.typeid_prefix(v_id) IS DISTINCT FROM v_prefix THEN
+    ELSIF common.typeid_prefix(v_id) IS DISTINCT FROM v_prefix
+          AND NOT (pg_trigger_depth() > 1 AND common.typeid_prefix(v_id) = ANY (TG_ARGV[2:])) THEN
         RAISE EXCEPTION 'Id ${id} does not carry the prefix ${prefix} of ${table}'
             USING ERRCODE = '90237',
                   HINT = jsonb_build_object('id', v_id, 'prefix', v_prefix, 'table', TG_TABLE_NAME)::text;
@@ -1124,7 +1136,46 @@ END
 $$;
 
 COMMENT ON FUNCTION common.typeid_assign() IS
-'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix). Generates the id when none is supplied and rejects a supplied id without the current prefix (90237).';
+'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix, then the prefixes of its is_a subtypes). Generates the id when none is supplied and rejects a supplied id without the current prefix (90237); a subtype prefix is accepted only from inside a trigger, where the generated write routine inserts the whole record.';
+
+-- -----------------------------------------------------
+-- common.ext_write_guard()  - BEFORE INSERT OR UPDATE OR DELETE on <entity>_ext
+-- -----------------------------------------------------
+-- An is_a or has_a entity stores its own fields in <entity>_ext and its
+-- inherited ones in the tables of its bases; its records are read and written
+-- through the view named after the entity. A write straight into <entity>_ext
+-- would skip the entity's rules and could leave a record with parts missing,
+-- so it is refused (90244) at pg_trigger_depth() < 2. The generated routines
+-- that do write it (common.record_write_<entity>) run inside the view's
+-- INSTEAD OF trigger or the root's dispatch trigger, one level deeper. So do
+-- RI actions, which is why a SET NULL on a reference column of <entity>_ext
+-- still passes (without the entity's rules, since <entity>_ext has no rule
+-- trigger) and why no is_a subtype may declare a cascade (90249): a cascade
+-- would delete one part of a record and leave the rest behind. Module triggers
+-- must not write family tables (AGENTS.md); one that did would pass this test.
+--
+-- The entity is the table name without its suffix, which is unambiguous
+-- because entity names ending in _ext are reserved (valid_table_name).
+CREATE OR REPLACE FUNCTION common.ext_write_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = common, pg_catalog
+AS $$
+BEGIN
+    IF pg_trigger_depth() < 2 THEN
+        RAISE EXCEPTION '${relation} stores part of ${table} records; write them through ${table}'
+            USING ERRCODE = '90244',
+                  HINT = jsonb_build_object('relation', TG_TABLE_NAME, 'table', left(TG_TABLE_NAME, -4))::text;
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+COMMENT ON FUNCTION common.ext_write_guard() IS
+'BEFORE INSERT OR UPDATE OR DELETE trigger of an <entity>_ext table: refuses a direct write (90244). Only the generated write routines of the entity, and RI actions, write it.';
 
 -- -----------------------------------------------------
 -- common.reject_pk_change()  - BEFORE UPDATE OF <key> trigger
@@ -1162,6 +1213,7 @@ REVOKE EXECUTE ON FUNCTION common.typeid_check_text(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_prefix(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_generate_text(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_assign() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.ext_write_guard() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.reject_pk_change() FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION common.uuid_v7() TO semantius_user;
@@ -1173,7 +1225,7 @@ GRANT EXECUTE ON FUNCTION common.typeid_generate_text(text) TO semantius_user;
 $pgsem__core_0045_typeid_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0045_typeid.sql', '1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3')
+        VALUES ('_core.0045_typeid.sql', 'af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5232,11 +5284,21 @@ CREATE TABLE IF NOT EXISTS entities (
     -- changing it would rewrite every key and every foreign key pointing at
     -- one. auto_increment is a 64-bit identity; computed labels only the system
     -- tables whose key is a generated column, and no managed entity may take it.
+    -- is_a (a subtype) and has_a (an optional extension) share the TypeID key of
+    -- the entity named in id_refentity.
     id_type TEXT NOT NULL DEFAULT 'auto_increment',
-    -- The TypeID prefix of a typeid entity, '' for every other key type. Unlike
-    -- id_type it may change: new ids take the new prefix, existing ids keep
-    -- theirs, because a key is never rewritten.
+    -- The TypeID prefix of a typeid or is_a entity, '' for every other key
+    -- type. A typeid entity may change it: new ids take the new prefix,
+    -- existing ids keep theirs, because a key is never rewritten. An is_a
+    -- entity may not (rule 90245): the prefix of an id is what says which
+    -- subtype a record is, so it has to mean the same thing for good.
     id_prefix TEXT NOT NULL DEFAULT '',
+    -- The entity an is_a or has_a entity is based on, NULL for every other key
+    -- type. Its records share the base's key, so the base is chosen when the
+    -- entity is created and never changes (90241, 0160_dd_functions.sql).
+    -- RESTRICT keeps a base from being deleted under its dependents, ON UPDATE
+    -- CASCADE carries a rename of the base.
+    id_refentity TEXT REFERENCES entities(table_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     label_column TEXT NOT NULL DEFAULT 'label',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
@@ -5259,8 +5321,11 @@ CREATE TABLE IF NOT EXISTS entities (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- Validate table_name follows PostgreSQL naming conventions
-    CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
+    -- Validate table_name follows PostgreSQL naming conventions. Names ending
+    -- in _ext are reserved: <entity>_ext is the table that stores the own
+    -- fields of an is_a or has_a entity, and code that sees one derives the
+    -- entity from it by cutting the suffix.
+    CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$' AND table_name !~ '_ext$'),
 
     -- Validate column names follow PostgreSQL naming conventions
     CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
@@ -5289,18 +5354,29 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Inline, like valid_entity_type and for the same reason: the id_type
     -- field row is seeded before the dictionary's enum trigger exists.
     CONSTRAINT valid_id_type CHECK (id_type IN
-        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'computed')),
+        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'is_a', 'has_a', 'computed')),
     -- The TypeID prefix grammar: up to 63 lowercase letters and underscores,
     -- starting and ending with a letter. It is concatenated into every id, so
     -- nothing outside it may get in.
     CONSTRAINT valid_id_prefix CHECK (id_prefix = '' OR id_prefix ~ '^[a-z]([a-z_]{0,61}[a-z])?$'),
-    -- A typeid entity has a prefix and no other kind has one. The spec allows
-    -- an empty prefix, but a bare suffix says nothing about which entity an id
-    -- belongs to, which is the reason to choose TypeIDs at all.
-    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type = 'typeid') = (id_prefix <> ''))
+    -- A typeid or is_a entity has a prefix and no other kind has one. The spec
+    -- allows an empty prefix, but a bare suffix says nothing about which entity
+    -- an id belongs to, which is the reason to choose TypeIDs at all, and an
+    -- is_a record's type is read from its prefix. A has_a entity mints no ids:
+    -- its records take the key of the base record they extend.
+    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type IN ('typeid', 'is_a')) = (id_prefix <> '')),
+    -- Exactly the is_a and has_a entities name a base.
+    CONSTRAINT id_refentity_matches_id_type CHECK ((id_type IN ('is_a', 'has_a')) = (id_refentity IS NOT NULL)),
+    -- An is_a or has_a entity is a view over tables the dictionary built and
+    -- writes through routines it generated; without them there is nothing an
+    -- unmanaged one could describe.
+    CONSTRAINT derived_entity_managed CHECK (id_type NOT IN ('is_a', 'has_a') OR managed)
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
+-- A RESTRICT foreign key into this same table: every entity delete and rename
+-- scans it, and the family code looks dependents up by it.
+CREATE INDEX idx_entities_id_refentity ON entities(id_refentity);
 -- Only the prefixes in use now are unique. An entity that changes its prefix
 -- releases the old one, and another entity may take it, so two entities can
 -- have ids with the same prefix: an id's prefix names the entity it was minted
@@ -5400,7 +5476,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', 'e60729e5f40ed23f6e3e77fb3bed19c9c83199e57732aebc06db51551f603540')
+        VALUES ('_core.0130_dd_schema.once.sql', '84bbf7b96997641ffb209729de2863f974faaad72fd5744bae59026f3411265d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5653,7 +5729,7 @@ $pgsem__core_0140_dd_schema_sql$;
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule, id_type)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'text'),
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'text'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
      '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order', '{}'::jsonb, 'computed'),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'auto_increment'),
@@ -5821,16 +5897,19 @@ VALUES
     ('entities', 'created_at',     'Created At',     '',                                                       '',             'date-time', FALSE, 130, 'disabled', 'default', 'audit', FALSE, '', '',        '', NULL),
     ('entities', 'updated_at',     'Updated At',     '',                                                       '',             'date-time', FALSE, 140, 'disabled', 'default', 'audit', FALSE, '', '',        '', NULL);
 
--- The key type and TypeID prefix of an entity. Their own INSERT because they
--- carry an input_type_rule, which the statement above does not list.
+-- The key type, TypeID prefix and base of an entity. Their own INSERT because
+-- they carry an input_type_rule, which the statement above does not list.
 -- id_type is readonly once the entity exists (created_at is set by the
 -- database, so a record being created has none): rule 90233 refuses the
 -- change anyway, and the UI should not offer it. id_prefix is asked for only
--- when the key type is typeid, where it is required.
+-- when the key type is typeid or is_a, where it is required. id_refentity is
+-- asked for only for is_a and has_a, required while the entity is created and
+-- readonly afterwards, because 90241 refuses the change.
 INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values, input_type_rule)
 VALUES
-    ('entities', 'id_type', 'Id Type', 'Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. computed: system tables whose key is generated from other columns; not available for new entities.', 'auto_increment', 'enum', FALSE, 101, 'required', 'default', 'core', FALSE, '', '', '', '[{"value": "auto_increment", "label": "Auto-increment number"}, {"value": "bigint", "label": "Number (supplied by the caller)"}, {"value": "text", "label": "Text (supplied by the caller)"}, {"value": "uuid", "label": "UUIDv7"}, {"value": "typeid", "label": "TypeID"}, {"value": "computed", "label": "Computed (system tables only)"}]'::jsonb, '{"if":[{"var":"created_at"},"readonly","required"]}'::jsonb),
-    ('entities', 'id_prefix', 'Id Prefix', 'TypeID prefix of a typeid entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. May change later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted.', '', 'text', FALSE, 102, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"==":[{"var":"id_type"},"typeid"]},"required","hidden"]}'::jsonb);
+    ('entities', 'id_type', 'Id Type', 'Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. is_a: a subtype of the typeid or is_a entity named in id_refentity; each record is exactly one type, shares the key of its base record and carries the subtype''s own prefix. has_a: an optional extension of the typeid entity named in id_refentity; a base record has at most one, and it takes the base record''s key. computed: system tables whose key is generated from other columns; not available for new entities.', 'auto_increment', 'enum', FALSE, 101, 'required', 'default', 'core', FALSE, '', '', '', '[{"value": "auto_increment", "label": "Auto-increment number"}, {"value": "bigint", "label": "Number (supplied by the caller)"}, {"value": "text", "label": "Text (supplied by the caller)"}, {"value": "uuid", "label": "UUIDv7"}, {"value": "typeid", "label": "TypeID"}, {"value": "is_a", "label": "Subtype of another entity (is_a)"}, {"value": "has_a", "label": "Extension of another entity (has_a)"}, {"value": "computed", "label": "Computed (system tables only)"}]'::jsonb, '{"if":[{"var":"created_at"},"readonly","required"]}'::jsonb),
+    ('entities', 'id_prefix', 'Id Prefix', 'TypeID prefix of a typeid or is_a entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. A typeid entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is.', '', 'text', FALSE, 102, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"in":[{"var":"id_type"},["typeid","is_a"]]},"required","hidden"]}'::jsonb),
+    ('entities', 'id_refentity', 'Base Entity', 'The entity an is_a or has_a entity is based on, whose key its records share. An is_a entity is based on a typeid or is_a entity, a has_a entity on a typeid entity. Set when the entity is created and never changed; empty for every other key type.', '', 'reference', FALSE, 103, 'hidden', 'default', 'core', FALSE, 'entities', 'restrict', 'is the base of', NULL, '{"if":[{"in":[{"var":"id_type"},["is_a","has_a"]]},{"if":[{"var":"created_at"},"readonly","required"]},"hidden"]}'::jsonb);
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
@@ -5939,7 +6018,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', '9192ed001c22e370ec7f88aea0e2842558580bcf445d2997be2498724948e27e')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', '84dcaf99e6c0ec33ba8e8664c65ccb0a935e60ec872aa49f75b3625aa3b90401')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5976,7 +6055,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f428902f6984404c0dd38d216c90d6efcda9124164bc8feef83745e9e334668d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -6039,8 +6118,151 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
-COMMENT ON FUNCTION format_to_data_type IS 
+COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
+
+-- =====================================================
+-- ENTITY FAMILIES (id_type is_a and has_a)
+-- =====================================================
+-- An is_a entity is a subtype, a has_a entity an optional extension, of the
+-- entity named in its id_refentity (its base); both share the base's TypeID
+-- key. A family is a typeid root and every entity based on it, directly or
+-- through other is_a entities. Every entity of a family is managed
+-- (derived_entity_managed, and 90240/90252 for the bases).
+--
+-- Storage: the root is an ordinary table. A derived entity t keeps its own
+-- fields in the physical table t_ext, whose key references the physical
+-- relation of its base, and is read and written through the view t, which
+-- joins t_ext with the relations of all its bases. The helpers below are what
+-- every piece of the dictionary asks when it has to know which relation holds
+-- an entity's columns, which entities a record spans, and which fields make up
+-- a record.
+
+-- The physical relation of an entity: t_ext for is_a and has_a, the entity's
+-- own table for every other key type. The two-argument form is for callers
+-- that already hold the entity row; the one-argument form looks the key type
+-- up and answers the name itself for an unknown entity.
+CREATE OR REPLACE FUNCTION dd_relation(p_table_name TEXT, p_id_type TEXT)
+RETURNS TEXT AS $$
+    SELECT CASE WHEN p_id_type IN ('is_a', 'has_a') THEN p_table_name || '_ext' ELSE p_table_name END;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_relation(TEXT, TEXT) IS
+'Name of the physical table that holds an entity''s own columns: <entity>_ext for id_type is_a and has_a, the entity name for every other key type.';
+
+CREATE OR REPLACE FUNCTION dd_relation(p_table_name TEXT)
+RETURNS TEXT AS $$
+    SELECT dd_relation(p_table_name, (SELECT e.id_type FROM entities e WHERE e.table_name = p_table_name));
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_relation(TEXT) IS
+'Name of the physical table that holds an entity''s own columns, looked up by the entity''s key type. The entity name itself for an unknown entity.';
+
+-- The entity and the chain of bases above it, root first: depth 0 is the root,
+-- the entity itself has the highest depth. A plain entity is its own chain of
+-- one. id_refentity is write-once and names an entity that already existed, so
+-- the chain cannot loop; the hop limit only keeps a corrupted catalog from
+-- hanging the dictionary.
+CREATE OR REPLACE FUNCTION dd_ancestors(p_table_name TEXT)
+RETURNS TABLE (table_name TEXT, depth INTEGER) AS $$
+    WITH RECURSIVE up(table_name, id_refentity, hops) AS (
+        SELECT e.table_name, e.id_refentity, 0
+          FROM entities e
+         WHERE e.table_name = p_table_name
+        UNION ALL
+        SELECT b.table_name, b.id_refentity, up.hops + 1
+          FROM up
+          JOIN entities b ON b.table_name = up.id_refentity
+         WHERE up.hops < 64
+    )
+    SELECT up.table_name, (max(up.hops) OVER () - up.hops)::integer
+      FROM up
+     ORDER BY 2;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_ancestors(TEXT) IS
+'The chain of an entity: its root at depth 0, then each is_a/has_a level, the entity itself last. A plain entity returns itself alone. Empty for an unknown entity.';
+
+-- Every entity based on this one, directly or further down, with its distance
+-- (1 = based on it directly).
+CREATE OR REPLACE FUNCTION dd_descendants(p_table_name TEXT)
+RETURNS TABLE (table_name TEXT, depth INTEGER) AS $$
+    WITH RECURSIVE down(table_name, depth) AS (
+        SELECT e.table_name, 1
+          FROM entities e
+         WHERE e.id_refentity = p_table_name
+        UNION ALL
+        SELECT e.table_name, down.depth + 1
+          FROM down
+          JOIN entities e ON e.id_refentity = down.table_name
+         WHERE down.depth < 64
+    )
+    SELECT down.table_name, down.depth
+      FROM down
+     ORDER BY down.depth, down.table_name;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_descendants(TEXT) IS
+'Every is_a and has_a entity based on the given entity, directly or through other is_a entities, with its distance (1 = direct).';
+
+-- The fields that make up a record of the entity: the root's fields first,
+-- then each level's, then the entity's own. The bases' key and audit fields are
+-- left out, because the entity's own stand in for them: a record has one key,
+-- and its created_at and updated_at are its own level's. For a derived entity
+-- the key comes first and the audit fields last, the order its view has; a
+-- plain entity keeps its field_order unchanged.
+--
+-- This is the one column source for everything that describes or writes a
+-- whole record: the view, the write routines, the labels, get_schema, the
+-- searchable flag. The fields rows keep their table_name, which names the
+-- entity that owns each field. Rows come in order; a caller that joins them
+-- takes the order from WITH ORDINALITY.
+CREATE OR REPLACE FUNCTION dd_family_fields(p_table_name TEXT)
+RETURNS SETOF fields AS $$
+    WITH chain AS (
+        SELECT a.table_name, a.depth FROM dd_ancestors(p_table_name) a
+    ), top AS (
+        SELECT max(chain.depth) AS n FROM chain
+    )
+    SELECT f.*
+      FROM chain
+      JOIN fields f ON f.table_name = chain.table_name
+     CROSS JOIN top
+     WHERE chain.table_name = p_table_name
+        OR coalesce(f.ctype, '') NOT IN ('id', 'audit')
+     ORDER BY CASE WHEN top.n > 0 AND f.ctype = 'id' THEN -1
+                   WHEN top.n > 0 AND f.ctype = 'audit' THEN top.n + 1
+                   ELSE chain.depth
+              END,
+              f.field_order, f.field_name;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_fields(TEXT) IS
+'The fields rows that make up a record of the entity, in order: for an is_a/has_a entity its key, the fields of its root and of each level (without their key and audit fields), its own fields, then its audit fields; for a plain entity its own fields in field_order. table_name names the entity that owns each field.';
+
+-- An entity's records are readable only by who may view every level they are
+-- stored in: the view is security_invoker and each table keeps its own RLS.
+-- The schema RPCs and get_record_by_id gate on the same condition.
+CREATE OR REPLACE FUNCTION dd_entity_viewable(p_table_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT COALESCE(bool_and(rbac.has_permission(e.view_permission)), FALSE)
+      FROM dd_ancestors(p_table_name) a
+      JOIN entities e ON e.table_name = a.table_name;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
+'TRUE when the current user holds the view_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
+
+-- entities.searchable: some field of the record is searchable. One predicate
+-- for every place that computes the flag, so a derived entity is searchable
+-- when one of its inherited fields is, the way its view's search_vector is.
+CREATE OR REPLACE FUNCTION dd_entity_searchable(p_table_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.searchable);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
+'The value of entities.searchable: TRUE when any field of the entity''s record (dd_family_fields) is searchable.';
 
 -- =====================================================
 -- ENTITY KEY TYPES (entities.id_type)
@@ -6056,6 +6278,8 @@ COMMENT ON FUNCTION format_to_data_type IS
 --   text            TEXT, supplied by the caller                  text
 --   uuid            UUID DEFAULT common.uuid_v7()                 uuid
 --   typeid          common.typeid, filled by common.typeid_assign string
+--   is_a, has_a     common.typeid in <entity>_ext, referencing     string
+--                   the base's relation (ENTITY FAMILIES above)
 --   computed        system tables only: a generated column        text
 --
 -- BY DEFAULT rather than ALWAYS: seeds, imports and ensure_entities write
@@ -6072,6 +6296,8 @@ RETURNS TEXT AS $$
         WHEN 'bigint'         THEN 'BIGINT'
         WHEN 'uuid'           THEN 'UUID'
         WHEN 'typeid'         THEN 'COMMON.TYPEID'
+        WHEN 'is_a'           THEN 'COMMON.TYPEID'
+        WHEN 'has_a'          THEN 'COMMON.TYPEID'
         ELSE 'TEXT'  -- text, and computed, whose system keys are generated TEXT
     END;
 $$ LANGUAGE sql IMMUTABLE SET search_path = public;
@@ -6086,9 +6312,17 @@ COMMENT ON FUNCTION dd_id_type_data_type(TEXT) IS
 --                    required for bigint and text, which the caller supplies
 --   input_type_rule  for bigint and text, required while the key is empty and
 --                    readonly once it is set, because a key never changes; the
---                    rule reads the entity's real id_column, not a fixed "id"
+--                    rule reads the entity's real id_column, not a fixed "id".
+--                    has_a likewise, but optional: an id names the base record
+--                    to attach to, none creates a new one
 -- Raises 90234 for computed: those keys are generated columns over other
 -- columns of a system table, which the dictionary cannot define.
+--
+-- For is_a and has_a the column is the key of <entity>_ext: the base record's
+-- key, a RESTRICT foreign key to the base's physical relation, so a part can
+-- never outlive the record it belongs to and a record is deleted bottom-up,
+-- part by part, by the write routines. The entity row must already exist,
+-- which it does in create_dd_table (AFTER INSERT).
 CREATE OR REPLACE FUNCTION dd_id_column_ddl(
     p_table_name TEXT,
     p_id_column TEXT,
@@ -6098,6 +6332,8 @@ CREATE OR REPLACE FUNCTION dd_id_column_ddl(
     OUT input_type TEXT,
     OUT input_type_rule JSONB
 ) AS $$
+DECLARE
+    v_base TEXT;
 BEGIN
     input_type := 'readonly';
     input_type_rule := '{}'::jsonb;
@@ -6120,6 +6356,16 @@ BEGIN
             -- NULL of the primary key is checked, and it knows the prefix.
             column_ddl := format('%I common.typeid PRIMARY KEY', p_id_column);
             id_format := 'string';
+        WHEN 'is_a', 'has_a' THEN
+            SELECT e.id_refentity INTO v_base FROM entities e WHERE e.table_name = p_table_name;
+            column_ddl := format('%I common.typeid PRIMARY KEY REFERENCES public.%I(%I) ON DELETE RESTRICT',
+                p_id_column, dd_relation(v_base), p_id_column);
+            id_format := 'string';
+            IF p_id_type = 'has_a' THEN
+                input_type := 'default';
+                input_type_rule := jsonb_build_object('if',
+                    jsonb_build_array(jsonb_build_object('var', p_id_column), 'readonly', 'default'));
+            END IF;
         ELSE
             RAISE EXCEPTION 'id_type ${id_type} is reserved for system tables and cannot be used for entity ${table}'
                 USING ERRCODE = '90234',
@@ -6135,7 +6381,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) IS
-'Key column DDL and id field row values (format, input_type, input_type_rule) for an entity''s id_type. Used by create_dd_table and enable_dd_table so both paths build the same key. Raises 90234 for computed.';
+'Key column DDL and id field row values (format, input_type, input_type_rule) for an entity''s id_type. Used by create_dd_table and enable_dd_table so both paths build the same key. For is_a/has_a the key of <entity>_ext, referencing the base''s relation. Raises 90234 for computed.';
 
 -- Refuses to adopt an existing table whose key column does not match the
 -- entity's id_type (90235). Registering an entity onto a table that already
@@ -6206,36 +6452,50 @@ $$ LANGUAGE plpgsql STABLE SET search_path = public;
 COMMENT ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) IS
 'Raises 90235 when an existing table''s key column does not match the entity''s id_type (or is missing). auto_increment accepts a BIGINT identity or bigserial.';
 
--- The key's triggers on an entity table:
+-- The key's triggers on an entity's physical relation:
 --   pk_immutable  BEFORE UPDATE OF <key>: common.reject_pk_change, for every
 --                 key type - keys are set once
---   typeid_assign BEFORE INSERT: common.typeid_assign with the current prefix,
---                 for typeid keys only
+--   typeid_assign BEFORE INSERT: common.typeid_assign with the current prefix
+--                 and the prefixes of the entity's is_a subtypes, for typeid
+--                 keys only (an is_a or has_a entity takes its ids from the
+--                 root)
 -- Neither name embeds the table name, so rename_dd_table has nothing to
--- rename, and both are dropped with the table. The prefix is a trigger
--- argument, quoted with %L; dd_sync_typeid_prefix below recreates the trigger
--- when it changes.
+-- rename, and both are dropped with the table. The prefixes are trigger
+-- arguments, quoted with %L. This is the one installer of typeid_assign, and
+-- it computes the subtype list itself, so every path that installs the trigger
+-- - create_dd_table, enable_dd_table, dd_sync_typeid_prefix on a prefix change
+-- and the family refresh when a subtype comes or goes - installs the same one.
+-- A trigger with the root's prefix alone would refuse every subtype insert.
 CREATE OR REPLACE FUNCTION dd_install_id_triggers(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_id_prefix TEXT)
 RETURNS VOID AS $$
+DECLARE
+    v_rel     TEXT := dd_relation(p_table_name, p_id_type);
+    v_subtype TEXT;
 BEGIN
     EXECUTE format(
         'CREATE OR REPLACE TRIGGER pk_immutable BEFORE UPDATE OF %I ON public.%I
             FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change(%L)',
-        p_id_column, p_table_name, p_id_column);
+        p_id_column, v_rel, p_id_column);
 
     IF p_id_type = 'typeid' THEN
+        SELECT string_agg(format(', %L', e.id_prefix), '' ORDER BY e.id_prefix)
+          INTO v_subtype
+          FROM dd_descendants(p_table_name) d
+          JOIN entities e ON e.table_name = d.table_name
+         WHERE e.id_type = 'is_a';
         EXECUTE format(
             'CREATE OR REPLACE TRIGGER typeid_assign BEFORE INSERT ON public.%I
-                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%L, %L)',
-            p_table_name, p_id_column, p_id_prefix);
+                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%L, %L%s)',
+            v_rel, p_id_column, p_id_prefix, coalesce(v_subtype, ''));
     END IF;
 END;
 -- SECURITY INVOKER: its callers (create_dd_table, enable_dd_table,
--- dd_sync_typeid_prefix) are SECURITY DEFINER and already run as the owner.
+-- dd_sync_typeid_prefix, dd_refresh_family) are SECURITY DEFINER and already
+-- run as the owner.
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
 
 COMMENT ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) IS
-'Creates the pk_immutable trigger (every key type) and, for typeid keys, the typeid_assign insert trigger carrying the current prefix, on an entity table.';
+'Creates the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid keys, the typeid_assign insert trigger carrying the current prefix and the prefixes of the entity''s is_a subtypes.';
 
 -- =====================================================
 -- HELPER FUNCTION: FIELD TO COLUMN DATA TYPE
@@ -6562,14 +6822,20 @@ COMMENT ON FUNCTION dd_field_comment IS
 -- SELECT, UPDATE and DELETE. create_dd_table calls it for every new entity;
 -- 0240_dd_bootstrap_complete.once.sql calls it for the core tables that were
 -- registered before the dictionary existed.
+--
+-- The policies go on the entity's physical relation and are named after it
+-- (<entity>_ext_select_policy for an is_a or has_a entity): each table of a
+-- family carries its own entity's policies only, and the security_invoker view
+-- and the invoker write routines apply all of them to a record.
 CREATE OR REPLACE FUNCTION create_entity_policies(p_table_name TEXT)
 RETURNS VOID AS $$
 DECLARE
     v_view_permission TEXT;
     v_edit_permission TEXT;
+    v_id_type         TEXT;
 BEGIN
-    SELECT view_permission, edit_permission
-      INTO v_view_permission, v_edit_permission
+    SELECT view_permission, edit_permission, id_type
+      INTO v_view_permission, v_edit_permission, v_id_type
       FROM entities
      WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -6577,6 +6843,7 @@ BEGIN
             USING ERRCODE = '90231',
                   HINT = jsonb_build_object('table', p_table_name)::text;
     END IF;
+    p_table_name := dd_relation(p_table_name, v_id_type);
 
     -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
     -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
@@ -6626,7 +6893,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
 
 COMMENT ON FUNCTION create_entity_policies(TEXT) IS
-'Creates the four RLS policies of a managed entity from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
+'Creates the four RLS policies of a managed entity on its physical relation from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
@@ -6636,11 +6903,13 @@ CREATE OR REPLACE FUNCTION create_dd_table()
 RETURNS TRIGGER AS $$
 DECLARE
     v_create_sql TEXT;
-    v_policy_sql TEXT;
     v_comment    TEXT;
     v_sequence_name TEXT;
     v_key        RECORD;
     v_existed    BOOLEAN;
+    v_derived    BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
+    v_rel        TEXT := dd_relation(NEW.table_name, NEW.id_type);
+    v_name       TEXT;
 BEGIN
     -- Skip DDL execution if table is not managed
     IF NOT NEW.managed THEN
@@ -6650,20 +6919,45 @@ BEGIN
 
     -- Raises 90234 for id_type computed, before anything is created.
     v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
-    v_existed := to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL;
 
-    -- Build CREATE TABLE statement
-    v_create_sql := format(
-        'CREATE TABLE IF NOT EXISTS public.%I (
-            %s,
-            %I TEXT NOT NULL DEFAULT '''',
-            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )',
-        NEW.table_name,
-        v_key.column_ddl,
-        NEW.label_column
-    );
+    IF v_derived THEN
+        -- An is_a or has_a entity is the view <entity> over the table
+        -- <entity>_ext and its bases. Neither name may be taken: unlike a
+        -- plain entity, which adopts a table that is already there, this one
+        -- has nothing to adopt, and CREATE TABLE IF NOT EXISTS would silently
+        -- keep a stranger's table as its storage.
+        FOREACH v_name IN ARRAY ARRAY[NEW.table_name, v_rel] LOOP
+            IF to_regclass(format('public.%I', v_name)) IS NOT NULL THEN
+                RAISE EXCEPTION 'Table name ${relation} is already in use'
+                    USING ERRCODE = '90250',
+                          HINT = jsonb_build_object('relation', v_name)::text;
+            END IF;
+        END LOOP;
+        v_existed := FALSE;
+        -- No label column: the record's label is its root's.
+        v_create_sql := format(
+            'CREATE TABLE public.%I (
+                %s,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )',
+            v_rel,
+            v_key.column_ddl
+        );
+    ELSE
+        v_existed := to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL;
+        v_create_sql := format(
+            'CREATE TABLE IF NOT EXISTS public.%I (
+                %s,
+                %I TEXT NOT NULL DEFAULT '''',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )',
+            NEW.table_name,
+            v_key.column_ddl,
+            NEW.label_column
+        );
+    END IF;
 
     -- Create the table
     EXECUTE v_create_sql;
@@ -6674,11 +6968,11 @@ BEGIN
         PERFORM dd_check_id_column(NEW.table_name, NEW.id_column, NEW.id_type);
     END IF;
     PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
-    
+
     -- Set table comment: plural label summary + optional description
     v_comment := dd_table_comment(NEW.plural_label, NEW.description);
     IF v_comment IS NOT NULL THEN
-        EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
+        EXECUTE format('COMMENT ON TABLE %I IS %L', v_rel, v_comment);
     END IF;
 
     -- Add updated_at trigger using common schema function
@@ -6687,13 +6981,25 @@ BEGIN
             BEFORE UPDATE ON %I
             FOR EACH ROW
             EXECUTE FUNCTION common.update_updated_at_column()',
-        'update_' || NEW.table_name || '_updated_at',
-        NEW.table_name
+        'update_' || v_rel || '_updated_at',
+        v_rel
     );
-    
+
+    -- Only the entity's write routines write <entity>_ext (90244). The name
+    -- sorts before every other BEFORE trigger, so a refused write runs nothing.
+    IF v_derived THEN
+        EXECUTE format(
+            'CREATE TRIGGER a_ext_write_guard
+                BEFORE INSERT OR UPDATE OR DELETE ON public.%I
+                FOR EACH ROW
+                EXECUTE FUNCTION common.ext_write_guard()',
+            v_rel
+        );
+    END IF;
+
     -- Enable RLS on the new table
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', NEW.table_name);
-    
+    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', v_rel);
+
     -- The four RLS policies (view_permission for SELECT, edit_permission for
     -- INSERT, UPDATE and DELETE).
     PERFORM create_entity_policies(NEW.table_name);
@@ -6705,10 +7011,11 @@ BEGIN
     -- permission model is not yet in place. Ordering it first would not actually
     -- expose anything - RLS with no policy denies every non-owner - but the
     -- table would then be published by a statement that has not yet decided who
-    -- may read it.
+    -- may read it. <entity>_ext is granted like any entity table: the write
+    -- routines run as the caller, and its view is security_invoker.
     EXECUTE format(
         'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
-        NEW.table_name
+        v_rel
     );
     -- An identity column's sequence is owned by it, so pg_get_serial_sequence
     -- finds it as it finds a serial's. The column exists: a table that was
@@ -6718,11 +7025,11 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public'
-          AND table_name   = NEW.table_name
+          AND table_name   = v_rel
           AND column_name  = NEW.id_column
     ) THEN
         v_sequence_name := pg_get_serial_sequence(
-            format('public.%I', NEW.table_name), NEW.id_column);
+            format('public.%I', v_rel), NEW.id_column);
         IF v_sequence_name IS NOT NULL THEN
             EXECUTE format(
                 'GRANT USAGE, SELECT ON SEQUENCE %s TO semantius_user',
@@ -6737,12 +7044,19 @@ BEGIN
     -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
     -- The label column is marked as searchable=TRUE for full-text search.
+    -- An is_a or has_a entity gets no label row: its label field is its
+    -- root's. This INSERT is also what builds its view: the statement-level
+    -- field triggers end in the family refresh (dd_refresh_family), so the
+    -- view exists before the label triggers on entities fire.
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
-    VALUES
+    SELECT *
+      FROM (VALUES
         (NEW.table_name, NEW.id_column, 'Id', v_key.id_format, TRUE, 10, v_key.input_type, 'default', 'id', FALSE, '', '', v_key.input_type_rule),
         (NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '', '{}'::jsonb),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb),
-        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb);
+        (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb)
+      ) AS v(table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
+     WHERE NOT (v_derived AND v.ctype = 'label');
 
     -- entities.searchable needs no write here. The INSERT above is a statement
     -- of its own even inside this trigger, so handle_field_searchable_insert_trigger
@@ -6754,8 +7068,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION create_dd_table IS 
-'Trigger function that creates a table with RLS policies when a row is inserted into entities table.';
+COMMENT ON FUNCTION create_dd_table IS
+'Trigger function that creates a table with RLS policies when a row is inserted into entities table. For an is_a or has_a entity it creates <entity>_ext with its write guard; its view comes from the family refresh the field rows trigger.';
 
 -- Apply trigger AFTER INSERT on entities
 CREATE OR REPLACE TRIGGER create_table_trigger
@@ -6775,9 +7089,10 @@ CREATE OR REPLACE FUNCTION update_dd_table_comment()
 RETURNS TRIGGER AS $$
 DECLARE
     v_comment TEXT;
+    v_rel     TEXT := dd_relation(NEW.table_name, NEW.id_type);
 BEGIN
     -- Only managed tables that physically exist have a table to comment on
-    IF NOT NEW.managed OR to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
+    IF NOT NEW.managed OR to_regclass(format('public.%I', v_rel)) IS NULL THEN
         RETURN NEW;
     END IF;
 
@@ -6786,10 +7101,11 @@ BEGIN
        OR OLD.description IS DISTINCT FROM NEW.description
        OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
         v_comment := dd_table_comment(NEW.plural_label, NEW.description);
-        IF v_comment IS NOT NULL THEN
-            EXECUTE format('COMMENT ON TABLE %I IS %L', NEW.table_name, v_comment);
-        ELSE
-            EXECUTE format('COMMENT ON TABLE %I IS NULL', NEW.table_name);
+        EXECUTE format('COMMENT ON TABLE %I IS %L', v_rel, v_comment);
+        -- An is_a or has_a entity is read through its view, which is what
+        -- PostgREST describes, so the view carries the same comment.
+        IF v_rel <> NEW.table_name AND to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL THEN
+            EXECUTE format('COMMENT ON VIEW %I IS %L', NEW.table_name, v_comment);
         END IF;
     END IF;
 
@@ -6798,7 +7114,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_dd_table_comment IS
-'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata.';
+'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata. An is_a or has_a entity''s view gets the same comment as its <entity>_ext table.';
 
 CREATE OR REPLACE TRIGGER update_table_comment_trigger
     AFTER UPDATE ON entities
@@ -6871,12 +7187,17 @@ DECLARE
     v_idx_name TEXT;
     v_on_delete TEXT;
     v_comment TEXT;
+    v_rel TEXT;
 BEGIN
     -- Suppress IF NOT EXISTS/IF EXISTS notices
     SET LOCAL client_min_messages = WARNING;
     
     -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
+    -- The column goes into the entity's physical relation: <entity>_ext for
+    -- an is_a or has_a entity, whose view the family refresh rebuilds after
+    -- this statement.
+    SELECT managed, dd_relation(table_name, id_type) INTO v_is_managed, v_rel
+      FROM entities WHERE table_name = NEW.table_name;
     
     IF NOT v_is_managed THEN
         -- No DDL, but a column that already exists still gets its comment, as the
@@ -6884,12 +7205,12 @@ BEGIN
         IF EXISTS (
             SELECT 1 FROM information_schema.columns
             WHERE table_schema = 'public'
-              AND table_name   = NEW.table_name
+              AND table_name   = v_rel
               AND column_name  = NEW.field_name
         ) THEN
             v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
             IF v_comment IS NOT NULL THEN
-                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
             END IF;
         END IF;
         RAISE NOTICE 'Skipping field addition for "%.%" (table managed=false)', NEW.table_name, NEW.field_name;
@@ -6905,7 +7226,7 @@ BEGIN
         -- Still set the column comment (title/format summary + description [+ enum values])
         v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
         IF v_comment IS NOT NULL THEN
-            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
         END IF;
         RETURN NEW;
     END IF;
@@ -6959,7 +7280,7 @@ BEGIN
     -- Build ALTER TABLE statement
     v_alter_sql := format(
         'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
-        NEW.table_name,
+        v_rel,
         NEW.field_name,
         v_data_type,
         v_nullable_clause,
@@ -6972,7 +7293,7 @@ BEGIN
     -- Set column comment: title/format summary + description [+ enum values]
     v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
     IF v_comment IS NOT NULL THEN
-        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
+        EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
     END IF;
 
     -- If this is a primary key field, set it as primary key
@@ -6992,13 +7313,13 @@ BEGIN
         -- Add primary key constraint
         EXECUTE format(
             'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-            NEW.table_name,
-            NEW.table_name || '_pkey'
+            v_rel,
+            v_rel || '_pkey'
         );
         
         EXECUTE format(
             'ALTER TABLE %I ADD PRIMARY KEY (%I)',
-            NEW.table_name,
+            v_rel,
             NEW.field_name
         );
     END IF;
@@ -7026,19 +7347,22 @@ BEGIN
         END IF;
         
         -- Generate foreign key constraint name
-        v_fk_name := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
+        v_fk_name := format('%s_%s_fkey', v_rel, NEW.field_name);
         
         -- Add foreign key constraint (skip if constraint already exists - e.g. pre-existing schema FKs)
         -- ON UPDATE CASCADE carries a rewritten key value down to the referencing
         -- rows, which is what makes a referenced TEXT PK renameable (e.g.
         -- entities.table_name). A surrogate INTEGER key is never rewritten, so
         -- the clause sits there unused rather than doing something different.
+        -- A reference to an is_a or has_a entity points at its <entity>_ext
+        -- table: a view cannot be the target of a foreign key, and the record
+        -- exists exactly when that part of it does.
         v_alter_sql := format(
             'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
-            NEW.table_name,
+            v_rel,
             v_fk_name,
             NEW.field_name,
-            NEW.reference_table,
+            dd_relation(NEW.reference_table),
             v_ref_id_column,
             v_on_delete
         );
@@ -7050,11 +7374,11 @@ BEGIN
         END;
         
         -- Create index for foreign key
-        v_idx_name := format('idx_%s_%s', NEW.table_name, NEW.field_name);
+        v_idx_name := format('idx_%s_%s', v_rel, NEW.field_name);
         v_alter_sql := format(
             'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
             v_idx_name,
-            NEW.table_name,
+            v_rel,
             NEW.field_name
         );
         EXECUTE v_alter_sql;
@@ -7068,7 +7392,7 @@ BEGIN
             v_effective_enum JSONB;
         BEGIN
             -- Generate CHECK constraint name
-            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
+            v_check_name := format('%s_%s_check', v_rel, NEW.field_name);
             
             -- Compute effective allowed values (adds '' for non-required enums)
             v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
@@ -7082,7 +7406,7 @@ BEGIN
             -- Add CHECK constraint
             v_alter_sql := format(
                 'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                NEW.table_name,
+                v_rel,
                 v_check_name,
                 NEW.field_name,
                 v_enum_values_sql
@@ -7100,7 +7424,7 @@ BEGIN
             v_unique_idx_name TEXT;
             v_where_clause TEXT;
         BEGIN
-            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
+            v_unique_idx_name := format('%s_%s_unique', v_rel, NEW.field_name);
             -- For string types, exclude NULL and empty string from uniqueness enforcement
             IF format_to_json_type(NEW.format)::text = '"string"' THEN
                 v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
@@ -7110,7 +7434,7 @@ BEGIN
             EXECUTE format(
                 'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
                 v_unique_idx_name,
-                NEW.table_name,
+                v_rel,
                 NEW.field_name,
                 v_where_clause
             );
@@ -7150,9 +7474,12 @@ DECLARE
     v_idx_name       TEXT;
     v_on_delete      TEXT;
     v_comment        TEXT;
+    v_rel            TEXT;
 BEGIN
-    -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = NEW.table_name;
+    -- Check if the parent table is managed. The DDL below goes to the entity's
+    -- physical relation, <entity>_ext for an is_a or has_a entity.
+    SELECT managed, dd_relation(table_name, id_type) INTO v_is_managed, v_rel
+      FROM entities WHERE table_name = NEW.table_name;
 
     -- Prevent changing critical attributes
     IF OLD.table_name <> NEW.table_name THEN
@@ -7208,14 +7535,14 @@ BEGIN
            AND EXISTS (
                SELECT 1 FROM information_schema.columns
                WHERE table_schema = 'public'
-                 AND table_name   = NEW.table_name
+                 AND table_name   = v_rel
                  AND column_name  = NEW.field_name
            ) THEN
             v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
             IF v_comment IS NOT NULL THEN
-                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
             ELSE
-                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
+                EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', v_rel, NEW.field_name);
             END IF;
         END IF;
 
@@ -7228,7 +7555,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_schema = 'public'
-          AND table_name   = NEW.table_name
+          AND table_name   = v_rel
           AND column_name  = NEW.field_name
     ) THEN
         PERFORM apply_field_ddl(NEW);
@@ -7243,9 +7570,9 @@ BEGIN
        OR OLD.enum_values IS DISTINCT FROM NEW.enum_values THEN
         v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
         IF v_comment IS NOT NULL THEN
-            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', NEW.table_name, NEW.field_name, v_comment);
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
         ELSE
-            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', NEW.table_name, NEW.field_name);
+            EXECUTE format('COMMENT ON COLUMN %I.%I IS NULL', v_rel, NEW.field_name);
         END IF;
     END IF;
 
@@ -7277,12 +7604,12 @@ BEGIN
         IF is_nullable(NEW.format) THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP NOT NULL',
-                NEW.table_name, NEW.field_name
+                v_rel, NEW.field_name
             );
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET NOT NULL',
-                NEW.table_name, NEW.field_name
+                v_rel, NEW.field_name
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -7295,12 +7622,12 @@ BEGIN
         IF NEW.default_value IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
-                NEW.table_name, NEW.field_name
+                v_rel, NEW.field_name
             );
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                NEW.table_name, NEW.field_name,
+                v_rel, NEW.field_name,
                 quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
             );
         END IF;
@@ -7311,8 +7638,8 @@ BEGIN
 
     -- Handle foreign key reference changes
     IF OLD.format IN ('reference', 'parent') OR NEW.format IN ('reference', 'parent') THEN
-        v_fk_name  := format('%s_%s_fkey', NEW.table_name, NEW.field_name);
-        v_idx_name := format('idx_%s_%s',  NEW.table_name, NEW.field_name);
+        v_fk_name  := format('%s_%s_fkey', v_rel, NEW.field_name);
+        v_idx_name := format('idx_%s_%s',  v_rel, NEW.field_name);
 
         IF (OLD.reference_table IS DISTINCT FROM NEW.reference_table) OR
            (OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode) OR
@@ -7322,7 +7649,7 @@ BEGIN
             IF OLD.format IN ('reference', 'parent') THEN
                 EXECUTE format(
                     'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                    NEW.table_name, v_fk_name
+                    v_rel, v_fk_name
                 );
                 RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
             END IF;
@@ -7351,14 +7678,14 @@ BEGIN
 
                 v_alter_sql := format(
                     'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
-                    NEW.table_name, v_fk_name, NEW.field_name,
-                    NEW.reference_table, v_ref_id_column, v_on_delete
+                    v_rel, v_fk_name, NEW.field_name,
+                    dd_relation(NEW.reference_table), v_ref_id_column, v_on_delete
                 );
                 EXECUTE v_alter_sql;
 
                 v_alter_sql := format(
                     'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
-                    v_idx_name, NEW.table_name, NEW.field_name
+                    v_idx_name, v_rel, NEW.field_name
                 );
                 EXECUTE v_alter_sql;
 
@@ -7379,7 +7706,7 @@ BEGIN
             v_enum_values_sql TEXT;
             v_effective_enum  JSONB;
         BEGIN
-            v_check_name := format('%s_%s_check', NEW.table_name, NEW.field_name);
+            v_check_name := format('%s_%s_check', v_rel, NEW.field_name);
 
             IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
                OR (OLD.format <> NEW.format)
@@ -7387,7 +7714,7 @@ BEGIN
                 IF OLD.format = 'enum' THEN
                     EXECUTE format(
                         'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        NEW.table_name, v_check_name
+                        v_rel, v_check_name
                     );
                     RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
                 END IF;
@@ -7404,7 +7731,7 @@ BEGIN
                     );
                     v_alter_sql := format(
                         'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        NEW.table_name, v_check_name, NEW.field_name, v_enum_values_sql
+                        v_rel, v_check_name, NEW.field_name, v_enum_values_sql
                     );
                     EXECUTE v_alter_sql;
                     RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
@@ -7420,7 +7747,7 @@ BEGIN
             v_unique_idx_name TEXT;
             v_where_clause    TEXT;
         BEGIN
-            v_unique_idx_name := format('%s_%s_unique', NEW.table_name, NEW.field_name);
+            v_unique_idx_name := format('%s_%s_unique', v_rel, NEW.field_name);
             IF NEW.unique_value THEN
                 IF format_to_json_type(NEW.format)::text = '"string"' THEN
                     v_where_clause := format('%I IS NOT NULL AND %I != ''''',
@@ -7430,7 +7757,7 @@ BEGIN
                 END IF;
                 EXECUTE format(
                     'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
-                    v_unique_idx_name, NEW.table_name, NEW.field_name, v_where_clause
+                    v_unique_idx_name, v_rel, NEW.field_name, v_where_clause
                 );
                 RAISE NOTICE 'Created unique index "%" for field "%.%"',
                     v_unique_idx_name, NEW.table_name, NEW.field_name;
@@ -7471,6 +7798,7 @@ DECLARE
     v_table_exists BOOLEAN;
     v_fk_name TEXT;
     v_idx_name TEXT;
+    v_rel TEXT;
 BEGIN
     -- Check if the parent table still exists in entities table
     -- If it doesn't exist, this deletion is part of a CASCADE from table deletion, so allow it
@@ -7490,7 +7818,8 @@ BEGIN
     END IF;
     
     -- Check if the parent table is managed
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
+    SELECT managed, dd_relation(table_name, id_type) INTO v_is_managed, v_rel
+      FROM entities WHERE table_name = OLD.table_name;
     
     IF NOT v_is_managed THEN
         RAISE NOTICE 'Skipping field deletion for "%.%" (table managed=false)', OLD.table_name, OLD.field_name;
@@ -7499,16 +7828,16 @@ BEGIN
     
     -- Drop foreign key constraint if this is a reference or parent field
     IF OLD.format IN ('reference', 'parent') THEN
-        v_fk_name := format('%s_%s_fkey', OLD.table_name, OLD.field_name);
+        v_fk_name := format('%s_%s_fkey', v_rel, OLD.field_name);
         EXECUTE format(
             'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-            OLD.table_name,
+            v_rel,
             v_fk_name
         );
         RAISE NOTICE 'Dropped foreign key constraint "%"', v_fk_name;
         
         -- Drop index for foreign key
-        v_idx_name := format('idx_%s_%s', OLD.table_name, OLD.field_name);
+        v_idx_name := format('idx_%s_%s', v_rel, OLD.field_name);
         EXECUTE format(
             'DROP INDEX IF EXISTS %I',
             v_idx_name
@@ -7518,14 +7847,16 @@ BEGIN
     
     -- Drop unique index if unique_value was set
     IF OLD.unique_value THEN
-        EXECUTE format('DROP INDEX IF EXISTS %I', format('%s_%s_unique', OLD.table_name, OLD.field_name));
-        RAISE NOTICE 'Dropped unique index "%"', format('%s_%s_unique', OLD.table_name, OLD.field_name);
+        EXECUTE format('DROP INDEX IF EXISTS %I', format('%s_%s_unique', v_rel, OLD.field_name));
+        RAISE NOTICE 'Dropped unique index "%"', format('%s_%s_unique', v_rel, OLD.field_name);
     END IF;
     
-    -- Drop the column (CASCADE to drop any dependent objects like generated columns)
+    -- Drop the column (CASCADE to drop any dependent objects like generated
+    -- columns, and the views of the entity and its descendants that show it,
+    -- which the family refresh at the end of the statement rebuilds)
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS %I CASCADE',
-        OLD.table_name,
+        v_rel,
         OLD.field_name
     );
     
@@ -7551,24 +7882,82 @@ CREATE OR REPLACE TRIGGER delete_field_trigger
 
 CREATE OR REPLACE FUNCTION delete_dd_table()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_derived    BOOLEAN := OLD.id_type IN ('is_a', 'has_a');
+    v_rel        TEXT := dd_relation(OLD.table_name, OLD.id_type);
+    v_dependents TEXT;
+    v_has_rows   BOOLEAN := FALSE;
 BEGIN
+    -- The family refusals come first, before anything is dropped.
+    --
+    -- A base may not go while entities are based on it: their records are
+    -- partly stored in its table. A dependent whose module row is already gone
+    -- does not count - it is being deleted by the same module-delete cascade,
+    -- in whatever order the cascade reaches the rows. The RESTRICT foreign key
+    -- entities_id_refentity_fkey is the backstop for anything this misses.
+    SELECT string_agg(d.table_name, ', ' ORDER BY d.table_name)
+      INTO v_dependents
+      FROM entities d
+      JOIN modules m ON m.id = d.module_id
+     WHERE d.id_refentity = OLD.table_name;
+    IF v_dependents IS NOT NULL THEN
+        RAISE EXCEPTION 'Entity ${table} cannot be deleted while ${dependents} are based on it'
+            USING ERRCODE = '90248',
+                  HINT = jsonb_build_object('table', OLD.table_name, 'dependents', v_dependents)::text;
+    END IF;
+
+    -- A plain entity is dropped with its data. A family entity is not: its
+    -- records span several tables, and dropping one of them would leave the
+    -- rest of every record behind (or, for a base, drop the foreign keys that
+    -- hold its dependents' parts to it). The records go first, through the
+    -- entity, where every part's rules and permissions apply. This holds
+    -- inside a module-delete cascade too, which is therefore refused while a
+    -- family entity of the module still has records. As the definer, which
+    -- owns the table, the count sees every row, not only the caller's.
+    IF OLD.managed
+       AND (v_derived OR EXISTS (SELECT 1 FROM entities d WHERE d.id_refentity = OLD.table_name))
+       AND to_regclass(format('public.%I', v_rel)) IS NOT NULL THEN
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)', v_rel) INTO v_has_rows;
+    END IF;
+    IF v_has_rows THEN
+        RAISE EXCEPTION 'Entity ${table} still has records; delete them first'
+            USING ERRCODE = '90247',
+                  HINT = jsonb_build_object('table', OLD.table_name)::text;
+    END IF;
+
     -- Skip DDL execution if table is not managed
     IF NOT OLD.managed THEN
         RAISE NOTICE 'Skipping table deletion for "%" (managed=false)', OLD.table_name;
         RETURN OLD;
     END IF;
-    
-    -- Drop the table (CASCADE will drop all dependent objects)
-    EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', OLD.table_name);
-    
+
+    IF v_derived THEN
+        -- The view takes its INSTEAD OF trigger, the write routine and the
+        -- label functions (all typed by its row type) with it; the trigger
+        -- function and the rules are dropped by name. IF EXISTS throughout: in
+        -- a module-delete cascade the base may have gone first, and its DROP
+        -- TABLE ... CASCADE took this view already. The rest of the family is
+        -- rebuilt without this entity by zz_family_refresh_delete_trigger.
+        EXECUTE format('DROP VIEW IF EXISTS public.%I CASCADE', OLD.table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', 'view_write_' || OLD.table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', 'record_rules_' || OLD.table_name);
+        EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', v_rel);
+    ELSE
+        -- Drop the table (CASCADE will drop all dependent objects)
+        EXECUTE format('DROP TABLE IF EXISTS %I CASCADE', OLD.table_name);
+        -- A family root reaches here only in a module-delete cascade, where its
+        -- dispatch trigger went with the table and the function stays behind.
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', 'is_a_dispatch_' || OLD.table_name);
+    END IF;
+
     RAISE NOTICE 'Dropped table "%"', OLD.table_name;
-    
+
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION delete_dd_table IS 
-'Trigger function that drops a table when a row is deleted from entities table.';
+COMMENT ON FUNCTION delete_dd_table IS
+'Trigger function that drops a table when a row is deleted from entities table. Refuses first when entities are still based on it (90248) or when an is_a/has_a family entity still has records (90247); for an is_a or has_a entity it drops the view, its generated routines and <entity>_ext.';
 
 -- Apply trigger BEFORE DELETE on entities
 -- Note: Fields will be deleted via CASCADE on the foreign key
@@ -7588,6 +7977,8 @@ CREATE OR REPLACE TRIGGER delete_table_trigger
 
 CREATE OR REPLACE FUNCTION update_entity_policies()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_rel TEXT := dd_relation(NEW.table_name, NEW.id_type);
 BEGIN
     -- Only act on managed tables that have physical RLS policies
     IF NOT NEW.managed THEN
@@ -7597,10 +7988,10 @@ BEGIN
     -- Sub-select form: see the note in create_dd_table (P1).
     -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
-        NEW.table_name || '_insert_policy', NEW.table_name);
+        v_rel || '_insert_policy', v_rel);
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR INSERT TO semantius_user WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission);
+        v_rel || '_insert_policy', v_rel, NEW.edit_permission);
 
     -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
     -- canonical predicate (select_rule when set, else view/edit permission). Delegating here
@@ -7637,6 +8028,12 @@ COMMENT ON TRIGGER update_entity_policies_trigger ON entities IS
 -- re-validated. From the next insert on, new ids carry the new prefix and an
 -- id with the old one is refused, so re-importing an export taken before the
 -- change fails for the rows it would add.
+--
+-- A family root's trigger also carries its is_a subtypes' prefixes, which
+-- dd_install_id_triggers adds itself; an is_a prefix never changes (90245).
+-- The generated write routines of the root's has_a extensions check a
+-- supplied id against the root's prefix, which is written into them, so the
+-- family is rebuilt as well.
 CREATE OR REPLACE FUNCTION dd_sync_typeid_prefix()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -7645,12 +8042,13 @@ BEGIN
         RETURN NEW;
     END IF;
     PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
+    PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION dd_sync_typeid_prefix() IS
-'AFTER UPDATE OF id_prefix trigger on entities: recreates the typeid_assign trigger of a managed typeid entity''s table with the new prefix. Takes a brief lock, scans nothing; existing ids keep their prefix.';
+'AFTER UPDATE OF id_prefix trigger on entities: recreates the typeid_assign trigger of a managed typeid entity''s table with the new prefix (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix.';
 
 CREATE OR REPLACE TRIGGER sync_typeid_prefix_trigger
     AFTER UPDATE OF id_prefix ON entities
@@ -7682,6 +8080,10 @@ DECLARE
     v_new_fingerprint TEXT;
     v_index_name TEXT;
     v_index_exists BOOLEAN;
+    -- The entity's physical relation. An is_a or has_a entity's table keeps
+    -- the search_vector of its own fields only; its view concatenates the
+    -- vectors of all the tables the record is stored in.
+    v_rel TEXT := dd_relation(p_table_name);
 BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
@@ -7692,7 +8094,7 @@ BEGIN
     -- Check if the table actually exists in the database
     v_table_exists := EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = p_table_name
+        WHERE table_schema = 'public' AND table_name = v_rel
     );
     
     IF NOT v_table_exists THEN
@@ -7700,8 +8102,8 @@ BEGIN
         RETURN;
     END IF;
 
-    v_relid := format('public.%I', p_table_name)::regclass;
-    v_index_name := p_table_name || '_search_vector_idx';
+    v_relid := format('public.%I', v_rel)::regclass;
+    v_index_name := v_rel || '_search_vector_idx';
 
     -- What is installed right now: the generated column, if any, and the
     -- fingerprint we stamped into its comment the last time we built it. Both
@@ -7724,7 +8126,7 @@ BEGIN
       AND EXISTS (  -- Only include fields that actually exist as columns in the table
           SELECT 1 FROM information_schema.columns c
           WHERE c.table_schema = 'public'
-            AND c.table_name = p_table_name
+            AND c.table_name = v_rel
             AND c.column_name = f.field_name
       );
     
@@ -7743,10 +8145,15 @@ BEGIN
             v_index_name
         );
         
-        -- Drop the search_vector column
+        -- Drop the search_vector column. CASCADE takes the family views
+        -- that show it; the family refresh at the end of the same field
+        -- statement rebuilds them (dd_refresh_family, called from
+        -- apply_field_searchable_change). Without it, the first searchable
+        -- change on a family table would fail on the view depending on the
+        -- column.
         EXECUTE format(
-            'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector',
-            p_table_name
+            'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector CASCADE',
+            v_rel
         );
         
 
@@ -7776,7 +8183,7 @@ BEGIN
           AND EXISTS (  -- Only include fields that actually exist as columns
               SELECT 1 FROM information_schema.columns c
               WHERE c.table_schema = 'public'
-                AND c.table_name = p_table_name
+                AND c.table_name = v_rel
                 AND c.column_name = f.field_name
           )
     );
@@ -7807,16 +8214,16 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Drop existing search_vector column if it exists
+    -- Drop existing search_vector column if it exists (CASCADE: see above)
     EXECUTE format(
-        'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector',
-        p_table_name
+        'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector CASCADE',
+        v_rel
     );
     
     -- Create the search_vector column as GENERATED ALWAYS
     EXECUTE format(
         'ALTER TABLE %I ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (%s) STORED',
-        p_table_name,
+        v_rel,
         v_search_expr
     );
     
@@ -7830,13 +8237,13 @@ BEGIN
     EXECUTE format(
         'CREATE INDEX %I ON %I USING GIN (search_vector)',
         v_index_name,
-        p_table_name
+        v_rel
     );
 
     -- Stamp the fingerprint so the next call can tell whether anything changed.
     EXECUTE format(
         'COMMENT ON COLUMN %I.search_vector IS %L',
-        p_table_name,
+        v_rel,
         v_new_fingerprint
     );
 
@@ -7853,31 +8260,25 @@ COMMENT ON FUNCTION update_search_vector_column IS
 
 CREATE OR REPLACE FUNCTION update_table_searchable_flag(p_table_name TEXT)
 RETURNS VOID AS $$
-DECLARE
-    v_has_searchable_fields BOOLEAN;
 BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
 
-    -- Check if any fields in this table are searchable
-    v_has_searchable_fields := EXISTS (
-        SELECT 1 FROM fields
-        WHERE table_name = p_table_name
-          AND searchable = TRUE
-    );
-
     -- IS DISTINCT FROM is not a micro-optimization: this runs on every field
     -- write, and a no-op entities UPDATE still fires its whole trigger stack.
-    UPDATE entities
-    SET searchable = v_has_searchable_fields
-    WHERE table_name = p_table_name
-      AND searchable IS DISTINCT FROM v_has_searchable_fields;
+    -- The entities based on this one inherit its fields, so their flags move
+    -- with its own.
+    UPDATE entities e
+    SET searchable = dd_entity_searchable(e.table_name)
+    WHERE (e.table_name = p_table_name
+           OR e.table_name IN (SELECT d.table_name FROM dd_descendants(p_table_name) d))
+      AND e.searchable IS DISTINCT FROM dd_entity_searchable(e.table_name);
 
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION update_table_searchable_flag IS 
-'Auto-maintains the searchable flag on entities table based on whether any related fields are searchable.';
+'Auto-maintains the searchable flag of an entity and of the entities based on it (dd_entity_searchable).';
 
 -- =====================================================
 -- HELPER FUNCTION: Apply the searchable changes of one statement
@@ -7904,11 +8305,16 @@ BEGIN
     FOREACH v_table_name IN ARRAY coalesce(p_touched, ARRAY[]::TEXT[]) LOOP
         PERFORM update_table_searchable_flag(v_table_name);
     END LOOP;
+
+    -- Last: the views of a family show the columns this statement added,
+    -- renamed or dropped, and its search_vectors, which the rebuild above may
+    -- have dropped with CASCADE. Reads and returns when no family is touched.
+    PERFORM dd_refresh_family(p_touched);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION apply_field_searchable_change IS
-'Rebuilds search_vector for every table in p_rebuild and recomputes entities.searchable for every table in p_touched. Called once per statement by the handle_field_searchable_* triggers.';
+'Rebuilds search_vector for every table in p_rebuild, recomputes entities.searchable for every table in p_touched and rebuilds the is_a/has_a families among them. Called once per statement by the handle_field_searchable_* triggers.';
 
 -- =====================================================
 -- TRIGGER FUNCTIONS: Handle field searchable changes
@@ -8039,11 +8445,7 @@ BEGIN
     -- If searchable was changed, recompute it from fields and override the value
     IF OLD.searchable IS DISTINCT FROM NEW.searchable THEN
         -- Compute the correct value from fields
-        v_computed_searchable := EXISTS (
-            SELECT 1 FROM fields 
-            WHERE table_name = NEW.table_name 
-              AND searchable = TRUE
-        );
+        v_computed_searchable := dd_entity_searchable(NEW.table_name);
         
         -- Override any manual change with the computed value
         NEW.searchable := v_computed_searchable;
@@ -8180,6 +8582,1029 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 'Ensures entities.is_child is always consistent with related fields, preventing manual changes';
 
 -- =====================================================
+-- ENTITY FAMILIES: CHECKS
+-- =====================================================
+-- What an is_a or has_a entity may be based on, and what it inherits from its
+-- base, is decided when it is created and held from then on:
+--   90240  the base: an is_a entity on a managed typeid or is_a entity, a
+--          has_a entity on a managed typeid entity, neither on itself
+--   90241  id_refentity never changes
+--   90242  label_column and label_parent come from the base
+--   90249  no order_column (the root's order column is no field and not in
+--          the views)
+--   90252  a base stays managed while entities are based on it
+-- The key column and the label column are set from the base on insert; the
+-- label column is the root's, which every level of a chain shares.
+--
+-- The name sorts before set_entity_defaults_trigger, which derives
+-- singular_label from label_column and has to see the inherited one.
+CREATE OR REPLACE FUNCTION check_entity_family()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_derived    BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
+    v_base       entities%ROWTYPE;
+    v_has_base   BOOLEAN := FALSE;
+    v_root_label TEXT;
+    v_dependents TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF v_derived AND NEW.id_refentity IS NOT NULL THEN
+            SELECT * INTO v_base FROM entities WHERE table_name = NEW.id_refentity;
+            v_has_base := FOUND;
+            -- An unknown base is left to entities_id_refentity_fkey. Itself
+            -- is not: the row being inserted satisfies its own foreign key.
+            IF NEW.id_refentity = NEW.table_name
+               OR (v_has_base AND (NOT v_base.managed
+                    OR (NEW.id_type = 'has_a' AND v_base.id_type <> 'typeid')
+                    OR (NEW.id_type = 'is_a' AND v_base.id_type NOT IN ('typeid', 'is_a')))) THEN
+                RAISE EXCEPTION 'Entity ${table} cannot be based on ${base}'
+                    USING ERRCODE = '90240',
+                          HINT = jsonb_build_object(
+                              'table', NEW.table_name,
+                              'base', NEW.id_refentity,
+                              'hint', 'An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.')::text;
+            END IF;
+            IF v_has_base THEN
+                SELECT e.label_column INTO v_root_label
+                  FROM dd_ancestors(NEW.id_refentity) a
+                  JOIN entities e ON e.table_name = a.table_name
+                 WHERE a.depth = 0;
+                NEW.id_column := v_base.id_column;
+                NEW.label_column := v_root_label;
+                NEW.label_parent := '';
+            END IF;
+        END IF;
+    ELSE
+        -- A rename of the base reaches this row through ON UPDATE CASCADE:
+        -- the old name is gone and the new one exists. That is the one change
+        -- id_refentity takes.
+        IF OLD.id_refentity IS DISTINCT FROM NEW.id_refentity
+           AND NOT (OLD.id_refentity IS NOT NULL AND NEW.id_refentity IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM entities e WHERE e.table_name = OLD.id_refentity)
+                    AND EXISTS (SELECT 1 FROM entities e WHERE e.table_name = NEW.id_refentity)) THEN
+            RAISE EXCEPTION 'id_refentity is set when an entity is created and cannot be changed'
+                USING ERRCODE = '90241',
+                      HINT = jsonb_build_object('table', NEW.table_name)::text;
+        END IF;
+
+        -- Compared with the root's label column rather than the direct base's:
+        -- a label rename on the root updates every descendant in one
+        -- statement, in no particular order, after the root itself
+        -- (validate_field_rename_and_format in 0170_dd_rename.sql). The chain
+        -- is walked from the base, which exists under NEW.id_refentity even
+        -- while this row is being renamed or follows its base's rename.
+        IF v_derived THEN
+            SELECT e.label_column INTO v_root_label
+              FROM dd_ancestors(NEW.id_refentity) a
+              JOIN entities e ON e.table_name = a.table_name
+             WHERE a.depth = 0;
+            IF NEW.label_column IS DISTINCT FROM v_root_label OR NEW.label_parent <> '' THEN
+                RAISE EXCEPTION 'label_column and label_parent of ${table} come from its base ${base}'
+                    USING ERRCODE = '90242',
+                          HINT = jsonb_build_object('table', NEW.table_name, 'base', NEW.id_refentity)::text;
+            END IF;
+        END IF;
+
+        IF OLD.managed AND NOT NEW.managed THEN
+            SELECT string_agg(d.table_name, ', ' ORDER BY d.table_name)
+              INTO v_dependents
+              FROM entities d
+             WHERE d.id_refentity = NEW.table_name;
+            IF v_dependents IS NOT NULL THEN
+                RAISE EXCEPTION 'Entity ${table} cannot become unmanaged while ${dependents} are based on it'
+                    USING ERRCODE = '90252',
+                          HINT = jsonb_build_object('table', NEW.table_name, 'dependents', v_dependents)::text;
+            END IF;
+        END IF;
+    END IF;
+
+    IF v_derived AND coalesce(NEW.order_column, '') <> '' THEN
+        RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
+            USING ERRCODE = '90249',
+                  HINT = jsonb_build_object('feature', 'order_column', 'id_type', NEW.id_type, 'table', NEW.table_name)::text;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION check_entity_family() IS
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249) and refuses unmanaging a base with dependents (90252). Sets id_column, label_column and label_parent from the base on insert.';
+
+CREATE OR REPLACE TRIGGER check_entity_family_trigger
+    BEFORE INSERT OR UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION check_entity_family();
+
+-- Two checks on the fields of a family:
+--   90243  a field name is unique across the entities that share records - an
+--          entity, its bases and its descendants - because every view of the
+--          family shows the fields of its whole chain side by side. Siblings
+--          may repeat a name; the key and audit names are each entity's own.
+--   90249  a reference field of an is_a subtype cannot cascade. An RI action
+--          runs inside a trigger, where the _ext write guard lets it through,
+--          so a cascade would delete one part of a record and leave the rest.
+--          A has_a extension may cascade: that only detaches it.
+-- The name sorts before validate_field_rename_and_format_trigger, so a rename
+-- that would collide is refused before the column is renamed.
+CREATE OR REPLACE FUNCTION validate_family_field()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_other  TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = NEW.table_name;
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+
+    IF v_entity.id_type = 'is_a'
+       AND NEW.format IN ('reference', 'parent')
+       AND NEW.reference_delete_mode = 'cascade' THEN
+        RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
+            USING ERRCODE = '90249',
+                  HINT = jsonb_build_object('feature', 'cascade', 'id_type', v_entity.id_type, 'table', NEW.table_name)::text;
+    END IF;
+
+    IF (TG_OP = 'INSERT' OR OLD.field_name IS DISTINCT FROM NEW.field_name)
+       AND NEW.field_name NOT IN (v_entity.id_column, 'created_at', 'updated_at')
+       AND (v_entity.id_type IN ('is_a', 'has_a')
+            OR EXISTS (SELECT 1 FROM entities d WHERE d.id_refentity = NEW.table_name)) THEN
+        SELECT f.table_name
+          INTO v_other
+          FROM fields f
+         WHERE f.field_name = NEW.field_name
+           AND f.table_name IN (SELECT a.table_name FROM dd_ancestors(NEW.table_name) a
+                                 WHERE a.table_name <> NEW.table_name
+                                UNION ALL
+                                SELECT d.table_name FROM dd_descendants(NEW.table_name) d)
+         ORDER BY f.table_name
+         LIMIT 1;
+        IF v_other IS NOT NULL THEN
+            RAISE EXCEPTION 'Field ${field_name} of ${table} collides with ${other}, which shares its records'
+                USING ERRCODE = '90243',
+                      HINT = jsonb_build_object('field_name', NEW.field_name, 'table', NEW.table_name, 'other', v_other)::text;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION validate_family_field() IS
+'BEFORE INSERT OR UPDATE trigger on fields: refuses a field name that an ancestor or descendant of the entity already uses (90243), and a cascading reference field on an is_a entity (90249).';
+
+CREATE OR REPLACE TRIGGER validate_family_field_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_family_field();
+
+-- =====================================================
+-- ENTITY FAMILIES: VIEWS AND WRITE ROUTINES
+-- =====================================================
+-- Every derived entity t gets, generated from the dictionary:
+--   public.t                        the view: t_ext joined with the relation
+--                                   of every base, security_invoker, so each
+--                                   table's RLS applies to the reader
+--   common.record_write_t           writes a record whose own type is t:
+--                                   every part, every level's rules, locks
+--                                   first (SECURITY INVOKER: RLS applies)
+--   common.view_write_t             INSTEAD OF trigger of the view
+-- and an is_a root gets common.is_a_dispatch_<root>, a BEFORE UPDATE OR
+-- DELETE trigger that carries a write of a subtype record through the root
+-- table down to the record's own type. All of it is static SQL, rebuilt by
+-- dd_refresh_family whenever the family's fields or members change. The
+-- routines live in common, which PostgREST does not expose, so none of them is
+-- an RPC.
+--
+-- An is_a record's type is read from the prefix of its id, which never
+-- changes (90245), so a write through a supertype - the root table or a
+-- supertype's view - is carried down to the record's own type, whose rules and
+-- permissions then apply to every part.
+--
+-- The depth invariant. Inside a trigger, only record_write_* and RI actions
+-- write an _ext table or insert into a typeid root with a subtype prefix:
+-- common.ext_write_guard and common.typeid_assign let exactly that through by
+-- testing pg_trigger_depth(), and record_write_* checks the prefix of every id
+-- it inserts. RI actions are limited to what cannot split a record: an is_a
+-- subtype's reference field cannot cascade (90249), a SET NULL on an _ext
+-- column runs without the derived rules (_ext has no rule trigger), and a
+-- cascade or SET NULL into an is_a root reaches only the root row - a subtype
+-- record's delete then fails on <t>_ext_id_fkey. Module triggers must not
+-- write family tables (AGENTS.md).
+
+-- The data columns of an entity's record with the level that stores them, in
+-- the order of dd_family_fields: every field but the key and the audit fields,
+-- whose physical column exists. The builders below take their columns from it.
+CREATE OR REPLACE FUNCTION dd_family_columns(p_table_name TEXT)
+RETURNS TABLE (ord BIGINT, depth INTEGER, rel TEXT, column_name TEXT) AS $$
+    SELECT f.ordinality, a.depth, dd_relation(e.table_name, e.id_type), f.field_name
+      FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
+      JOIN dd_ancestors(p_table_name) a ON a.table_name = f.table_name
+      JOIN entities e ON e.table_name = f.table_name
+     WHERE coalesce(f.ctype, '') NOT IN ('id', 'audit')
+       AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute att
+                    WHERE att.attrelid = pg_catalog.to_regclass(format('public.%I', dd_relation(e.table_name, e.id_type)))
+                      AND att.attname = f.field_name
+                      AND att.attnum > 0
+                      AND NOT att.attisdropped)
+     ORDER BY f.ordinality;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_columns(TEXT) IS
+'The data columns of an entity''s record (dd_family_fields without the key and audit fields) that exist physically, with the depth and physical relation of the level that stores each. Used by the family view and write-routine generators.';
+
+-- The view of a derived entity. Its key is t_ext's, so PostgREST sees the
+-- primary key and links references to the view; created_at is the entity's
+-- own level's, updated_at the latest of all levels, and search_vector the
+-- concatenation of the levels that have one - a full-text search over it
+-- spans every level but cannot use the GIN indexes. The column defaults and
+-- comments are copied from the physical columns, so an insert through the view
+-- gets the defaults a table would, and PostgREST describes the view like one.
+-- A view accepts RENAME COLUMN, SET DEFAULT, COMMENT and GRANT as well, so a
+-- dictionary change that went to the view instead of the table would be
+-- overwritten here from the table without failing anywhere; the tests assert
+-- those changes on t_ext.
+CREATE OR REPLACE FUNCTION dd_build_family_view(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity  entities%ROWTYPE;
+    v_n       INTEGER;
+    v_from    TEXT := '';
+    v_updated TEXT := '';
+    v_search  TEXT := '';
+    v_cols    TEXT;
+    v_comment TEXT;
+    r         RECORD;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    SELECT max(a.depth) INTO v_n FROM dd_ancestors(p_table_name) a;
+
+    FOR r IN
+        SELECT a.depth, dd_relation(e.table_name, e.id_type) AS rel
+          FROM dd_ancestors(p_table_name) a
+          JOIN entities e ON e.table_name = a.table_name
+         ORDER BY a.depth DESC
+    LOOP
+        IF r.depth = v_n THEN
+            v_from := format('public.%I l%s', r.rel, r.depth);
+        ELSE
+            v_from := v_from || format(' JOIN public.%I l%s ON l%s.%I = l%s.%I',
+                r.rel, r.depth, r.depth, v_entity.id_column, v_n, v_entity.id_column);
+        END IF;
+        v_updated := v_updated || CASE WHEN v_updated = '' THEN '' ELSE ', ' END
+                     || format('l%s.updated_at', r.depth);
+        IF EXISTS (SELECT 1 FROM pg_catalog.pg_attribute att
+                    WHERE att.attrelid = pg_catalog.to_regclass(format('public.%I', r.rel))
+                      AND att.attname = 'search_vector' AND NOT att.attisdropped) THEN
+            -- Root first, like the columns.
+            v_search := format('l%s.search_vector', r.depth)
+                        || CASE WHEN v_search = '' THEN '' ELSE ' || ' || v_search END;
+        END IF;
+    END LOOP;
+
+    SELECT string_agg(format('l%s.%I, ', c.depth, c.column_name), '' ORDER BY c.ord)
+      INTO v_cols
+      FROM dd_family_columns(p_table_name) c;
+
+    EXECUTE format(
+        'CREATE VIEW public.%I WITH (security_invoker = true) AS
+            SELECT l%s.%I, %sl%s.created_at, GREATEST(%s) AS updated_at%s
+              FROM %s',
+        p_table_name,
+        v_n, v_entity.id_column,
+        coalesce(v_cols, ''),
+        v_n, v_updated,
+        CASE WHEN v_search = '' THEN '' ELSE format(', %s AS search_vector', v_search) END,
+        v_from);
+
+    -- Defaults and comments, column by column, from the relation each column
+    -- is read from: the entity's own table for the key and the audit columns.
+    FOR r IN
+        SELECT x.column_name, x.rel,
+               pg_catalog.pg_get_expr(d.adbin, d.adrelid) AS default_expr,
+               pg_catalog.col_description(att.attrelid, att.attnum) AS comment
+          FROM (SELECT c.column_name, c.rel FROM dd_family_columns(p_table_name) c
+                UNION ALL
+                SELECT v_entity.id_column, dd_relation(p_table_name, v_entity.id_type)
+                UNION ALL
+                SELECT 'created_at', dd_relation(p_table_name, v_entity.id_type)
+                UNION ALL
+                SELECT 'updated_at', dd_relation(p_table_name, v_entity.id_type)) x
+          JOIN pg_catalog.pg_attribute att
+            ON att.attrelid = pg_catalog.to_regclass(format('public.%I', x.rel))
+           AND att.attname = x.column_name
+           AND NOT att.attisdropped
+          LEFT JOIN pg_catalog.pg_attrdef d
+            ON d.adrelid = att.attrelid AND d.adnum = att.attnum AND att.attgenerated = ''
+    LOOP
+        IF r.default_expr IS NOT NULL THEN
+            EXECUTE format('ALTER VIEW public.%I ALTER COLUMN %I SET DEFAULT %s',
+                p_table_name, r.column_name, r.default_expr);
+        END IF;
+        IF r.comment IS NOT NULL THEN
+            EXECUTE format('COMMENT ON COLUMN public.%I.%I IS %L', p_table_name, r.column_name, r.comment);
+        END IF;
+    END LOOP;
+
+    v_comment := dd_table_comment(v_entity.plural_label, v_entity.description);
+    EXECUTE format('COMMENT ON VIEW public.%I IS %L', p_table_name, v_comment);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user', p_table_name);
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
+'Creates the security_invoker view of an is_a/has_a entity over its <entity>_ext table and the relations of its bases, with the column defaults and comments of the physical columns, its comment and the request-role grant. Called by dd_refresh_family.';
+
+-- The write routine of a derived entity t: common.record_write_t(op, old,
+-- new, from_root) writes one record whose own type is t, and every entry point
+-- - t's view, the view of a supertype, the root table - calls it for such a
+-- record. It returns the stored record, read back through the view, or the
+-- input record when the caller cannot read it; NULL when the record is
+-- skipped.
+--
+--   insert  is_a: the id is minted with t's prefix, or a supplied one must
+--           carry it (90237); the root row, then each _ext level top-down. An
+--           id that exists fails with 23505: the type is fixed at creation.
+--           has_a: no id, or one no visible base row has, inserts the base row
+--           too, with an id minted here with the base's prefix (a supplied one
+--           must carry it, 90237 - the root's typeid_assign would accept a
+--           subtype prefix from here and create a subtype root row without its
+--           parts). Minting it here rather than in typeid_assign spares the
+--           INSERT a RETURNING, which would need the caller to be able to read
+--           the base row back. The id of a
+--           visible base row attaches: only t_ext is inserted, and a base
+--           value that differs from the stored one raises 90246, unless it is
+--           the column default an insert through the view fills in.
+--   update  writes the levels from the highest one whose columns changed down
+--           to t, and always t; the levels above are untouched. The rules of
+--           the derived levels at and below the change run, inherited first,
+--           and since a computed field may set any column, the changed levels
+--           are decided after them; a level that only a computed field changed
+--           is written too, and its rules run in a second pass. A changed key
+--           raises 90236. Each column is written only when it changed, so a
+--           concurrent change to another column is kept.
+--   delete  is_a: every derived level's delete rules, bottom-up, then every
+--           part bottom-up and the root row. has_a: t's rules, then t_ext only
+--           (detach); the base record stays.
+--
+-- Permissions without half-writes: before anything is written, every level
+-- that will be written is locked top-down with SELECT ... FOR UPDATE, which
+-- applies the UPDATE policy, whose predicate equals the DELETE policy's. A
+-- level that cannot be locked makes the routine return NULL, and the record is
+-- skipped like any row RLS filters. Locking top-down rules out deadlocks among
+-- writers of one record. A refused INSERT raises 42501 through the tables'
+-- INSERT policies.
+--
+-- from_root is set by the root's dispatch trigger: the root row is then
+-- already locked and is written by the outer statement, so the routine leaves
+-- it alone and returns the record, whose root columns the trigger copies into
+-- NEW. The root's own rules stay the root table's trigger and run after the
+-- derived rules, on the final root row.
+CREATE OR REPLACE FUNCTION dd_build_record_write(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity      entities%ROWTYPE;
+    v_base        entities%ROWTYPE;
+    v_root        entities%ROWTYPE;
+    v_k           TEXT;
+    v_n           INTEGER;
+    v_is_a        BOOLEAN;
+    v_type        TEXT := format('public.%I', p_table_name);
+    v_fn          TEXT := 'record_write_' || p_table_name;
+    v_top_expr    TEXT := '';
+    v_rules_ins   TEXT := '';
+    v_rules_upd1  TEXT := '';
+    v_rules_upd2  TEXT := '';
+    v_rules_del   TEXT := '';
+    v_any_rules   BOOLEAN := FALSE;
+    v_ins         TEXT := '';
+    v_lock        TEXT := '';
+    v_upd         TEXT := '';
+    v_dlock       TEXT := '';
+    v_del         TEXT := '';
+    v_attach_in   TEXT := '';
+    v_attach_out  TEXT := '';
+    v_cols        TEXT[];
+    v_cond        TEXT;
+    v_stmt        TEXT;
+    v_insert      TEXT;
+    v_update      TEXT;
+    v_body        TEXT;
+    r             RECORD;
+    c             RECORD;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    SELECT * INTO v_base FROM entities WHERE table_name = v_entity.id_refentity;
+    SELECT e.* INTO v_root
+      FROM dd_ancestors(p_table_name) a JOIN entities e ON e.table_name = a.table_name
+     WHERE a.depth = 0;
+    v_k := v_entity.id_column;
+    v_is_a := v_entity.id_type = 'is_a';
+    SELECT max(a.depth) INTO v_n FROM dd_ancestors(p_table_name) a;
+
+    FOR r IN
+        SELECT a.depth, e.table_name, dd_relation(e.table_name, e.id_type) AS rel,
+               to_regprocedure(format('common.%I(text, jsonb, jsonb)', 'record_rules_' || e.table_name)) IS NOT NULL
+                   AS has_rules
+          FROM dd_ancestors(p_table_name) a
+          JOIN entities e ON e.table_name = a.table_name
+         ORDER BY a.depth
+    LOOP
+        SELECT coalesce(array_agg(fc.column_name ORDER BY fc.ord), ARRAY[]::TEXT[])
+          INTO v_cols
+          FROM dd_family_columns(p_table_name) fc
+         WHERE fc.depth = r.depth;
+
+        -- The highest level whose columns differ between v_new and p_old.
+        IF cardinality(v_cols) > 0 THEN
+            v_top_expr := v_top_expr || format(' WHEN ROW(%s) IS DISTINCT FROM ROW(%s) THEN %s',
+                (SELECT string_agg(format('v_new.%I', x), ', ') FROM unnest(v_cols) x),
+                (SELECT string_agg(format('p_old.%I', x), ', ') FROM unnest(v_cols) x),
+                r.depth);
+        END IF;
+
+        -- The rules of the derived levels (the root's are its table's trigger).
+        IF r.depth > 0 AND r.has_rules THEN
+            v_any_rules := TRUE;
+            v_rules_ins := v_rules_ins || format(E'\n        v_data := common.%I(''insert'', NULL, v_data);',
+                'record_rules_' || r.table_name);
+            v_rules_upd1 := v_rules_upd1 || format(
+                E'\n            IF v_top <= %s THEN\n                v_data := common.%I(''update'', v_old, v_data);\n            END IF;',
+                r.depth, 'record_rules_' || r.table_name);
+            v_rules_upd2 := v_rules_upd2 || format(
+                E'\n                IF v_top2 <= %s AND %s < v_top THEN\n                    v_data := common.%I(''update'', v_old, v_data);\n                END IF;',
+                r.depth, r.depth, 'record_rules_' || r.table_name);
+            v_rules_del := format(E'\n        PERFORM common.%I(''delete'', v_old, v_old);', 'record_rules_' || r.table_name)
+                           || v_rules_del;
+        END IF;
+
+        -- The statements on this level's relation.
+        v_insert := format('INSERT INTO public.%I (%I%s, created_at, updated_at) VALUES (v_new.%I%s, v_new.created_at, v_new.updated_at)',
+            r.rel, v_k,
+            (SELECT coalesce(string_agg(format(', %I', x), ''), '') FROM unnest(v_cols) x),
+            v_k,
+            (SELECT coalesce(string_agg(format(', v_new.%I', x), ''), '') FROM unnest(v_cols) x));
+        v_update := format('UPDATE public.%I AS t SET %s WHERE t.%I = p_old.%I',
+            r.rel,
+            CASE WHEN cardinality(v_cols) = 0 THEN 'updated_at = t.updated_at'
+                 ELSE (SELECT string_agg(format('%1$I = CASE WHEN v_new.%1$I IS DISTINCT FROM p_old.%1$I THEN v_new.%1$I ELSE t.%1$I END', x), ', ')
+                         FROM unnest(v_cols) x)
+            END,
+            v_k, v_k);
+        v_stmt := format(E'PERFORM 1 FROM public.%I AS t WHERE t.%I = p_old.%I FOR UPDATE;\n%%sIF NOT FOUND THEN\n%%s    RETURN NULL;\n%%sEND IF;',
+            r.rel, v_k, v_k);
+
+        v_cond := CASE WHEN r.depth = 0 THEN 'v_top <= 0 AND NOT p_from_root'
+                       WHEN r.depth < v_n THEN format('v_top <= %s', r.depth)
+                  END;
+
+        IF r.depth = 0 AND NOT v_is_a THEN
+            -- has_a: the base row is inserted when no base record is attached.
+            v_ins := v_ins || format(E'\n        IF NOT v_attach THEN\n            %s;\n        END IF;', v_insert);
+        ELSE
+            v_ins := v_ins || format(E'\n        %s;', v_insert);
+        END IF;
+        IF v_cond IS NULL THEN
+            v_lock := v_lock || E'\n        ' || format(v_stmt, '        ', '        ', '        ');
+            v_upd := v_upd || format(E'\n        %s;', v_update);
+        ELSE
+            v_lock := v_lock || format(E'\n        IF %s THEN\n            %s\n        END IF;',
+                v_cond, format(v_stmt, '            ', '            ', '            '));
+            v_upd := v_upd || format(E'\n        IF %s THEN\n            %s;\n        END IF;', v_cond, v_update);
+        END IF;
+
+        IF v_is_a OR r.depth = v_n THEN
+            IF r.depth = 0 THEN
+                v_dlock := v_dlock || format(E'\n        IF NOT p_from_root THEN\n            %s\n        END IF;',
+                    format(v_stmt, '            ', '            ', '            '));
+                v_del := format(E'\n        IF NOT p_from_root THEN\n            DELETE FROM public.%I AS t WHERE t.%I = p_old.%I;\n        END IF;',
+                    r.rel, v_k, v_k) || v_del;
+            ELSE
+                v_dlock := v_dlock || E'\n        ' || format(v_stmt, '        ', '        ', '        ');
+                v_del := format(E'\n        DELETE FROM public.%I AS t WHERE t.%I = p_old.%I;', r.rel, v_k, v_k) || v_del;
+            END IF;
+        END IF;
+
+        -- has_a: what an attach may and may not bring for the base's columns.
+        IF r.depth = 0 AND NOT v_is_a THEN
+            FOR c IN
+                SELECT x AS column_name,
+                       pg_catalog.pg_get_expr(d.adbin, d.adrelid) AS default_expr,
+                       EXISTS (SELECT 1 FROM pg_catalog.pg_depend dep
+                                 JOIN pg_catalog.pg_proc p ON p.oid = dep.refobjid
+                                WHERE dep.classid = 'pg_catalog.pg_attrdef'::regclass
+                                  AND dep.objid = d.oid
+                                  AND dep.refclassid = 'pg_catalog.pg_proc'::regclass
+                                  AND p.provolatile = 'v') AS volatile_default
+                  FROM unnest(v_cols) WITH ORDINALITY AS u(x, n)
+                  JOIN pg_catalog.pg_attribute att
+                    ON att.attrelid = pg_catalog.to_regclass(format('public.%I', r.rel))
+                   AND att.attname = u.x
+                  LEFT JOIN pg_catalog.pg_attrdef d
+                    ON d.adrelid = att.attrelid AND d.adnum = att.attnum
+                 ORDER BY u.n
+            LOOP
+                -- A column the insert did not name holds the view's default,
+                -- copied from this column, and is not a value the caller
+                -- brought. A volatile default cannot be recognized that way,
+                -- so such a column's value is always taken from the base.
+                v_attach_in := v_attach_in || format(
+                    E'\n            IF v_new.%1$I IS DISTINCT FROM v_base.%1$I THEN%2$s\n                v_new.%1$I := v_base.%1$I;\n            END IF;',
+                    c.column_name,
+                    CASE WHEN c.volatile_default THEN ''
+                         ELSE format(E'\n                IF v_new.%1$I IS DISTINCT FROM (%2$s) THEN\n                    RAISE EXCEPTION %3$L\n                        USING ERRCODE = ''90246'',\n                              HINT = jsonb_build_object(''table'', %4$L, ''base'', %5$L, ''id'', v_new.%6$I, ''field'', %1$L)::text;\n                END IF;',
+                                     c.column_name, coalesce(c.default_expr, 'NULL'),
+                                     'Attaching ${table} to ${base} record ${id}: ${field} differs from the stored value; change it through ${base}',
+                                     p_table_name, v_base.table_name, v_k)
+                    END);
+                v_attach_out := v_attach_out || format(
+                    E'\n            IF v_new.%1$I IS DISTINCT FROM v_base.%1$I THEN\n                RAISE EXCEPTION %2$L\n                    USING ERRCODE = ''90246'',\n                          HINT = jsonb_build_object(''table'', %3$L, ''base'', %4$L, ''id'', v_new.%5$I, ''field'', %1$L)::text;\n            END IF;',
+                    c.column_name,
+                    'Attaching ${table} to ${base} record ${id}: ${field} differs from the stored value; change it through ${base}',
+                    p_table_name, v_base.table_name, v_k);
+            END LOOP;
+        END IF;
+    END LOOP;
+
+    v_top_expr := CASE WHEN v_top_expr = '' THEN v_n::text
+                       ELSE format('CASE%s ELSE %s END', v_top_expr, v_n) END;
+
+    v_body := format($BODY$
+CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
+RETURNS %2$s
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+AS $RW$
+#variable_conflict use_variable
+DECLARE
+    v_new    %2$s := p_new;
+    v_res    %2$s;
+    v_old    jsonb := to_jsonb(p_old);
+    v_data   jsonb;
+    v_top    integer;
+    v_top2   integer;
+    v_base   public.%3$I;
+    v_attach boolean := false;
+BEGIN
+    IF p_op = 'insert' THEN
+%4$s
+    ELSIF p_op = 'update' THEN
+        IF v_new.%5$I IS DISTINCT FROM p_old.%5$I THEN
+            RAISE EXCEPTION 'The key ${column} of ${table} cannot be changed'
+                USING ERRCODE = '90236',
+                      HINT = jsonb_build_object('column', %5$L, 'table', %6$L)::text;
+        END IF;
+        v_top := %7$s;%8$s
+        -- Lock every level that will be written, top-down, before writing any.%9$s
+%10$s
+    ELSE
+        -- Lock every part top-down before the rules run, so the rules of a
+        -- record the caller may not delete are never evaluated.%11$s%12$s%13$s
+        RETURN p_old;
+    END IF;
+    IF p_from_root THEN
+        RETURN v_new;
+    END IF;
+    SELECT * INTO v_res FROM %2$s AS t WHERE t.%5$I = v_new.%5$I;
+    IF NOT FOUND THEN
+        RETURN v_new;
+    END IF;
+    RETURN v_res;
+END;
+$RW$;
+$BODY$,
+        v_fn,
+        v_type,
+        v_root.table_name,
+        -- 4: insert
+        CASE WHEN v_is_a THEN
+            format(E'        IF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%2$L);\n        END IF;', v_k, v_entity.id_prefix)
+            || CASE WHEN v_any_rules THEN E'\n        v_data := to_jsonb(v_new);' || v_rules_ins || E'\n        v_new := jsonb_populate_record(v_new, v_data);' ELSE '' END
+            || format(E'\n        IF common.typeid_prefix(v_new.%1$I) IS DISTINCT FROM %2$L THEN\n            RAISE EXCEPTION ''Id ${id} does not carry the prefix ${prefix} of ${table}''\n                USING ERRCODE = ''90237'',\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %2$L, ''table'', %3$L)::text;\n        END IF;',
+                      v_k, v_entity.id_prefix, p_table_name)
+            || v_ins
+        ELSE
+            format(E'        IF v_new.%1$I IS NOT NULL THEN\n            SELECT * INTO v_base FROM public.%2$I AS t WHERE t.%1$I = v_new.%1$I;\n            v_attach := FOUND;\n        END IF;\n        IF v_attach THEN%3$s\n        ELSIF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%4$L);\n        ELSIF common.typeid_prefix(v_new.%1$I) IS DISTINCT FROM %4$L THEN\n            RAISE EXCEPTION ''Id ${id} does not carry the prefix ${prefix} of ${table}''\n                USING ERRCODE = ''90237'',\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %4$L, ''table'', %5$L)::text;\n        END IF;',
+                   v_k, v_base.table_name, v_attach_in, v_base.id_prefix, v_base.table_name)
+            || CASE WHEN v_any_rules THEN E'\n        v_data := to_jsonb(v_new);' || v_rules_ins || E'\n        v_new := jsonb_populate_record(v_new, v_data);'
+                         || CASE WHEN v_attach_out = '' THEN '' ELSE E'\n        IF v_attach THEN' || v_attach_out || E'\n        END IF;' END
+                    ELSE '' END
+            || v_ins
+        END,
+        v_k,
+        p_table_name,
+        v_top_expr,
+        -- 8: the rules of an update
+        CASE WHEN v_any_rules THEN
+            E'\n        -- The rules of the derived levels at and below the change, inherited first.'
+            || E'\n        v_data := to_jsonb(v_new);' || v_rules_upd1
+            || E'\n        v_new := jsonb_populate_record(v_new, v_data);'
+            || format(E'\n        v_top2 := LEAST(v_top, %s);', v_top_expr)
+            || E'\n        -- A computed field wrote into a level above the change: that level is'
+            || E'\n        -- written as well, so its rules run too.'
+            || E'\n        IF v_top2 < v_top THEN'
+            || E'\n            v_data := to_jsonb(v_new);' || v_rules_upd2
+            || E'\n            v_new := jsonb_populate_record(v_new, v_data);'
+            || format(E'\n            v_top := LEAST(v_top2, %s);', v_top_expr)
+            || E'\n        END IF;'
+            || format(E'\n        IF v_new.%1$I IS DISTINCT FROM p_old.%1$I THEN\n            RAISE EXCEPTION ''The key ${column} of ${table} cannot be changed''\n                USING ERRCODE = ''90236'',\n                      HINT = jsonb_build_object(''column'', %1$L, ''table'', %2$L)::text;\n        END IF;',
+                      v_k, p_table_name)
+        ELSE '' END,
+        v_lock,
+        v_upd,
+        v_dlock,
+        v_rules_del,
+        v_del);
+
+    EXECUTE v_body;
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) TO semantius_user', v_fn, v_type, v_type);
+    EXECUTE format('COMMENT ON FUNCTION common.%I(text, %s, %s, boolean) IS %L', v_fn, v_type, v_type,
+        format('Writes (insert/update/delete) one record whose own type is "%s": every part of it, the rules of every derived level, locking every written level first. Returns the stored record, or NULL when the caller may not write a part. Generated by dd_refresh_family.', p_table_name));
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_build_record_write(TEXT) IS
+'Generates common.record_write_<entity>, the one routine that writes a record of an is_a/has_a entity. Called by dd_refresh_family.';
+
+-- The CASE that carries a write through entity p_table_name - a supertype's
+-- view, or the root table - down to the record's own type: for each is_a
+-- descendant, load the full record through the descendant's view (as the
+-- caller, so a part the caller cannot read skips the record), overlay the
+-- columns the write names, and call the descendant's write routine. The view
+-- trigger and the root's dispatch trigger both use it and differ only in
+-- from_root and in what they return, so one builder serves both.
+CREATE OR REPLACE FUNCTION dd_dispatch_case(
+    p_table_name TEXT,
+    p_from_root BOOLEAN,
+    OUT decls TEXT,
+    OUT branches TEXT
+) AS $$
+DECLARE
+    v_k    TEXT := (SELECT e.id_column FROM entities e WHERE e.table_name = p_table_name);
+    v_cols TEXT[];
+    v_i    INTEGER := 0;
+    r      RECORD;
+BEGIN
+    decls := '';
+    branches := '';
+    SELECT coalesce(array_agg(c.column_name ORDER BY c.ord), ARRAY[]::TEXT[])
+      INTO v_cols
+      FROM dd_family_columns(p_table_name) c;
+
+    FOR r IN
+        SELECT e.table_name, e.id_prefix
+          FROM dd_descendants(p_table_name) d
+          JOIN entities e ON e.table_name = d.table_name
+         WHERE e.id_type = 'is_a'
+           AND pg_catalog.to_regclass(format('public.%I', e.table_name)) IS NOT NULL
+         ORDER BY d.depth, e.table_name
+    LOOP
+        v_i := v_i + 1;
+        decls := decls || format(E'\n    v_old_%1$s public.%2$I;\n    v_new_%1$s public.%2$I;\n    v_res_%1$s public.%2$I;',
+            v_i, r.table_name);
+        branches := branches || format($BR$
+        WHEN %1$L THEN
+            SELECT * INTO v_old_%2$s FROM public.%3$I AS t WHERE t.%4$I = OLD.%4$I;
+            IF NOT FOUND THEN
+                RETURN NULL;
+            END IF;
+            IF TG_OP = 'UPDATE' THEN
+                v_new_%2$s := v_old_%2$s;
+                v_new_%2$s.%4$I := NEW.%4$I;%5$s
+                v_res_%2$s := common.%6$I('update', v_old_%2$s, v_new_%2$s, %7$s);
+            ELSE
+                v_res_%2$s := common.%6$I('delete', v_old_%2$s, v_old_%2$s, %7$s);
+            END IF;
+            IF v_res_%2$s IS NULL THEN
+                RETURN NULL;
+            END IF;%8$s$BR$,
+            r.id_prefix, v_i, r.table_name, v_k,
+            (SELECT coalesce(string_agg(format(E'\n                v_new_%s.%I := NEW.%I;', v_i, x, x), ''), '')
+               FROM unnest(v_cols) x),
+            'record_write_' || r.table_name,
+            CASE WHEN p_from_root THEN 'true' ELSE 'false' END,
+            CASE WHEN p_from_root
+                 THEN format(E'\n            IF TG_OP = ''UPDATE'' THEN%s\n            END IF;',
+                        (SELECT coalesce(string_agg(format(E'\n                NEW.%I := v_res_%s.%I;', x, v_i, x), ''), '')
+                           FROM unnest(v_cols) x))
+                 ELSE '' END);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) IS
+'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id. Shared by the view triggers and the root''s dispatch trigger.';
+
+-- The INSTEAD OF trigger of a derived entity's view. An insert creates a
+-- record of this entity. An update or delete of a record whose own type is a
+-- descendant goes to the descendant's write routine, so PATCH /emails on a
+-- classified email runs the classified_emails rules; the row returned is the
+-- record as this view shows it.
+CREATE OR REPLACE FUNCTION dd_build_view_write(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_k    TEXT := (SELECT e.id_column FROM entities e WHERE e.table_name = p_table_name);
+    v_fn   TEXT := 'view_write_' || p_table_name;
+    v_case RECORD;
+    v_own  TEXT;
+BEGIN
+    v_case := dd_dispatch_case(p_table_name, FALSE);
+    v_own := format($OWN$
+    v_res := common.%1$I(lower(TG_OP), OLD, CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END, false);
+    IF v_res IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN v_res;$OWN$, 'record_write_' || p_table_name);
+
+    EXECUTE format($BODY$
+CREATE OR REPLACE FUNCTION common.%1$I()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+AS $VW$
+#variable_conflict use_variable
+DECLARE
+    v_res public.%2$I;%3$s
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        v_res := common.%4$I('insert', NULL, NEW, false);
+        RETURN v_res;
+    END IF;%5$s
+END;
+$VW$;
+$BODY$,
+        v_fn, p_table_name, v_case.decls, 'record_write_' || p_table_name,
+        CASE WHEN v_case.branches = '' THEN v_own
+             ELSE format($CASE$
+    CASE common.typeid_prefix(OLD.%1$I)%2$s
+        ELSE%3$s
+    END CASE;
+    -- A descendant's record, returned as this view shows it.
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    SELECT * INTO v_res FROM public.%4$I AS t WHERE t.%1$I = NEW.%1$I;
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+    RETURN v_res;$CASE$,
+                    v_k, v_case.branches, replace(v_own, E'\n    ', E'\n            '), p_table_name)
+        END);
+
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', v_fn);
+    EXECUTE format('COMMENT ON FUNCTION common.%I() IS %L', v_fn,
+        format('INSTEAD OF INSERT OR UPDATE OR DELETE trigger of the view "%s": writes through common.record_write_<type> of the record''s own type. Generated by dd_refresh_family.', p_table_name));
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER view_write INSTEAD OF INSERT OR UPDATE OR DELETE ON public.%I
+            FOR EACH ROW EXECUTE FUNCTION common.%I()',
+        p_table_name, v_fn);
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_build_view_write(TEXT) IS
+'Generates the INSTEAD OF trigger common.view_write_<entity> of an is_a/has_a entity''s view and installs it. Called by dd_refresh_family.';
+
+-- The dispatch trigger of an is_a root: a direct UPDATE or DELETE of the root
+-- table that reaches a subtype record is carried down to the record's own
+-- type, so PATCH /activities on a classified email runs the rules of emails and
+-- classified_emails and DELETE /activities deletes every part. It acts only at
+-- pg_trigger_depth() = 1, a direct write: at a deeper level the write comes
+-- from a write routine, which has done that already, or from an RI action,
+-- which reaches only the root row (the depth invariant above). A plain root
+-- row costs one CASE. The name sorts before compute_validate_trigger, so the
+-- root's own rules run after the derived ones, on the final root row.
+CREATE OR REPLACE FUNCTION dd_build_is_a_dispatch(p_root TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_k    TEXT := (SELECT e.id_column FROM entities e WHERE e.table_name = p_root);
+    v_fn   TEXT := 'is_a_dispatch_' || p_root;
+    v_case RECORD;
+BEGIN
+    v_case := dd_dispatch_case(p_root, TRUE);
+    IF v_case.branches = '' THEN
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', v_fn);
+        RETURN;
+    END IF;
+
+    EXECUTE format($BODY$
+CREATE OR REPLACE FUNCTION common.%1$I()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+AS $DISPATCH$
+#variable_conflict use_variable
+DECLARE%2$s
+BEGIN
+    -- Direct writes only: a deeper one comes from a write routine or an RI
+    -- action (the depth invariant in 0160_dd_functions.sql).
+    IF pg_trigger_depth() = 1 THEN
+        CASE common.typeid_prefix(OLD.%3$I)%4$s
+            ELSE
+                NULL;
+        END CASE;
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$DISPATCH$;
+$BODY$,
+        v_fn, v_case.decls, v_k, replace(v_case.branches, E'\n', E'\n    '));
+
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', v_fn);
+    EXECUTE format('COMMENT ON FUNCTION common.%I() IS %L', v_fn,
+        format('BEFORE UPDATE OR DELETE trigger of the is_a root "%s": carries a direct write of a subtype record down to the write routine of its own type. Generated by dd_refresh_family.', p_root));
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER a_is_a_dispatch BEFORE UPDATE OR DELETE ON public.%I
+            FOR EACH ROW EXECUTE FUNCTION common.%I()',
+        p_root, v_fn);
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_build_is_a_dispatch(TEXT) IS
+'Generates and installs the dispatch trigger of an is_a root (common.is_a_dispatch_<root>), or drops it when the root has no is_a subtype left. Called by dd_refresh_family.';
+
+-- The delete guard of a has_a base: a base record that still has an
+-- extension cannot be deleted (90251). Deletes never cascade into the parts of
+-- a record; an extension is removed through its own entity first, where its
+-- rules and permissions apply. The RESTRICT key of <extension>_ext is the
+-- backstop. TG_ARGV[0] is the key column, the rest the extension entities.
+-- SECURITY DEFINER, like a foreign key check, so an extension row the caller
+-- cannot read still blocks the delete; the refusal names the extension, never
+-- its contents.
+CREATE OR REPLACE FUNCTION common.has_a_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = common, pg_catalog
+AS $$
+DECLARE
+    v_found BOOLEAN;
+BEGIN
+    FOR i IN 1 .. TG_NARGS - 1 LOOP
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1::common.typeid)',
+                       TG_ARGV[i] || '_ext', TG_ARGV[0])
+           INTO v_found
+          USING to_jsonb(OLD) ->> TG_ARGV[0];
+        IF v_found THEN
+            RAISE EXCEPTION 'Record ${id} of ${table} still has a ${extension} record; remove it through ${extension} first'
+                USING ERRCODE = '90251',
+                      HINT = jsonb_build_object('id', to_jsonb(OLD) ->> TG_ARGV[0], 'table', TG_TABLE_NAME,
+                                                'extension', TG_ARGV[i])::text;
+        END IF;
+    END LOOP;
+    RETURN OLD;
+END;
+$$;
+
+COMMENT ON FUNCTION common.has_a_guard() IS
+'BEFORE DELETE trigger of a has_a base (TG_ARGV: key column, then the extension entities): refuses to delete a record that still has an extension record (90251).';
+
+-- Rebuilds every family that contains one of the given entities: the views,
+-- the write routines and view triggers, the root's typeid_assign (with the
+-- subtype prefixes) and dispatch trigger, the has_a delete guard, and the
+-- label functions. It runs at the end of every statement on fields (from
+-- apply_field_searchable_change, after all row-level DDL), and after a change
+-- to a family's members; for an entity outside every family it only reads and
+-- returns, so an ordinary field write costs no more than before. A root that
+-- lost its last dependent is visited once more, to take its dispatch trigger
+-- and guard away.
+CREATE OR REPLACE FUNCTION dd_refresh_family(p_touched TEXT[])
+RETURNS VOID AS $$
+DECLARE
+    v_roots  TEXT[];
+    v_root   entities%ROWTYPE;
+    v_guard  TEXT;
+    v_marked BOOLEAN;
+    r        RECORD;
+BEGIN
+    SELECT array_agg(DISTINCT a.table_name)
+      INTO v_roots
+      FROM unnest(coalesce(p_touched, ARRAY[]::TEXT[])) AS t(name)
+     CROSS JOIN LATERAL dd_ancestors(t.name) a
+     WHERE a.depth = 0
+       AND (EXISTS (SELECT 1 FROM entities d WHERE d.id_refentity = a.table_name)
+            OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger tg
+                        WHERE tg.tgrelid = pg_catalog.to_regclass(format('public.%I', a.table_name))
+                          AND tg.tgname IN ('a_is_a_dispatch', 'a_has_a_guard')));
+    IF v_roots IS NULL THEN
+        RETURN;
+    END IF;
+
+    SET LOCAL client_min_messages = WARNING;
+
+    -- The rebuild follows from the change that caused it, and that change is
+    -- what the DDL audit records: while this row exists its event triggers
+    -- skip the rebuild's DDL (audit.log_ddl_event in 0200_audit_log.sql). The
+    -- outermost call owns the row; an error rolls it back with everything else.
+    INSERT INTO audit.generated_ddl DEFAULT VALUES ON CONFLICT DO NOTHING RETURNING TRUE INTO v_marked;
+
+    FOR v_root IN SELECT e.* FROM entities e WHERE e.table_name = ANY (v_roots) LOOP
+        -- In a module-delete cascade the root may already be gone.
+        CONTINUE WHEN pg_catalog.to_regclass(format('public.%I', v_root.table_name)) IS NULL;
+
+        -- 1. The views, all dropped before any is created: CASCADE takes the
+        --    write routines and label functions typed by them.
+        FOR r IN
+            SELECT d.table_name FROM dd_descendants(v_root.table_name) d ORDER BY d.depth, d.table_name
+        LOOP
+            EXECUTE format('DROP VIEW IF EXISTS public.%I CASCADE', r.table_name);
+        END LOOP;
+        FOR r IN
+            SELECT d.table_name FROM dd_descendants(v_root.table_name) d
+             WHERE pg_catalog.to_regclass(format('public.%I', d.table_name || '_ext')) IS NOT NULL
+             ORDER BY d.depth, d.table_name
+        LOOP
+            PERFORM dd_build_family_view(r.table_name);
+        END LOOP;
+
+        -- 2. The write routines, then the view triggers that call them.
+        FOR r IN
+            SELECT d.table_name FROM dd_descendants(v_root.table_name) d
+             WHERE pg_catalog.to_regclass(format('public.%I', d.table_name)) IS NOT NULL
+             ORDER BY d.depth, d.table_name
+        LOOP
+            PERFORM dd_build_record_write(r.table_name);
+        END LOOP;
+        FOR r IN
+            SELECT d.table_name FROM dd_descendants(v_root.table_name) d
+             WHERE pg_catalog.to_regclass(format('public.%I', d.table_name)) IS NOT NULL
+             ORDER BY d.depth, d.table_name
+        LOOP
+            PERFORM dd_build_view_write(r.table_name);
+        END LOOP;
+
+        -- 3. The root's key triggers, which carry the subtype prefixes, and
+        --    its dispatch trigger.
+        PERFORM dd_install_id_triggers(v_root.table_name, v_root.id_column, v_root.id_type, v_root.id_prefix);
+        PERFORM dd_build_is_a_dispatch(v_root.table_name);
+
+        -- 4. The delete guard of a has_a base.
+        SELECT string_agg(format(', %L', e.table_name), '' ORDER BY e.table_name)
+          INTO v_guard
+          FROM entities e
+         WHERE e.id_refentity = v_root.table_name
+           AND e.id_type = 'has_a';
+        IF v_guard IS NULL THEN
+            EXECUTE format('DROP TRIGGER IF EXISTS a_has_a_guard ON public.%I', v_root.table_name);
+        ELSE
+            EXECUTE format(
+                'CREATE OR REPLACE TRIGGER a_has_a_guard BEFORE DELETE ON public.%I
+                    FOR EACH ROW EXECUTE FUNCTION common.has_a_guard(%L%s)',
+                v_root.table_name, v_root.id_column, v_guard);
+        END IF;
+
+        -- 5. The label functions of the views.
+        FOR r IN
+            SELECT d.table_name FROM dd_descendants(v_root.table_name) d ORDER BY d.depth, d.table_name
+        LOOP
+            PERFORM rebuild_entity_label_functions(r.table_name);
+        END LOOP;
+    END LOOP;
+
+    IF v_marked THEN
+        DELETE FROM audit.generated_ddl WHERE transaction_id = pg_current_xact_id();
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_refresh_family(TEXT[]) IS
+'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s typeid_assign and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
+
+-- A family member renamed or deleted: the rest of its family is rebuilt under
+-- the new name, or without it. After the rename triggers of 0170_dd_rename.sql
+-- and the rule and policy rebuilds, whose names sort earlier.
+CREATE OR REPLACE FUNCTION dd_family_member_changed()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM dd_refresh_family(ARRAY[OLD.id_refentity]);
+        RETURN OLD;
+    END IF;
+    PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_member_changed() IS
+'AFTER UPDATE (rename) and AFTER DELETE trigger on entities: rebuilds the family of a renamed entity, or of a deleted is_a/has_a entity''s base.';
+
+CREATE OR REPLACE TRIGGER zz_family_refresh_rename_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION dd_family_member_changed();
+
+CREATE OR REPLACE TRIGGER zz_family_refresh_delete_trigger
+    AFTER DELETE ON entities
+    FOR EACH ROW
+    WHEN (OLD.id_refentity IS NOT NULL)
+    EXECUTE FUNCTION dd_family_member_changed();
+
+-- =====================================================
 -- GET RECORD BY ID
 -- =====================================================
 -- Looks up an entity by table_name, reads its id_column, then queries the
@@ -8203,12 +9628,11 @@ CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id TEXT)
 RETURNS JSONB AS $$
 DECLARE
     v_id_column       TEXT;
-    v_view_permission TEXT;
-    v_select_rule     JSONB;
     v_result          JSONB;
     v_allowed         BOOLEAN;
     v_key_type        TEXT;
     v_valid           BOOLEAN;
+    v_level           RECORD;
 BEGIN
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
@@ -8217,9 +9641,8 @@ BEGIN
     -- is the first check of the transaction.
     PERFORM rbac.uid();
 
-    -- Look up the entity to find its id_column and the access predicate.
-    SELECT id_column, view_permission, select_rule
-      INTO v_id_column, v_view_permission, v_select_rule
+    -- Look up the entity to find its id_column.
+    SELECT id_column INTO v_id_column
     FROM entities
     WHERE table_name = p_entity_name;
 
@@ -8231,7 +9654,8 @@ BEGIN
     -- The key's declared type, as format_type spells it (a domain comes back
     -- schema-qualified, since `common` is not on this function's search_path),
     -- so it can be interpolated as a type name. No column means no table: an
-    -- unmanaged entity registered without one.
+    -- unmanaged entity registered without one. An is_a or has_a entity is read
+    -- through its view, whose key column has the key's type.
     SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
       INTO v_key_type
       FROM pg_catalog.pg_attribute a
@@ -8256,7 +9680,7 @@ BEGIN
     -- malformed; anybody else gets the NULL that also answers "no such entity",
     -- so the refusal does not reveal that the entity exists or what its key is.
     IF NOT v_valid THEN
-        IF rbac.has_permission(v_view_permission) THEN
+        IF dd_entity_viewable(p_entity_name) THEN
             RAISE EXCEPTION 'Invalid record id ${id} for entity ${table}'
                 USING ERRCODE = '90238',
                       HINT = jsonb_build_object('id', p_id, 'table', p_entity_name)::text;
@@ -8264,37 +9688,50 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- Enforce the entity's CANONICAL PREDICATE (spec authz-spec.md / D8), the SAME boundary
-    -- the RLS SELECT policy uses — NOT view_permission alone. Return NULL rather than raising
-    -- when the row is inaccessible, so callers (incl. the set_record operator) cannot
-    -- distinguish "not allowed" from "does not exist", preventing record-existence leakage.
-    IF v_select_rule IS NULL OR v_select_rule = '{}'::jsonb THEN
-        -- No row rule: view_permission is the access predicate (the default rule).
-        IF NOT rbac.has_permission(v_view_permission) THEN
-            RETURN NULL;
+    -- Enforce the CANONICAL PREDICATE (spec authz-spec.md / D8), the SAME boundary
+    -- the RLS SELECT policy uses — NOT view_permission alone — of every level
+    -- the record is stored in: one for a plain entity, the root and each base
+    -- for an is_a or has_a entity, whose security_invoker view applies all of
+    -- their policies. Return NULL rather than raising when the row is
+    -- inaccessible, so callers (incl. the set_record operator) cannot
+    -- distinguish "not allowed" from "does not exist", preventing
+    -- record-existence leakage.
+    FOR v_level IN
+        SELECT e.table_name, e.id_type, e.view_permission, e.select_rule
+          FROM dd_ancestors(p_entity_name) a
+          JOIN entities e ON e.table_name = a.table_name
+         ORDER BY a.depth
+    LOOP
+        IF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
+            -- No row rule: view_permission is the access predicate (the default rule).
+            IF NOT rbac.has_permission(v_level.view_permission) THEN
+                RETURN NULL;
+            END IF;
+        ELSE
+            -- select_rule REPLACES view_permission: evaluate the per-row rule for THIS row.
+            -- (The select_rule_<table>() helper is created by build_select_rule_policy.)
+            EXECUTE format(
+                'SELECT public.%I(t) FROM public.%I t WHERE t.%I = $1::%s LIMIT 1',
+                'select_rule_' || v_level.table_name, dd_relation(v_level.table_name, v_level.id_type),
+                v_id_column, v_key_type
+            ) INTO v_allowed USING p_id;
+            IF NOT COALESCE(v_allowed, FALSE) THEN
+                RETURN NULL;
+            END IF;
         END IF;
-        EXECUTE format(
-            'SELECT row_to_json(t)::jsonb FROM %I t WHERE t.%I = $1::%s LIMIT 1',
-            p_entity_name, v_id_column, v_key_type
-        ) INTO v_result USING p_id;
-    ELSE
-        -- select_rule REPLACES view_permission: evaluate the per-row rule for THIS row.
-        -- (The select_rule_<table>() helper is created by build_select_rule_policy.)
-        EXECUTE format(
-            'SELECT row_to_json(t)::jsonb, public.%I(t) FROM %I t WHERE t.%I = $1::%s LIMIT 1',
-            'select_rule_' || p_entity_name, p_entity_name, v_id_column, v_key_type
-        ) INTO v_result, v_allowed USING p_id;
-        IF NOT COALESCE(v_allowed, FALSE) THEN
-            RETURN NULL;
-        END IF;
-    END IF;
+    END LOOP;
+
+    EXECUTE format(
+        'SELECT row_to_json(t)::jsonb FROM public.%I t WHERE t.%I = $1::%s LIMIT 1',
+        p_entity_name, v_id_column, v_key_type
+    ) INTO v_result USING p_id;
 
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table; the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the entity''s canonical read predicate (the same access boundary as RLS / get_schema). Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema). Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
 
 -- Numeric callers: a bigint or integer argument resolves here rather than to
 -- the TEXT version, since PostgreSQL casts neither to text implicitly. The
@@ -8317,6 +9754,34 @@ GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, BIGINT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, BIGINT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_id_type_data_type(TEXT) FROM PUBLIC;
+-- The family helpers read nothing the request role cannot read itself, and
+-- enforce_table_searchable_consistency, which runs as the writer of the
+-- entities row, reaches dd_entity_searchable and through it the others.
+REVOKE EXECUTE ON FUNCTION dd_relation(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_relation(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_ancestors(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_descendants(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family_fields(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_entity_viewable(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_entity_searchable(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_relation(TEXT, TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_relation(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_ancestors(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_descendants(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_family_fields(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_entity_viewable(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_entity_searchable(TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_family_columns(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_build_family_view(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_build_record_write(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_build_view_write(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_build_is_a_dispatch(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_refresh_family(TEXT[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family_member_changed() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION check_entity_family() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_family_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.has_a_guard() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -8360,7 +9825,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', 'f428902f6984404c0dd38d216c90d6efcda9124164bc8feef83745e9e334668d')
+        VALUES ('_core.0160_dd_functions.sql', '97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -8397,7 +9862,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -8421,6 +9886,12 @@ DECLARE
     v_suffix    TEXT;
     v_old_name  TEXT;
     v_new_name  TEXT;
+    v_name      TEXT;
+    -- The physical relation and the names derived from it: <entity>_ext for
+    -- an is_a or has_a entity, whose view carries the entity name.
+    v_old_rel   TEXT := dd_relation(OLD.table_name, OLD.id_type);
+    v_new_rel   TEXT := dd_relation(NEW.table_name, NEW.id_type);
+    v_derived   BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
         -- Mark that a cascade rename is in progress (transaction-local)
@@ -8428,22 +9899,42 @@ BEGIN
 
         -- Rename the physical table and all associated named objects when managed
         IF OLD.managed THEN
-            EXECUTE format('ALTER TABLE %I RENAME TO %I', OLD.table_name, NEW.table_name);
-            RAISE NOTICE 'Renamed table "%" to "%"', OLD.table_name, NEW.table_name;
+            -- A derived entity needs both of its names free, as when it was
+            -- created (90250). A plain entity's rename meets an occupied name
+            -- in ALTER TABLE below.
+            IF v_derived THEN
+                FOREACH v_name IN ARRAY ARRAY[NEW.table_name, v_new_rel] LOOP
+                    IF to_regclass(format('public.%I', v_name)) IS NOT NULL THEN
+                        RAISE EXCEPTION 'Table name ${relation} is already in use'
+                            USING ERRCODE = '90250',
+                                  HINT = jsonb_build_object('relation', v_name)::text;
+                    END IF;
+                END LOOP;
+            END IF;
+
+            EXECUTE format('ALTER TABLE %I RENAME TO %I', v_old_rel, v_new_rel);
+            RAISE NOTICE 'Renamed table "%" to "%"', v_old_rel, v_new_rel;
+
+            -- The view follows under its new name; the family refresh after
+            -- this statement (zz_family_refresh_rename_trigger) rebuilds it and
+            -- every routine whose text names the old one.
+            IF v_derived AND to_regclass(format('public.%I', OLD.table_name)) IS NOT NULL THEN
+                EXECUTE format('ALTER VIEW %I RENAME TO %I', OLD.table_name, NEW.table_name);
+            END IF;
 
             -- Rename updated_at trigger (name pattern: update_<table>_updated_at)
             IF EXISTS (
                 SELECT 1 FROM pg_trigger t
                 JOIN pg_class c ON t.tgrelid = c.oid
-                WHERE c.relname = NEW.table_name
+                WHERE c.relname = v_new_rel
                   AND c.relnamespace = 'public'::regnamespace
-                  AND t.tgname = 'update_' || OLD.table_name || '_updated_at'
+                  AND t.tgname = 'update_' || v_old_rel || '_updated_at'
             ) THEN
                 EXECUTE format(
                     'ALTER TRIGGER %I ON %I RENAME TO %I',
-                    'update_' || OLD.table_name || '_updated_at',
-                    NEW.table_name,
-                    'update_' || NEW.table_name || '_updated_at'
+                    'update_' || v_old_rel || '_updated_at',
+                    v_new_rel,
+                    'update_' || v_new_rel || '_updated_at'
                 );
             END IF;
 
@@ -8453,15 +9944,15 @@ BEGIN
                 IF EXISTS (
                     SELECT 1 FROM pg_policy p
                     JOIN pg_class c ON p.polrelid = c.oid
-                    WHERE c.relname = NEW.table_name
+                    WHERE c.relname = v_new_rel
                       AND c.relnamespace = 'public'::regnamespace
-                      AND p.polname = OLD.table_name || '_' || v_suffix
+                      AND p.polname = v_old_rel || '_' || v_suffix
                 ) THEN
                     EXECUTE format(
                         'ALTER POLICY %I ON %I RENAME TO %I',
-                        OLD.table_name || '_' || v_suffix,
-                        NEW.table_name,
-                        NEW.table_name || '_' || v_suffix
+                        v_old_rel || '_' || v_suffix,
+                        v_new_rel,
+                        v_new_rel || '_' || v_suffix
                     );
                 END IF;
             END LOOP;
@@ -8471,26 +9962,26 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
                 WHERE schemaname = 'public'
-                  AND indexname = OLD.table_name || '_search_vector_idx'
+                  AND indexname = v_old_rel || '_search_vector_idx'
             ) THEN
                 EXECUTE format(
                     'ALTER INDEX %I RENAME TO %I',
-                    OLD.table_name || '_search_vector_idx',
-                    NEW.table_name || '_search_vector_idx'
+                    v_old_rel || '_search_vector_idx',
+                    v_new_rel || '_search_vector_idx'
                 );
             END IF;
 
             -- Rename id sequence (<table>_<id_col>_seq)
             IF EXISTS (
                 SELECT 1 FROM pg_class
-                WHERE relname = OLD.table_name || '_' || OLD.id_column || '_seq'
+                WHERE relname = v_old_rel || '_' || OLD.id_column || '_seq'
                   AND relnamespace = 'public'::regnamespace
                   AND relkind = 'S'
             ) THEN
                 EXECUTE format(
                     'ALTER SEQUENCE %I RENAME TO %I',
-                    OLD.table_name || '_' || OLD.id_column || '_seq',
-                    NEW.table_name || '_' || NEW.id_column || '_seq'
+                    v_old_rel || '_' || OLD.id_column || '_seq',
+                    v_new_rel || '_' || NEW.id_column || '_seq'
                 );
             END IF;
 
@@ -8498,32 +9989,33 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE c.conname = OLD.table_name || '_pkey'
-                  AND t.relname = NEW.table_name
+                WHERE c.conname = v_old_rel || '_pkey'
+                  AND t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
                   AND c.contype = 'p'
             ) THEN
                 EXECUTE format(
                     'ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name,
-                    OLD.table_name || '_pkey',
-                    NEW.table_name || '_pkey'
+                    v_new_rel,
+                    v_old_rel || '_pkey',
+                    v_new_rel || '_pkey'
                 );
             END IF;
 
-            -- Rename all FK constraints named <old_table>_<field>_fkey
+            -- Rename all FK constraints named <old_table>_<field>_fkey (the key
+            -- of <entity>_ext included: <entity>_ext_id_fkey)
             FOR v_old_name IN
                 SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE t.relname = NEW.table_name
+                WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (OLD.table_name || '\_%\_fkey') ESCAPE '\'
+                  AND c.conname LIKE (v_old_rel || '\_%\_fkey') ESCAPE '\'
                   AND c.contype = 'f'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name, v_old_name, v_new_name);
+                    v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
             -- Rename all FK indexes named idx_<old_table>_<field>
@@ -8531,10 +10023,10 @@ BEGIN
                 SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
-                  AND tablename = NEW.table_name
-                  AND indexname LIKE ('idx\_' || OLD.table_name || '\_%') ESCAPE '\'
+                  AND tablename = v_new_rel
+                  AND indexname LIKE ('idx\_' || v_old_rel || '\_%') ESCAPE '\'
             LOOP
-                v_new_name := 'idx_' || NEW.table_name || substring(v_old_name FROM length('idx_' || OLD.table_name) + 1);
+                v_new_name := 'idx_' || v_new_rel || substring(v_old_name FROM length('idx_' || v_old_rel) + 1);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
@@ -8543,14 +10035,14 @@ BEGIN
                 SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE t.relname = NEW.table_name
+                WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (OLD.table_name || '\_%\_check') ESCAPE '\'
+                  AND c.conname LIKE (v_old_rel || '\_%\_check') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name, v_old_name, v_new_name);
+                    v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
             -- Rename all NOT NULL constraints named <old_table>_<field>_not_null.
@@ -8564,13 +10056,13 @@ BEGIN
                 SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE t.relname = NEW.table_name
+                WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (OLD.table_name || '\_%\_not\_null') ESCAPE '\'
+                  AND c.conname LIKE (v_old_rel || '\_%\_not\_null') ESCAPE '\'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name, v_old_name, v_new_name);
+                    v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
             -- Rename all unique indexes named <old_table>_<field>_unique
@@ -8578,28 +10070,43 @@ BEGIN
                 SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
-                  AND tablename = NEW.table_name
-                  AND indexname LIKE (OLD.table_name || '\_%\_unique') ESCAPE '\'
+                  AND tablename = v_new_rel
+                  AND indexname LIKE (v_old_rel || '\_%\_unique') ESCAPE '\'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
-            -- Drop old compute_validate function (CASCADE drops its trigger too).
-            -- The AFTER trigger manage_record_logic_trigger will rebuild it under the new name.
+            -- Drop old compute_validate function (CASCADE drops its trigger too),
+            -- and the rule function it wraps. The AFTER trigger
+            -- manage_record_logic_trigger rebuilds both under the new name.
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE',
                 'compute_validate_' || OLD.table_name);
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)',
+                'record_rules_' || OLD.table_name);
 
             -- Drop both select_rule overloads (CASCADE drops the policies that use
             -- them). The AFTER trigger manage_select_rule_policy rebuilds them under
             -- the new name. The signatures pair the OLD function name with the NEW
             -- row type on purpose: the physical table was renamed a few lines above,
-            -- so the composite type already answers to NEW.table_name while the
-            -- functions still carry the old name.
+            -- so the composite type already answers to the new relation name while
+            -- the functions still carry the old name.
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE',
-                'select_rule_' || OLD.table_name, NEW.table_name);
+                'select_rule_' || OLD.table_name, v_new_rel);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
-                'select_rule_' || OLD.table_name, NEW.table_name);
+                'select_rule_' || OLD.table_name, v_new_rel);
+
+            -- The family routines generated under the old name: the write
+            -- routine (typed by the view, which already answers to the new
+            -- name), the view's trigger function and a root's dispatch trigger
+            -- function, with the triggers that call them. The family refresh
+            -- after this statement generates them under the new name.
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, public.%I, public.%I, boolean)',
+                'record_write_' || OLD.table_name, NEW.table_name, NEW.table_name);
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE',
+                'view_write_' || OLD.table_name);
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE',
+                'is_a_dispatch_' || OLD.table_name);
 
             -- Rename queue event triggers on the entity table.
             -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
@@ -8631,7 +10138,9 @@ COMMENT ON FUNCTION rename_dd_table IS
 objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
-unique indexes, compute_validate function, select_rule function, and queue event triggers.
+unique indexes, compute_validate and rule functions, select_rule function, and queue event triggers.
+For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;
+the generated family routines are dropped under the old name for the family refresh to rebuild.
 Sets a transaction-local session variable so the cascaded update to fields.table_name is
 allowed by update_dd_field without raising an exception.';
 
@@ -8763,9 +10272,13 @@ DECLARE
     v_new_unique  TEXT;
     v_old_notnull TEXT;
     v_new_notnull TEXT;
+    v_rel         TEXT;
 BEGIN
-    -- Resolve parent entity's managed flag
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
+    -- Resolve parent entity's managed flag, and the physical relation that
+    -- holds the column: <entity>_ext for an is_a or has_a entity, whose view
+    -- the family refresh rebuilds after the statement.
+    SELECT managed, dd_relation(table_name, id_type) INTO v_is_managed, v_rel
+      FROM entities WHERE table_name = OLD.table_name;
 
     -- --------------------------------------------------
     -- A) Handle field_name rename
@@ -8778,6 +10291,14 @@ BEGIN
                 UPDATE entities
                    SET label_column = NEW.field_name
                  WHERE table_name = OLD.table_name
+                   AND label_column = OLD.field_name;
+                -- The entities based on this one carry its label column as
+                -- their own (90242 holds them to their root's). A second
+                -- statement rather than a wider WHERE: the check compares with
+                -- the root's value, which has to be written first.
+                UPDATE entities
+                   SET label_column = NEW.field_name
+                 WHERE table_name IN (SELECT d.table_name FROM dd_descendants(OLD.table_name) d)
                    AND label_column = OLD.field_name;
                 RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
                     OLD.field_name, NEW.field_name, OLD.table_name;
@@ -8792,33 +10313,33 @@ BEGIN
             -- Rename the physical column
             EXECUTE format(
                 'ALTER TABLE %I RENAME COLUMN %I TO %I',
-                OLD.table_name, OLD.field_name, NEW.field_name
+                v_rel, OLD.field_name, NEW.field_name
             );
             RAISE NOTICE 'Renamed column "%" to "%" in table "%"',
                 OLD.field_name, NEW.field_name, OLD.table_name;
 
             -- Build old and new names for associated constraints / indexes
-            v_old_fk     := format('%s_%s_fkey',   OLD.table_name, OLD.field_name);
-            v_new_fk     := format('%s_%s_fkey',   OLD.table_name, NEW.field_name);
-            v_old_idx    := format('idx_%s_%s',    OLD.table_name, OLD.field_name);
-            v_new_idx    := format('idx_%s_%s',    OLD.table_name, NEW.field_name);
-            v_old_check  := format('%s_%s_check',  OLD.table_name, OLD.field_name);
-            v_new_check  := format('%s_%s_check',  OLD.table_name, NEW.field_name);
-            v_old_unique := format('%s_%s_unique', OLD.table_name, OLD.field_name);
-            v_new_unique := format('%s_%s_unique', OLD.table_name, NEW.field_name);
-            v_old_notnull := format('%s_%s_not_null', OLD.table_name, OLD.field_name);
-            v_new_notnull := format('%s_%s_not_null', OLD.table_name, NEW.field_name);
+            v_old_fk     := format('%s_%s_fkey',   v_rel, OLD.field_name);
+            v_new_fk     := format('%s_%s_fkey',   v_rel, NEW.field_name);
+            v_old_idx    := format('idx_%s_%s',    v_rel, OLD.field_name);
+            v_new_idx    := format('idx_%s_%s',    v_rel, NEW.field_name);
+            v_old_check  := format('%s_%s_check',  v_rel, OLD.field_name);
+            v_new_check  := format('%s_%s_check',  v_rel, NEW.field_name);
+            v_old_unique := format('%s_%s_unique', v_rel, OLD.field_name);
+            v_new_unique := format('%s_%s_unique', v_rel, NEW.field_name);
+            v_old_notnull := format('%s_%s_not_null', v_rel, OLD.field_name);
+            v_new_notnull := format('%s_%s_not_null', v_rel, NEW.field_name);
 
             -- Rename FK constraint if it exists
             IF EXISTS (
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE c.conname = v_old_fk
-                  AND t.relname = OLD.table_name
+                  AND t.relname = v_rel
                   AND t.relnamespace = 'public'::regnamespace
             ) THEN
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    OLD.table_name, v_old_fk, v_new_fk);
+                    v_rel, v_old_fk, v_new_fk);
                 RAISE NOTICE 'Renamed FK constraint "%" to "%"', v_old_fk, v_new_fk;
             END IF;
 
@@ -8836,11 +10357,11 @@ BEGIN
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE c.conname = v_old_check
-                  AND t.relname = OLD.table_name
+                  AND t.relname = v_rel
                   AND t.relnamespace = 'public'::regnamespace
             ) THEN
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    OLD.table_name, v_old_check, v_new_check);
+                    v_rel, v_old_check, v_new_check);
                 RAISE NOTICE 'Renamed check constraint "%" to "%"', v_old_check, v_new_check;
             END IF;
 
@@ -8861,11 +10382,11 @@ BEGIN
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE c.conname = v_old_notnull
-                  AND t.relname = OLD.table_name
+                  AND t.relname = v_rel
                   AND t.relnamespace = 'public'::regnamespace
             ) THEN
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    OLD.table_name, v_old_notnull, v_new_notnull);
+                    v_rel, v_old_notnull, v_new_notnull);
                 RAISE NOTICE 'Renamed NOT NULL constraint "%" to "%"', v_old_notnull, v_new_notnull;
             END IF;
         END IF;
@@ -8934,7 +10455,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', 'b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d')
+        VALUES ('_core.0170_dd_rename.sql', '8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -8971,7 +10492,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4bd4276fe4a35b100863f6eebe01a6a4d69ff99c2d08a50e020f2166abecfd61') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -9095,11 +10616,13 @@ BEGIN
             v_fk_name  := format('%s_%s_fkey', p_field.table_name, p_field.field_name);
             v_idx_name := format('idx_%s_%s',  p_field.table_name, p_field.field_name);
 
+            -- A reference to an is_a or has_a entity points at its
+            -- <entity>_ext table, as in add_dd_field (0160_dd_functions.sql).
             BEGIN
                 EXECUTE format(
                     'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(%I) ON DELETE %s ON UPDATE CASCADE',
                     p_field.table_name, v_fk_name, p_field.field_name,
-                    p_field.reference_table, v_ref_id_column, v_on_delete
+                    dd_relation(p_field.reference_table), v_ref_id_column, v_on_delete
                 );
             EXCEPTION WHEN duplicate_object THEN
                 RAISE NOTICE 'FK "%" already exists on "%.%", skipping',
@@ -9414,10 +10937,7 @@ BEGIN
 
     -- Update searchable flag in case any searchable fields exist
     UPDATE entities
-    SET searchable = EXISTS (
-        SELECT 1 FROM fields
-        WHERE table_name = NEW.table_name AND searchable = TRUE
-    )
+    SET searchable = dd_entity_searchable(NEW.table_name)
     WHERE table_name = NEW.table_name;
 
     -- Build the canonical-predicate RLS policies (select_rule, or the permission-only default
@@ -9577,6 +11097,8 @@ DECLARE
     v_spine_ref   TEXT;
     v_spine_fmt   TEXT;
     v_sql         TEXT;
+    v_base        TEXT;
+    v_id_col      TEXT;
     r             RECORD;
 BEGIN
     -- Skip when the entity metadata or the physical table is absent, which is
@@ -9591,8 +11113,8 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT label_column, NULLIF(label_parent, '')
-      INTO v_label_col, v_spine
+    SELECT label_column, NULLIF(label_parent, ''), id_refentity, id_column
+      INTO v_label_col, v_spine, v_base, v_id_col
       FROM entities WHERE table_name = p_table_name;
 
     v_saved := current_setting('check_function_bodies');
@@ -9628,7 +11150,19 @@ BEGIN
 
     v_is_junction := dd_is_junction(p_table_name);
 
-    IF v_is_junction THEN
+    IF v_base IS NOT NULL THEN
+        -- An is_a or has_a entity (the row type is its view): a record is the
+        -- record of its base, so its composed label is the base's, which in
+        -- turn is its root's.
+        IF to_regclass(format('public.%I', v_base)) IS NOT NULL THEN
+            v_body := format(
+                'SELECT (SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I)',
+                v_base, v_id_col, v_id_col);
+        ELSE
+            v_body := format('SELECT %s', v_local);
+        END IF;
+
+    ELSIF v_is_junction THEN
         -- Junction: combine the parent legs (field order); no local term.
         v_legs := ARRAY[]::TEXT[];
         FOR r IN
@@ -9695,11 +11229,13 @@ BEGIN
         format('Composed record label for entity "%s" (PostgREST computed column). Generated by rebuild_entity_label_functions from entity/field metadata.', p_table_name));
 
     -- <fk>_label companion for every reference/parent field (referenced record's composed label).
+    -- For an is_a or has_a entity these are the reference fields of the whole
+    -- record, inherited ones included, since its view shows them all.
     FOR r IN
         SELECT f.field_name, f.reference_table
-        FROM fields f
-        WHERE f.table_name = p_table_name AND dd_is_fk_format(f.format) AND f.reference_table <> ''
-        ORDER BY f.field_order
+        FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
+        WHERE dd_is_fk_format(f.format) AND f.reference_table <> ''
+        ORDER BY f.ordinality
     LOOP
         SELECT id_column INTO v_parent_id FROM entities WHERE table_name = r.reference_table;
         CONTINUE WHEN v_parent_id IS NULL;
@@ -9732,7 +11268,9 @@ $fn$;
 COMMENT ON FUNCTION rebuild_entity_label_functions(TEXT) IS
 'Regenerates the _label and <fk>_label PostgREST computed-column functions for one entity from
 current metadata + physical columns. SECURITY DEFINER (creates functions) but the generated
-functions are SECURITY INVOKER so composed labels respect each caller''s row-level read permissions.';
+functions are SECURITY INVOKER so composed labels respect each caller''s row-level read permissions.
+For an is_a or has_a entity they are functions of its view: _label is its base''s composed label, and
+every reference field of the record gets its <fk>_label. The family refresh calls it for those.';
 
 -- =====================================================
 -- §9 RESERVED FIELD-NAME NAMESPACE
@@ -9960,7 +11498,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '4bd4276fe4a35b100863f6eebe01a6a4d69ff99c2d08a50e020f2166abecfd61')
+        VALUES ('_core.0180_managed_enable.sql', 'd392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -10160,6 +11698,31 @@ CREATE INDEX IF NOT EXISTS audit_ddl_logs_event_time
     USING BRIN(event_time);
 
 -- =====================================================
+-- STEP 3b: DDL the dictionary regenerates (audit.generated_ddl)
+-- =====================================================
+-- A row for the current transaction while dd_refresh_family
+-- (0160_dd_functions.sql) rebuilds the views, write routines and triggers of an
+-- is_a/has_a family. The DDL audit skips events while it exists: the rebuild
+-- follows from the change that caused it - a field or entity write, whose own
+-- DDL and DML are logged - and would otherwise log a dozen rows for every
+-- field edit, GRANT and REVOKE included, which carry no object to filter on.
+--
+-- A table the owner alone can write, not a session setting: any session can
+-- set a setting, and one that could turn the DDL audit off would let whoever
+-- holds it hide their own DDL. Writing this table takes the owner, who can
+-- disable the event triggers anyway. No grants; RLS on with no policy, so a
+-- grant added by mistake still reads and writes nothing.
+CREATE TABLE IF NOT EXISTS audit.generated_ddl (
+    transaction_id xid8 PRIMARY KEY DEFAULT pg_current_xact_id()
+);
+
+COMMENT ON TABLE audit.generated_ddl IS
+'A row per transaction while dd_refresh_family rebuilds an is_a/has_a family; the DDL audit event triggers skip the events it causes. Written only by the owner.';
+
+ALTER TABLE audit.generated_ddl ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON audit.generated_ddl FROM PUBLIC;
+
+-- =====================================================
 -- STEP 11: RLS on audit tables
 -- =====================================================
 -- Audit tables are in public schema, so PostgREST can expose them.
@@ -10173,7 +11736,7 @@ GRANT USAGE ON SCHEMA audit TO semantius_user;
 $pgsem__core_0190_audit_log_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0190_audit_log.once.sql', 'c1f0cf2da643b02c93d76d841c21b29a0ee036254c8d563212dd8cd6110a4214')
+        VALUES ('_core.0190_audit_log.once.sql', 'c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -10210,7 +11773,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -10748,6 +12311,13 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      lost. An entity whose name needs quoting is audited too, because the
 --      quotes travel into the identity and match no table_name; no such entity
 --      exists today.
+--   4. a family rebuild - every event while audit.generated_ddl holds a row
+--      for this transaction, i.e. while dd_refresh_family (0160_dd_functions.sql)
+--      regenerates an is_a/has_a family's views, routines and triggers. That
+--      DDL follows from the change that caused it, which is logged; the GRANT
+--      and REVOKE events among it carry no identity, so a shape filter like
+--      the one above could not reach them. The table is the owner's alone
+--      (0190_audit_log.once.sql says why that matters).
 --
 -- Two limitations, both accepted:
 --   - GRANT and REVOKE, kept for the reason filter 2 gives, cannot be
@@ -10771,6 +12341,11 @@ DECLARE
     obj RECORD;
     v_user_id BIGINT;
 BEGIN
+    IF to_regclass('audit.generated_ddl') IS NOT NULL
+       AND EXISTS (SELECT 1 FROM audit.generated_ddl g
+                    WHERE g.transaction_id = pg_catalog.pg_current_xact_id_if_assigned()) THEN
+        RETURN;
+    END IF;
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
         CONTINUE WHEN obj.in_extension;
@@ -10800,7 +12375,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.log_ddl_event IS
-'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
+'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id. Skips generated label companions and the DDL of an is_a/has_a family rebuild (audit.generated_ddl).';
 
 DROP EVENT TRIGGER IF EXISTS track_ddl_changes;
 CREATE EVENT TRIGGER track_ddl_changes
@@ -10850,6 +12425,8 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
 --     same caveats as the sibling above.
+--   - not a family rebuild, the sibling's filter 4: dd_refresh_family drops and
+--     recreates the views of a family on every field edit.
 CREATE OR REPLACE FUNCTION audit.log_drop_event()
 RETURNS event_trigger
 SECURITY DEFINER
@@ -10860,6 +12437,11 @@ DECLARE
     v_user_id BIGINT;
 BEGIN
     IF to_regclass('public.audit_ddl_logs') IS NULL THEN
+        RETURN;
+    END IF;
+    IF to_regclass('audit.generated_ddl') IS NOT NULL
+       AND EXISTS (SELECT 1 FROM audit.generated_ddl g
+                    WHERE g.transaction_id = pg_catalog.pg_current_xact_id_if_assigned()) THEN
         RETURN;
     END IF;
     v_user_id := audit.current_user_id();
@@ -10896,7 +12478,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.log_drop_event IS
-'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order.';
+'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order, and during an is_a/has_a family rebuild (audit.generated_ddl).';
 
 DROP EVENT TRIGGER IF EXISTS track_ddl_drops;
 CREATE EVENT TRIGGER track_ddl_drops
@@ -10956,10 +12538,15 @@ COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
 
 -- The ignored columns are decided table by table, here and in the STEP 10 loop,
 -- or a re-toggle would rebuild audit_i_u_d with none and audit the heartbeat again.
+-- The triggers go on the entity's physical relation. An is_a or has_a
+-- entity's own part lives in <entity>_ext, so that is the table its audit_log
+-- flag audits; the parts in its bases' tables are logged by their own
+-- entities' flags, and a log row names the table it was written to.
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
 DECLARE
     v_ignored_columns TEXT[] := CASE WHEN NEW.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END;
+    v_rel TEXT := dd_relation(NEW.table_name, NEW.id_type);
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Enable audit on newly created managed tables with audit_log=TRUE
@@ -10968,10 +12555,10 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM information_schema.tables t
                 WHERE t.table_schema = 'public'
-                  AND t.table_name = NEW.table_name
+                  AND t.table_name = v_rel
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
-                RAISE NOTICE 'Enabled audit tracking for new table "%"', NEW.table_name;
+                PERFORM audit.enable_tracking(format('public.%I', v_rel)::REGCLASS, v_ignored_columns);
+                RAISE NOTICE 'Enabled audit tracking for new table "%"', v_rel;
             END IF;
         END IF;
         RETURN NEW;
@@ -10982,11 +12569,11 @@ BEGIN
         IF OLD.audit_log IS DISTINCT FROM NEW.audit_log THEN
             IF NEW.managed THEN
                 IF NEW.audit_log THEN
-                    PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
-                    RAISE NOTICE 'Enabled audit tracking for table "%"', NEW.table_name;
+                    PERFORM audit.enable_tracking(format('public.%I', v_rel)::REGCLASS, v_ignored_columns);
+                    RAISE NOTICE 'Enabled audit tracking for table "%"', v_rel;
                 ELSE
-                    PERFORM audit.disable_tracking(NEW.table_name::REGCLASS);
-                    RAISE NOTICE 'Disabled audit tracking for table "%"', NEW.table_name;
+                    PERFORM audit.disable_tracking(format('public.%I', v_rel)::REGCLASS);
+                    RAISE NOTICE 'Disabled audit tracking for table "%"', v_rel;
                 END IF;
             END IF;
         END IF;
@@ -10997,10 +12584,10 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM information_schema.tables t
                 WHERE t.table_schema = 'public'
-                  AND t.table_name = NEW.table_name
+                  AND t.table_name = v_rel
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
-                RAISE NOTICE 'Enabled audit tracking for newly managed table "%"', NEW.table_name;
+                PERFORM audit.enable_tracking(format('public.%I', v_rel)::REGCLASS, v_ignored_columns);
+                RAISE NOTICE 'Enabled audit tracking for newly managed table "%"', v_rel;
             END IF;
         END IF;
 
@@ -11092,7 +12679,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', 'eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73')
+        VALUES ('_core.0200_audit_log.sql', '667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -11129,7 +12716,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -11139,9 +12726,12 @@ $pgsem__core_0200_audit_log_sql$;
 --
 -- Schema for entities.computed_fields and entities.validation_rules lives in
 -- 0130_dd_schema.once.sql alongside the rest of the entities table; this file
--- contains only the runtime: a per-table BEFORE INSERT OR UPDATE OR DELETE
--- trigger function that is (re)generated whenever either array is non-empty, and
--- dropped when both are empty or the entity itself is deleted.
+-- contains only the runtime: a per-entity rule function,
+-- common.record_rules_<entity>, and a per-table BEFORE INSERT OR UPDATE OR
+-- DELETE trigger wrapping it, both (re)generated whenever either array is
+-- non-empty, and dropped when both are empty or the entity itself is deleted.
+-- An is_a or has_a entity gets the function only: its generated write routine
+-- (0160_dd_functions.sql) calls it over the whole record.
 --
 -- Reserved variables injected into the JsonLogic data:
 --   $today    -> server date
@@ -11202,6 +12792,7 @@ RETURNS VOID AS $$
 DECLARE
     v_entity entities%ROWTYPE;
     v_fn_name TEXT;
+    v_rules_name TEXT;
     v_trg_name CONSTANT TEXT := 'compute_validate_trigger';
     v_body TEXT;
     v_rules_block TEXT := '';
@@ -11213,18 +12804,24 @@ DECLARE
     v_message TEXT;
     v_rule_hint TEXT;
     v_has_computed BOOLEAN;
+    v_needs_old BOOLEAN := FALSE;
     v_writeback TEXT;
     v_all_logic TEXT;
     v_extra_ctx TEXT := '';
+    v_derived BOOLEAN;
+    v_had_rules BOOLEAN;
 BEGIN
+    v_fn_name := 'compute_validate_' || p_table_name;
+    v_rules_name := 'record_rules_' || p_table_name;
+
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
         -- No entity by that name. Every caller passes one it just read, and the
-        -- entities DELETE arm drops the function itself, so this is reached only
-        -- by a caller naming a table the dictionary does not know - drop
-        -- whatever is there under that name and leave.
-        v_fn_name := 'compute_validate_' || p_table_name;
+        -- entities DELETE arm drops the functions itself, so this is reached
+        -- only by a caller naming a table the dictionary does not know - drop
+        -- whatever is there under those names and leave.
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', v_rules_name);
         RETURN;
     END IF;
 
@@ -11233,15 +12830,28 @@ BEGIN
         RETURN;
     END IF;
 
-    v_fn_name := 'compute_validate_' || p_table_name;
+    -- An is_a or has_a entity has no rule trigger: its rules run inside its
+    -- generated write routine, common.record_write_<entity>, over the whole
+    -- record. Whether record_rules_<entity> exists decides whether that routine
+    -- calls it, so a change in its existence rebuilds the family.
+    v_derived := v_entity.id_type IN ('is_a', 'has_a');
+    v_had_rules := to_regprocedure(format('common.%I(text, jsonb, jsonb)', v_rules_name)) IS NOT NULL;
 
-    -- Drop any existing trigger + function so we can recreate cleanly
-    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
+    -- Drop any existing trigger + wrapper so we can recreate cleanly. The rule
+    -- function is replaced in place further down, not dropped, so the write
+    -- routines that call it keep resolving the same function.
+    IF NOT v_derived THEN
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trg_name, p_table_name);
+    END IF;
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
 
     -- Both arrays empty → nothing to install
     IF jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) = 0
        AND jsonb_array_length(COALESCE(v_entity.validation_rules, '[]'::jsonb)) = 0 THEN
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', v_rules_name);
+        IF v_derived AND v_had_rules THEN
+            PERFORM dd_refresh_family(ARRAY[p_table_name]);
+        END IF;
         RETURN;
     END IF;
 
@@ -11273,12 +12883,13 @@ BEGIN
     IF v_all_logic LIKE '%$old%'
        OR v_all_logic LIKE '%value_changed%'
        OR v_all_logic LIKE '%"var": {%' THEN
+        v_needs_old := TRUE;
         v_extra_ctx := v_extra_ctx || $CTX$,
-        '$old',     CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) ELSE 'null'::jsonb END$CTX$;
+        '$old',     COALESCE(p_old, 'null'::jsonb)$CTX$;
     END IF;
 
     v_extra_ctx := v_extra_ctx || $CTX$,
-        '$mode',    to_jsonb(lower(TG_OP))$CTX$;
+        '$mode',    to_jsonb(p_mode)$CTX$;
 
     -- Computed fields: evaluate each, write result into v_data at name (supports dotted paths)
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
@@ -11310,6 +12921,11 @@ BEGIN
         -- category and matches every code whose first two characters agree.
         -- Our own catalog errors therefore pass through untouched, and only
         -- everything else is re-raised with the locating keys merged in.
+        --
+        -- The entity is written into the body as a literal rather than read
+        -- from TG_TABLE_NAME: the function is not a trigger, and for an is_a
+        -- or has_a entity the table that is being written is <entity>_ext or
+        -- a base's, while the hint has to name the entity that owns the rule.
         v_rules_block := v_rules_block || E'\n' || format(
 $BLOCK$    BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
@@ -11326,12 +12942,13 @@ $BLOCK$    BEGIN
                 USING ERRCODE = v_err_state,
                       DETAIL  = COALESCE(v_err_detail, ''),
                       HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
-                                    'entity', TG_TABLE_NAME,
+                                    'entity', %s,
                                     'field',  %s));
     END;
     v_data := jsonb_set(v_data, %s, COALESCE(v_result, 'null'::jsonb), true);
 $BLOCK$,
             v_logic_lit,
+            quote_literal(p_table_name),
             quote_literal(v_name),
             v_path_sql);
     END LOOP;
@@ -11405,7 +13022,7 @@ $BLOCK$    BEGIN
                 USING ERRCODE = v_err_state,
                       DETAIL  = COALESCE(v_err_detail, ''),
                       HINT    = jl_error_hint(v_err_hint, jsonb_build_object(
-                                    'entity', TG_TABLE_NAME,
+                                    'entity', %s,
                                     'rule',   %s));
     END;
     IF NOT jl_truthy(v_result) THEN
@@ -11413,42 +13030,31 @@ $BLOCK$    BEGIN
     END IF;
 $BLOCK$,
             v_logic_lit,
+            quote_literal(p_table_name),
             quote_literal(v_code),
             quote_literal(v_message),
             quote_literal(v_code),
-            'jsonb_build_object(''entity'', TG_TABLE_NAME, ''rule'', ' ||
+            'jsonb_build_object(''entity'', ' || quote_literal(p_table_name) || ', ''rule'', ' ||
                 quote_literal(v_code) ||
                 CASE WHEN v_rule_hint IS NULL THEN ''
                      ELSE ', ''hint'', ' || quote_literal(v_rule_hint) END ||
                 ')::text');
     END LOOP;
 
-    -- Write-back tail. Validation rules never modify the row, so a validation-only
-    -- entity returns NEW untouched — no need to rebuild it. An entity WITH computed
-    -- fields must fold the derived values (written into v_data by the block above)
-    -- back onto NEW.
+    -- The rules of one entity as a function of the record: p_mode is insert,
+    -- update or delete, p_old the previous record (NULL on insert), p_data the
+    -- record being written. It returns p_data with the computed fields applied
+    -- and raises when a validation rule fails. On delete the result is
+    -- discarded; the rules may still abort the delete.
     --
-    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
-    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
-    -- A static call caches the target row type's tuple descriptor in the plpgsql
-    -- expression's fn_extra and does NOT refresh it when the table gains a column
-    -- LATER in the SAME transaction — so a column added and set after this trigger
-    -- first fired (e.g. an order column provisioned and then set in the same install) would be
-    -- silently dropped, reverting that write. This only surfaces in a single-txn
-    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
-    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
-    -- every call, so mid-transaction columns survive.
-    IF v_has_computed THEN
-        v_writeback := $WB$    v_data := v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
-    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
-$WB$;
-    ELSE
-        v_writeback := '';
-    END IF;
-
-    -- Assemble full function.
+    -- SECURITY DEFINER, as the rule trigger always was: the rule block calls
+    -- jl_error_hint, which the request role may not execute, so under invoker
+    -- rights a failing rule would surface as 42501 instead of its own code.
+    -- Granted to the request role because the write routines of is_a and
+    -- has_a entities, which run as the caller, call it. It lives in common,
+    -- which PostgREST does not expose, so it is no RPC.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS $RULES$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -11461,8 +13067,7 @@ BEGIN
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.
     v_uid_text := rbac.user_id_or_null()::text;
-    -- On DELETE there is no NEW row; evaluate the rules against the row being removed (OLD).
-    v_data := to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END) || jsonb_build_object(
+    v_data := p_data || jsonb_build_object(
         '$today',   to_jsonb(CURRENT_DATE),
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE
@@ -11471,6 +13076,60 @@ BEGIN
                    END%s
     );
 %s
+    RETURN v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+END;
+$RULES$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_rules_name, v_extra_ctx, v_rules_block);
+
+    EXECUTE v_body;
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) TO semantius_user', v_rules_name);
+    EXECUTE format(
+        'COMMENT ON FUNCTION common.%I(text, jsonb, jsonb) IS %L',
+        v_rules_name,
+        format('Evaluates the computed_fields and validation_rules of entity "%s" over a record (p_mode insert/update/delete, p_old the previous record, p_data the record written) and returns the record with the computed values applied. Generated by build_record_logic_trigger.', p_table_name));
+
+    IF v_derived THEN
+        IF NOT v_had_rules THEN
+            PERFORM dd_refresh_family(ARRAY[p_table_name]);
+        END IF;
+        RETURN;
+    END IF;
+
+    -- The trigger of a plain entity (a family root included) is a thin
+    -- wrapper: the row as jsonb in, the result back into NEW. Validation rules
+    -- never modify the row, so a validation-only entity returns NEW untouched —
+    -- no need to rebuild it. An entity WITH computed fields must fold the
+    -- derived values back onto NEW.
+    --
+    -- The rebuild uses a DYNAMIC jsonb_populate_record (EXECUTE, re-planned each
+    -- call) rather than a static NEW := jsonb_populate_record(NULL::public.<tbl>, …).
+    -- A static call caches the target row type's tuple descriptor in the plpgsql
+    -- expression's fn_extra and does NOT refresh it when the table gains a column
+    -- LATER in the SAME transaction — so a column added and set after this trigger
+    -- first fired (e.g. an order column provisioned and then set in the same install) would be
+    -- silently dropped, reverting that write. This only surfaces in a single-txn
+    -- install (CREATE EXTENSION / one big script); the per-file migrate path commits
+    -- between statements and refreshes the cache. EXECUTE re-resolves the descriptor
+    -- every call, so mid-transaction columns survive.
+    IF v_has_computed THEN
+        v_writeback := $WB$    EXECUTE format('SELECT (jsonb_populate_record(NULL::public.%I, $1)).*', TG_TABLE_NAME) INTO NEW USING v_data;
+$WB$;
+    ELSE
+        v_writeback := '';
+    END IF;
+
+    -- On DELETE there is no NEW row; the rules evaluate against the row being
+    -- removed (OLD), which is also $old.
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+DECLARE
+    v_data jsonb;
+BEGIN
+    v_data := common.%I(
+        lower(TG_OP),
+        %s,
+        to_jsonb(CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END));
     -- DELETE keeps no computed output; the validation rules above may still abort it.
     IF TG_OP = 'DELETE' THEN
         RETURN OLD;
@@ -11478,7 +13137,11 @@ BEGIN
 %s    RETURN NEW;
 END;
 $TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
+$FUNC$, v_fn_name, v_rules_name,
+        CASE WHEN v_needs_old
+             THEN $OLD$CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) END$OLD$
+             ELSE 'NULL' END,
+        v_writeback);
 
     EXECUTE v_body;
 
@@ -11488,7 +13151,7 @@ $FUNC$, v_fn_name, v_extra_ctx, v_rules_block, v_writeback);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I() IS %L',
         v_fn_name,
-        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s". Generated by build_record_logic_trigger.', p_table_name));
+        format('Per-row BEFORE INSERT/UPDATE/DELETE trigger function evaluating computed_fields and validation_rules for entity "%s" through common.%s. Generated by build_record_logic_trigger.', p_table_name, v_rules_name));
 
     EXECUTE format(
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
@@ -11497,7 +13160,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_record_logic_trigger IS
-'Generates (or drops) the per-table BEFORE INSERT OR UPDATE OR DELETE trigger and trigger function used to evaluate computed_fields and validation_rules for the given entity. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete.';
+'Generates (or drops) the rule function common.record_rules_<entity> evaluating an entity''s computed_fields and validation_rules over a record, and for an entity with a table of its own the per-table BEFORE INSERT OR UPDATE OR DELETE trigger wrapping it. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete. An is_a or has_a entity gets no trigger: its write routine calls the rule function.';
 
 REVOKE EXECUTE ON FUNCTION build_record_logic_trigger(TEXT) FROM PUBLIC;
 
@@ -11533,6 +13196,7 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         v_fn_name := 'compute_validate_' || OLD.table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)', 'record_rules_' || OLD.table_name);
         RETURN OLD;
     END IF;
 
@@ -11541,7 +13205,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION manage_record_logic_trigger IS
-'Trigger function on entities that creates/updates/drops the per-table BEFORE row trigger for computed_fields and validation_rules.';
+'Trigger function on entities that creates/updates/drops the rule function and the per-table BEFORE row trigger for computed_fields and validation_rules.';
 
 -- AFTER INSERT/UPDATE so it runs after create_table_trigger (which creates the
 -- physical table). AFTER DELETE so it runs after delete_table_trigger drops the
@@ -11617,6 +13281,8 @@ DECLARE
     v_policy_name TEXT;
     v_body TEXT;
     v_logic_lit TEXT;
+    v_rel TEXT;
+    v_row_data TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -11634,17 +13300,21 @@ BEGIN
         RETURN;
     END IF;
 
+    -- The policies and the rule functions belong to the entity's physical
+    -- relation, <entity>_ext for an is_a or has_a entity, and are named after
+    -- it; the functions keep the entity's name.
+    v_rel := dd_relation(p_table_name, v_entity.id_type);
     v_fn_name := 'select_rule_' || p_table_name;
-    v_policy_name := p_table_name || '_select_policy';
+    v_policy_name := v_rel || '_select_policy';
 
     -- Always drop both overloads before rebuilding (CASCADE removes anything
     -- depending on them). Dropping only one leaves the other behind and the
     -- CREATE below then fails with a duplicate-function error.
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
-    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, v_rel);
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, v_rel);
 
     -- Drop the existing select policy so we can recreate it
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
     -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
@@ -11653,19 +13323,35 @@ BEGIN
     IF v_entity.select_rule = '{}'::jsonb THEN
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_policy_name, p_table_name, v_entity.view_permission);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+            v_policy_name, v_rel, v_entity.view_permission);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
+        EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_entity.edit_permission);
+            v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_entity.edit_permission);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission);
+            v_rel || '_delete_policy', v_rel, v_entity.edit_permission);
         RETURN;
     END IF;
 
     v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- The data the rule sees. A policy on <entity>_ext hands the function
+    -- that table's row, which holds the entity's own fields only, so the rule
+    -- of an is_a or has_a entity also gets its base's row - the whole record
+    -- up to the root, since the base of an is_a is itself read through its
+    -- view - merged under the own row. As the definer, which bypasses RLS, the
+    -- base row is read whatever the caller may see: the rule decides about
+    -- this part of the record, and the base's own policies decide about the
+    -- base's part.
+    IF v_rel = p_table_name THEN
+        v_row_data := 'to_jsonb(p_row)';
+    ELSE
+        v_row_data := format(
+            'COALESCE((SELECT to_jsonb(b) FROM public.%I b WHERE b.%I = p_row.%I), ''{}''::jsonb) || to_jsonb(p_row)',
+            v_entity.id_refentity, v_entity.id_column, v_entity.id_column);
+    END IF;
 
     -- Build the per-row evaluation function in two overloads.
     --
@@ -11691,7 +13377,7 @@ DECLARE
     v_data jsonb;
     v_result jsonb;
 BEGIN
-    v_data := to_jsonb(p_row) || p_ctx;
+    v_data := %s || p_ctx;
 
     BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
@@ -11706,7 +13392,7 @@ $SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
     SELECT public.%I(p_row, public.jl_request_context());
 $SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name);
+$FUNC$, v_fn_name, v_rel, v_row_data, v_logic_lit, v_fn_name, v_rel, v_fn_name);
 
     EXECUTE v_body;
 
@@ -11714,18 +13400,18 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name
     -- attach to a signature, not to a name, so an overload left out is callable
     -- by any role and undocumented. 0900_test_security.sql and
     -- 0910_test_no_unsafe_functions.sql sweep for exactly that.
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I, jsonb) FROM PUBLIC', v_fn_name, v_rel);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I, jsonb) TO semantius_user', v_fn_name, v_rel);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I(public.%I, jsonb) IS %L',
-        v_fn_name, p_table_name,
+        v_fn_name, v_rel,
         format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s" against a caller-supplied statement context. Generated by build_select_rule_policy.', p_table_name));
 
-    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, p_table_name);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, p_table_name);
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(public.%I) FROM PUBLIC', v_fn_name, v_rel);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(public.%I) TO semantius_user', v_fn_name, v_rel);
     EXECUTE format(
         'COMMENT ON FUNCTION public.%I(public.%I) IS %L',
-        v_fn_name, p_table_name,
+        v_fn_name, v_rel,
         format('Per-row FOR SELECT RLS predicate evaluating the select_rule JsonLogic for entity "%s", resolving the request context itself. Generated by build_select_rule_policy.', p_table_name));
 
     -- The context sub-select is uncorrelated, so the planner lifts it to an
@@ -11735,21 +13421,21 @@ $FUNC$, v_fn_name, p_table_name, v_logic_lit, v_fn_name, p_table_name, v_fn_name
     -- with a bare call keeps paying per row on the write path.
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_policy_name, p_table_name, v_fn_name, p_table_name);
+        v_policy_name, v_rel, v_fn_name, v_rel);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
     -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
     -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
     -- row out of its own rule.
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_update_policy', p_table_name);
-    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', p_table_name || '_delete_policy', p_table_name);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_update_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name, v_entity.edit_permission);
+        v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel, v_entity.edit_permission);
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
-        p_table_name || '_delete_policy', p_table_name, v_entity.edit_permission, v_fn_name, p_table_name);
+        v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -11787,8 +13473,8 @@ BEGIN
     IF TG_OP = 'DELETE' THEN
         -- Both overloads, or the survivor blocks the next CREATE under this name.
         v_fn_name := 'select_rule_' || OLD.table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, OLD.table_name);
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, OLD.table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
+        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
         RETURN OLD;
     END IF;
 
@@ -11808,7 +13494,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10')
+        VALUES ('_core.0210_computed_validation.sql', 'ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12413,7 +14099,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -12616,55 +14302,25 @@ REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 
 -- =====================================================
--- GET SCHEMA FOR TABLE (Internal helper)
+-- SCHEMA PROPERTIES OF AN ENTITY (Internal helper)
 -- =====================================================
 
--- Helper that builds a schema JSON for a single table. Self-gating: it applies the
--- view_permission check itself and raises undefined_table for a table the caller
--- may not view, so it is safe to expose directly to the request role.
--- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
-CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
-RETURNS JSON AS $$
-DECLARE
-    v_table_record RECORD;
-    v_result JSON;
-    v_cache_version TEXT;
-    v_db_version    TEXT;
-BEGIN
-    PERFORM rbac.uid();
-
-    SELECT * INTO v_table_record
-    FROM entities
-    WHERE table_name = p_table_name;
-
-    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
-    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
-    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
-    -- callers — otherwise any request-role caller reads any table's full schema (including its
-    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
-    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
-    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
-    -- harmless) for them.
-    IF NOT FOUND THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Build properties object from fields
-    -- Each field becomes a property with JSON Schema attributes
-    WITH ordered_fields AS (
-        SELECT 
+-- The JSON Schema property of every field of an entity's record, in order,
+-- with whether the field is required. The fields are dd_family_fields: for an
+-- is_a or has_a entity its root's and every level's fields first, each marked
+-- with "inherited_from": <the entity that owns it>, then its own. p_own_only
+-- keeps the entity's own fields without its key, which is how a has_a base
+-- lists its extensions. Not granted: build_schema_for_table, the one caller,
+-- runs as the definer and has made the permission check.
+CREATE OR REPLACE FUNCTION public.dd_schema_properties(p_table_name TEXT, p_own_only BOOLEAN)
+RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required BOOLEAN) AS $$
+    WITH ent AS (
+        SELECT e.id_column, e.id_type FROM entities e WHERE e.table_name = p_table_name
+    ),
+    ordered_fields AS (
+        SELECT
+            f.table_name AS owner,
+            f.ordinality AS ord,
             f.field_name,
             f.format,
             f.title,
@@ -12699,144 +14355,225 @@ BEGIN
             -- its key column, the referenced entity's for a reference. Drives
             -- the TypeID pattern below.
             CASE
-                WHEN f.field_name = v_table_record.id_column THEN v_table_record.id_type
+                WHEN f.table_name = p_table_name AND f.field_name = ent.id_column THEN ent.id_type
                 WHEN f.format IN ('reference', 'parent') THEN t.id_type
             END AS key_id_type,
             -- The property's JSON type. A reference takes the type of the key it
             -- points at, so entities/permissions come out "string" and users
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
             -- first time an entity changes its key.
-            field_json_type(f.format, f.reference_table) AS json_type
-        FROM fields f
+            field_json_type(f.format, f.reference_table) AS json_type,
+            ent.id_column AS entity_id_column,
+            ent.id_type AS entity_id_type
+        FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
+        CROSS JOIN ent
         LEFT JOIN entities t ON f.reference_table = t.table_name
-        WHERE f.table_name = p_table_name
-        ORDER BY f.field_order
-    ),
-    properties_with_defaults AS (
-        SELECT 
-            field_name,
-            field_order,
-            (jsonb_build_object(
-                'type', json_type,
-                'title', title,
-                'description', description,
-                'inputMode', input_type,
-                'width', width,
-                'field_order', field_order
-            ) || 
-            -- Add ctype field if present
-            CASE 
-                WHEN ctype IS NOT NULL AND ctype != ''
-                THEN jsonb_build_object('ctype', ctype)
-                ELSE '{}'::jsonb
-            END ||
-            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
-            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
-            -- Add searchable field
-            jsonb_build_object('searchable', searchable) ||
-            -- Add cube_type field
-            jsonb_build_object('cube_type', cube_type) ||
-            -- Add unique_value field
-            jsonb_build_object('unique_value', unique_value) ||
-            -- Add precision only for number formats
-            CASE
-                WHEN format_to_json_type(format)::text = '"number"'
-                THEN jsonb_build_object('precision', "precision")
-                ELSE '{}'::jsonb
-            END ||
-            -- Add input_type_rule only when a non-empty JsonLogic rule is set
-            CASE
-                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
-                THEN jsonb_build_object('input_type_rule', input_type_rule)
-                ELSE '{}'::jsonb
-            END ||
-            jsonb_build_object('format', format) ||
-            -- A TypeID key, and every reference to one, is described by its
-            -- shape: TypeID is a key type, not a field format (the format stays
-            -- string), so this is where a client learns what a valid value
-            -- looks like. The pattern accepts any valid prefix; which prefix a
-            -- new id must carry is enforced by the database on insert, and a
-            -- reference may hold ids minted under an entity's earlier prefix.
-            CASE
-                WHEN key_id_type = 'typeid'
-                THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
-                ELSE '{}'::jsonb
-            END ||
-            -- Add enum field if enum_values is present
-            CASE
-                WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
-                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
-                ELSE '{}'::jsonb
-            END ||
-            -- Add reference_table field if format is 'reference' or 'parent'
-            CASE 
-                WHEN format IN ('reference', 'parent') AND reference_table != ''
-                THEN jsonb_build_object(
-                    'reference_table', reference_table,
-                    'reference_delete_mode', reference_delete_mode,
-                    'relationship_label', relationship_label,
-                    'reference_table_id_column', reference_table_id_column,
-                    'reference_table_label_column', reference_table_label_column,
-                    'reference_table_singular_label', reference_table_singular_label,
-                    'reference_table_plural_label', reference_table_plural_label
-                )
-                ELSE '{}'::jsonb
-            END ||
-            -- Add singular_label_parent / plural_label_parent for parent fields when set
-            CASE
-                WHEN format = 'parent' AND singular_label_parent != ''
-                THEN jsonb_build_object(
-                    'singular_label_parent', singular_label_parent,
-                    'plural_label_parent', plural_label_parent
-                )
-                ELSE '{}'::jsonb
-            END ||
-            -- Add default field separately to handle type conversion properly
-            CASE
-                -- Enum: use effective default (first value when required without explicit default, else '')
-                WHEN format = 'enum' THEN
-                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
-                WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
-                    CASE
-                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
-                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
-                        -- For strings, trim quotes if present (handles SQL literal strings like 'active')
-                        ELSE jsonb_build_object('default', trim(both '''' from default_value))
-                    END
-                -- For string types without explicit default, add empty string default. Not for a
-                -- reference to a text-keyed entity (permissions, entities): its column is nullable
-                -- and '' names no row, so a client that saves the default fails the foreign key.
-                -- With no default the client starts it empty and leaves it out of the write, as it
-                -- does for a reference to an integer-keyed entity.
-                -- Nor for the key: '' is not a key a text entity may be saved
-                -- under, and a uuid or TypeID key is generated when it is left out.
-                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
-                     AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
-                -- For JSON types without explicit default, add empty object default
-                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
-                ELSE '{}'::jsonb
-            END) AS property_value
-        FROM ordered_fields
-    ),
+        WHERE NOT p_own_only
+           OR (f.table_name = p_table_name AND f.field_name <> ent.id_column)
+    )
+    SELECT
+        field_name,
+        (ord::numeric * 1000) AS sort_order,
+        (jsonb_build_object(
+            'type', json_type,
+            'title', title,
+            'description', description,
+            'inputMode', input_type,
+            'width', width,
+            'field_order', field_order
+        ) ||
+        -- Add ctype field if present
+        CASE
+            WHEN ctype IS NOT NULL AND ctype != ''
+            THEN jsonb_build_object('ctype', ctype)
+            ELSE '{}'::jsonb
+        END ||
+        -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
+        jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+        -- Add searchable field
+        jsonb_build_object('searchable', searchable) ||
+        -- Add cube_type field
+        jsonb_build_object('cube_type', cube_type) ||
+        -- Add unique_value field
+        jsonb_build_object('unique_value', unique_value) ||
+        -- Add precision only for number formats
+        CASE
+            WHEN format_to_json_type(format)::text = '"number"'
+            THEN jsonb_build_object('precision', "precision")
+            ELSE '{}'::jsonb
+        END ||
+        -- Add input_type_rule only when a non-empty JsonLogic rule is set
+        CASE
+            WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
+            THEN jsonb_build_object('input_type_rule', input_type_rule)
+            ELSE '{}'::jsonb
+        END ||
+        jsonb_build_object('format', format) ||
+        -- A field of an is_a or has_a entity's record that one of its bases
+        -- owns: it is written through this entity like its own fields, and
+        -- changed in the dictionary through the entity that owns it.
+        CASE
+            WHEN owner <> p_table_name
+            THEN jsonb_build_object('inherited_from', owner)
+            ELSE '{}'::jsonb
+        END ||
+        -- A TypeID key, and every reference to one, is described by its
+        -- shape: TypeID is a key type, not a field format (the format stays
+        -- string), so this is where a client learns what a valid value
+        -- looks like. The pattern accepts any valid prefix; which prefix a
+        -- new id must carry is enforced by the database on insert, and a
+        -- reference may hold ids minted under an entity's earlier prefix.
+        -- is_a and has_a keys are TypeIDs too, those of their root.
+        CASE
+            WHEN key_id_type IN ('typeid', 'is_a', 'has_a')
+            THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
+            ELSE '{}'::jsonb
+        END ||
+        -- Add enum field if enum_values is present
+        CASE
+            WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
+            THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
+            ELSE '{}'::jsonb
+        END ||
+        -- Add reference_table field if format is 'reference' or 'parent'
+        CASE
+            WHEN format IN ('reference', 'parent') AND reference_table != ''
+            THEN jsonb_build_object(
+                'reference_table', reference_table,
+                'reference_delete_mode', reference_delete_mode,
+                'relationship_label', relationship_label,
+                'reference_table_id_column', reference_table_id_column,
+                'reference_table_label_column', reference_table_label_column,
+                'reference_table_singular_label', reference_table_singular_label,
+                'reference_table_plural_label', reference_table_plural_label
+            )
+            ELSE '{}'::jsonb
+        END ||
+        -- Add singular_label_parent / plural_label_parent for parent fields when set
+        CASE
+            WHEN format = 'parent' AND singular_label_parent != ''
+            THEN jsonb_build_object(
+                'singular_label_parent', singular_label_parent,
+                'plural_label_parent', plural_label_parent
+            )
+            ELSE '{}'::jsonb
+        END ||
+        -- Add default field separately to handle type conversion properly
+        CASE
+            -- Enum: use effective default (first value when required without explicit default, else '')
+            WHEN format = 'enum' THEN
+                jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
+            WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
+                CASE
+                    WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
+                    WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                    WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                    WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
+                    -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                    ELSE jsonb_build_object('default', trim(both '''' from default_value))
+                END
+            -- For string types without explicit default, add empty string default. Not for a
+            -- reference to a text-keyed entity (permissions, entities): its column is nullable
+            -- and '' names no row, so a client that saves the default fails the foreign key.
+            -- With no default the client starts it empty and leaves it out of the write, as it
+            -- does for a reference to an integer-keyed entity.
+            -- Nor for the key: '' is not a key a text entity may be saved
+            -- under, and a uuid or TypeID key is generated when it is left out.
+            WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
+                 AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
+            -- For JSON types without explicit default, add empty object default
+            WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
+            ELSE '{}'::jsonb
+        END) AS property,
+        -- The key is required when the caller supplies it (bigint, text) and
+        -- left out when the database generates it or, for has_a, when it is
+        -- optional.
+        ((field_name = entity_id_column AND entity_id_type IN ('bigint', 'text'))
+         OR (is_nullable(format) = FALSE
+             AND field_name != entity_id_column
+             AND field_name NOT IN ('created_at', 'updated_at')
+             AND default_value IS NULL
+             AND format NOT IN ('json', 'jsonlogic'))) AS is_required
+    FROM ordered_fields
+    ORDER BY ord;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) IS
+'The JSON Schema property and the required flag of every field of an entity''s record (dd_family_fields), in order; inherited fields carry inherited_from. With p_own_only, the entity''s own fields without its key. Used by build_schema_for_table.';
+
+REVOKE EXECUTE ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) FROM PUBLIC;
+
+-- =====================================================
+-- GET SCHEMA FOR TABLE (Internal helper)
+-- =====================================================
+
+-- Helper that builds a schema JSON for a single table. Self-gating: it applies the
+-- view_permission check itself and raises undefined_table for a table the caller
+-- may not view, so it is safe to expose directly to the request role.
+-- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
+CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_result JSON;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
+    v_properties    JSON;
+    v_required      JSON;
+    v_extensions    JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+
+    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
+    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
+    -- callers — otherwise any request-role caller reads any table's full schema (including its
+    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
+    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
+    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
+    -- harmless) for them. The view permission is that of every level an is_a or has_a
+    -- entity's records are stored in, as for reading them.
+    IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    IF NOT dd_entity_viewable(p_table_name) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    -- Build properties object from fields
+    -- Each field becomes a property with JSON Schema attributes (dd_schema_properties).
     -- Derived composed-label columns are surfaced as ORDINARY properties, discriminated only by
     -- ctype (_label / fk_label) and ordered so each <fk>_label sits immediately after its FK. They
     -- are read-only computed columns (writable:false) and absent from the fields catalog / read_field.
+    WITH family AS (
+        SELECT f.*, f.ordinality AS ord
+        FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
+    ),
     label_props AS (
         SELECT
             '_label'::text AS field_name,
-            (COALESCE((SELECT field_order FROM fields
-                       WHERE table_name = p_table_name AND ctype = 'label'
-                       ORDER BY field_order LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            (COALESCE((SELECT ord FROM family WHERE ctype = 'label' ORDER BY ord LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', v_table_record.singular_label,
                 'description', 'Composed, human-readable label folded from the parent chain',
                 'inputMode', 'readonly', 'width', 'default',
-                'field_order', COALESCE((SELECT field_order FROM fields
-                                         WHERE table_name = p_table_name AND ctype = 'label'
-                                         ORDER BY field_order LIMIT 1), 1),
+                'field_order', COALESCE((SELECT field_order FROM family
+                                         WHERE ctype = 'label'
+                                         ORDER BY ord LIMIT 1), 1),
                 'ctype', '_label', 'is_core', false, 'searchable', false,
                 'writable', false, 'selectable', true,
                 'source', NULLIF(v_table_record.label_parent, '')
@@ -12844,7 +14581,7 @@ BEGIN
         UNION ALL
         SELECT
             f.field_name || '_label',
-            (f.field_order::numeric * 1000 + 1) AS sort_order,
+            (f.ord::numeric * 1000 + 1) AS sort_order,
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', f.title,
@@ -12857,69 +14594,91 @@ BEGIN
                 'reference_table', f.reference_table,
                 'source', jsonb_build_object('field', f.field_name, 'reference_table', f.reference_table)
             )
-        FROM fields f
+        FROM family f
         LEFT JOIN entities e2 ON e2.table_name = f.reference_table
-        WHERE f.table_name = p_table_name
-          AND public.dd_is_fk_format(f.format)
+        WHERE public.dd_is_fk_format(f.format)
           AND f.reference_table <> ''
           -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
-          AND NOT EXISTS (SELECT 1 FROM fields f2
-                          WHERE f2.table_name = p_table_name
-                            AND f2.field_name = f.field_name || '_label')
+          AND NOT EXISTS (SELECT 1 FROM family f2
+                          WHERE f2.field_name = f.field_name || '_label')
+    ),
+    field_props AS (
+        SELECT * FROM public.dd_schema_properties(p_table_name, FALSE)
     ),
     all_props AS (
-        SELECT field_name, (field_order::numeric * 1000) AS sort_order, property_value
-        FROM properties_with_defaults
+        SELECT field_name, sort_order, property AS property_value
+        FROM field_props
         UNION ALL
         SELECT field_name, sort_order, property_value FROM label_props
-    ),
-    -- Keep this a CTE, not a statement of its own: the function runs once per
-    -- entity, so every extra statement costs an SPI round trip per entity.
-    -- The key is required when the caller supplies it (bigint, text) and left
-    -- out when the database generates it.
-    required_fields AS (
-        SELECT field_name, field_order
-        FROM fields
-        WHERE table_name = p_table_name
-          AND (
-              (field_name = v_table_record.id_column
-               AND v_table_record.id_type IN ('bigint', 'text'))
-              OR (is_nullable(format) = FALSE
-                  AND field_name != v_table_record.id_column
-                  AND field_name NOT IN ('created_at', 'updated_at')
-                  AND default_value IS NULL
-                  AND format NOT IN ('json', 'jsonlogic'))
-          )
-        ORDER BY field_order
     )
+    SELECT COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
+                       FROM all_props), '{}'::json),
+           COALESCE((SELECT json_agg(field_name ORDER BY sort_order)
+                       FROM field_props WHERE is_required), '[]'::json)
+      INTO v_properties, v_required;
+
+    -- A has_a base lists the extensions its records may have, those the
+    -- caller may view, each with its own fields.
+    SELECT json_agg(json_build_object(
+               'table', x.table_name,
+               'properties', COALESCE((SELECT json_object_agg(p.field_name, p.property ORDER BY p.sort_order)
+                                         FROM public.dd_schema_properties(x.table_name, TRUE) p), '{}'::json),
+               'required', COALESCE((SELECT json_agg(p.field_name ORDER BY p.sort_order)
+                                       FROM public.dd_schema_properties(x.table_name, TRUE) p
+                                      WHERE p.is_required), '[]'::json))
+             ORDER BY x.table_name)
+      INTO v_extensions
+      FROM entities x
+     WHERE x.id_refentity = p_table_name
+       AND x.id_type = 'has_a'
+       AND dd_entity_viewable(x.table_name);
+
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
     -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
     -- children: fields in other tables that reference this one with format='parent'.
-    SELECT json_build_object(
-        '$schema', 'https://semantius.com/meta/sem-schema/v1',
-        '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-        'title', v_table_record.singular_label,
-        'description', v_table_record.description,
-        -- module_slug rides inside `table` next to module_id because the id alone is a dead end
-        -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
-        -- only the numeric id must fetch the module list before it can ask for the rest of the
-        -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
-        -- policy protects, so handing it out under the entity's view_permission leaks nothing.
-        -- The rest of the module row is a different matter: settings, dashboard_config, the
-        -- three permission columns and the default_*_role_ids are readable only with 'admin' or
-        -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
-        -- an entity's view_permission is often public:read. They stay in get_user_modules().
-        'table', to_jsonb(v_table_record) || jsonb_build_object(
-            'module_slug',
-            (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-        'type', 'object',
-        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
-                                FROM all_props), '{}'::json),
-        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
-        'children', public.get_schema_children(p_table_name),
-        'additionalProperties', false
-    )
-    INTO v_result;
+    -- module_slug rides inside `table` next to module_id because the id alone is a dead end
+    -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
+    -- only the numeric id must fetch the module list before it can ask for the rest of the
+    -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
+    -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+    -- The rest of the module row is a different matter: settings, dashboard_config, the
+    -- three permission columns and the default_*_role_ids are readable only with 'admin' or
+    -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
+    -- an entity's view_permission is often public:read. They stay in get_user_modules().
+    -- "extensions" is present only on a has_a base: json_build_object keeps the key order a
+    -- client sees, which a jsonb concatenation would not.
+    IF v_extensions IS NULL THEN
+        v_result := json_build_object(
+            '$schema', 'https://semantius.com/meta/sem-schema/v1',
+            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+            'title', v_table_record.singular_label,
+            'description', v_table_record.description,
+            'table', to_jsonb(v_table_record) || jsonb_build_object(
+                'module_slug',
+                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
+            'type', 'object',
+            'properties', v_properties,
+            'required', v_required,
+            'children', public.get_schema_children(p_table_name),
+            'additionalProperties', false
+        );
+    ELSE
+        v_result := json_build_object(
+            '$schema', 'https://semantius.com/meta/sem-schema/v1',
+            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+            'title', v_table_record.singular_label,
+            'description', v_table_record.description,
+            'table', to_jsonb(v_table_record) || jsonb_build_object(
+                'module_slug',
+                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
+            'type', 'object',
+            'properties', v_properties,
+            'required', v_required,
+            'children', public.get_schema_children(p_table_name),
+            'additionalProperties', false,
+            'extensions', v_extensions
+        );
+    END IF;
 
     RETURN v_result;
 END;
@@ -12929,7 +14688,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+'Builds a schema JSON for a single table. Self-gating: applies the view_permission check (of every level an is_a/has_a entity is stored in) with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a has_a base lists its extensions. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
@@ -12965,9 +14724,10 @@ BEGIN
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
 
-    -- Check if user has view permission for this table
+    -- Check if user has view permission for this table (and for every base an
+    -- is_a/has_a entity's records are stored in)
     -- Raise same error to avoid leaking table existence
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+    IF NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
@@ -13027,7 +14787,7 @@ BEGIN
         END IF;
 
         -- Raise same error when user lacks view permission (avoid leaking table existence)
-        IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        IF NOT dd_entity_viewable(v_table_name) THEN
             RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
                 USING ERRCODE = 'undefined_table';
         END IF;
@@ -13157,7 +14917,7 @@ BEGIN
     LOOP
         -- build_schema_for_table checks again: it is self-gating as an RPC of
         -- its own, and the repeat is a cached lookup.
-        IF rbac.has_permission(v_table_record.view_permission) THEN
+        IF dd_entity_viewable(v_table_record.table_name) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
                 RETURN NEXT v_schema;
@@ -13196,7 +14956,7 @@ BEGIN
         FROM entities e
         ORDER BY e.table_name
     LOOP
-        IF rbac.has_permission(v_table_record.view_permission) THEN
+        IF dd_entity_viewable(v_table_record.table_name) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
                 RETURN NEXT v_schema;
@@ -13303,7 +15063,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', 'e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07')
+        VALUES ('_core.0250_public_functions.sql', '5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14011,7 +15771,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -14044,6 +15804,12 @@ $pgsem__core_0280_apikeys_sql$;
 -- fields (label_parent, computed_fields, validation_rules, select_rule); then
 -- the records, so every record is written under the entity's rules on a first
 -- apply as on a re-apply.
+--
+-- Entities are created in document order, so an is_a or has_a entity comes
+-- after the entity it is based on; a file that names it first fails on
+-- entities_id_refentity_fkey. The records of such an entity carry the fields
+-- of its whole record and are written through its view, whose write routine
+-- stores each part.
 --
 -- All four functions are SECURITY INVOKER and granted to nobody: they run as
 -- the installing role, inside a migration. Their errors are install-time errors
@@ -14259,10 +16025,12 @@ DECLARE
     c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
         'created_at', 'updated_at', 'module_id', 'search_vector'];
     -- id_type is create-only because the key column is typed from it when the
-    -- table is created (rule 90233 refuses a change). id_prefix is not: a
-    -- changed prefix in the file is applied like any other difference.
-    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'catalog_entity_code',
-        'catalog_entity_aliases'];
+    -- table is created (rule 90233 refuses a change), and id_refentity because
+    -- an is_a or has_a entity's records are stored in its base (90241).
+    -- id_prefix is not: a changed prefix in the file is applied like any other
+    -- difference, and refused for an is_a entity (90245).
+    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'id_refentity',
+        'catalog_entity_code', 'catalog_entity_aliases'];
     -- Written once the fields exist, because they name fields.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
         'validation_rules', 'select_rule'];
@@ -14835,17 +16603,21 @@ BEGIN
             END IF;
             SELECT string_agg(c, ', ') INTO v_unknown FROM unnest(v_cols) AS c
              WHERE c <> v_id_col
-               AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = v_table AND f.field_name = c);
+               AND NOT EXISTS (SELECT 1 FROM dd_family_fields(v_table) f WHERE f.field_name = c);
             IF v_unknown IS NOT NULL THEN
                 RAISE EXCEPTION 'ensure_entities: records of %: % has no field %', v_table, v_table, v_unknown
                     USING ERRCODE = '22023';
             END IF;
 
-            -- The platform sets these; a value in the file is not written.
+            -- The platform sets these; a value in the file is not written. The
+            -- computed fields are those of every level of the record.
             SELECT array_agg(x) INTO v_skip FROM (
-                SELECT f.field_name AS x FROM fields f WHERE f.table_name = v_table AND f.ctype = 'audit'
+                SELECT f.field_name AS x FROM dd_family_fields(v_table) f WHERE f.ctype = 'audit'
                 UNION
-                SELECT c ->> 'name' FROM jsonb_array_elements(v_current.computed_fields) c
+                SELECT c ->> 'name'
+                  FROM dd_ancestors(v_table) a
+                  JOIN entities e ON e.table_name = a.table_name
+                 CROSS JOIN jsonb_array_elements(e.computed_fields) c
             ) s;
             v_cols := ARRAY(SELECT c FROM unnest(v_cols) AS c
                              WHERE c = v_id_col OR c <> ALL (coalesce(v_skip, ARRAY[]::TEXT[]))
@@ -14888,7 +16660,8 @@ BEGIN
 
             -- Explicit ids leave the id sequence behind them: move it past the
             -- highest id, never lower (the rule public.fix_id_sequence applies).
-            IF EXISTS (SELECT 1 FROM pg_attribute a
+            -- An is_a or has_a entity's key is a TypeID and has no sequence.
+            IF v_current.id_type NOT IN ('is_a', 'has_a') AND EXISTS (SELECT 1 FROM pg_attribute a
                         WHERE a.attrelid = format('public.%I', v_table)::regclass
                           AND a.attname = v_id_col AND a.attnum > 0 AND NOT a.attisdropped) THEN
                 v_sequence := pg_get_serial_sequence(format('public.%I', v_table), v_id_col);
@@ -14915,7 +16688,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', 'be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f')
+        VALUES ('_core.0290_ensure_entities.sql', 'e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17468,7 +19241,7 @@ $pgsem__core_0330_queue_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0340_queue.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0340_queue.sql';
       EXECUTE $pgsem__core_0340_queue_sql$-- =====================================================
@@ -17720,7 +19493,18 @@ DECLARE
     v_trigger_name TEXT;
     v_queue_name TEXT;
     v_event TEXT;
+    v_id_type TEXT;
 BEGIN
+    -- An is_a or has_a entity is a view over the tables that store the parts
+    -- of its records, and a write to one record reaches several of them; the
+    -- statement triggers below would see parts, not records.
+    SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.table_name;
+    IF v_id_type IN ('is_a', 'has_a') THEN
+        RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
+            USING ERRCODE = '90249',
+                  HINT = jsonb_build_object('feature', 'queue_table_events', 'id_type', v_id_type, 'table', NEW.table_name)::text;
+    END IF;
+
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
     FROM queues q WHERE q.id = NEW.queue_id;
@@ -18017,7 +19801,7 @@ GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
 $pgsem__core_0340_queue_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0340_queue.sql', 'e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5')
+        VALUES ('_core.0340_queue.sql', '6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18370,7 +20154,7 @@ $pgsem__core_0360_raci_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0370_raci.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0370_raci.sql';
       EXECUTE $pgsem__core_0370_raci_sql$-- =====================================================
@@ -18838,7 +20622,20 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
     v_entity       TEXT;
+    v_id_type      TEXT;
 BEGIN
+    -- A gate holds a state column of the entity's table in place and emits per
+    -- row written; an is_a or has_a entity is a view whose records span
+    -- several tables, so neither trigger would see a whole record.
+    IF TG_OP <> 'DELETE' THEN
+        SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.entity;
+        IF v_id_type IN ('is_a', 'has_a') THEN
+            RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
+                USING ERRCODE = '90249',
+                      HINT = jsonb_build_object('feature', 'process_gates', 'id_type', v_id_type, 'table', NEW.entity)::text;
+        END IF;
+    END IF;
+
     -- Determine affected entity (handle UPDATE that changes entity)
     IF TG_OP = 'UPDATE' AND OLD.entity IS DISTINCT FROM NEW.entity THEN
         -- Handle old entity
@@ -18924,7 +20721,7 @@ CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
 $pgsem__core_0370_raci_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0370_raci.sql', 'c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54')
+        VALUES ('_core.0370_raci.sql', '550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -19918,7 +21715,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"e60729e5f40ed23f6e3e77fb3bed19c9c83199e57732aebc06db51551f603540","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"9192ed001c22e370ec7f88aea0e2842558580bcf445d2997be2498724948e27e","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"f428902f6984404c0dd38d216c90d6efcda9124164bc8feef83745e9e334668d","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"4bd4276fe4a35b100863f6eebe01a6a4d69ff99c2d08a50e020f2166abecfd61","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c1f0cf2da643b02c93d76d841c21b29a0ee036254c8d563212dd8cd6110a4214","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"84bbf7b96997641ffb209729de2863f974faaad72fd5744bae59026f3411265d","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"84dcaf99e6c0ec33ba8e8664c65ccb0a935e60ec872aa49f75b3625aa3b90401","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -19982,7 +21779,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"1bcb6e6df04ab9c2cf3ae908312397891be677ad4ba772cd0a5ea213305665c3","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"e60729e5f40ed23f6e3e77fb3bed19c9c83199e57732aebc06db51551f603540","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"9192ed001c22e370ec7f88aea0e2842558580bcf445d2997be2498724948e27e","_core.0160_dd_functions.sql":"f428902f6984404c0dd38d216c90d6efcda9124164bc8feef83745e9e334668d","_core.0170_dd_rename.sql":"b082a7e914ce6f76e693782730e0901349a687356d357ba1a77046db94b2e37d","_core.0180_managed_enable.sql":"4bd4276fe4a35b100863f6eebe01a6a4d69ff99c2d08a50e020f2166abecfd61","_core.0190_audit_log.once.sql":"c1f0cf2da643b02c93d76d841c21b29a0ee036254c8d563212dd8cd6110a4214","_core.0200_audit_log.sql":"eaf54cf3eb5ff2dbda5c3c5cd14c3e4720427dca9ea52572aa5beb9e81891e73","_core.0210_computed_validation.sql":"c4c57bc712eda0f72d28c51a3ec54d7a33fd7816499ab5a05726433e22532a10","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"e88e3a2dd73711bcadc29a1e12fda74dcb8a9fd50e518db9ed49c6491f21be07","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"be1c96af0cf1ebb2e8e322ad8a00fcb696080b86d4de0a80ec37b59acf55122f","_core.0300_audit_log.jsonc":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"e1066d94d1ba8baa9a0a7c7b5a04c541c0f6ab79eaed9018384551842bee1ca5","_core.0350_raci.jsonc":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"c9a73194ca951c5b69fa9b55135c98f679045be44c6ca69a282e2e2f136a4a54","_core.0380_webhook_receiver.jsonc":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"84bbf7b96997641ffb209729de2863f974faaad72fd5744bae59026f3411265d","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"84dcaf99e6c0ec33ba8e8664c65ccb0a935e60ec872aa49f75b3625aa3b90401","_core.0160_dd_functions.sql":"97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30","_core.0170_dd_rename.sql":"8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64","_core.0180_managed_enable.sql":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","_core.0210_computed_validation.sql":"ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa","_core.0300_audit_log.jsonc":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

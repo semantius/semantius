@@ -115,6 +115,49 @@ installs the core schema as ordinary objects.
   on is also refused when the entity already has an id field row whose format
   is not the one its `id_type` gives (`90239`): the switch never rewrites
   metadata, so switching it on and off again leaves everything as it was.
+- **Subtypes and extensions: `is_a` and `has_a`.** Two more key types share
+  the TypeID key of the entity named in the new `entities.id_refentity` (set
+  once, `90241`; `ON UPDATE CASCADE` follows a rename of the base):
+  - `is_a`: a subtype of a `typeid` or `is_a` entity, with a prefix of its own
+    that never changes (`90245`). Every record is exactly one type, named by
+    its id's prefix, and has a part at every level of its chain: the root
+    table holds every record's root row.
+  - `has_a`: an optional extension of a `typeid` entity; a base record has at
+    most one of each. An insert without an id, or with one no visible base
+    record has, creates the base record too; the id of an existing base record
+    attaches to it (a base value that differs from the stored one is refused,
+    `90246`). A delete detaches; the base record stays, and cannot be deleted
+    while it has an extension (`90251`).
+
+  Such an entity is the view `<entity>` (`security_invoker`) over its own
+  fields in the new table `<entity>_ext` and the tables of its bases; the
+  entity's policies are on `<entity>_ext`, so a record needs the permissions of
+  every level. Entity names ending in `_ext` are reserved. Writes go through the
+  view's INSTEAD OF trigger to the generated `common.record_write_<entity>` of
+  the record's own type, which writes every part, runs every derived level's
+  computed fields and validation rules (now `common.record_rules_<entity>`,
+  which the `compute_validate_<entity>` trigger of a plain entity wraps) and
+  locks every level it writes first, skipping the record whole when one cannot
+  be locked. A write through a supertype - the root table or a supertype's view
+  - is carried down to the record's own type. Parts are never written directly
+  (`90244`) and deletes never cascade into them. `get_schema()` describes the
+  whole record, marks inherited properties with `inherited_from` and lists a
+  has_a base's `extensions`; every schema RPC and `get_record_by_id()` require
+  the view permission of every level. Search on the view spans every level but
+  cannot use the GIN indexes. An upsert on the view fails with `42P10`;
+  `ensure_entities()` writes the records of such an entity through the view,
+  and lists a base before the entities based on it. Refused with `90249`: an
+  `order_column`, a queue mapping or a RACI gate on such an entity, and a
+  cascading reference field on an `is_a` entity. The other new codes:
+  `90240` (what an entity may be based on), `90242` (label columns come from
+  the base), `90243` (field names unique along a chain), `90247` and `90248`
+  (deleting an entity that has records or dependents; a module delete is
+  refused while a family entity of the module has records), `90250` (table
+  name in use), `90252` (a base stays managed). A family's views and routines
+  are rebuilt whenever its fields or members change; that DDL is kept out of
+  `audit_ddl_logs`, which records the change that caused it. The rebuild marks
+  its transaction in the new owner-only table `audit.generated_ddl`, so no
+  other role can keep its own DDL out of the log.
 - **Record keys are immutable.** Every dictionary table, and `users`,
   `modules`, `roles` and `_apikeys`, carries a `pk_immutable` trigger: an
   update that changes the key is refused (`90236`); one that writes the

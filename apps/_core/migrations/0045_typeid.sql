@@ -24,7 +24,7 @@
 -- rights of the role that writes the row, which on the request path is
 -- semantius_user, so the value functions are granted to it; the default
 -- REVOKE from PUBLIC does not hold on its own, see 0020_settings.once.sql.
--- The two trigger functions are not granted: PostgreSQL checks EXECUTE on a
+-- The trigger functions are not granted: PostgreSQL checks EXECUTE on a
 -- trigger function when the trigger is created, not when it fires.
 
 -- -----------------------------------------------------
@@ -326,12 +326,23 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 -- common.typeid domain already holds the value to the TypeID format, and it
 -- would reject a malformed id whatever this trigger did.
 --
--- The prefix travels as a trigger argument, not as a lookup in entities, so
--- the check costs no query per row; changing an entity's prefix recreates the
--- trigger (dd_sync_typeid_prefix in 0160_dd_functions.sql). Only inserts are
--- checked: a key can never be updated (common.reject_pk_change), so a row that
--- was valid when it was written stays valid, and rows written under an earlier
--- prefix keep their ids.
+-- The root table of an is_a family also holds the root rows of its subtypes'
+-- records, whose ids carry the subtype's prefix. Those prefixes follow as
+-- TG_ARGV[2] onwards and are accepted only at pg_trigger_depth() > 1, i.e.
+-- from the generated common.record_write_<entity> routine, which inserts the
+-- root row and every part of the record together and checks the prefix of
+-- every id it inserts. A direct insert (depth 1) with a subtype prefix would
+-- create a root row without its parts, so it is refused. That depth test holds
+-- only while nothing else inserts into a root table from inside a trigger: the
+-- dictionary's own triggers do not, RI actions never insert, and module
+-- authors are told not to (AGENTS.md).
+--
+-- The prefixes travel as trigger arguments, not as a lookup in entities, so
+-- the check costs no query per row; changing an entity's prefix, or its
+-- subtypes, recreates the trigger (dd_install_id_triggers in
+-- 0160_dd_functions.sql). Only inserts are checked: a key can never be updated
+-- (common.reject_pk_change), so a row that was valid when it was written stays
+-- valid, and rows written under an earlier prefix keep their ids.
 --
 -- The column is read and written through jsonb because PL/pgSQL cannot address
 -- a record field whose name is only known at run time.
@@ -347,7 +358,8 @@ DECLARE
 BEGIN
     IF v_id IS NULL THEN
         NEW := jsonb_populate_record(NEW, jsonb_build_object(v_column, common.typeid_generate_text(v_prefix)));
-    ELSIF common.typeid_prefix(v_id) IS DISTINCT FROM v_prefix THEN
+    ELSIF common.typeid_prefix(v_id) IS DISTINCT FROM v_prefix
+          AND NOT (pg_trigger_depth() > 1 AND common.typeid_prefix(v_id) = ANY (TG_ARGV[2:])) THEN
         RAISE EXCEPTION 'Id ${id} does not carry the prefix ${prefix} of ${table}'
             USING ERRCODE = '90237',
                   HINT = jsonb_build_object('id', v_id, 'prefix', v_prefix, 'table', TG_TABLE_NAME)::text;
@@ -357,7 +369,46 @@ END
 $$;
 
 COMMENT ON FUNCTION common.typeid_assign() IS
-'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix). Generates the id when none is supplied and rejects a supplied id without the current prefix (90237).';
+'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix, then the prefixes of its is_a subtypes). Generates the id when none is supplied and rejects a supplied id without the current prefix (90237); a subtype prefix is accepted only from inside a trigger, where the generated write routine inserts the whole record.';
+
+-- -----------------------------------------------------
+-- common.ext_write_guard()  - BEFORE INSERT OR UPDATE OR DELETE on <entity>_ext
+-- -----------------------------------------------------
+-- An is_a or has_a entity stores its own fields in <entity>_ext and its
+-- inherited ones in the tables of its bases; its records are read and written
+-- through the view named after the entity. A write straight into <entity>_ext
+-- would skip the entity's rules and could leave a record with parts missing,
+-- so it is refused (90244) at pg_trigger_depth() < 2. The generated routines
+-- that do write it (common.record_write_<entity>) run inside the view's
+-- INSTEAD OF trigger or the root's dispatch trigger, one level deeper. So do
+-- RI actions, which is why a SET NULL on a reference column of <entity>_ext
+-- still passes (without the entity's rules, since <entity>_ext has no rule
+-- trigger) and why no is_a subtype may declare a cascade (90249): a cascade
+-- would delete one part of a record and leave the rest behind. Module triggers
+-- must not write family tables (AGENTS.md); one that did would pass this test.
+--
+-- The entity is the table name without its suffix, which is unambiguous
+-- because entity names ending in _ext are reserved (valid_table_name).
+CREATE OR REPLACE FUNCTION common.ext_write_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = common, pg_catalog
+AS $$
+BEGIN
+    IF pg_trigger_depth() < 2 THEN
+        RAISE EXCEPTION '${relation} stores part of ${table} records; write them through ${table}'
+            USING ERRCODE = '90244',
+                  HINT = jsonb_build_object('relation', TG_TABLE_NAME, 'table', left(TG_TABLE_NAME, -4))::text;
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+COMMENT ON FUNCTION common.ext_write_guard() IS
+'BEFORE INSERT OR UPDATE OR DELETE trigger of an <entity>_ext table: refuses a direct write (90244). Only the generated write routines of the entity, and RI actions, write it.';
 
 -- -----------------------------------------------------
 -- common.reject_pk_change()  - BEFORE UPDATE OF <key> trigger
@@ -395,6 +446,7 @@ REVOKE EXECUTE ON FUNCTION common.typeid_check_text(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_prefix(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_generate_text(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_assign() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.ext_write_guard() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.reject_pk_change() FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION common.uuid_v7() TO semantius_user;

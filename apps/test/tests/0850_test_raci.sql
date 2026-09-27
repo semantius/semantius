@@ -4,9 +4,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. RACI system
 --   2. user_process_raci does not leak to non-admins
+--   3. no process gate on an is_a or has_a entity (90249)
 BEGIN;
 
-SELECT plan(80);
+SELECT plan(81);
 
 -- =====================================================
 -- PART 1: RACI system
@@ -977,6 +978,30 @@ SELECT is(
     0,
     'user_process_raci view must NOT leak RACI assignments to a non-admin (needs security_invoker)'
 );
+
+-- =====================================================
+-- PART 3: no process gate on an is_a or has_a entity
+-- =====================================================
+-- A gate holds a state column of the entity's table in place and emits per
+-- row written; a derived entity's records span several tables (90249).
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('rg_parties', 'Party', 'Parties', 1, 'typeid', 'rgpty');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('rg_deals', 'Deal', 'Deals', 1, 'is_a', 'rgdeal', 'rg_parties');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rg_deals', 'stage', 'Stage', 'text', 30);
+INSERT INTO processes (module_id, process_key, name) VALUES (1, 'fam_deal', 'Deal');
+
+SELECT throws_ok(
+    $$ INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column)
+       SELECT id, 'rg_deals', 'approval', 'won', 'stage' FROM processes WHERE process_key = 'fam_deal' $$,
+    '90249', NULL,
+    'a process gate on an is_a entity is refused');
 
 SELECT * FROM finish();
 ROLLBACK;

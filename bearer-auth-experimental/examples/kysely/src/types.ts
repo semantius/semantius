@@ -79,10 +79,10 @@ export interface Customers {
 }
 
 export interface Dashboards {
-  id: Generated<number>;
   config: Json;
-  position: Generated<number>;
+  id: Generated<number>;
   label: string;
+  position: Generated<number>;
   module_id: number | null;
   view_permission: string | null;
   created_at: Generated<Timestamp | null>;
@@ -90,18 +90,18 @@ export interface Dashboards {
 }
 
 export interface EmployeeTerritories {
-  id: Generated<number>;
   employee_id: number;
-  territory_id: number;
+  id: Generated<number>;
   label: string;
+  territory_id: number;
   created_at: Generated<Timestamp | null>;
   updated_at: Generated<Timestamp | null>;
 }
 
 export interface Employees {
   id: Generated<number>;
-  last_name: string;
   first_name: string;
+  last_name: string;
   title: string;
   title_of_courtesy: "Mr." | "Mrs." | "Ms." | "Dr." | "";
   birth_date: Timestamp | null;
@@ -132,8 +132,9 @@ export interface Entities {
   view_permission: Generated<string | null>;
   edit_permission: Generated<string | null>;
   id_column: Generated<string>;
-  id_type: Generated<"auto_increment" | "bigint" | "text" | "uuid" | "typeid" | "computed">;
+  id_type: Generated<"auto_increment" | "bigint" | "text" | "uuid" | "typeid" | "is_a" | "has_a" | "computed">;
   id_prefix: string;
+  id_refentity: string | null;
   label_column: Generated<string>;
   label_parent: string;
   order_column: string;
@@ -191,8 +192,8 @@ export interface Modules {
   view_permission: Generated<string | null>;
   logo_color: string;
   icon_name: string;
-  module_slug: string;
   home_page: Generated<string>;
+  module_slug: string;
   manage_permission: string | null;
   admin_permission: string | null;
   default_viewer_role_id: number | null;
@@ -259,8 +260,8 @@ export interface Permissions {
 
 export interface ProcessGates {
   name: string;
-  process_id: number;
   id: Generated<number>;
+  process_id: number;
   entity: string;
   gate_kind: "approval" | "submit_lock" | "ownership" | "create" | "transition";
   to_state: string;
@@ -271,8 +272,8 @@ export interface ProcessGates {
 }
 
 export interface Processes {
-  name: string;
   id: Generated<number>;
+  name: string;
   module_id: number | null;
   process_key: string;
   description: string;
@@ -328,8 +329,8 @@ export interface RaciAssignments {
 }
 
 export interface RaciEvents {
-  process_id: number;
   id: Generated<number>;
+  process_id: number;
   entity: string;
   record_id: string;
   raci: "consulted" | "informed";
@@ -377,8 +378,8 @@ export interface Shippers {
 
 export interface Suppliers {
   id: Generated<number>;
-  contact_name: string;
   company_name: string;
+  contact_name: string;
   contact_title: string;
   address: string;
   city: string;
@@ -393,8 +394,8 @@ export interface Suppliers {
 }
 
 export interface Territories {
-  territory_id: string;
   id: Generated<number>;
+  territory_id: string;
   territory_description: string;
   region_id: number | null;
   created_at: Generated<Timestamp | null>;
@@ -402,8 +403,8 @@ export interface Territories {
 }
 
 export interface UserBookmarks {
-  user_id: number | null;
   id: Generated<number>;
+  user_id: number | null;
   title: string;
   url: string;
   entity_name: string;
@@ -460,8 +461,8 @@ export interface WebhookReceiverLogs {
 export interface WebhookReceivers {
   id: Generated<number>;
   table_name: string | null;
-  label: string;
   description: string;
+  label: string;
   auth_type: Generated<"none" | "hmac" | "header" | "">;
   secret: string;
   header_name: string;

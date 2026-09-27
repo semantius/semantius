@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. ensure_entities
 --   2. jsonc_to_jsonb
+--   3. ensure_entities with an is_a family
 BEGIN;
 
-SELECT plan(49);
+SELECT plan(55);
 
 -- =====================================================
 -- PART 1: ensure_entities
@@ -330,6 +331,64 @@ SELECT throws_ok(
     $$SELECT jsonc_to_jsonb('{"a": "unterminated}')$$,
     '22P02', NULL,
     'an unterminated string is refused');
+
+-- =====================================================
+-- PART 3: ensure_entities with an is_a family
+-- =====================================================
+-- A derived entity comes after its base in the file; its records carry the
+-- fields of the whole record and are written through its view.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE TEMP TABLE ens_family_def AS SELECT '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens_parties", "module_name": "_core", "singular_label": "Party",
+                    "plural_label": "Parties", "id_type": "typeid", "id_prefix": "enspty",
+                    "fields": [{"field_name": "city", "title": "City", "format": "text", "field_order": 30}]}},
+        {"entity": {"table_name": "ens_orgs", "module_name": "_core", "singular_label": "Org",
+                    "plural_label": "Orgs", "id_type": "is_a", "id_prefix": "ensorg", "id_refentity": "ens_parties",
+                    "fields": [{"field_name": "vat", "title": "VAT", "format": "text", "field_order": 30}]},
+         "records": [{"id": "ensorg_01h455vb4pex5vsknk084sn02q", "label": "Org One", "city": "Rome", "vat": "IT1"}]}
+    ]
+}'::jsonb AS def;
+
+SELECT lives_ok($$ SELECT public.ensure_entities((SELECT def FROM ens_family_def)) $$,
+    'family: ensure_entities creates an is_a entity after its base, with records');
+
+SELECT is(
+    (SELECT p.city || ' ' || x.vat FROM ens_parties p JOIN ens_orgs_ext x ON x.id = p.id),
+    'Rome IT1',
+    'family: a record is written through the view into every table it spans');
+
+SELECT is(
+    public.ensure_entities((SELECT def FROM ens_family_def)) #> '{records,ens_orgs}',
+    '{"inserted": 0, "updated": 0}'::jsonb,
+    'family: applying the same definition again writes nothing');
+
+SELECT is(
+    public.ensure_entities(jsonb_set((SELECT def FROM ens_family_def), '{entities,1,records,0,city}', '"Milan"'))
+        #> '{records,ens_orgs}',
+    '{"inserted": 0, "updated": 1}'::jsonb,
+    'family: a changed inherited field is an update of the record');
+
+SELECT is((SELECT city FROM ens_parties), 'Milan',
+    'family: ... which lands in the base''s table');
+
+SELECT throws_ok($$
+    SELECT public.ensure_entities('{
+        "version": 1,
+        "entities": [
+            {"entity": {"table_name": "ens_late", "module_name": "_core", "singular_label": "Late",
+                        "plural_label": "Lates", "id_type": "has_a", "id_refentity": "ens_later",
+                        "fields": []}},
+            {"entity": {"table_name": "ens_later", "module_name": "_core", "singular_label": "Later",
+                        "plural_label": "Laters", "id_type": "typeid", "id_prefix": "enslater", "fields": []}}
+        ]
+    }'::jsonb) $$,
+    '23503', NULL,
+    'family: a derived entity named before its base fails on entities_id_refentity_fkey');
 
 SELECT * FROM finish();
 ROLLBACK;

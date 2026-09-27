@@ -463,7 +463,20 @@ SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
     v_entity       TEXT;
+    v_id_type      TEXT;
 BEGIN
+    -- A gate holds a state column of the entity's table in place and emits per
+    -- row written; an is_a or has_a entity is a view whose records span
+    -- several tables, so neither trigger would see a whole record.
+    IF TG_OP <> 'DELETE' THEN
+        SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.entity;
+        IF v_id_type IN ('is_a', 'has_a') THEN
+            RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
+                USING ERRCODE = '90249',
+                      HINT = jsonb_build_object('feature', 'process_gates', 'id_type', v_id_type, 'table', NEW.entity)::text;
+        END IF;
+    END IF;
+
     -- Determine affected entity (handle UPDATE that changes entity)
     IF TG_OP = 'UPDATE' AND OLD.entity IS DISTINCT FROM NEW.entity THEN
         -- Handle old entity

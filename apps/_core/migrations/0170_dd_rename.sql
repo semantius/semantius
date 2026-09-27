@@ -19,6 +19,12 @@ DECLARE
     v_suffix    TEXT;
     v_old_name  TEXT;
     v_new_name  TEXT;
+    v_name      TEXT;
+    -- The physical relation and the names derived from it: <entity>_ext for
+    -- an is_a or has_a entity, whose view carries the entity name.
+    v_old_rel   TEXT := dd_relation(OLD.table_name, OLD.id_type);
+    v_new_rel   TEXT := dd_relation(NEW.table_name, NEW.id_type);
+    v_derived   BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
         -- Mark that a cascade rename is in progress (transaction-local)
@@ -26,22 +32,42 @@ BEGIN
 
         -- Rename the physical table and all associated named objects when managed
         IF OLD.managed THEN
-            EXECUTE format('ALTER TABLE %I RENAME TO %I', OLD.table_name, NEW.table_name);
-            RAISE NOTICE 'Renamed table "%" to "%"', OLD.table_name, NEW.table_name;
+            -- A derived entity needs both of its names free, as when it was
+            -- created (90250). A plain entity's rename meets an occupied name
+            -- in ALTER TABLE below.
+            IF v_derived THEN
+                FOREACH v_name IN ARRAY ARRAY[NEW.table_name, v_new_rel] LOOP
+                    IF to_regclass(format('public.%I', v_name)) IS NOT NULL THEN
+                        RAISE EXCEPTION 'Table name ${relation} is already in use'
+                            USING ERRCODE = '90250',
+                                  HINT = jsonb_build_object('relation', v_name)::text;
+                    END IF;
+                END LOOP;
+            END IF;
+
+            EXECUTE format('ALTER TABLE %I RENAME TO %I', v_old_rel, v_new_rel);
+            RAISE NOTICE 'Renamed table "%" to "%"', v_old_rel, v_new_rel;
+
+            -- The view follows under its new name; the family refresh after
+            -- this statement (zz_family_refresh_rename_trigger) rebuilds it and
+            -- every routine whose text names the old one.
+            IF v_derived AND to_regclass(format('public.%I', OLD.table_name)) IS NOT NULL THEN
+                EXECUTE format('ALTER VIEW %I RENAME TO %I', OLD.table_name, NEW.table_name);
+            END IF;
 
             -- Rename updated_at trigger (name pattern: update_<table>_updated_at)
             IF EXISTS (
                 SELECT 1 FROM pg_trigger t
                 JOIN pg_class c ON t.tgrelid = c.oid
-                WHERE c.relname = NEW.table_name
+                WHERE c.relname = v_new_rel
                   AND c.relnamespace = 'public'::regnamespace
-                  AND t.tgname = 'update_' || OLD.table_name || '_updated_at'
+                  AND t.tgname = 'update_' || v_old_rel || '_updated_at'
             ) THEN
                 EXECUTE format(
                     'ALTER TRIGGER %I ON %I RENAME TO %I',
-                    'update_' || OLD.table_name || '_updated_at',
-                    NEW.table_name,
-                    'update_' || NEW.table_name || '_updated_at'
+                    'update_' || v_old_rel || '_updated_at',
+                    v_new_rel,
+                    'update_' || v_new_rel || '_updated_at'
                 );
             END IF;
 
@@ -51,15 +77,15 @@ BEGIN
                 IF EXISTS (
                     SELECT 1 FROM pg_policy p
                     JOIN pg_class c ON p.polrelid = c.oid
-                    WHERE c.relname = NEW.table_name
+                    WHERE c.relname = v_new_rel
                       AND c.relnamespace = 'public'::regnamespace
-                      AND p.polname = OLD.table_name || '_' || v_suffix
+                      AND p.polname = v_old_rel || '_' || v_suffix
                 ) THEN
                     EXECUTE format(
                         'ALTER POLICY %I ON %I RENAME TO %I',
-                        OLD.table_name || '_' || v_suffix,
-                        NEW.table_name,
-                        NEW.table_name || '_' || v_suffix
+                        v_old_rel || '_' || v_suffix,
+                        v_new_rel,
+                        v_new_rel || '_' || v_suffix
                     );
                 END IF;
             END LOOP;
@@ -69,26 +95,26 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
                 WHERE schemaname = 'public'
-                  AND indexname = OLD.table_name || '_search_vector_idx'
+                  AND indexname = v_old_rel || '_search_vector_idx'
             ) THEN
                 EXECUTE format(
                     'ALTER INDEX %I RENAME TO %I',
-                    OLD.table_name || '_search_vector_idx',
-                    NEW.table_name || '_search_vector_idx'
+                    v_old_rel || '_search_vector_idx',
+                    v_new_rel || '_search_vector_idx'
                 );
             END IF;
 
             -- Rename id sequence (<table>_<id_col>_seq)
             IF EXISTS (
                 SELECT 1 FROM pg_class
-                WHERE relname = OLD.table_name || '_' || OLD.id_column || '_seq'
+                WHERE relname = v_old_rel || '_' || OLD.id_column || '_seq'
                   AND relnamespace = 'public'::regnamespace
                   AND relkind = 'S'
             ) THEN
                 EXECUTE format(
                     'ALTER SEQUENCE %I RENAME TO %I',
-                    OLD.table_name || '_' || OLD.id_column || '_seq',
-                    NEW.table_name || '_' || NEW.id_column || '_seq'
+                    v_old_rel || '_' || OLD.id_column || '_seq',
+                    v_new_rel || '_' || NEW.id_column || '_seq'
                 );
             END IF;
 
@@ -96,32 +122,33 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE c.conname = OLD.table_name || '_pkey'
-                  AND t.relname = NEW.table_name
+                WHERE c.conname = v_old_rel || '_pkey'
+                  AND t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
                   AND c.contype = 'p'
             ) THEN
                 EXECUTE format(
                     'ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name,
-                    OLD.table_name || '_pkey',
-                    NEW.table_name || '_pkey'
+                    v_new_rel,
+                    v_old_rel || '_pkey',
+                    v_new_rel || '_pkey'
                 );
             END IF;
 
-            -- Rename all FK constraints named <old_table>_<field>_fkey
+            -- Rename all FK constraints named <old_table>_<field>_fkey (the key
+            -- of <entity>_ext included: <entity>_ext_id_fkey)
             FOR v_old_name IN
                 SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE t.relname = NEW.table_name
+                WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (OLD.table_name || '\_%\_fkey') ESCAPE '\'
+                  AND c.conname LIKE (v_old_rel || '\_%\_fkey') ESCAPE '\'
                   AND c.contype = 'f'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name, v_old_name, v_new_name);
+                    v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
             -- Rename all FK indexes named idx_<old_table>_<field>
@@ -129,10 +156,10 @@ BEGIN
                 SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
-                  AND tablename = NEW.table_name
-                  AND indexname LIKE ('idx\_' || OLD.table_name || '\_%') ESCAPE '\'
+                  AND tablename = v_new_rel
+                  AND indexname LIKE ('idx\_' || v_old_rel || '\_%') ESCAPE '\'
             LOOP
-                v_new_name := 'idx_' || NEW.table_name || substring(v_old_name FROM length('idx_' || OLD.table_name) + 1);
+                v_new_name := 'idx_' || v_new_rel || substring(v_old_name FROM length('idx_' || v_old_rel) + 1);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
@@ -141,14 +168,14 @@ BEGIN
                 SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE t.relname = NEW.table_name
+                WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (OLD.table_name || '\_%\_check') ESCAPE '\'
+                  AND c.conname LIKE (v_old_rel || '\_%\_check') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name, v_old_name, v_new_name);
+                    v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
             -- Rename all NOT NULL constraints named <old_table>_<field>_not_null.
@@ -162,13 +189,13 @@ BEGIN
                 SELECT c.conname::text
                 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
-                WHERE t.relname = NEW.table_name
+                WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (OLD.table_name || '\_%\_not\_null') ESCAPE '\'
+                  AND c.conname LIKE (v_old_rel || '\_%\_not\_null') ESCAPE '\'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    NEW.table_name, v_old_name, v_new_name);
+                    v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
             -- Rename all unique indexes named <old_table>_<field>_unique
@@ -176,28 +203,43 @@ BEGIN
                 SELECT indexname::text
                 FROM pg_indexes
                 WHERE schemaname = 'public'
-                  AND tablename = NEW.table_name
-                  AND indexname LIKE (OLD.table_name || '\_%\_unique') ESCAPE '\'
+                  AND tablename = v_new_rel
+                  AND indexname LIKE (v_old_rel || '\_%\_unique') ESCAPE '\'
             LOOP
-                v_new_name := NEW.table_name || substring(v_old_name FROM length(OLD.table_name) + 1);
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
-            -- Drop old compute_validate function (CASCADE drops its trigger too).
-            -- The AFTER trigger manage_record_logic_trigger will rebuild it under the new name.
+            -- Drop old compute_validate function (CASCADE drops its trigger too),
+            -- and the rule function it wraps. The AFTER trigger
+            -- manage_record_logic_trigger rebuilds both under the new name.
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE',
                 'compute_validate_' || OLD.table_name);
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, jsonb, jsonb)',
+                'record_rules_' || OLD.table_name);
 
             -- Drop both select_rule overloads (CASCADE drops the policies that use
             -- them). The AFTER trigger manage_select_rule_policy rebuilds them under
             -- the new name. The signatures pair the OLD function name with the NEW
             -- row type on purpose: the physical table was renamed a few lines above,
-            -- so the composite type already answers to NEW.table_name while the
-            -- functions still carry the old name.
+            -- so the composite type already answers to the new relation name while
+            -- the functions still carry the old name.
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE',
-                'select_rule_' || OLD.table_name, NEW.table_name);
+                'select_rule_' || OLD.table_name, v_new_rel);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
-                'select_rule_' || OLD.table_name, NEW.table_name);
+                'select_rule_' || OLD.table_name, v_new_rel);
+
+            -- The family routines generated under the old name: the write
+            -- routine (typed by the view, which already answers to the new
+            -- name), the view's trigger function and a root's dispatch trigger
+            -- function, with the triggers that call them. The family refresh
+            -- after this statement generates them under the new name.
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text, public.%I, public.%I, boolean)',
+                'record_write_' || OLD.table_name, NEW.table_name, NEW.table_name);
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE',
+                'view_write_' || OLD.table_name);
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE',
+                'is_a_dispatch_' || OLD.table_name);
 
             -- Rename queue event triggers on the entity table.
             -- Pattern: queue_<queue_name>_<event>_on_<old_table>, one per DML
@@ -229,7 +271,9 @@ COMMENT ON FUNCTION rename_dd_table IS
 objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
-unique indexes, compute_validate function, select_rule function, and queue event triggers.
+unique indexes, compute_validate and rule functions, select_rule function, and queue event triggers.
+For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;
+the generated family routines are dropped under the old name for the family refresh to rebuild.
 Sets a transaction-local session variable so the cascaded update to fields.table_name is
 allowed by update_dd_field without raising an exception.';
 
@@ -361,9 +405,13 @@ DECLARE
     v_new_unique  TEXT;
     v_old_notnull TEXT;
     v_new_notnull TEXT;
+    v_rel         TEXT;
 BEGIN
-    -- Resolve parent entity's managed flag
-    SELECT managed INTO v_is_managed FROM entities WHERE table_name = OLD.table_name;
+    -- Resolve parent entity's managed flag, and the physical relation that
+    -- holds the column: <entity>_ext for an is_a or has_a entity, whose view
+    -- the family refresh rebuilds after the statement.
+    SELECT managed, dd_relation(table_name, id_type) INTO v_is_managed, v_rel
+      FROM entities WHERE table_name = OLD.table_name;
 
     -- --------------------------------------------------
     -- A) Handle field_name rename
@@ -376,6 +424,14 @@ BEGIN
                 UPDATE entities
                    SET label_column = NEW.field_name
                  WHERE table_name = OLD.table_name
+                   AND label_column = OLD.field_name;
+                -- The entities based on this one carry its label column as
+                -- their own (90242 holds them to their root's). A second
+                -- statement rather than a wider WHERE: the check compares with
+                -- the root's value, which has to be written first.
+                UPDATE entities
+                   SET label_column = NEW.field_name
+                 WHERE table_name IN (SELECT d.table_name FROM dd_descendants(OLD.table_name) d)
                    AND label_column = OLD.field_name;
                 RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
                     OLD.field_name, NEW.field_name, OLD.table_name;
@@ -390,33 +446,33 @@ BEGIN
             -- Rename the physical column
             EXECUTE format(
                 'ALTER TABLE %I RENAME COLUMN %I TO %I',
-                OLD.table_name, OLD.field_name, NEW.field_name
+                v_rel, OLD.field_name, NEW.field_name
             );
             RAISE NOTICE 'Renamed column "%" to "%" in table "%"',
                 OLD.field_name, NEW.field_name, OLD.table_name;
 
             -- Build old and new names for associated constraints / indexes
-            v_old_fk     := format('%s_%s_fkey',   OLD.table_name, OLD.field_name);
-            v_new_fk     := format('%s_%s_fkey',   OLD.table_name, NEW.field_name);
-            v_old_idx    := format('idx_%s_%s',    OLD.table_name, OLD.field_name);
-            v_new_idx    := format('idx_%s_%s',    OLD.table_name, NEW.field_name);
-            v_old_check  := format('%s_%s_check',  OLD.table_name, OLD.field_name);
-            v_new_check  := format('%s_%s_check',  OLD.table_name, NEW.field_name);
-            v_old_unique := format('%s_%s_unique', OLD.table_name, OLD.field_name);
-            v_new_unique := format('%s_%s_unique', OLD.table_name, NEW.field_name);
-            v_old_notnull := format('%s_%s_not_null', OLD.table_name, OLD.field_name);
-            v_new_notnull := format('%s_%s_not_null', OLD.table_name, NEW.field_name);
+            v_old_fk     := format('%s_%s_fkey',   v_rel, OLD.field_name);
+            v_new_fk     := format('%s_%s_fkey',   v_rel, NEW.field_name);
+            v_old_idx    := format('idx_%s_%s',    v_rel, OLD.field_name);
+            v_new_idx    := format('idx_%s_%s',    v_rel, NEW.field_name);
+            v_old_check  := format('%s_%s_check',  v_rel, OLD.field_name);
+            v_new_check  := format('%s_%s_check',  v_rel, NEW.field_name);
+            v_old_unique := format('%s_%s_unique', v_rel, OLD.field_name);
+            v_new_unique := format('%s_%s_unique', v_rel, NEW.field_name);
+            v_old_notnull := format('%s_%s_not_null', v_rel, OLD.field_name);
+            v_new_notnull := format('%s_%s_not_null', v_rel, NEW.field_name);
 
             -- Rename FK constraint if it exists
             IF EXISTS (
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE c.conname = v_old_fk
-                  AND t.relname = OLD.table_name
+                  AND t.relname = v_rel
                   AND t.relnamespace = 'public'::regnamespace
             ) THEN
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    OLD.table_name, v_old_fk, v_new_fk);
+                    v_rel, v_old_fk, v_new_fk);
                 RAISE NOTICE 'Renamed FK constraint "%" to "%"', v_old_fk, v_new_fk;
             END IF;
 
@@ -434,11 +490,11 @@ BEGIN
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE c.conname = v_old_check
-                  AND t.relname = OLD.table_name
+                  AND t.relname = v_rel
                   AND t.relnamespace = 'public'::regnamespace
             ) THEN
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    OLD.table_name, v_old_check, v_new_check);
+                    v_rel, v_old_check, v_new_check);
                 RAISE NOTICE 'Renamed check constraint "%" to "%"', v_old_check, v_new_check;
             END IF;
 
@@ -459,11 +515,11 @@ BEGIN
                 SELECT 1 FROM pg_constraint c
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE c.conname = v_old_notnull
-                  AND t.relname = OLD.table_name
+                  AND t.relname = v_rel
                   AND t.relnamespace = 'public'::regnamespace
             ) THEN
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
-                    OLD.table_name, v_old_notnull, v_new_notnull);
+                    v_rel, v_old_notnull, v_new_notnull);
                 RAISE NOTICE 'Renamed NOT NULL constraint "%" to "%"', v_old_notnull, v_new_notnull;
             END IF;
         END IF;

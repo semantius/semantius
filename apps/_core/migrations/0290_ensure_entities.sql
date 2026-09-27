@@ -29,6 +29,12 @@
 -- the records, so every record is written under the entity's rules on a first
 -- apply as on a re-apply.
 --
+-- Entities are created in document order, so an is_a or has_a entity comes
+-- after the entity it is based on; a file that names it first fails on
+-- entities_id_refentity_fkey. The records of such an entity carry the fields
+-- of its whole record and are written through its view, whose write routine
+-- stores each part.
+--
 -- All four functions are SECURITY INVOKER and granted to nobody: they run as
 -- the installing role, inside a migration. Their errors are install-time errors
 -- and use PostgreSQL's own SQLSTATEs (22023 for a malformed definition, 0A000
@@ -243,10 +249,12 @@ DECLARE
     c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
         'created_at', 'updated_at', 'module_id', 'search_vector'];
     -- id_type is create-only because the key column is typed from it when the
-    -- table is created (rule 90233 refuses a change). id_prefix is not: a
-    -- changed prefix in the file is applied like any other difference.
-    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'catalog_entity_code',
-        'catalog_entity_aliases'];
+    -- table is created (rule 90233 refuses a change), and id_refentity because
+    -- an is_a or has_a entity's records are stored in its base (90241).
+    -- id_prefix is not: a changed prefix in the file is applied like any other
+    -- difference, and refused for an is_a entity (90245).
+    c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'id_refentity',
+        'catalog_entity_code', 'catalog_entity_aliases'];
     -- Written once the fields exist, because they name fields.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
         'validation_rules', 'select_rule'];
@@ -819,17 +827,21 @@ BEGIN
             END IF;
             SELECT string_agg(c, ', ') INTO v_unknown FROM unnest(v_cols) AS c
              WHERE c <> v_id_col
-               AND NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = v_table AND f.field_name = c);
+               AND NOT EXISTS (SELECT 1 FROM dd_family_fields(v_table) f WHERE f.field_name = c);
             IF v_unknown IS NOT NULL THEN
                 RAISE EXCEPTION 'ensure_entities: records of %: % has no field %', v_table, v_table, v_unknown
                     USING ERRCODE = '22023';
             END IF;
 
-            -- The platform sets these; a value in the file is not written.
+            -- The platform sets these; a value in the file is not written. The
+            -- computed fields are those of every level of the record.
             SELECT array_agg(x) INTO v_skip FROM (
-                SELECT f.field_name AS x FROM fields f WHERE f.table_name = v_table AND f.ctype = 'audit'
+                SELECT f.field_name AS x FROM dd_family_fields(v_table) f WHERE f.ctype = 'audit'
                 UNION
-                SELECT c ->> 'name' FROM jsonb_array_elements(v_current.computed_fields) c
+                SELECT c ->> 'name'
+                  FROM dd_ancestors(v_table) a
+                  JOIN entities e ON e.table_name = a.table_name
+                 CROSS JOIN jsonb_array_elements(e.computed_fields) c
             ) s;
             v_cols := ARRAY(SELECT c FROM unnest(v_cols) AS c
                              WHERE c = v_id_col OR c <> ALL (coalesce(v_skip, ARRAY[]::TEXT[]))
@@ -872,7 +884,8 @@ BEGIN
 
             -- Explicit ids leave the id sequence behind them: move it past the
             -- highest id, never lower (the rule public.fix_id_sequence applies).
-            IF EXISTS (SELECT 1 FROM pg_attribute a
+            -- An is_a or has_a entity's key is a TypeID and has no sequence.
+            IF v_current.id_type NOT IN ('is_a', 'has_a') AND EXISTS (SELECT 1 FROM pg_attribute a
                         WHERE a.attrelid = format('public.%I', v_table)::regclass
                           AND a.attname = v_id_col AND a.attnum > 0 AND NOT a.attisdropped) THEN
                 v_sequence := pg_get_serial_sequence(format('public.%I', v_table), v_id_col);

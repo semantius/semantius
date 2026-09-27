@@ -533,6 +533,13 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      lost. An entity whose name needs quoting is audited too, because the
 --      quotes travel into the identity and match no table_name; no such entity
 --      exists today.
+--   4. a family rebuild - every event while audit.generated_ddl holds a row
+--      for this transaction, i.e. while dd_refresh_family (0160_dd_functions.sql)
+--      regenerates an is_a/has_a family's views, routines and triggers. That
+--      DDL follows from the change that caused it, which is logged; the GRANT
+--      and REVOKE events among it carry no identity, so a shape filter like
+--      the one above could not reach them. The table is the owner's alone
+--      (0190_audit_log.once.sql says why that matters).
 --
 -- Two limitations, both accepted:
 --   - GRANT and REVOKE, kept for the reason filter 2 gives, cannot be
@@ -556,6 +563,11 @@ DECLARE
     obj RECORD;
     v_user_id BIGINT;
 BEGIN
+    IF to_regclass('audit.generated_ddl') IS NOT NULL
+       AND EXISTS (SELECT 1 FROM audit.generated_ddl g
+                    WHERE g.transaction_id = pg_catalog.pg_current_xact_id_if_assigned()) THEN
+        RETURN;
+    END IF;
     v_user_id := audit.current_user_id();
     FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() LOOP
         CONTINUE WHEN obj.in_extension;
@@ -585,7 +597,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.log_ddl_event IS
-'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id.';
+'Event trigger function that captures DDL commands and logs them to audit_ddl_logs with JWT user_id. Skips generated label companions and the DDL of an is_a/has_a family rebuild (audit.generated_ddl).';
 
 DROP EVENT TRIGGER IF EXISTS track_ddl_changes;
 CREATE EVENT TRIGGER track_ddl_changes
@@ -635,6 +647,8 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
 --     same caveats as the sibling above.
+--   - not a family rebuild, the sibling's filter 4: dd_refresh_family drops and
+--     recreates the views of a family on every field edit.
 CREATE OR REPLACE FUNCTION audit.log_drop_event()
 RETURNS event_trigger
 SECURITY DEFINER
@@ -645,6 +659,11 @@ DECLARE
     v_user_id BIGINT;
 BEGIN
     IF to_regclass('public.audit_ddl_logs') IS NULL THEN
+        RETURN;
+    END IF;
+    IF to_regclass('audit.generated_ddl') IS NOT NULL
+       AND EXISTS (SELECT 1 FROM audit.generated_ddl g
+                    WHERE g.transaction_id = pg_catalog.pg_current_xact_id_if_assigned()) THEN
         RETURN;
     END IF;
     v_user_id := audit.current_user_id();
@@ -681,7 +700,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION audit.log_drop_event IS
-'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order.';
+'Event trigger function (sql_drop) that logs dropped objects in the Semantius schemas to audit_ddl_logs with JWT user_id. Returns early once audit_ddl_logs itself is gone, so a teardown can drop the remaining tables in any order, and during an is_a/has_a family rebuild (audit.generated_ddl).';
 
 DROP EVENT TRIGGER IF EXISTS track_ddl_drops;
 CREATE EVENT TRIGGER track_ddl_drops
@@ -741,10 +760,15 @@ COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
 
 -- The ignored columns are decided table by table, here and in the STEP 10 loop,
 -- or a re-toggle would rebuild audit_i_u_d with none and audit the heartbeat again.
+-- The triggers go on the entity's physical relation. An is_a or has_a
+-- entity's own part lives in <entity>_ext, so that is the table its audit_log
+-- flag audits; the parts in its bases' tables are logged by their own
+-- entities' flags, and a log row names the table it was written to.
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
 DECLARE
     v_ignored_columns TEXT[] := CASE WHEN NEW.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END;
+    v_rel TEXT := dd_relation(NEW.table_name, NEW.id_type);
 BEGIN
     IF TG_OP = 'INSERT' THEN
         -- Enable audit on newly created managed tables with audit_log=TRUE
@@ -753,10 +777,10 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM information_schema.tables t
                 WHERE t.table_schema = 'public'
-                  AND t.table_name = NEW.table_name
+                  AND t.table_name = v_rel
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
-                RAISE NOTICE 'Enabled audit tracking for new table "%"', NEW.table_name;
+                PERFORM audit.enable_tracking(format('public.%I', v_rel)::REGCLASS, v_ignored_columns);
+                RAISE NOTICE 'Enabled audit tracking for new table "%"', v_rel;
             END IF;
         END IF;
         RETURN NEW;
@@ -767,11 +791,11 @@ BEGIN
         IF OLD.audit_log IS DISTINCT FROM NEW.audit_log THEN
             IF NEW.managed THEN
                 IF NEW.audit_log THEN
-                    PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
-                    RAISE NOTICE 'Enabled audit tracking for table "%"', NEW.table_name;
+                    PERFORM audit.enable_tracking(format('public.%I', v_rel)::REGCLASS, v_ignored_columns);
+                    RAISE NOTICE 'Enabled audit tracking for table "%"', v_rel;
                 ELSE
-                    PERFORM audit.disable_tracking(NEW.table_name::REGCLASS);
-                    RAISE NOTICE 'Disabled audit tracking for table "%"', NEW.table_name;
+                    PERFORM audit.disable_tracking(format('public.%I', v_rel)::REGCLASS);
+                    RAISE NOTICE 'Disabled audit tracking for table "%"', v_rel;
                 END IF;
             END IF;
         END IF;
@@ -782,10 +806,10 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM information_schema.tables t
                 WHERE t.table_schema = 'public'
-                  AND t.table_name = NEW.table_name
+                  AND t.table_name = v_rel
             ) THEN
-                PERFORM audit.enable_tracking(NEW.table_name::REGCLASS, v_ignored_columns);
-                RAISE NOTICE 'Enabled audit tracking for newly managed table "%"', NEW.table_name;
+                PERFORM audit.enable_tracking(format('public.%I', v_rel)::REGCLASS, v_ignored_columns);
+                RAISE NOTICE 'Enabled audit tracking for newly managed table "%"', v_rel;
             END IF;
         END IF;
 

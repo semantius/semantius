@@ -198,55 +198,25 @@ REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_schema_children(TEXT) TO semantius_user;
 
 -- =====================================================
--- GET SCHEMA FOR TABLE (Internal helper)
+-- SCHEMA PROPERTIES OF AN ENTITY (Internal helper)
 -- =====================================================
 
--- Helper that builds a schema JSON for a single table. Self-gating: it applies the
--- view_permission check itself and raises undefined_table for a table the caller
--- may not view, so it is safe to expose directly to the request role.
--- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
-CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
-RETURNS JSON AS $$
-DECLARE
-    v_table_record RECORD;
-    v_result JSON;
-    v_cache_version TEXT;
-    v_db_version    TEXT;
-BEGIN
-    PERFORM rbac.uid();
-
-    SELECT * INTO v_table_record
-    FROM entities
-    WHERE table_name = p_table_name;
-
-    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
-    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
-    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
-    -- callers — otherwise any request-role caller reads any table's full schema (including its
-    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
-    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
-    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
-    -- harmless) for them.
-    IF NOT FOUND THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Build properties object from fields
-    -- Each field becomes a property with JSON Schema attributes
-    WITH ordered_fields AS (
-        SELECT 
+-- The JSON Schema property of every field of an entity's record, in order,
+-- with whether the field is required. The fields are dd_family_fields: for an
+-- is_a or has_a entity its root's and every level's fields first, each marked
+-- with "inherited_from": <the entity that owns it>, then its own. p_own_only
+-- keeps the entity's own fields without its key, which is how a has_a base
+-- lists its extensions. Not granted: build_schema_for_table, the one caller,
+-- runs as the definer and has made the permission check.
+CREATE OR REPLACE FUNCTION public.dd_schema_properties(p_table_name TEXT, p_own_only BOOLEAN)
+RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required BOOLEAN) AS $$
+    WITH ent AS (
+        SELECT e.id_column, e.id_type FROM entities e WHERE e.table_name = p_table_name
+    ),
+    ordered_fields AS (
+        SELECT
+            f.table_name AS owner,
+            f.ordinality AS ord,
             f.field_name,
             f.format,
             f.title,
@@ -281,144 +251,225 @@ BEGIN
             -- its key column, the referenced entity's for a reference. Drives
             -- the TypeID pattern below.
             CASE
-                WHEN f.field_name = v_table_record.id_column THEN v_table_record.id_type
+                WHEN f.table_name = p_table_name AND f.field_name = ent.id_column THEN ent.id_type
                 WHEN f.format IN ('reference', 'parent') THEN t.id_type
             END AS key_id_type,
             -- The property's JSON type. A reference takes the type of the key it
             -- points at, so entities/permissions come out "string" and users
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
             -- first time an entity changes its key.
-            field_json_type(f.format, f.reference_table) AS json_type
-        FROM fields f
+            field_json_type(f.format, f.reference_table) AS json_type,
+            ent.id_column AS entity_id_column,
+            ent.id_type AS entity_id_type
+        FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
+        CROSS JOIN ent
         LEFT JOIN entities t ON f.reference_table = t.table_name
-        WHERE f.table_name = p_table_name
-        ORDER BY f.field_order
-    ),
-    properties_with_defaults AS (
-        SELECT 
-            field_name,
-            field_order,
-            (jsonb_build_object(
-                'type', json_type,
-                'title', title,
-                'description', description,
-                'inputMode', input_type,
-                'width', width,
-                'field_order', field_order
-            ) || 
-            -- Add ctype field if present
-            CASE 
-                WHEN ctype IS NOT NULL AND ctype != ''
-                THEN jsonb_build_object('ctype', ctype)
-                ELSE '{}'::jsonb
-            END ||
-            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
-            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
-            -- Add searchable field
-            jsonb_build_object('searchable', searchable) ||
-            -- Add cube_type field
-            jsonb_build_object('cube_type', cube_type) ||
-            -- Add unique_value field
-            jsonb_build_object('unique_value', unique_value) ||
-            -- Add precision only for number formats
-            CASE
-                WHEN format_to_json_type(format)::text = '"number"'
-                THEN jsonb_build_object('precision', "precision")
-                ELSE '{}'::jsonb
-            END ||
-            -- Add input_type_rule only when a non-empty JsonLogic rule is set
-            CASE
-                WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
-                THEN jsonb_build_object('input_type_rule', input_type_rule)
-                ELSE '{}'::jsonb
-            END ||
-            jsonb_build_object('format', format) ||
-            -- A TypeID key, and every reference to one, is described by its
-            -- shape: TypeID is a key type, not a field format (the format stays
-            -- string), so this is where a client learns what a valid value
-            -- looks like. The pattern accepts any valid prefix; which prefix a
-            -- new id must carry is enforced by the database on insert, and a
-            -- reference may hold ids minted under an entity's earlier prefix.
-            CASE
-                WHEN key_id_type = 'typeid'
-                THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
-                ELSE '{}'::jsonb
-            END ||
-            -- Add enum field if enum_values is present
-            CASE
-                WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
-                THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
-                ELSE '{}'::jsonb
-            END ||
-            -- Add reference_table field if format is 'reference' or 'parent'
-            CASE 
-                WHEN format IN ('reference', 'parent') AND reference_table != ''
-                THEN jsonb_build_object(
-                    'reference_table', reference_table,
-                    'reference_delete_mode', reference_delete_mode,
-                    'relationship_label', relationship_label,
-                    'reference_table_id_column', reference_table_id_column,
-                    'reference_table_label_column', reference_table_label_column,
-                    'reference_table_singular_label', reference_table_singular_label,
-                    'reference_table_plural_label', reference_table_plural_label
-                )
-                ELSE '{}'::jsonb
-            END ||
-            -- Add singular_label_parent / plural_label_parent for parent fields when set
-            CASE
-                WHEN format = 'parent' AND singular_label_parent != ''
-                THEN jsonb_build_object(
-                    'singular_label_parent', singular_label_parent,
-                    'plural_label_parent', plural_label_parent
-                )
-                ELSE '{}'::jsonb
-            END ||
-            -- Add default field separately to handle type conversion properly
-            CASE
-                -- Enum: use effective default (first value when required without explicit default, else '')
-                WHEN format = 'enum' THEN
-                    jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
-                WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
-                    CASE
-                        WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
-                        WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
-                        WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
-                        WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
-                        -- For strings, trim quotes if present (handles SQL literal strings like 'active')
-                        ELSE jsonb_build_object('default', trim(both '''' from default_value))
-                    END
-                -- For string types without explicit default, add empty string default. Not for a
-                -- reference to a text-keyed entity (permissions, entities): its column is nullable
-                -- and '' names no row, so a client that saves the default fails the foreign key.
-                -- With no default the client starts it empty and leaves it out of the write, as it
-                -- does for a reference to an integer-keyed entity.
-                -- Nor for the key: '' is not a key a text entity may be saved
-                -- under, and a uuid or TypeID key is generated when it is left out.
-                WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
-                     AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
-                -- For JSON types without explicit default, add empty object default
-                WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
-                ELSE '{}'::jsonb
-            END) AS property_value
-        FROM ordered_fields
-    ),
+        WHERE NOT p_own_only
+           OR (f.table_name = p_table_name AND f.field_name <> ent.id_column)
+    )
+    SELECT
+        field_name,
+        (ord::numeric * 1000) AS sort_order,
+        (jsonb_build_object(
+            'type', json_type,
+            'title', title,
+            'description', description,
+            'inputMode', input_type,
+            'width', width,
+            'field_order', field_order
+        ) ||
+        -- Add ctype field if present
+        CASE
+            WHEN ctype IS NOT NULL AND ctype != ''
+            THEN jsonb_build_object('ctype', ctype)
+            ELSE '{}'::jsonb
+        END ||
+        -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
+        jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+        -- Add searchable field
+        jsonb_build_object('searchable', searchable) ||
+        -- Add cube_type field
+        jsonb_build_object('cube_type', cube_type) ||
+        -- Add unique_value field
+        jsonb_build_object('unique_value', unique_value) ||
+        -- Add precision only for number formats
+        CASE
+            WHEN format_to_json_type(format)::text = '"number"'
+            THEN jsonb_build_object('precision', "precision")
+            ELSE '{}'::jsonb
+        END ||
+        -- Add input_type_rule only when a non-empty JsonLogic rule is set
+        CASE
+            WHEN input_type_rule IS NOT NULL AND input_type_rule != '{}'::jsonb
+            THEN jsonb_build_object('input_type_rule', input_type_rule)
+            ELSE '{}'::jsonb
+        END ||
+        jsonb_build_object('format', format) ||
+        -- A field of an is_a or has_a entity's record that one of its bases
+        -- owns: it is written through this entity like its own fields, and
+        -- changed in the dictionary through the entity that owns it.
+        CASE
+            WHEN owner <> p_table_name
+            THEN jsonb_build_object('inherited_from', owner)
+            ELSE '{}'::jsonb
+        END ||
+        -- A TypeID key, and every reference to one, is described by its
+        -- shape: TypeID is a key type, not a field format (the format stays
+        -- string), so this is where a client learns what a valid value
+        -- looks like. The pattern accepts any valid prefix; which prefix a
+        -- new id must carry is enforced by the database on insert, and a
+        -- reference may hold ids minted under an entity's earlier prefix.
+        -- is_a and has_a keys are TypeIDs too, those of their root.
+        CASE
+            WHEN key_id_type IN ('typeid', 'is_a', 'has_a')
+            THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
+            ELSE '{}'::jsonb
+        END ||
+        -- Add enum field if enum_values is present
+        CASE
+            WHEN enum_values IS NOT NULL AND jsonb_array_length(enum_values) > 0
+            THEN jsonb_build_object('enum', effective_enum_values(input_type, enum_values))
+            ELSE '{}'::jsonb
+        END ||
+        -- Add reference_table field if format is 'reference' or 'parent'
+        CASE
+            WHEN format IN ('reference', 'parent') AND reference_table != ''
+            THEN jsonb_build_object(
+                'reference_table', reference_table,
+                'reference_delete_mode', reference_delete_mode,
+                'relationship_label', relationship_label,
+                'reference_table_id_column', reference_table_id_column,
+                'reference_table_label_column', reference_table_label_column,
+                'reference_table_singular_label', reference_table_singular_label,
+                'reference_table_plural_label', reference_table_plural_label
+            )
+            ELSE '{}'::jsonb
+        END ||
+        -- Add singular_label_parent / plural_label_parent for parent fields when set
+        CASE
+            WHEN format = 'parent' AND singular_label_parent != ''
+            THEN jsonb_build_object(
+                'singular_label_parent', singular_label_parent,
+                'plural_label_parent', plural_label_parent
+            )
+            ELSE '{}'::jsonb
+        END ||
+        -- Add default field separately to handle type conversion properly
+        CASE
+            -- Enum: use effective default (first value when required without explicit default, else '')
+            WHEN format = 'enum' THEN
+                jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
+            WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
+                CASE
+                    WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
+                    WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
+                    WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
+                    WHEN json_type::text IN ('"object"', '"array"') THEN jsonb_build_object('default', default_value::jsonb)
+                    -- For strings, trim quotes if present (handles SQL literal strings like 'active')
+                    ELSE jsonb_build_object('default', trim(both '''' from default_value))
+                END
+            -- For string types without explicit default, add empty string default. Not for a
+            -- reference to a text-keyed entity (permissions, entities): its column is nullable
+            -- and '' names no row, so a client that saves the default fails the foreign key.
+            -- With no default the client starts it empty and leaves it out of the write, as it
+            -- does for a reference to an integer-keyed entity.
+            -- Nor for the key: '' is not a key a text entity may be saved
+            -- under, and a uuid or TypeID key is generated when it is left out.
+            WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
+                 AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
+            -- For JSON types without explicit default, add empty object default
+            WHEN format IN ('json', 'jsonlogic') THEN jsonb_build_object('default', '{}'::jsonb)
+            ELSE '{}'::jsonb
+        END) AS property,
+        -- The key is required when the caller supplies it (bigint, text) and
+        -- left out when the database generates it or, for has_a, when it is
+        -- optional.
+        ((field_name = entity_id_column AND entity_id_type IN ('bigint', 'text'))
+         OR (is_nullable(format) = FALSE
+             AND field_name != entity_id_column
+             AND field_name NOT IN ('created_at', 'updated_at')
+             AND default_value IS NULL
+             AND format NOT IN ('json', 'jsonlogic'))) AS is_required
+    FROM ordered_fields
+    ORDER BY ord;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) IS
+'The JSON Schema property and the required flag of every field of an entity''s record (dd_family_fields), in order; inherited fields carry inherited_from. With p_own_only, the entity''s own fields without its key. Used by build_schema_for_table.';
+
+REVOKE EXECUTE ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) FROM PUBLIC;
+
+-- =====================================================
+-- GET SCHEMA FOR TABLE (Internal helper)
+-- =====================================================
+
+-- Helper that builds a schema JSON for a single table. Self-gating: it applies the
+-- view_permission check itself and raises undefined_table for a table the caller
+-- may not view, so it is safe to expose directly to the request role.
+-- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
+CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
+RETURNS JSON AS $$
+DECLARE
+    v_table_record RECORD;
+    v_result JSON;
+    v_cache_version TEXT;
+    v_db_version    TEXT;
+    v_properties    JSON;
+    v_required      JSON;
+    v_extensions    JSON;
+BEGIN
+    PERFORM rbac.uid();
+
+    SELECT * INTO v_table_record
+    FROM entities
+    WHERE table_name = p_table_name;
+
+    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
+    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
+    -- callers — otherwise any request-role caller reads any table's full schema (including its
+    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
+    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
+    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
+    -- harmless) for them. The view permission is that of every level an is_a or has_a
+    -- entity's records are stored in, as for reading them.
+    IF NOT FOUND THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    IF NOT dd_entity_viewable(p_table_name) THEN
+        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
+        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
+        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+            USING ERRCODE = 'undefined_table',
+                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
+    END IF;
+
+    -- Build properties object from fields
+    -- Each field becomes a property with JSON Schema attributes (dd_schema_properties).
     -- Derived composed-label columns are surfaced as ORDINARY properties, discriminated only by
     -- ctype (_label / fk_label) and ordered so each <fk>_label sits immediately after its FK. They
     -- are read-only computed columns (writable:false) and absent from the fields catalog / read_field.
+    WITH family AS (
+        SELECT f.*, f.ordinality AS ord
+        FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
+    ),
     label_props AS (
         SELECT
             '_label'::text AS field_name,
-            (COALESCE((SELECT field_order FROM fields
-                       WHERE table_name = p_table_name AND ctype = 'label'
-                       ORDER BY field_order LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            (COALESCE((SELECT ord FROM family WHERE ctype = 'label' ORDER BY ord LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', v_table_record.singular_label,
                 'description', 'Composed, human-readable label folded from the parent chain',
                 'inputMode', 'readonly', 'width', 'default',
-                'field_order', COALESCE((SELECT field_order FROM fields
-                                         WHERE table_name = p_table_name AND ctype = 'label'
-                                         ORDER BY field_order LIMIT 1), 1),
+                'field_order', COALESCE((SELECT field_order FROM family
+                                         WHERE ctype = 'label'
+                                         ORDER BY ord LIMIT 1), 1),
                 'ctype', '_label', 'is_core', false, 'searchable', false,
                 'writable', false, 'selectable', true,
                 'source', NULLIF(v_table_record.label_parent, '')
@@ -426,7 +477,7 @@ BEGIN
         UNION ALL
         SELECT
             f.field_name || '_label',
-            (f.field_order::numeric * 1000 + 1) AS sort_order,
+            (f.ord::numeric * 1000 + 1) AS sort_order,
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', f.title,
@@ -439,69 +490,91 @@ BEGIN
                 'reference_table', f.reference_table,
                 'source', jsonb_build_object('field', f.field_name, 'reference_table', f.reference_table)
             )
-        FROM fields f
+        FROM family f
         LEFT JOIN entities e2 ON e2.table_name = f.reference_table
-        WHERE f.table_name = p_table_name
-          AND public.dd_is_fk_format(f.format)
+        WHERE public.dd_is_fk_format(f.format)
           AND f.reference_table <> ''
           -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
-          AND NOT EXISTS (SELECT 1 FROM fields f2
-                          WHERE f2.table_name = p_table_name
-                            AND f2.field_name = f.field_name || '_label')
+          AND NOT EXISTS (SELECT 1 FROM family f2
+                          WHERE f2.field_name = f.field_name || '_label')
+    ),
+    field_props AS (
+        SELECT * FROM public.dd_schema_properties(p_table_name, FALSE)
     ),
     all_props AS (
-        SELECT field_name, (field_order::numeric * 1000) AS sort_order, property_value
-        FROM properties_with_defaults
+        SELECT field_name, sort_order, property AS property_value
+        FROM field_props
         UNION ALL
         SELECT field_name, sort_order, property_value FROM label_props
-    ),
-    -- Keep this a CTE, not a statement of its own: the function runs once per
-    -- entity, so every extra statement costs an SPI round trip per entity.
-    -- The key is required when the caller supplies it (bigint, text) and left
-    -- out when the database generates it.
-    required_fields AS (
-        SELECT field_name, field_order
-        FROM fields
-        WHERE table_name = p_table_name
-          AND (
-              (field_name = v_table_record.id_column
-               AND v_table_record.id_type IN ('bigint', 'text'))
-              OR (is_nullable(format) = FALSE
-                  AND field_name != v_table_record.id_column
-                  AND field_name NOT IN ('created_at', 'updated_at')
-                  AND default_value IS NULL
-                  AND format NOT IN ('json', 'jsonlogic'))
-          )
-        ORDER BY field_order
     )
+    SELECT COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
+                       FROM all_props), '{}'::json),
+           COALESCE((SELECT json_agg(field_name ORDER BY sort_order)
+                       FROM field_props WHERE is_required), '[]'::json)
+      INTO v_properties, v_required;
+
+    -- A has_a base lists the extensions its records may have, those the
+    -- caller may view, each with its own fields.
+    SELECT json_agg(json_build_object(
+               'table', x.table_name,
+               'properties', COALESCE((SELECT json_object_agg(p.field_name, p.property ORDER BY p.sort_order)
+                                         FROM public.dd_schema_properties(x.table_name, TRUE) p), '{}'::json),
+               'required', COALESCE((SELECT json_agg(p.field_name ORDER BY p.sort_order)
+                                       FROM public.dd_schema_properties(x.table_name, TRUE) p
+                                      WHERE p.is_required), '[]'::json))
+             ORDER BY x.table_name)
+      INTO v_extensions
+      FROM entities x
+     WHERE x.id_refentity = p_table_name
+       AND x.id_type = 'has_a'
+       AND dd_entity_viewable(x.table_name);
+
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are now ordinary
     -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
     -- children: fields in other tables that reference this one with format='parent'.
-    SELECT json_build_object(
-        '$schema', 'https://semantius.com/meta/sem-schema/v1',
-        '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-        'title', v_table_record.singular_label,
-        'description', v_table_record.description,
-        -- module_slug rides inside `table` next to module_id because the id alone is a dead end
-        -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
-        -- only the numeric id must fetch the module list before it can ask for the rest of the
-        -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
-        -- policy protects, so handing it out under the entity's view_permission leaks nothing.
-        -- The rest of the module row is a different matter: settings, dashboard_config, the
-        -- three permission columns and the default_*_role_ids are readable only with 'admin' or
-        -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
-        -- an entity's view_permission is often public:read. They stay in get_user_modules().
-        'table', to_jsonb(v_table_record) || jsonb_build_object(
-            'module_slug',
-            (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-        'type', 'object',
-        'properties', COALESCE((SELECT json_object_agg(field_name, property_value ORDER BY sort_order)
-                                FROM all_props), '{}'::json),
-        'required', COALESCE((SELECT json_agg(field_name) FROM required_fields), '[]'::json),
-        'children', public.get_schema_children(p_table_name),
-        'additionalProperties', false
-    )
-    INTO v_result;
+    -- module_slug rides inside `table` next to module_id because the id alone is a dead end
+    -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
+    -- only the numeric id must fetch the module list before it can ask for the rest of the
+    -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
+    -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+    -- The rest of the module row is a different matter: settings, dashboard_config, the
+    -- three permission columns and the default_*_role_ids are readable only with 'admin' or
+    -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
+    -- an entity's view_permission is often public:read. They stay in get_user_modules().
+    -- "extensions" is present only on a has_a base: json_build_object keeps the key order a
+    -- client sees, which a jsonb concatenation would not.
+    IF v_extensions IS NULL THEN
+        v_result := json_build_object(
+            '$schema', 'https://semantius.com/meta/sem-schema/v1',
+            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+            'title', v_table_record.singular_label,
+            'description', v_table_record.description,
+            'table', to_jsonb(v_table_record) || jsonb_build_object(
+                'module_slug',
+                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
+            'type', 'object',
+            'properties', v_properties,
+            'required', v_required,
+            'children', public.get_schema_children(p_table_name),
+            'additionalProperties', false
+        );
+    ELSE
+        v_result := json_build_object(
+            '$schema', 'https://semantius.com/meta/sem-schema/v1',
+            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
+            'title', v_table_record.singular_label,
+            'description', v_table_record.description,
+            'table', to_jsonb(v_table_record) || jsonb_build_object(
+                'module_slug',
+                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
+            'type', 'object',
+            'properties', v_properties,
+            'required', v_required,
+            'children', public.get_schema_children(p_table_name),
+            'additionalProperties', false,
+            'extensions', v_extensions
+        );
+    END IF;
 
     RETURN v_result;
 END;
@@ -511,7 +584,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: applies the view_permission check with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+'Builds a schema JSON for a single table. Self-gating: applies the view_permission check (of every level an is_a/has_a entity is stored in) with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a has_a base lists its extensions. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
@@ -547,9 +620,10 @@ BEGIN
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
 
-    -- Check if user has view permission for this table
+    -- Check if user has view permission for this table (and for every base an
+    -- is_a/has_a entity's records are stored in)
     -- Raise same error to avoid leaking table existence
-    IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+    IF NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
@@ -609,7 +683,7 @@ BEGIN
         END IF;
 
         -- Raise same error when user lacks view permission (avoid leaking table existence)
-        IF NOT rbac.has_permission(v_table_record.view_permission) THEN
+        IF NOT dd_entity_viewable(v_table_name) THEN
             RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
                 USING ERRCODE = 'undefined_table';
         END IF;
@@ -739,7 +813,7 @@ BEGIN
     LOOP
         -- build_schema_for_table checks again: it is self-gating as an RPC of
         -- its own, and the repeat is a cached lookup.
-        IF rbac.has_permission(v_table_record.view_permission) THEN
+        IF dd_entity_viewable(v_table_record.table_name) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
                 RETURN NEXT v_schema;
@@ -778,7 +852,7 @@ BEGIN
         FROM entities e
         ORDER BY e.table_name
     LOOP
-        IF rbac.has_permission(v_table_record.view_permission) THEN
+        IF dd_entity_viewable(v_table_record.table_name) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
                 RETURN NEXT v_schema;

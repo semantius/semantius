@@ -289,10 +289,10 @@ export async function drizzlegenCommand(
       "SELECT id, module_name, module_slug FROM modules ORDER BY id",
     )).rows;
     const entities = (await client.queryObject<EntityRecord>(
-      "SELECT table_name, module_id, id_column, id_type, description FROM entities ORDER BY table_name",
+      "SELECT table_name, module_id, id_column, id_type, description FROM entities ORDER BY table_name COLLATE \"C\"",
     )).rows;
     const fields = (await client.queryObject<FieldRecord>(
-      "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, precision, reference_table, reference_delete_mode FROM fields ORDER BY table_name, field_order",
+      "SELECT table_name, field_name, format, is_pk, default_value, field_order, input_type, enum_values, precision, reference_table, reference_delete_mode FROM fields ORDER BY table_name COLLATE \"C\", field_order, field_name COLLATE \"C\"",
     )).rows;
 
     console.log(

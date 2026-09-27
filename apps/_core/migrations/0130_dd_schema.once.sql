@@ -35,11 +35,21 @@ CREATE TABLE IF NOT EXISTS entities (
     -- changing it would rewrite every key and every foreign key pointing at
     -- one. auto_increment is a 64-bit identity; computed labels only the system
     -- tables whose key is a generated column, and no managed entity may take it.
+    -- is_a (a subtype) and has_a (an optional extension) share the TypeID key of
+    -- the entity named in id_refentity.
     id_type TEXT NOT NULL DEFAULT 'auto_increment',
-    -- The TypeID prefix of a typeid entity, '' for every other key type. Unlike
-    -- id_type it may change: new ids take the new prefix, existing ids keep
-    -- theirs, because a key is never rewritten.
+    -- The TypeID prefix of a typeid or is_a entity, '' for every other key
+    -- type. A typeid entity may change it: new ids take the new prefix,
+    -- existing ids keep theirs, because a key is never rewritten. An is_a
+    -- entity may not (rule 90245): the prefix of an id is what says which
+    -- subtype a record is, so it has to mean the same thing for good.
     id_prefix TEXT NOT NULL DEFAULT '',
+    -- The entity an is_a or has_a entity is based on, NULL for every other key
+    -- type. Its records share the base's key, so the base is chosen when the
+    -- entity is created and never changes (90241, 0160_dd_functions.sql).
+    -- RESTRICT keeps a base from being deleted under its dependents, ON UPDATE
+    -- CASCADE carries a rename of the base.
+    id_refentity TEXT REFERENCES entities(table_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     label_column TEXT NOT NULL DEFAULT 'label',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
@@ -62,8 +72,11 @@ CREATE TABLE IF NOT EXISTS entities (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    -- Validate table_name follows PostgreSQL naming conventions
-    CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$'),
+    -- Validate table_name follows PostgreSQL naming conventions. Names ending
+    -- in _ext are reserved: <entity>_ext is the table that stores the own
+    -- fields of an is_a or has_a entity, and code that sees one derives the
+    -- entity from it by cutting the suffix.
+    CONSTRAINT valid_table_name CHECK (table_name ~ '^[a-z_][a-z0-9_]*$' AND table_name !~ '_ext$'),
 
     -- Validate column names follow PostgreSQL naming conventions
     CONSTRAINT valid_id_column CHECK (id_column ~ '^[a-z_][a-z0-9_]*$'),
@@ -92,18 +105,29 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Inline, like valid_entity_type and for the same reason: the id_type
     -- field row is seeded before the dictionary's enum trigger exists.
     CONSTRAINT valid_id_type CHECK (id_type IN
-        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'computed')),
+        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'is_a', 'has_a', 'computed')),
     -- The TypeID prefix grammar: up to 63 lowercase letters and underscores,
     -- starting and ending with a letter. It is concatenated into every id, so
     -- nothing outside it may get in.
     CONSTRAINT valid_id_prefix CHECK (id_prefix = '' OR id_prefix ~ '^[a-z]([a-z_]{0,61}[a-z])?$'),
-    -- A typeid entity has a prefix and no other kind has one. The spec allows
-    -- an empty prefix, but a bare suffix says nothing about which entity an id
-    -- belongs to, which is the reason to choose TypeIDs at all.
-    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type = 'typeid') = (id_prefix <> ''))
+    -- A typeid or is_a entity has a prefix and no other kind has one. The spec
+    -- allows an empty prefix, but a bare suffix says nothing about which entity
+    -- an id belongs to, which is the reason to choose TypeIDs at all, and an
+    -- is_a record's type is read from its prefix. A has_a entity mints no ids:
+    -- its records take the key of the base record they extend.
+    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type IN ('typeid', 'is_a')) = (id_prefix <> '')),
+    -- Exactly the is_a and has_a entities name a base.
+    CONSTRAINT id_refentity_matches_id_type CHECK ((id_type IN ('is_a', 'has_a')) = (id_refentity IS NOT NULL)),
+    -- An is_a or has_a entity is a view over tables the dictionary built and
+    -- writes through routines it generated; without them there is nothing an
+    -- unmanaged one could describe.
+    CONSTRAINT derived_entity_managed CHECK (id_type NOT IN ('is_a', 'has_a') OR managed)
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
+-- A RESTRICT foreign key into this same table: every entity delete and rename
+-- scans it, and the family code looks dependents up by it.
+CREATE INDEX idx_entities_id_refentity ON entities(id_refentity);
 -- Only the prefixes in use now are unique. An entity that changes its prefix
 -- releases the old one, and another entity may take it, so two entities can
 -- have ids with the same prefix: an id's prefix names the entity it was minted

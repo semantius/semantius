@@ -4,9 +4,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. get_schema()
 --   2. get_schemas()
+--   3. get_schema of is_a and has_a entities
 BEGIN;
 
-SELECT plan(168);
+SELECT plan(177);
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -1425,6 +1426,91 @@ SELECT throws_ok(
     'Table "webhook_receivers" not found in tables metadata',
     'get_schemas() should raise an error when the user lacks view permission for any table in the list'
 );
+
+-- =====================================================
+-- PART 3: get_schema of is_a and has_a entities
+-- =====================================================
+-- The schema of a derived entity describes its whole record: the root's
+-- fields first, then each level's, then its own, the inherited ones marked
+-- with the entity that owns them. A has_a base lists its extensions, those the
+-- caller may view; the view permission of every level gates each schema.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('gs_parties', 'Party', 'Parties', 1, 'typeid', 'gspty');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('gs_parties', 'city', 'City', 'text', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('gs_orgs', 'Organization', 'Organizations', 1, 'is_a', 'gsorg', 'gs_parties');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('gs_orgs', 'vat', 'VAT', 'text', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity, view_permission)
+VALUES ('gs_clients', 'Client', 'Clients', 1, 'has_a', 'gs_parties', 'admin'),
+       ('gs_vendors', 'Vendor', 'Vendors', 1, 'has_a', 'gs_parties', 'public:read');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('gs_clients', 'credit', 'Credit', 'int32', 30),
+       ('gs_vendors', 'rating', 'Rating', 'int32', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id)
+VALUES ('gs_notes', 'Note', 'Notes', 1);
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('gs_notes', 'org_id', 'Organization', 'reference', 'gs_orgs', 'restrict', 30);
+
+SELECT is(
+    (SELECT string_agg(k, ', ' ORDER BY n)
+       FROM json_object_keys(public.get_schema('gs_orgs') -> 'properties') WITH ORDINALITY AS t(k, n)),
+    'id, label, _label, city, vat, created_at, updated_at',
+    'family schema: the key, the root''s fields, the own fields, then the audit fields');
+
+SELECT is(
+    (SELECT string_agg(k || '=' || coalesce(v ->> 'inherited_from', '-'), ', ' ORDER BY k)
+       FROM jsonb_each((public.get_schema('gs_orgs')::jsonb) -> 'properties') AS t(k, v)
+      WHERE k IN ('id', 'label', 'city', 'vat')),
+    'city=gs_parties, id=-, label=gs_parties, vat=-',
+    'family schema: an inherited field names the entity that owns it');
+
+SELECT ok(
+    (public.get_schema('gs_orgs')::jsonb) #>> '{properties,id,pattern}' IS NOT NULL
+    AND (public.get_schema('gs_vendors')::jsonb) #>> '{properties,id,pattern}' IS NOT NULL
+    AND (public.get_schema('gs_notes')::jsonb) #>> '{properties,org_id,pattern}' IS NOT NULL,
+    'family schema: is_a and has_a keys, and references to them, carry the TypeID pattern');
+
+SELECT is(
+    (public.get_schema('gs_orgs')::jsonb) #>> '{table,id_refentity}',
+    'gs_parties',
+    'family schema: the table object names the base');
+
+SELECT is(
+    (SELECT string_agg((e ->> 'table') || ':' || (SELECT string_agg(k, '/') FROM jsonb_object_keys(e -> 'properties') k),
+                       ', ' ORDER BY e ->> 'table')
+       FROM jsonb_array_elements((public.get_schema('gs_parties')::jsonb) -> 'extensions') e),
+    'gs_clients:credit/created_at/updated_at, gs_vendors:rating/created_at/updated_at',
+    'family schema: a has_a base lists its extensions with their own fields');
+
+SELECT ok(
+    NOT ((public.get_schema('gs_orgs')::jsonb) ? 'extensions')
+    AND NOT ((public.get_schema('gs_notes')::jsonb) ? 'extensions'),
+    'family schema: an entity without has_a extensions gets no extensions key');
+
+SELECT authenticate_as('user1');
+SELECT is(
+    (SELECT string_agg(e ->> 'table', ', ')
+       FROM jsonb_array_elements((public.get_schema('gs_parties')::jsonb) -> 'extensions') e),
+    'gs_vendors',
+    'family schema: the extensions list holds only those the caller may view');
+
+SELECT throws_ok($$ SELECT public.get_schema('gs_clients') $$,
+    '42P01', NULL,
+    'family schema: an extension the caller may not view is not found');
+
+SELECT authenticate_as('user3');
+UPDATE entities SET view_permission = 'admin' WHERE table_name = 'gs_parties';
+SELECT authenticate_as('user1');
+SELECT throws_ok($$ SELECT public.get_schema('gs_vendors') $$,
+    '42P01', NULL,
+    'family schema: the view permission of every level gates the schema');
 
 SELECT * FROM finish();
 ROLLBACK;

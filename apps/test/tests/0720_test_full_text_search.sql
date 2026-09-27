@@ -1,7 +1,8 @@
--- Test full-text search functionality
+-- Test full-text search functionality, including a search across the levels
+-- of an is_a record
 BEGIN;
 
-SELECT plan(57);
+SELECT plan(60);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -558,6 +559,42 @@ SELECT ok(
       WHERE search_vector @@ to_tsquery('simple', 'Notefieldone & Notefieldtwo')) = 1,
     'both fields added in the coalesced statement should be searchable'
 );
+
+-- =====================================================
+-- Search across the levels of an is_a record
+-- =====================================================
+-- Each table keeps the search_vector of its own fields; the view of a
+-- derived entity concatenates them, so a search matches the fields of every
+-- level. It cannot use the GIN indexes.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('fts_items', 'Item', 'Items', 1, 'typeid', 'ftsitm');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('fts_docs', 'Document', 'Documents', 1, 'is_a', 'ftsdoc', 'fts_items');
+INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
+VALUES ('fts_docs', 'body', 'Body', 'text', 30, TRUE);
+
+INSERT INTO fts_docs (label, body) VALUES ('alpha report', 'omega findings');
+
+SELECT is(
+    (SELECT count(*)::int FROM fts_docs WHERE search_vector @@ websearch_to_tsquery('simple', 'alpha'))
+    + (SELECT count(*)::int FROM fts_docs WHERE search_vector @@ websearch_to_tsquery('simple', 'omega')),
+    2,
+    'family search: a search on the view matches the root''s fields and the subtype''s');
+
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fts_docs_ext'::regclass AND attname = 'search_vector')
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fts_items'::regclass AND attname = 'search_vector'),
+    'family search: each level keeps the search_vector of its own fields');
+
+SELECT is(
+    (SELECT count(*)::int FROM fts_items WHERE search_vector @@ websearch_to_tsquery('simple', 'omega')),
+    0,
+    'family search: the root''s own vector holds only the root''s fields');
 
 SELECT * FROM finish();
 ROLLBACK;

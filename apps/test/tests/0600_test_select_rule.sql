@@ -5,9 +5,11 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. select_rule policy
 --   2. $today / $now inside select_rule
+--   3. is_a records under row security: base + extension permissions, the
+--      whole-record skip, a derived select_rule over the whole record
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(21);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -225,6 +227,81 @@ SELECT is(
     (SELECT count(*)::int FROM sel_now_rule WHERE label = 'future'),
     1,
     '$now: the future row is not over-filtered (rule is not hiding everything)');
+
+-- =====================================================
+-- PART 3: is_a records under row security
+-- =====================================================
+-- A derived entity's record is stored in its base's table and in its own
+-- <entity>_ext, each carrying its own entity's policies. The view is
+-- security_invoker, so a reader needs the view permission of every level; a
+-- write runs as the caller, locks every level it writes first, and skips the
+-- whole record when one of them cannot be locked - never half of it.
+-- sec_parties is readable by everyone and editable with nwind:manage;
+-- sec_leads is readable with nwind:view and editable by admin only. user1
+-- holds neither nwind permission, user2 (Northwind Sales) both.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      view_permission, edit_permission)
+VALUES ('sec_parties', 'Party', 'Parties', 1, 'typeid', 'secpty', 'public:read', 'nwind:manage');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('sec_parties', 'region', 'Region', 'text', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      view_permission, edit_permission)
+VALUES ('sec_leads', 'Lead', 'Leads', 1, 'is_a', 'secled', 'sec_parties', 'nwind:view', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('sec_leads', 'score', 'Score', 'int32', 30);
+
+INSERT INTO sec_parties (label, region) VALUES ('p1', 'north');
+INSERT INTO sec_leads (label, region, score) VALUES ('l1', 'north', 1), ('l2', 'south', 2);
+
+SELECT authenticate_as('user1');
+SELECT is(
+    (SELECT count(*)::int FROM sec_parties)::text || '/' || (SELECT count(*)::int FROM sec_leads)::text,
+    '3/0',
+    'families: a reader sees the root rows its permission allows, and a subtype record only with every level''s view permission');
+
+SELECT authenticate_as('user2');
+SELECT is((SELECT count(*)::int FROM sec_leads), 2,
+    'families: with the view permission of every level the subtype records are readable');
+
+SELECT throws_ok($$ INSERT INTO sec_leads (label) VALUES ('l3') $$,
+    '42501', NULL,
+    'families: an insert needs the edit permission of every level, and fails as a whole');
+
+UPDATE sec_leads SET region = 'east' WHERE label = 'l1';
+SELECT is((SELECT region FROM sec_leads WHERE label = 'l1'), 'north',
+    'families: an update that cannot lock every level it writes skips the record, root row included');
+
+UPDATE sec_parties SET region = 'west';
+SELECT is(
+    (SELECT string_agg(label || '=' || region, ', ' ORDER BY label) FROM sec_parties),
+    'l1=north, l2=south, p1=west',
+    'families: through the root table as well - the plain row changes, the subtype records are skipped whole');
+
+DELETE FROM sec_parties;
+SELECT is(
+    (SELECT string_agg(label, ', ' ORDER BY label) FROM sec_parties),
+    'l1, l2',
+    'families: a delete through the root skips the subtype records it may not delete entirely');
+
+-- A select_rule on a derived entity sees the whole record: its policy on
+-- <entity>_ext merges the base's row under the own one.
+SELECT authenticate_as('user3');
+UPDATE entities SET select_rule = '{"==":[{"var":"region"},"north"]}'::jsonb WHERE table_name = 'sec_leads';
+SELECT authenticate_as('user2');
+SELECT is(
+    (SELECT string_agg(label, ', ') FROM sec_leads),
+    'l1',
+    'families: a derived entity''s select_rule reads the fields its base stores');
+
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'select_rule_sec_leads'
+              AND pg_get_function_identity_arguments(oid) = 'p_row sec_leads_ext, p_ctx jsonb'),
+    'families: the rule function takes the row of <entity>_ext and keeps the entity''s name');
 
 SELECT * FROM finish();
 ROLLBACK;

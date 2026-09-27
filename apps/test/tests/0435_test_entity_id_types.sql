@@ -1,4 +1,4 @@
--- Entity key types: entities.id_type and entities.id_prefix.
+-- Entity key types: entities.id_type, id_prefix and id_refentity.
 --
 -- Every entity declares the type of its key (dd_id_column_ddl in
 -- 0160_dd_functions.sql): auto_increment (a BIGINT identity, the default),
@@ -14,12 +14,17 @@
 --   PART 7  references to each key type (field_data_type) and get_schema
 --   PART 8  get_record_by_id and set_record over every key type (90238)
 --   PART 9  ensure_entities and the adoption path (90239)
+--   PART 10 is_a: views, parts, prefixes, polymorphic writes, delete checks,
+--           rename, module delete (90237, 90244, 90245, 90247-90249)
+--   PART 11 has_a: create, attach, detach, and what an entity may be based
+--           on (90240-90243, 90246, 90249-90252); field DDL reaching views
+--   PART 12 the generated routines meet the catalog invariants
 --
--- Fixture entities use the 'idt_' prefix; everything is rolled back.
+-- Fixture entities use the 'idt_' and 'fam_' prefixes; everything is rolled back.
 
 BEGIN;
 
-SELECT plan(97);
+SELECT plan(173);
 
 -- =====================================================
 -- PART 1: UUIDv7 and TypeID helpers
@@ -619,6 +624,520 @@ SELECT is((SELECT format_type(atttypid, atttypmod) || '/' || (SELECT format FROM
              FROM pg_attribute WHERE attrelid = 'public.idt_late'::regclass AND attname = 'id'),
     'uuid/uuid',
     'enabling a managed entity creates the key its id_type describes');
+
+-- =====================================================
+-- PART 10: is_a - subtypes sharing the root's key
+-- =====================================================
+-- fam_activities (typeid) > fam_emails > fam_classified, and fam_tasks, all
+-- is_a. Every record is exactly one type, named by the prefix of its id; a
+-- write through any level reaches the record's own type.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('fam_activities', 'Activity', 'Activities', 1, 'typeid', 'famact');
+INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
+VALUES ('fam_activities', 'subject', 'Subject', 'text', 30, TRUE),
+       ('fam_activities', 'priority', 'Priority', 'int32', 40, FALSE);
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      label_column, validation_rules)
+VALUES ('fam_emails', 'Email', 'Emails', 1, 'is_a', 'fameml', 'fam_activities', 'ignored',
+        '[{"code":"99701","message":"a kept email cannot be deleted",
+           "jsonlogic":{"!":{"and":[{"==":[{"var":"$mode"},"delete"]},{"==":[{"var":"sender"},"keep"]}]}}}]'::jsonb);
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('fam_emails', 'sender', 'Sender', 'text', 30);
+
+-- The classified level derives its level from the root's subject, and a
+-- locked record cannot be deleted.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('fam_classified', 'Classified Email', 'Classified Emails', 1, 'is_a', 'famcle', 'fam_emails');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('fam_classified', 'level', 'Level', 'text', 30),
+       ('fam_classified', 'locked', 'Locked', 'boolean', 40);
+UPDATE entities
+   SET computed_fields = '[{"name":"level","jsonlogic":{"cat":["L:",{"var":"subject"}]}}]'::jsonb,
+       validation_rules = '[{"code":"99702","message":"a locked classified email cannot be deleted",
+                             "jsonlogic":{"!":{"and":[{"==":[{"var":"$mode"},"delete"]},{"var":"locked"}]}}}]'::jsonb
+ WHERE table_name = 'fam_classified';
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('fam_tasks', 'Task', 'Tasks', 1, 'is_a', 'famtsk', 'fam_activities');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('fam_tasks', 'due', 'Due', 'date', 30);
+
+SELECT ok(
+    (SELECT bool_and(c.relkind = 'v' AND c.reloptions @> ARRAY['security_invoker=true'])
+       FROM pg_class c
+      WHERE c.oid IN ('public.fam_emails'::regclass, 'public.fam_classified'::regclass, 'public.fam_tasks'::regclass))
+    AND (SELECT bool_and(c.relkind = 'r' AND c.relrowsecurity)
+           FROM pg_class c
+          WHERE c.oid IN ('public.fam_emails_ext'::regclass, 'public.fam_classified_ext'::regclass,
+                          'public.fam_tasks_ext'::regclass)),
+    'is_a: the entity is a security_invoker view over a <entity>_ext table with row-level security');
+
+SELECT is(
+    (SELECT string_agg(policyname, ', ' ORDER BY policyname) FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'fam_emails_ext'),
+    'fam_emails_ext_delete_policy, fam_emails_ext_insert_policy, fam_emails_ext_select_policy, fam_emails_ext_update_policy',
+    'is_a: <entity>_ext carries the entity''s four policies, named after it');
+
+SELECT is(
+    (SELECT string_agg(c.conname || '->' || c.confrelid::regclass::text || '/' || c.confdeltype::text, ', ' ORDER BY c.conname)
+       FROM pg_constraint c
+      WHERE c.contype = 'f' AND c.conname IN ('fam_emails_ext_id_fkey', 'fam_classified_ext_id_fkey', 'fam_tasks_ext_id_fkey')),
+    'fam_classified_ext_id_fkey->fam_emails_ext/r, fam_emails_ext_id_fkey->fam_activities/r, fam_tasks_ext_id_fkey->fam_activities/r',
+    'is_a: each part references its base''s relation, ON DELETE RESTRICT');
+
+SELECT ok(
+    (SELECT count(*) = 3 FROM pg_trigger t
+      WHERE t.tgname = 'a_ext_write_guard'
+        AND t.tgrelid IN ('public.fam_emails_ext'::regclass, 'public.fam_classified_ext'::regclass,
+                          'public.fam_tasks_ext'::regclass))
+    AND EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid = 'public.fam_activities'::regclass
+                   AND t.tgname = 'a_is_a_dispatch')
+    AND (SELECT count(*) = 3 FROM pg_trigger t
+          WHERE t.tgname = 'view_write'
+            AND t.tgrelid IN ('public.fam_emails'::regclass, 'public.fam_classified'::regclass,
+                              'public.fam_tasks'::regclass)),
+    'is_a: the write guard on every part, the dispatch trigger on the root, an INSTEAD OF trigger on every view');
+
+SELECT is(
+    (SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+      WHERE t.tgrelid = 'public.fam_activities'::regclass AND t.tgname = 'typeid_assign'),
+    'CREATE TRIGGER typeid_assign BEFORE INSERT ON public.fam_activities FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(''id'', ''famact'', ''famcle'', ''fameml'', ''famtsk'')',
+    'is_a: the root''s typeid_assign carries the subtype prefixes');
+
+SELECT is(
+    (SELECT id_column || '/' || label_column || '/' || label_parent FROM entities WHERE table_name = 'fam_emails'),
+    'id/label/',
+    'is_a: the key and label columns come from the base, whatever the insert said');
+
+SELECT is(
+    (SELECT string_agg(field_name || ':' || ctype, ', ' ORDER BY field_order) FROM fields WHERE table_name = 'fam_emails'),
+    'id:id, sender:, created_at:audit, updated_at:audit',
+    'is_a: the entity''s own field rows have no label field');
+
+SELECT ok(
+    has_table_privilege('semantius_user', 'public.fam_emails', 'SELECT, INSERT, UPDATE, DELETE')
+    AND has_table_privilege('semantius_user', 'public.fam_emails_ext', 'SELECT, INSERT, UPDATE, DELETE'),
+    'is_a: the view and its part are granted to the request role');
+
+-- Inserting.
+INSERT INTO fam_classified (label, subject, priority, sender) VALUES ('c1', 'budget', 1, 'ann');
+INSERT INTO fam_classified (label, subject, priority, sender, locked) VALUES ('c2', 'secret', 1, 'bob', TRUE);
+INSERT INTO fam_emails (label, subject, priority, sender) VALUES ('e1', 'hello', 2, 'keep');
+INSERT INTO fam_tasks (label, subject, priority, due) VALUES ('t1', 'do it', 3, '2026-01-01');
+INSERT INTO fam_activities (label, subject, priority) VALUES ('a1', 'plain', 4);
+
+SELECT is(
+    (SELECT string_agg(label || '=' || common.typeid_prefix(id), ', ' ORDER BY label) FROM fam_activities),
+    'a1=famact, c1=famcle, c2=famcle, e1=fameml, t1=famtsk',
+    'is_a: every record takes the prefix of the entity it was created through; the root holds them all');
+
+SELECT is(
+    (SELECT (SELECT count(*) FROM fam_emails)::text || '/' || (SELECT count(*) FROM fam_emails_ext)::text
+            || '/' || (SELECT count(*) FROM fam_classified_ext)::text || '/' || (SELECT count(*) FROM fam_tasks_ext)::text),
+    '3/3/2/1',
+    'is_a: a subtype record has a part at every level of its chain, and a supertype view lists it');
+
+SELECT is(
+    (SELECT label || ':' || subject || ':' || sender || ':' || level FROM fam_classified WHERE label = 'c1'),
+    'c1:budget:ann:L:budget',
+    'is_a: the view joins every level, and the derived rules ran on insert');
+
+SELECT throws_ok($$ INSERT INTO fam_emails (id, label) VALUES ('famtsk_01h455vb4pex5vsknk084sn02q', 'x') $$,
+    '90237', NULL,
+    'is_a: a supplied id must carry the entity''s own prefix');
+
+SELECT throws_ok($$ INSERT INTO fam_activities (id, label) VALUES ('fameml_01h455vb4pex5vsknk084sn02q', 'x') $$,
+    '90237', NULL,
+    'is_a: a direct root insert with a subtype prefix is refused: it would lack its parts');
+
+SELECT throws_ok($$ INSERT INTO fam_emails_ext (id, sender) SELECT id, 'x' FROM fam_activities WHERE label = 'a1' $$,
+    '90244', NULL,
+    'is_a: a direct insert into <entity>_ext is refused');
+
+SELECT throws_ok($$ UPDATE fam_emails_ext SET sender = 'x' $$,
+    '90244', NULL,
+    'is_a: a direct update of <entity>_ext is refused');
+
+SELECT throws_ok($$ UPDATE entities SET id_prefix = 'famemail' WHERE table_name = 'fam_emails' $$,
+    '90245', NULL,
+    'is_a: the prefix is fixed at creation');
+
+SELECT throws_ok($$ INSERT INTO fam_emails (label) VALUES ('up') ON CONFLICT (id) DO NOTHING $$,
+    '42P10', NULL,
+    'is_a: an upsert on the view is refused by PostgreSQL itself');
+
+SELECT throws_ok(
+    $$ INSERT INTO fam_tasks (id, label) SELECT id, 'again' FROM fam_tasks WHERE label = 't1' $$,
+    '23505', NULL,
+    'is_a: an id that exists cannot be inserted again: the type is fixed at creation');
+
+-- A root prefix change keeps the subtype prefixes on the root's trigger.
+UPDATE entities SET id_prefix = 'famactnew' WHERE table_name = 'fam_activities';
+SELECT lives_ok($$ INSERT INTO fam_emails (label, subject, sender) VALUES ('e2', 'after', 'cat') $$,
+    'is_a: a subtype insert still works after the root''s prefix changed');
+
+SELECT throws_ok(
+    $$ INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+       VALUES ('fam_emails', 'owner_id', 'Owner', 'reference', 'users', 'cascade', 50) $$,
+    '90249', NULL,
+    'is_a: a reference field of a subtype cannot cascade');
+
+-- Polymorphic writes: through the root table and through a supertype's view.
+UPDATE fam_activities SET subject = 'renamed' WHERE label = 'c1';
+SELECT is((SELECT level FROM fam_classified WHERE label = 'c1'), 'L:renamed',
+    'is_a: PATCH on the root runs the subtype''s rules on the whole record');
+
+UPDATE fam_activities SET priority = 9;
+SELECT is(
+    (SELECT string_agg(label || '=' || priority, ', ' ORDER BY label) FROM fam_activities),
+    'a1=9, c1=9, c2=9, e1=9, e2=9, t1=9',
+    'is_a: a bulk update through the root reaches every type');
+
+SELECT throws_ok($$ DELETE FROM fam_activities WHERE label = 'c2' $$,
+    '99702', NULL,
+    'is_a: a delete through the root runs the subtype''s delete rules, which may refuse');
+
+SELECT throws_ok($$ DELETE FROM fam_activities WHERE label = 'e1' $$,
+    '99701', NULL,
+    'is_a: ... and the rules of every level in between');
+
+-- A partial update writes the level that changed and the levels below it.
+CREATE TEMP TABLE fam_ctid AS
+SELECT (SELECT ctid::text FROM fam_activities WHERE label = 'c1') AS root_ctid,
+       (SELECT e.ctid::text FROM fam_emails_ext e JOIN fam_activities a ON a.id = e.id WHERE a.label = 'c1') AS eml_ctid,
+       (SELECT e.ctid::text FROM fam_classified_ext e JOIN fam_activities a ON a.id = e.id WHERE a.label = 'c1') AS cle_ctid;
+UPDATE fam_classified SET locked = TRUE WHERE label = 'c1';
+SELECT ok(
+    (SELECT ctid::text FROM fam_activities WHERE label = 'c1') = (SELECT root_ctid FROM fam_ctid)
+    AND (SELECT e.ctid::text FROM fam_emails_ext e JOIN fam_activities a ON a.id = e.id WHERE a.label = 'c1') = (SELECT eml_ctid FROM fam_ctid)
+    AND (SELECT e.ctid::text FROM fam_classified_ext e JOIN fam_activities a ON a.id = e.id WHERE a.label = 'c1') <> (SELECT cle_ctid FROM fam_ctid),
+    'is_a: an update of the own level leaves the levels above untouched');
+UPDATE fam_classified SET sender = 'zed', locked = FALSE WHERE label = 'c1';
+SELECT ok(
+    (SELECT ctid::text FROM fam_activities WHERE label = 'c1') = (SELECT root_ctid FROM fam_ctid)
+    AND (SELECT e.ctid::text FROM fam_emails_ext e JOIN fam_activities a ON a.id = e.id WHERE a.label = 'c1') <> (SELECT eml_ctid FROM fam_ctid),
+    'is_a: an update of an inherited level writes that level and the ones below, not the ones above');
+
+DELETE FROM fam_emails WHERE label = 'c1';
+SELECT is(
+    (SELECT count(*)::int FROM fam_activities WHERE label = 'c1')
+    + (SELECT count(*)::int FROM fam_emails_ext e WHERE NOT EXISTS (SELECT 1 FROM fam_activities a WHERE a.id = e.id))
+    + (SELECT count(*)::int FROM fam_classified_ext e WHERE NOT EXISTS (SELECT 1 FROM fam_emails_ext x WHERE x.id = e.id)),
+    0,
+    'is_a: DELETE through a supertype''s view removes every part of the record, bottom-up');
+
+UPDATE fam_classified SET locked = FALSE WHERE label = 'c2';
+DELETE FROM fam_activities WHERE label = 'c2';
+SELECT is((SELECT count(*)::int FROM fam_classified), 0,
+    'is_a: DELETE through the root removes a subtype record entirely');
+
+-- The family's delete checks.
+SELECT throws_ok($$ DELETE FROM entities WHERE table_name = 'fam_tasks' $$,
+    '90247', NULL,
+    'is_a: an entity that still has records cannot be deleted');
+SELECT throws_ok($$ DELETE FROM entities WHERE table_name = 'fam_activities' $$,
+    '90248', NULL,
+    'is_a: a base cannot be deleted while entities are based on it');
+DELETE FROM fam_tasks;
+DELETE FROM entities WHERE table_name = 'fam_tasks';
+SELECT ok(
+    to_regclass('public.fam_tasks') IS NULL AND to_regclass('public.fam_tasks_ext') IS NULL
+    AND to_regprocedure('common.view_write_fam_tasks()') IS NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname IN ('record_write_fam_tasks', 'record_rules_fam_tasks'))
+    AND (SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+          WHERE t.tgrelid = 'public.fam_activities'::regclass AND t.tgname = 'typeid_assign') NOT LIKE '%famtsk%',
+    'is_a: deleting an empty subtype drops its view, part and routines, and the root forgets its prefix');
+
+-- A rename moves the view, the part and every generated name.
+UPDATE entities SET table_name = 'fam_mails' WHERE table_name = 'fam_emails';
+SELECT ok(
+    to_regclass('public.fam_mails') IS NOT NULL AND to_regclass('public.fam_mails_ext') IS NOT NULL
+    AND (SELECT id_refentity FROM entities WHERE table_name = 'fam_classified') = 'fam_mails'
+    AND (SELECT count(*) FROM fam_mails) = 2,
+    'is_a: a rename moves the view and the part, and the subtype follows its base');
+SELECT is(
+    (SELECT count(*)::int FROM (
+        SELECT relname::text AS n FROM pg_class WHERE relname LIKE '%fam\_emails%'
+        UNION ALL SELECT proname::text FROM pg_proc WHERE proname LIKE '%fam\_emails%' OR prosrc LIKE '%fam\_emails%'
+        UNION ALL SELECT tgname::text FROM pg_trigger WHERE tgname LIKE '%fam\_emails%'
+        UNION ALL SELECT polname::text FROM pg_policy WHERE polname LIKE '%fam\_emails%'
+        UNION ALL SELECT conname::text FROM pg_constraint WHERE conname LIKE '%fam\_emails%') s),
+    0,
+    'is_a: after a rename nothing is left under the old name, generated function bodies included');
+SELECT lives_ok($$ INSERT INTO fam_classified (label, subject, sender) VALUES ('c3', 'late', 'dee') $$,
+    'is_a: the family writes under the new name');
+
+-- A module delete: dropped with the family when it is empty, refused while
+-- a family entity has records.
+INSERT INTO modules (module_name) VALUES ('fam_module');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('fam_mod_root', 'Mod Root', 'Mod Roots', (SELECT id FROM modules WHERE module_name = 'fam_module'), 'typeid', 'fammod');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('fam_mod_sub', 'Mod Sub', 'Mod Subs', (SELECT id FROM modules WHERE module_name = 'fam_module'), 'is_a', 'fammodsub', 'fam_mod_root');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('fam_mod_extra', 'Mod Extra', 'Mod Extras', (SELECT id FROM modules WHERE module_name = 'fam_module'), 'has_a', 'fam_mod_root');
+INSERT INTO fam_mod_sub (label) VALUES ('m1');
+SELECT throws_ok($$ DELETE FROM modules WHERE module_name = 'fam_module' $$,
+    '90247', NULL,
+    'is_a: a module delete is refused while one of its family entities has records');
+DELETE FROM fam_mod_sub;
+SELECT lives_ok($$ DELETE FROM modules WHERE module_name = 'fam_module' $$,
+    'is_a: an empty family is dropped with its module');
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM entities WHERE table_name LIKE 'fam\_mod\_%')
+    AND to_regclass('public.fam_mod_root') IS NULL AND to_regclass('public.fam_mod_sub') IS NULL
+    AND to_regclass('public.fam_mod_sub_ext') IS NULL AND to_regclass('public.fam_mod_extra_ext') IS NULL,
+    'is_a: the module delete took every family entity and relation');
+
+-- =====================================================
+-- PART 11: has_a - optional extensions sharing the base's key
+-- =====================================================
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('fam_partners', 'Partner', 'Partners', 1, 'typeid', 'fambp');
+INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
+VALUES ('fam_partners', 'city', 'City', 'text', 30, FALSE);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('fam_customers', 'Customer', 'Customers', 1, 'has_a', 'fam_partners'),
+       ('fam_suppliers', 'Supplier', 'Suppliers', 1, 'has_a', 'fam_partners');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('fam_customers', 'credit_limit', 'Credit Limit', 'int32', 30),
+       ('fam_customers', 'segment', 'Segment', 'text', 40),
+       ('fam_suppliers', 'rating', 'Rating', 'int32', 30);
+
+SELECT is(
+    (SELECT input_type || ' ' || input_type_rule::text FROM fields WHERE table_name = 'fam_customers' AND field_name = 'id'),
+    'default {"if": [{"var": "id"}, "readonly", "default"]}',
+    'has_a: the id is optional (it names the base record to attach to) and readonly once set');
+
+INSERT INTO fam_customers (label, city, credit_limit) VALUES ('ACME', 'Berlin', 100);
+SELECT is(
+    (SELECT common.typeid_prefix(id) || ' ' || label || ' ' || city FROM fam_partners),
+    'fambp ACME Berlin',
+    'has_a: an insert without an id creates the base record, with the base''s prefix');
+
+INSERT INTO fam_suppliers (id, rating) SELECT id, 5 FROM fam_partners WHERE label = 'ACME';
+SELECT is(
+    (SELECT label || ' ' || city || ' ' || rating FROM fam_suppliers),
+    'ACME Berlin 5',
+    'has_a: an insert with the id of a base record attaches to it');
+SELECT is((SELECT count(*)::int FROM fam_partners), 1,
+    'has_a: attaching creates no second base record');
+
+SELECT throws_ok(
+    $$ INSERT INTO fam_customers (id, city) SELECT id, 'Paris' FROM fam_partners WHERE label = 'ACME' $$,
+    '90246', NULL,
+    'has_a: an attach that brings a different base value is refused');
+
+SELECT throws_ok($$ DELETE FROM fam_partners WHERE label = 'ACME' $$,
+    '90251', NULL,
+    'has_a: a base record with extensions cannot be deleted');
+
+SELECT throws_ok($$ UPDATE entities SET managed = FALSE WHERE table_name = 'fam_partners' $$,
+    '90252', NULL,
+    'has_a: a base cannot become unmanaged while entities are based on it');
+
+DELETE FROM fam_customers;
+SELECT ok(
+    (SELECT count(*) FROM fam_partners) = 1 AND (SELECT count(*) FROM fam_customers) = 0
+    AND (SELECT count(*) FROM fam_suppliers) = 1,
+    'has_a: a delete through the extension detaches it; the base record stays');
+
+UPDATE fam_customers SET segment = 'x';  -- no rows: nothing to update, nothing refused
+UPDATE fam_suppliers SET city = 'Hamburg', rating = 4;
+SELECT is((SELECT city || ' ' || rating FROM fam_suppliers), 'Hamburg 4',
+    'has_a: an update through the extension writes the base''s fields too');
+
+-- A has_a on an is_a root: a supplied id with a subtype prefix would create a
+-- root row without its parts.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('fam_act_notes', 'Activity Note', 'Activity Notes', 1, 'has_a', 'fam_activities');
+SELECT throws_ok(
+    $$ INSERT INTO fam_act_notes (id, label) VALUES ('famcle_01h455vb4pex5vsknk084sn02q', 'n') $$,
+    '90237', NULL,
+    'has_a: a new base record''s id must carry the base''s own prefix, not a subtype''s');
+
+-- What an entity may be based on.
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+       VALUES ('fam_bad1', 'B', 'Bs', 1, 'has_a', 'fam_mails') $$,
+    '90240', NULL,
+    '90240: a has_a entity needs a typeid base');
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+       VALUES ('fam_bad2', 'B', 'Bs', 1, 'is_a', 'fambadtwo', 'fam_customers') $$,
+    '90240', NULL,
+    '90240: an is_a entity cannot be based on a has_a entity');
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+       VALUES ('fam_bad3', 'B', 'Bs', 1, 'is_a', 'fambadthree', 'fam_bad3') $$,
+    '90240', NULL,
+    '90240: no entity is based on itself');
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+       VALUES ('fam_bad4', 'B', 'Bs', 1, 'is_a', 'fambadfour', 'idt_text') $$,
+    '90240', NULL,
+    '90240: an is_a entity needs a typeid or is_a base');
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+       VALUES ('fam_bad5', 'B', 'Bs', 1, 'is_a', 'fambadfive') $$,
+    '23514', NULL,
+    'id_refentity_matches_id_type: an is_a entity names its base');
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fam_bad_ext', 'B', 'Bs', 1) $$,
+    '23514', NULL,
+    'valid_table_name: entity names ending in _ext are reserved');
+
+SELECT throws_ok($$ UPDATE entities SET id_refentity = 'fam_activities' WHERE table_name = 'fam_customers' $$,
+    '90241', NULL,
+    '90241: the base never changes');
+SELECT throws_ok($$ UPDATE entities SET label_column = 'city' WHERE table_name = 'fam_customers' $$,
+    '90242', NULL,
+    '90242: the label column comes from the base');
+SELECT throws_ok($$ UPDATE entities SET order_column = 'position' WHERE table_name = 'fam_customers' $$,
+    '90249', NULL,
+    '90249: no order column on a derived entity');
+SELECT throws_ok($$ UPDATE entities SET managed = FALSE WHERE table_name = 'fam_customers' $$,
+    '23514', NULL,
+    'derived_entity_managed: a derived entity stays managed');
+
+SELECT throws_ok(
+    $$ INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('fam_customers', 'city', 'City', 'text', 60) $$,
+    '90243', NULL,
+    '90243: a field may not repeat a field of the base');
+SELECT throws_ok(
+    $$ INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('fam_partners', 'rating', 'Rating', 'int32', 60) $$,
+    '90243', NULL,
+    '90243: nor one of an entity based on it');
+SELECT lives_ok(
+    $$ INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('fam_suppliers', 'segment', 'Segment', 'text', 60) $$,
+    '90243: siblings may use the same name');
+
+RESET ROLE;
+CREATE TABLE public.fam_clash_ext (id int);
+SELECT authenticate_as('user3');
+SELECT throws_ok(
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+       VALUES ('fam_clash', 'C', 'Cs', 1, 'has_a', 'fam_partners') $$,
+    '90250', NULL,
+    '90250: a derived entity''s table name must be free');
+
+-- Field DDL reaches the views; defaults and comments are set on <entity>_ext
+-- and copied to the view.
+INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('fam_partners', 'country', 'Country', 'text', 50);
+UPDATE fields SET field_name = 'tier' WHERE table_name = 'fam_suppliers' AND field_name = 'segment';
+UPDATE fields SET default_value = '7', description = 'How good' WHERE table_name = 'fam_suppliers' AND field_name = 'rating';
+SELECT is(
+    (SELECT string_agg(attname, ', ' ORDER BY attnum) FROM pg_attribute
+      WHERE attrelid = 'public.fam_suppliers'::regclass AND attnum > 0),
+    'id, label, city, country, rating, tier, created_at, updated_at, search_vector',
+    'has_a: the view shows added and renamed fields of every level, base first');
+SELECT ok(
+    (SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+      WHERE d.adrelid = 'public.fam_suppliers_ext'::regclass AND a.attname = 'rating') = '7'
+    AND (SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+      WHERE d.adrelid = 'public.fam_suppliers'::regclass AND a.attname = 'rating') = '7',
+    'has_a: a default change lands on <entity>_ext and is copied to the view');
+SELECT ok(
+    col_description('public.fam_suppliers_ext'::regclass,
+        (SELECT attnum FROM pg_attribute WHERE attrelid = 'public.fam_suppliers_ext'::regclass AND attname = 'rating')::int) LIKE '%How good%'
+    AND col_description('public.fam_suppliers'::regclass,
+        (SELECT attnum FROM pg_attribute WHERE attrelid = 'public.fam_suppliers'::regclass AND attname = 'rating')::int) LIKE '%How good%',
+    'has_a: a description change lands on <entity>_ext and is copied to the view');
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers_ext'::regclass AND attname = 'tier')
+    AND NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers_ext'::regclass AND attname = 'segment'),
+    'has_a: a field rename renames the column of <entity>_ext');
+DELETE FROM fields WHERE table_name = 'fam_suppliers' AND field_name = 'tier';
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers'::regclass AND attname = 'tier' AND NOT attisdropped)
+    AND NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers_ext'::regclass AND attname = 'tier' AND NOT attisdropped),
+    'has_a: a field delete removes it from <entity>_ext and the view');
+
+-- Searchable: a base's searchable field makes its extensions searchable too.
+UPDATE fields SET searchable = FALSE WHERE table_name = 'fam_partners' AND field_name = 'label';
+SELECT ok(NOT (SELECT searchable FROM entities WHERE table_name = 'fam_suppliers')
+      AND NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers'::regclass AND attname = 'search_vector'),
+    'searchable: with no searchable field in the record, the extension is not searchable');
+UPDATE fields SET searchable = TRUE WHERE table_name = 'fam_partners' AND field_name = 'city';
+SELECT ok((SELECT searchable FROM entities WHERE table_name = 'fam_suppliers')
+      AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers'::regclass AND attname = 'search_vector'),
+    'searchable: a searchable base field makes the extension searchable and its view gets a search_vector');
+UPDATE fields SET searchable = TRUE WHERE table_name = 'fam_customers' AND field_name = 'segment';
+SELECT ok(EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_customers_ext'::regclass AND attname = 'search_vector')
+      AND NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers_ext'::regclass AND attname = 'search_vector'),
+    'searchable: a searchable derived field builds the search_vector of its own table only');
+
+-- A rename of the base's label field carries over to its extensions, whose
+-- label column is the base's.
+UPDATE fields SET field_name = 'name' WHERE table_name = 'fam_partners' AND field_name = 'label';
+SELECT ok(
+    (SELECT bool_and(label_column = 'name') FROM entities
+      WHERE table_name IN ('fam_partners', 'fam_customers', 'fam_suppliers'))
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = 'public.fam_suppliers'::regclass AND attname = 'name')
+    AND (SELECT name FROM fam_suppliers) = 'ACME',
+    'has_a: a rename of the base''s label field renames the label column of every extension');
+
+-- A reference to a derived entity points at its part and holds a TypeID.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fam_notes', 'Note', 'Notes', 1);
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('fam_notes', 'supplier_id', 'Supplier', 'reference', 'fam_suppliers', 'restrict', 30);
+SELECT is(
+    (SELECT format_type(a.atttypid, a.atttypmod) || ' ' || c.confrelid::regclass::text
+       FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+      WHERE c.conname = 'fam_notes_supplier_id_fkey'),
+    'common.typeid fam_suppliers_ext',
+    'a reference to a derived entity is a TypeID and its foreign key targets <entity>_ext');
+INSERT INTO fam_notes (label, supplier_id) SELECT 'n1', id FROM fam_suppliers;
+SELECT is((SELECT n.label || ' ' || s.name FROM fam_notes n JOIN fam_suppliers s ON s.id = n.supplier_id), 'n1 ACME',
+    'a reference to a derived entity joins its view');
+
+-- =====================================================
+-- PART 12: the generated objects keep the catalog invariants
+-- =====================================================
+-- 0900, 0910 and 0960 sweep only what is persisted, and a family exists here
+-- only inside this transaction, so the same checks run on the fixture.
+
+RESET ROLE;
+
+SELECT is(
+    (SELECT coalesce(string_agg(n.nspname || '.' || p.proname, ', ' ORDER BY p.proname), '')
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE p.proname ~ '^(record_write|record_rules|view_write|is_a_dispatch)_fam_'
+        AND (NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, '{}')) c WHERE c LIKE 'search_path=%')
+             OR obj_description(p.oid, 'pg_proc') IS NULL)),
+    '',
+    'generated: every family routine has a pinned search_path and a comment');
+
+SELECT is(
+    (SELECT coalesce(string_agg(p.proname || '=' || has_function_privilege('semantius_user', p.oid, 'EXECUTE')::text
+                                || '/' || has_function_privilege('public', p.oid, 'EXECUTE')::text, ', ' ORDER BY p.proname), '')
+       FROM pg_proc p
+      WHERE p.proname IN ('record_write_fam_mails', 'record_rules_fam_classified', 'view_write_fam_mails',
+                          'is_a_dispatch_fam_activities', 'has_a_guard')),
+    'has_a_guard=false/false, is_a_dispatch_fam_activities=false/false, record_rules_fam_classified=true/false, record_write_fam_mails=true/false, view_write_fam_mails=false/false',
+    'generated: the write and rule routines are granted to the request role, the trigger functions to nobody, none to PUBLIC');
+
+SELECT is(
+    (SELECT coalesce(string_agg(n.nspname, ', '), '') FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE p.proname ~ '^(record_write|record_rules|view_write|is_a_dispatch)_' AND n.nspname <> 'common'),
+    '',
+    'generated: the write routines live in common, which PostgREST does not expose');
+
+SELECT is(
+    (SELECT coalesce(string_agg(c.relname, ', ' ORDER BY c.relname), '')
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND c.relname LIKE 'fam\_%' AND c.relkind IN ('r', 'v')
+        AND NOT has_table_privilege('semantius_user', c.oid, 'SELECT, INSERT, UPDATE, DELETE')
+        AND c.relname <> 'fam_clash_ext'),
+    '',
+    'generated: every family table and view is granted to the request role');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -247,7 +247,18 @@ DECLARE
     v_trigger_name TEXT;
     v_queue_name TEXT;
     v_event TEXT;
+    v_id_type TEXT;
 BEGIN
+    -- An is_a or has_a entity is a view over the tables that store the parts
+    -- of its records, and a write to one record reaches several of them; the
+    -- statement triggers below would see parts, not records.
+    SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.table_name;
+    IF v_id_type IN ('is_a', 'has_a') THEN
+        RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
+            USING ERRCODE = '90249',
+                  HINT = jsonb_build_object('feature', 'queue_table_events', 'id_type', v_id_type, 'table', NEW.table_name)::text;
+    END IF;
+
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
     FROM queues q WHERE q.id = NEW.queue_id;

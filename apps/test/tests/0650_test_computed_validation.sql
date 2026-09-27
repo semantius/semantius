@@ -1,9 +1,11 @@
 -- Tests for entities.computed_fields and entities.validation_rules.
 -- Verifies trigger generation, computed-field evaluation on INSERT/UPDATE,
 -- reserved variables ($today, $now, $user_id), and validation-rule enforcement.
+-- The last part covers the rules of an is_a entity, which run over the whole
+-- record inside its write routine.
 BEGIN;
 
-SELECT plan(42);
+SELECT plan(47);
 
 SELECT authenticate_as('user3');
 
@@ -499,6 +501,63 @@ SELECT ok(
                 WHERE pronamespace = 'public'::regnamespace
                   AND proname = 'compute_validate_cv_features_test'),
     'Trigger function dropped after entity deletion');
+
+-- =====================================================
+-- Rules of an is_a entity: over the whole record
+-- =====================================================
+-- An is_a entity's rules live in common.record_rules_<entity>, which its write
+-- routine calls with the whole record - inherited columns, a full $old and
+-- $mode - before the root's own rule trigger checks the final root row.
+-- rl_premium derives the root's amount from its own factor; the root caps the
+-- amount; rl_premium keeps the root's note write-once.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      edit_permission, validation_rules)
+VALUES ('rl_accounts', 'Account', 'Accounts', 1, 'typeid', 'rlacc', 'nwind:manage',
+        '[{"code":"99801","message":"amount too high","jsonlogic":{"<=":[{"var":"amount"},100]}}]'::jsonb);
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rl_accounts', 'amount', 'Amount', 'int32', 30),
+       ('rl_accounts', 'note', 'Note', 'text', 40);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      edit_permission)
+VALUES ('rl_premium', 'Premium Account', 'Premium Accounts', 1, 'is_a', 'rlprm', 'rl_accounts', 'nwind:manage');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rl_premium', 'factor', 'Factor', 'int32', 30);
+UPDATE entities
+   SET computed_fields = '[{"name":"amount","jsonlogic":{"*":[{"var":"factor"},10]}}]'::jsonb,
+       validation_rules = '[{"code":"99803","message":"note is write-once",
+                             "jsonlogic":{"if":[{"==":[{"var":"$old"},null]},true,
+                                                {"==":[{"var":"note"},{"var":"$old.note"}]}]}}]'::jsonb
+ WHERE table_name = 'rl_premium';
+
+INSERT INTO rl_premium (label, factor, note) VALUES ('p1', 5, 'first');
+SELECT is((SELECT amount FROM rl_accounts WHERE label = 'p1'), 50,
+    'is_a rules: a computed field of the subtype sets a column its root stores');
+
+SELECT throws_ok($$ INSERT INTO rl_premium (label, factor) VALUES ('p2', 20) $$,
+    '99801', NULL,
+    'is_a rules: the root''s rules run after the subtype''s, on the final root row');
+
+SELECT throws_ok($$ UPDATE rl_accounts SET note = 'second' WHERE label = 'p1' $$,
+    '99803', NULL,
+    'is_a rules: $old is the whole record, and a write through the root runs the subtype''s rules');
+
+SELECT authenticate_as('user2');
+SELECT throws_ok($$ UPDATE rl_premium SET note = 'third' WHERE label = 'p1' $$,
+    '99803', NULL,
+    'is_a rules: for the request role a failing subtype rule raises its own code, not 42501');
+
+RESET ROLE;
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.rl_accounts'::regclass AND tgname = 'compute_validate_trigger')
+    AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.rl_premium_ext'::regclass AND tgname = 'compute_validate_trigger')
+    AND (SELECT prosecdef FROM pg_proc WHERE oid = 'common.record_rules_rl_premium(text, jsonb, jsonb)'::regprocedure)
+    AND to_regprocedure('public.compute_validate_rl_premium()') IS NULL,
+    'is_a rules: the root keeps its rule trigger; the subtype''s rules are a SECURITY DEFINER function and no trigger');
 
 SELECT * FROM finish();
 ROLLBACK;

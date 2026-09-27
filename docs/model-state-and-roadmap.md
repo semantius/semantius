@@ -4,8 +4,8 @@
 
 This page is a data-modelling audit of platforms for internal systems: Semantius,
 Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
-- describes where the Semantius data model stands, including the planned `is_a` and
-  `has_a` key types;
+- describes where the Semantius data model stands, including the `is_a` and `has_a`
+  key types;
 - compares it with the other four platforms;
 - lists the gaps that still separate it from the most comprehensive of them, in the
   order in which to close them.
@@ -14,8 +14,9 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
 
 **Implemented:**
 
-- **Tables and keys.** Every entity is one PostgreSQL table with a single-column key.
-  The key types are `auto_increment`, `bigint`, `text`, `uuid` and `typeid`.
+- **Tables and keys.** Every entity has a single-column key. The key types are
+  `auto_increment`, `bigint`, `text`, `uuid` and `typeid`, and `is_a` and `has_a`
+  below. A plain entity is one PostgreSQL table.
 - **Relationships.**
   - `reference`: the referenced record has its own lifecycle; delete is restrict or clear.
   - `parent`: composition; delete cascades.
@@ -35,7 +36,7 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
 
   Agents build and change models through the MCP server.
 
-**Planned: `is_a` and `has_a`.**
+**`is_a` and `has_a`:**
 
 - **`is_a`:** subtypes that share the root's key (class-table inheritance), and can be nested.
   - Every record is exactly one type, named by its TypeID prefix: an email of
@@ -43,7 +44,8 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
   - A write through any level is carried down to the record's own type, so every
     level's rules and permissions apply.
 - **`has_a`:** optional 0..1 extensions of a `typeid` base that share its key, such as
-  the customer and supplier roles of a business partner.
+  the customer and supplier roles of a business partner. Removing an extension
+  detaches it; the base record stays.
 - **Storage:** the entity name is a `security_invoker` view over the base chain and a
   physical `<entity>_ext` table.
 
@@ -51,7 +53,7 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
 
 **Legend:** ✓ supported, ~ partly or by convention, ✗ not supported, – not applicable.
 
-| Data-model capability | Semantius (with planned is_a/has_a) | Salesforce | ServiceNow | Directus | SmartSuite |
+| Data-model capability | Semantius | Salesforce | ServiceNow | Directus | SmartSuite |
 |---|---|---|---|---|---|
 | Integrity enforced in the database (foreign keys, constraints) | ✓ PostgreSQL | ✓ proprietary | ~ enforced by the application | ✓ native SQL | ~ |
 | Inheritance (is_a) | ✓ normalized, rules per level | ✗ record types only | ✓ table extension, usually one wide base table with a class column | ✗ | ✗ |
@@ -65,9 +67,9 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
 
 ### Verdict
 
-**Cleanest: yes, once `is_a` and `has_a` land.**
+**Cleanest: yes.**
 
-Semantius would be the only one of the five that combines three things:
+Semantius is the only one of the five that combines three things:
 - a normalized relational model;
 - integrity and row-level security enforced by the database itself;
 - real inheritance and role extensions.

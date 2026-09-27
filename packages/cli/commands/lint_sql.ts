@@ -80,6 +80,20 @@ const OVERRIDES: Record<string, Override> = {
       "and jsonb_populate_record by the name in TG_ARGV, so any rowtype " +
       "type-checks it.",
   },
+  "common.ext_write_guard": {
+    relid: "public.user_bookmarks",
+    reason:
+      "bound only to the <entity>_ext tables of is_a and has_a entities, and a " +
+      "fresh install has none. The body reads pg_trigger_depth(), TG_OP and " +
+      "TG_TABLE_NAME only, so any rowtype type-checks it.",
+  },
+  "common.has_a_guard": {
+    relid: "public.user_bookmarks",
+    reason:
+      "bound only to the base tables of has_a entities, and a fresh install " +
+      "has none. The body reads the key through to_jsonb(OLD) by the name in " +
+      "TG_ARGV, so any rowtype type-checks it.",
+  },
   "pgmq.notify_queue_listeners": {
     skip: true,
     reason:

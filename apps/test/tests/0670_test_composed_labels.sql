@@ -1,9 +1,10 @@
 -- Test composed record labels: label_parent + _label / <fk>_label
 -- Covers §6 composition, §6 fallback/degrade, §7 security (viewer-relative, no leak),
--- §6 currency, junctions, §5.4 discovery, §9 name reservation, §10 validation.
+-- §6 currency, junctions, §5.4 discovery, §9 name reservation, §10 validation,
+-- and the labels of is_a and has_a entities, which are functions of their views.
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(40);
 
 -- =====================================================
 -- SETUP: build a candidate -> application -> interview -> scorecard identity chain
@@ -318,6 +319,50 @@ SELECT ok(
 SELECT ok(
     COALESCE((SELECT public._label(l) FROM lt_link l WHERE l.label = 'pair'), '') NOT LIKE '%Chen Wei%',
     'J3: junction with hidden legs leaks nothing');
+
+-- =====================================================
+-- Labels of is_a and has_a entities
+-- =====================================================
+-- A derived entity's label functions take its view's row: _label is its
+-- base's composed label, and every reference field of the record, inherited
+-- ones included, gets its <fk>_label.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id)
+VALUES ('lb_orgs', 'Org', 'Orgs', 1);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('lb_people', 'Person', 'People', 1, 'typeid', 'lbppl');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('lb_people', 'referrer_id', 'Referrer', 'reference', 'lb_people', 'clear', 30),
+       ('lb_people', 'org_id', 'Organization', 'reference', 'lb_orgs', 'clear', 40);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('lb_staff', 'Staff', 'Staff', 1, 'is_a', 'lbstf', 'lb_people');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('lb_staff', 'manager_id', 'Manager', 'reference', 'lb_people', 'clear', 30);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('lb_contacts', 'Contact', 'Contacts', 1, 'has_a', 'lb_people');
+
+INSERT INTO lb_orgs (label) VALUES ('Acme');
+INSERT INTO lb_people (label) VALUES ('Ada');
+INSERT INTO lb_staff (label, referrer_id, manager_id, org_id)
+SELECT 'Bob', p.id, p.id, o.id FROM lb_people p, lb_orgs o WHERE p.label = 'Ada';
+INSERT INTO lb_contacts (id) SELECT id FROM lb_people WHERE label = 'Ada';
+
+SELECT is((SELECT public._label(s) FROM lb_staff s WHERE s.label = 'Bob'), 'Bob',
+    'family labels: _label of a subtype record is its base''s composed label');
+SELECT is((SELECT public.manager_id_label(s) FROM lb_staff s WHERE s.label = 'Bob'), 'Ada',
+    'family labels: a reference field of the subtype gets its <fk>_label on the view');
+SELECT is((SELECT public.referrer_id_label(s) FROM lb_staff s WHERE s.label = 'Bob'), 'Ada',
+    'family labels: so does a reference field it inherits');
+SELECT is((SELECT public._label(c) FROM lb_contacts c), 'Ada',
+    'family labels: an extension is labeled like the record it extends');
+
+UPDATE entities SET label_parent = 'org_id' WHERE table_name = 'lb_people';
+SELECT is((SELECT public._label(s) FROM lb_staff s WHERE s.label = 'Bob'), 'Acme › Bob',
+    'family labels: the base''s identity spine composes into the subtype''s label');
 
 SELECT * FROM finish();
 ROLLBACK;
