@@ -447,7 +447,7 @@ The `fields` table uses a JSON Schema-based format system:
 - **ctype** column: Special column type AND the single marker of a DD-managed core column - ENUM with allowed values `['', 'id', 'label', 'audit', 'core']`. Empty = normal, user-editable field; `id` = primary key; `label` = display column; `audit` = managed record-versioning columns (created_at/updated_at, room for created_by/updated_by); `core` = other system/metadata columns. A non-empty ctype marks a protected core column (no rename/format/default/delete; the `label` rename is the one allowed exception). ctype is itself **immutable and privilege-locked** (the `fields_ctype_lock` trigger lets only BYPASSRLS DD/migration code set or change it; user writes get ctype forced to ''). The legacy `is_core` boolean column was **dropped** — `is_core` is now *derived* as `(ctype <> '')` and still emitted in `get_schema()` output for compatibility.
 - **default_value** column: a plain VALUE (`0`, `false`, `[]`, `2026-01-01`, `some text`) or one of the argument-less SQL expressions `quote_default_value()` allow-lists (`CURRENT_TIMESTAMP`, `CURRENT_DATE`, `now()`, `gen_random_uuid()`, ...). It is never SQL: the dictionary emits it as a quoted literal that PostgreSQL casts to the column type, and the `valid_default_value` CHECK rejects `;`, comment markers and control characters. Admin-writable columns are a trust boundary; anything interpolated into DDL must go through `%I`, `%L`/`quote_literal` or a fixed allow-list.
 - **title** column: Human-readable field label (renamed from 'label')
-- **enum_values** column: JSONB array of allowed enum values (e.g., `["active", "inactive", "pending"]`)
+- **enum_values** column: JSONB array of allowed enum values, in the order they are offered. An entry is a value or a `{"value", "label"}` pair, and the two mix (e.g., `["active", {"value": "on_hold", "label": "On hold"}]`); only the values reach the CHECK constraint, the column default and the column comment (`enum_value_list()`)
   - Required when format='enum' to define allowed values
   - Automatically creates CHECK constraint on the target table column
 - **reference_table** column: Table name for foreign key relationships (required when format='reference')
@@ -490,7 +490,7 @@ The system supports automatic foreign key creation and management:
 The `public.get_schema()` function returns JSON Schema with:
 - **fieldOrder**: Each property includes its field_order value for proper UI ordering
 - **format field**: Always included, the field's own format
-- **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with allowed values
+- **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with its entries as stored (values and `{"value", "label"}` pairs), plus `""` for a non-required enum
 - **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
 - **reference_table_singular_label and reference_table_plural_label**: Included for reference fields to provide human-readable labels for the referenced table
 - **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output

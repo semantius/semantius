@@ -13,9 +13,13 @@
 --
 -- Also verifies that the enum column COMMENT carries the allowed-value list
 -- ("<title> (enum)" + description + values) and re-syncs on enum_values UPDATE.
+--
+-- Last, entries that are {value, label} pairs: only the value reaches the CHECK
+-- constraint, the column default and the comment, while get_schema() returns
+-- the entries as stored, with '' appended for a non-required enum as before.
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(36);
 
 -- Authenticate as admin user so we can create entities/fields
 SELECT authenticate_as('user3');
@@ -255,6 +259,117 @@ SELECT is(
     ),
     E'Status (enum)\n\nAccount status (active, inactive, etc.)\n\nactive, inactive, archived',
     'Enum column comment value list re-syncs when enum_values changes'
+);
+
+-- =====================================================
+-- {value, label} entries
+-- =====================================================
+
+SELECT is(
+    enum_value_list('["a", {"value": "b", "label": "B"}]'::jsonb),
+    '["a", "b"]'::jsonb,
+    'enum_value_list takes the value of a pair and a plain entry as it is'
+);
+
+-- Required, no default, the first entry a pair; plain and pair entries mixed
+INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
+VALUES ('enum_default_test', 'priority', 'Priority', 'enum', 'required',
+        '[{"value": "p1", "label": "Urgent"}, "p2", {"value": "p3", "label": "Low"}]'::jsonb, '');
+
+-- Not required, pairs only
+INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
+VALUES ('enum_default_test', 'stage', 'Stage', 'enum', 'default',
+        '[{"value": "open", "label": "Open"}, {"value": "closed", "label": "Closed"}]'::jsonb, '');
+
+-- Not required, and the empty value itself carries a label
+INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
+VALUES ('enum_default_test', 'choice', 'Choice', 'enum', 'default',
+        '[{"value": "", "label": "None"}, {"value": "yes", "label": "Yes"}]'::jsonb, '');
+
+SELECT is(
+    pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'enum_default_test_stage_check')),
+    $$CHECK ((stage = ANY (ARRAY['open'::text, 'closed'::text, ''::text])))$$,
+    'the CHECK of a labeled enum holds the values, plus '''' when not required'
+);
+
+SELECT is(
+    pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'enum_default_test_choice_check')),
+    $$CHECK ((choice = ANY (ARRAY[''::text, 'yes'::text])))$$,
+    'a labeled '''' entry counts as the empty value, which is not added a second time'
+);
+
+SELECT is(
+    (SELECT column_default FROM information_schema.columns
+       WHERE table_name = 'enum_default_test' AND column_name = 'priority'),
+    '''p1''::text',
+    'required labeled enum without default: column default is the value of the first entry'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO enum_default_test (label, priority, stage, choice) VALUES ('row_labels', 'p3', 'closed', '')$$,
+    'the values of labeled entries are accepted'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO enum_default_test (label, priority) VALUES ('row_label_text', 'Urgent')$$,
+    '23514',
+    NULL,
+    'a label is not a value'
+);
+
+SELECT is(
+    (public.get_schema('enum_default_test')::jsonb)->'properties'->'priority'->'enum',
+    '[{"value": "p1", "label": "Urgent"}, "p2", {"value": "p3", "label": "Low"}]'::jsonb,
+    'get_schema() returns the entries of a required enum as stored'
+);
+
+SELECT is(
+    (public.get_schema('enum_default_test')::jsonb)->'properties'->'priority'->>'default',
+    'p1',
+    'get_schema() default of a required labeled enum is the value of the first entry'
+);
+
+SELECT is(
+    (public.get_schema('enum_default_test')::jsonb)->'properties'->'stage'->'enum',
+    '[{"value": "open", "label": "Open"}, {"value": "closed", "label": "Closed"}, ""]'::jsonb,
+    'get_schema() appends "" to the entries of a non-required enum'
+);
+
+SELECT is(
+    (public.get_schema('enum_default_test')::jsonb)->'properties'->'choice'->'enum',
+    '[{"value": "", "label": "None"}, {"value": "yes", "label": "Yes"}]'::jsonb,
+    'get_schema() does not append "" when a labeled entry already has the empty value'
+);
+
+SELECT is(
+    col_description(
+        'public.enum_default_test'::regclass,
+        (SELECT attnum FROM pg_attribute
+         WHERE attrelid = 'public.enum_default_test'::regclass
+           AND attname = 'stage')
+    ),
+    E'Stage (enum)\n\nopen, closed',
+    'the column comment lists the values of labeled entries'
+);
+
+-- The core enums whose values are codes carry labels, and their hand-written
+-- CHECK constraints (0150_dd_bootstrap.once.sql) still hold the values alone.
+SELECT is(
+    pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'valid_width')),
+    $$CHECK ((width = ANY ('{default,s,m,w}'::text[])))$$,
+    'valid_width holds the values of the labeled fields.width enum'
+);
+
+SELECT is(
+    pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'valid_ctype')),
+    $$CHECK ((ctype = ANY ('{"",id,label,audit,core}'::text[])))$$,
+    'valid_ctype holds the values of the labeled fields.ctype enum'
+);
+
+SELECT is(
+    pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'valid_reference_delete_mode')),
+    $$CHECK ((reference_delete_mode = ANY ('{"",restrict,clear,cascade}'::text[])))$$,
+    'valid_reference_delete_mode holds the values of the labeled fields.reference_delete_mode enum'
 );
 
 SELECT * FROM finish();

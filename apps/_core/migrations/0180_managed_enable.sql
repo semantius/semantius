@@ -150,7 +150,7 @@ BEGIN
             v_effective_enum := effective_enum_values(p_field.input_type, p_field.enum_values);
             v_enum_values_sql := (
                 SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(v_effective_enum) AS value
+                FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
             );
             BEGIN
                 EXECUTE format(

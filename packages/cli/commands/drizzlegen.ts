@@ -37,6 +37,9 @@ interface EntityRecord {
   description: string;
 }
 
+/** An entry of fields.enum_values: a value, or a value with its display label. */
+type EnumEntry = string | { value: string; label: string };
+
 interface FieldRecord {
   table_name: string;
   field_name: string;
@@ -45,7 +48,7 @@ interface FieldRecord {
   default_value: string;
   field_order: number;
   input_type: string;
-  enum_values: string[] | null;
+  enum_values: EnumEntry[] | null;
   precision: number;
   reference_table: string;
   reference_delete_mode: string;
@@ -94,14 +97,16 @@ function isNullable(format: string): boolean {
 
 /**
  * Mirror of public.effective_enum_values(): the set a TEXT enum column can hold.
+ * Only the value of a {value, label} entry is stored in the column.
  * Non-required enums also accept '' (the implicit empty default), so we add it
  * to keep the generated literal union in sync with the DB CHECK constraint.
  */
 function effectiveEnumValues(
   inputType: string,
-  values: string[] | null,
+  entries: EnumEntry[] | null,
 ): string[] | null {
-  if (!values || values.length === 0) return values;
+  if (!entries || entries.length === 0) return null;
+  const values = entries.map((e) => typeof e === "object" ? e.value : e);
   if (inputType !== "required" && !values.includes("")) return [...values, ""];
   return values;
 }

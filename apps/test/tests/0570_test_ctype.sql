@@ -34,7 +34,7 @@ SELECT is(
 
 -- The ctype enum enumerates the b7 marker set.
 SELECT is(
-    (SELECT enum_values FROM fields WHERE table_name = 'fields' AND field_name = 'ctype'),
+    (SELECT enum_value_list(enum_values) FROM fields WHERE table_name = 'fields' AND field_name = 'ctype'),
     '["", "id", "label", "audit", "core"]'::jsonb,
     'fields.ctype enum_values are the b7 marker set');
 

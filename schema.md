@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-09-26T00:07:45.350Z
+**Generated:** 2026-09-27T16:15:56.824Z
 
 ---
 
@@ -214,7 +214,7 @@ Catalog of tables in Semantius
 | `view_permission` (core) | reference | View Permission | Permission required to SELECT from this table | string | false | public:read | 80 | default | default | core | false | - | 2 | permissions | restrict | gates viewing | - | - | false | auto | - | - |
 | `edit_permission` (core) | reference | Edit Permission | Permission required to INSERT/UPDATE/DELETE from this table | string | false | admin | 90 | default | default | core | false | - | 2 | permissions | restrict | gates editing | - | - | false | auto | - | - |
 | `id_column` (core) | text | Id Column | Name of primary key column | string | false | id | 100 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
-| `id_type` (core) | enum | Id Type | Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. computed: system tables whose key is generated from other columns; not available for new entities. | string | false | auto_increment | 101 | required | default | core | false | ["auto_increment","bigint","text","uuid","typeid","computed"] | 2 | - | - | - | - | - | false | auto | {"if":[{"var":"created_at"},"readonly","required"]} | - |
+| `id_type` (core) | enum | Id Type | Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. computed: system tables whose key is generated from other columns; not available for new entities. | string | false | auto_increment | 101 | required | default | core | false | [{"label":"Auto-increment number","value":"auto_increment"},{"label":"Number (supplied by the caller)","value":"bigint"},{"label":"Text (supplied by the caller)","value":"text"},{"label":"UUIDv7","value":"uuid"},{"label":"TypeID","value":"typeid"},{"label":"Computed (system tables only)","value":"computed"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"var":"created_at"},"readonly","required"]} | - |
 | `id_prefix` (core) | text | Id Prefix | TypeID prefix of a typeid entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. May change later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted. | string | false | - | 102 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"id_type"},"typeid"]},"required","hidden"]} | - |
 | `label_column` (core) | text | Label Column | Name of label/display column | string | false | label | 110 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `label_parent` (core) | text | Label Parent | Names the reference/parent FK that is this entity's identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label). | string | false | - | 111 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
@@ -225,7 +225,7 @@ Catalog of tables in Semantius
 | `edit_mode` (core) | enum | Edit Mode | - | string | false | auto | 119 | default | default | core | false | ["auto","sidebar","modal","page"] | 2 | - | - | - | - | - | false | auto | - | - |
 | `cube_mode` (core) | enum | Cube Mode | - | string | false | auto | 121 | default | default | core | false | ["disabled","auto"] | 2 | - | - | - | - | - | false | auto | - | - |
 | `audit_log` (core) | boolean | Audit Log | When enabled, DML operations on this table are logged to audit_record_logs | boolean | false | false | 122 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `entity_type` (core) | enum | Entity Type | What kind of data this entity holds. operational_workflow: records move through a gated lifecycle (even one gated step such as draft to submitted counts). operational_record: everyday business records without such a lifecycle. catalog: reference or lookup data maintained by admins. junction: a pure link between entities with no fields of its own; the platform labels its rows by the records they link. computed: every field is derived and never written directly. unclassified: not classified yet (the default). | string | false | unclassified | 122 | required | default | core | false | ["operational_workflow","operational_record","catalog","junction","computed","unclassified"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `entity_type` (core) | enum | Entity Type | What kind of data this entity holds. operational_workflow: records move through a gated lifecycle (even one gated step such as draft to submitted counts). operational_record: everyday business records without such a lifecycle. catalog: reference or lookup data maintained by admins. junction: a pure link between entities with no fields of its own; the platform labels its rows by the records they link. computed: every field is derived and never written directly. unclassified: not classified yet (the default). | string | false | unclassified | 122 | required | default | core | false | [{"label":"Operational workflow","value":"operational_workflow"},{"label":"Operational record","value":"operational_record"},{"label":"Catalog","value":"catalog"},{"label":"Junction","value":"junction"},{"label":"Computed","value":"computed"},{"label":"Unclassified","value":"unclassified"}] | 2 | - | - | - | - | - | false | auto | - | - |
 | `computed_fields` (core) | jsonlogic | Computed Fields | JsonLogic derivations evaluated on every write | json | false | [] | 123 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `validation_rules` (core) | jsonlogic | Validation Rules | JsonLogic invariants that must hold for the write to succeed | json | false | [] | 124 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `select_rule` (core) | jsonlogic | Select Rule | JsonLogic rule for per-row FOR SELECT RLS policy | json | false | - | 125 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
@@ -285,13 +285,13 @@ Catalog of the fields that make up a table
 | `default_value` (core) | text | Default Value | Column default: a literal value or an SQL expression such as CURRENT_TIMESTAMP | string | false | - | 90 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]} | - |
 | `field_order` (core) | int32 | Field Order | - | integer | false | - | 100 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `input_type` (core) | enum | Input Type | How the UI presents the field for input; input_type_rule can override it per record | string | false | default | 110 | required | default | core | false | ["default","required","readonly","disabled","hidden"] | 2 | - | - | - | - | - | false | auto | - | - |
-| `width` (core) | enum | Width | default (automatic), s (small), m (medium), w (wide) | string | false | default | 120 | required | default | core | false | ["default","s","m","w"] | 2 | - | - | - | - | - | false | auto | - | - |
-| `ctype` (core) | enum | Column Type | Special column type (id, label, etc.) | string | false | - | 130 | default | default | core | false | ["","id","label","audit","core"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `width` (core) | enum | Width | default (automatic), s (small), m (medium), w (wide) | string | false | default | 120 | required | default | core | false | [{"label":"Automatic","value":"default"},{"label":"Small","value":"s"},{"label":"Medium","value":"m"},{"label":"Wide","value":"w"}] | 2 | - | - | - | - | - | false | auto | - | - |
+| `ctype` (core) | enum | Column Type | Special column type (id, label, etc.) | string | false | - | 130 | default | default | core | false | [{"label":"Regular field","value":""},{"label":"Primary key","value":"id"},{"label":"Display label","value":"label"},{"label":"Audit column","value":"audit"},{"label":"System column","value":"core"}] | 2 | - | - | - | - | - | false | auto | - | - |
 | `searchable` (core) | boolean | Searchable | - | boolean | false | - | 150 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]} | - |
-| `enum_values` (core) | json | Enum Values | JSON array of the allowed values of an enum field, e.g. ["active", "inactive", "pending"] | json | false | - | 160 | hidden | w | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]} | - |
+| `enum_values` (core) | json | Enum Values | The allowed values of an enum field, in the order they are offered: a JSON array whose entries are a value or a {"value", "label"} pair, e.g. ["active", {"value": "on_hold", "label": "On hold"}] | json | false | - | 160 | hidden | w | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]} | - |
 | `precision` (core) | int32 | Precision | Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats | integer | false | 2 | 170 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]} | - |
 | `reference_table` (core) | text | Reference Table | Entity this field references, by table name. Required for reference and parent fields, empty for all others, and must name an existing entity. | string | false | - | 180 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]} | - |
-| `reference_delete_mode` (core) | enum | Reference Delete Mode | What happens to this record when the referenced record is deleted: restrict (the delete is blocked), clear (this field is set to NULL) or cascade (this record is deleted too). Empty on fields that are not a reference or parent; on a reference, empty acts as restrict. | string | false | restrict | 190 | hidden | default | core | false | ["","restrict","clear","cascade"] | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]} | - |
+| `reference_delete_mode` (core) | enum | Reference Delete Mode | What happens to this record when the referenced record is deleted: restrict (the delete is blocked), clear (this field is set to NULL) or cascade (this record is deleted too). Empty on fields that are not a reference or parent; on a reference, empty acts as restrict. | string | false | restrict | 190 | hidden | default | core | false | [{"label":"Not set","value":""},{"label":"Restrict (block the delete)","value":"restrict"},{"label":"Clear (set this field to empty)","value":"clear"},{"label":"Cascade (delete this record too)","value":"cascade"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]} | - |
 | `relationship_label` (core) | text | Relationship Label | Verb describing what the referenced entity does to/with this entity (e.g. employs, heads). Used for ER diagram and navigation labels. | string | false | has | 200 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]} | - |
 | `singular_label_parent` (core) | text | Singular Label Parent | Custom singular label for the parent entity when format is parent; overrides the singular_label of the parent entity when set | string | false | - | 210 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]} | - |
 | `plural_label_parent` (core) | text | Plural Label Parent | Custom plural label for the parent entity when format is parent; overrides the plural_label of the parent entity when set | string | false | - | 220 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]} | - |
@@ -345,7 +345,7 @@ Groups of related tables and permissions
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `module_name` (label) | text | Module Name | - | string | false | - | 10 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `description` (core) | text | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `module_type` (core) | enum | Module Type | domain = normal module; master = promoted for sharing | string | false | domain | 25 | readonly | default | core | false | ["domain","master"] | 2 | - | - | has | - | - | false | auto | - | - |
+| `module_type` (core) | enum | Module Type | domain = normal module; master = promoted for sharing | string | false | domain | 25 | readonly | default | core | false | [{"label":"Domain module","value":"domain"},{"label":"Master module (shared)","value":"master"}] | 2 | - | - | has | - | - | false | auto | - | - |
 | `view_permission` (core) | reference | View Permission | Permission required to view this module | string | false | user:read | 30 | default | default | core | false | - | 2 | permissions | restrict | has | - | - | false | auto | - | - |
 | `logo_color` (core) | text | Logo Color | Hex color code | string | false | - | 36 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `icon_name` (core) | text | Icon Name | - | string | false | - | 37 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
@@ -358,7 +358,7 @@ Groups of related tables and permissions
 | `default_admin_role_id` (core) | reference | Default Admin Role | - | integer | false | - | 43 | default | default | core | false | - | 2 | roles | clear | has | - | - | false | auto | - | - |
 | `catalog_module_code` (core) | text | Catalog Module Code | Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield. | string | false | - | 44 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `domain_code` (core) | text | Domain Code | Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM) | string | false | - | 45 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `access_scope` (core) | enum | Access Scope | Access tier: basic (simple read/edit) or full (role tiers, approvals and gating) | string | false | basic | 46 | required | default | core | false | ["basic","full"] | 2 | - | - | has | - | - | false | auto | - | - |
+| `access_scope` (core) | enum | Access Scope | Access tier: basic (simple read/edit) or full (role tiers, approvals and gating) | string | false | basic | 46 | required | default | core | false | [{"label":"Basic (read and edit)","value":"basic"},{"label":"Full (role tiers, approvals and gating)","value":"full"}] | 2 | - | - | has | - | - | false | auto | - | - |
 | `settings` (core) | json | Settings | - | json | false | - | 50 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `dashboard_config` (core) | json | Dashboard Configuration | Layout and widgets of the module dashboard | json | false | - | 60 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `version` (core) | int32 | Version | Auto-incremented version number | integer | false | - | 85 | readonly | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
@@ -409,7 +409,7 @@ Defines permission inclusion (including permission implies included permissions)
 | `id` 🔑 (id) | text | Id | Generated identifier (including_permission_name.included_permission_name) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `including_permission_name` (core) | parent | Including Permission | The broader permission: holding it implies the included permission (e.g. crm:manage includes crm:read). | string | false | - | 10 | default | default | core | false | - | 2 | permissions | cascade | includes | Includes | Includes | false | auto | - | - |
 | `included_permission_name` (core) | parent | Included Permission | The narrower permission that is included by the broader one | string | false | - | 20 | default | default | core | false | - | 2 | permissions | cascade | included in | Included in | Included in | false | auto | - | - |
-| `origin` (core) | enum | Origin | How this hierarchy entry was created | string | false | user | 25 | readonly | default | core | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `origin` (core) | enum | Origin | How this hierarchy entry was created | string | false | user | 25 | readonly | default | core | false | [{"label":"System (built-in)","value":"system"},{"label":"Domain module scaffold","value":"model"},{"label":"Master module scaffold","value":"model_master"},{"label":"Created by an admin","value":"user"}] | 2 | - | - | - | - | - | false | auto | - | - |
 
 ---
 
@@ -456,57 +456,6 @@ System permissions that can be assigned to roles and organized via hierarchy
 | `permission_name` 🔑 (id) | text | Permission Name | The permission itself, and the key other tables use to name it. Colon-separated segments of a-z, 0-9, - and _, each starting with a letter or digit, e.g. crm:read or service-catalog:view. No spaces, commas or dots: scope strings are split on commas and whitespace, and a dot would make permission_hierarchy ids ambiguous. | string | true | - | 1 | required | default | id | true | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `description` (core) | multiline | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `module_id` (core) | reference | Module | - | integer | false | - | 30 | required | default | core | false | - | 2 | modules | cascade | contains | - | - | false | auto | - | - |
-
----
-
-## Entity: process_gates
-
-Governance registry: maps entity transitions to processes
-
-| field_name | label | value |
-|------------|-------|-------|
-| table_name | Table Name | `process_gates` |
-| singular | Singular | process_gate |
-| plural | Plural | process_gates |
-| singular_label | Singular Label | Process Gate |
-| plural_label | Plural Label | Process Gates |
-| icon_url | Icon URL | - |
-| description | Description | Governance registry: maps entity transitions to processes |
-| module_id | Module | 1 |
-| view_permission | View Permission | `admin` |
-| edit_permission | Edit Permission | `admin` |
-| id_column | Id Column | `id` |
-| id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
-| label_column | Label Column | `name` |
-| label_parent | Label Parent | - |
-| order_column | Order Column | - |
-| managed | Managed | true |
-| searchable | Searchable | true |
-| is_child | Is Child | true |
-| edit_mode | Edit Mode | auto |
-| cube_mode | Cube Mode | auto |
-| audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
-| computed_fields | Computed Fields | [{"name":"name","jsonlogic":{"var":"gate_kind"}}] |
-| validation_rules | Validation Rules | - |
-| select_rule | Select Rule | - |
-| catalog_entity_code | Catalog Entity Code | - |
-| catalog_owner_module | Catalog Owner Module | - |
-| catalog_entity_aliases | Catalog Entity Aliases | - |
-
-### Fields
-
-| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
-|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `name` (label) | text | Name | Display label — mirrors the gate kind (computed) | string | false | - | 5 | readonly | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `process_id` | parent | Process | - | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | - | - |
-| `entity` | text | Entity | - | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `gate_kind` | enum | Gate Kind | - | string | false | - | 30 | required | default | - | false | ["approval","submit_lock","ownership","create","transition"] | 2 | - | - | has | - | - | false | auto | - | - |
-| `to_state` | text | To State | Target lifecycle state (empty for non-state-targeted gates) | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `state_column` | text | State Column | Column that holds the lifecycle state in the governed table | string | false | status | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `emits_events` | boolean | Emits Events | When enabled, entering to_state inserts raci_events for the consulted and informed actors | boolean | false | - | 60 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 
 ---
 
@@ -559,26 +508,26 @@ RACI process catalog
 
 ---
 
-## Entity: queue_table_events
+## Entity: process_gates
 
-Maps table DML events to queues
+Governance registry: maps entity transitions to processes
 
 | field_name | label | value |
 |------------|-------|-------|
-| table_name | Table Name | `queue_table_events` |
-| singular | Singular | queue_table_event |
-| plural | Plural | queue_table_events |
-| singular_label | Singular Label | Queue Table Event |
-| plural_label | Plural Label | Queue Table Events |
+| table_name | Table Name | `process_gates` |
+| singular | Singular | process_gate |
+| plural | Plural | process_gates |
+| singular_label | Singular Label | Process Gate |
+| plural_label | Plural Label | Process Gates |
 | icon_url | Icon URL | - |
-| description | Description | Maps table DML events to queues |
+| description | Description | Governance registry: maps entity transitions to processes |
 | module_id | Module | 1 |
 | view_permission | View Permission | `admin` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
-| label_column | Label Column | `event_name` |
+| label_column | Label Column | `name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
 | managed | Managed | true |
@@ -588,7 +537,7 @@ Maps table DML events to queues
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
 | entity_type | Entity Type | unclassified |
-| computed_fields | Computed Fields | - |
+| computed_fields | Computed Fields | [{"name":"name","jsonlogic":{"var":"gate_kind"}}] |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
 | catalog_entity_code | Catalog Entity Code | - |
@@ -599,11 +548,14 @@ Maps table DML events to queues
 
 | field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
-| `queue_id` | parent | Queue | - | integer | false | - | 5 | default | default | - | false | - | 2 | queues | cascade | has events | - | - | false | auto | - | - |
+| `name` (label) | text | Name | Display label — mirrors the gate kind (computed) | string | false | - | 5 | readonly | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `table_name` | reference | Entity | Table whose DML events are captured | string | false | - | 10 | required | default | - | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | - | - |
-| `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | - | 20 | required | default | - | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | - | - |
-| `event_name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `process_id` | parent | Process | - | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | - | - |
+| `entity` | text | Entity | - | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `gate_kind` | enum | Gate Kind | - | string | false | - | 30 | required | default | - | false | [{"label":"Approval","value":"approval"},{"label":"Submit lock","value":"submit_lock"},{"label":"Ownership","value":"ownership"},{"label":"Create","value":"create"},{"label":"Transition","value":"transition"}] | 2 | - | - | has | - | - | false | auto | - | - |
+| `to_state` | text | To State | Target lifecycle state (empty for non-state-targeted gates) | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `state_column` | text | State Column | Column that holds the lifecycle state in the governed table | string | false | status | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `emits_events` | boolean | Emits Events | When enabled, entering to_state inserts raci_events for the consulted and informed actors | boolean | false | - | 60 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 
 ---
 
@@ -654,6 +606,54 @@ Message queues backed by pgmq
 
 ---
 
+## Entity: queue_table_events
+
+Maps table DML events to queues
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `queue_table_events` |
+| singular | Singular | queue_table_event |
+| plural | Plural | queue_table_events |
+| singular_label | Singular Label | Queue Table Event |
+| plural_label | Plural Label | Queue Table Events |
+| icon_url | Icon URL | - |
+| description | Description | Maps table DML events to queues |
+| module_id | Module | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `auto_increment` |
+| id_prefix | Id Prefix | - |
+| label_column | Label Column | `event_name` |
+| label_parent | Label Parent | - |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | true |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | unclassified |
+| computed_fields | Computed Fields | - |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `queue_id` | parent | Queue | - | integer | false | - | 5 | default | default | - | false | - | 2 | queues | cascade | has events | - | - | false | auto | - | - |
+| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `table_name` | reference | Entity | Table whose DML events are captured | string | false | - | 10 | required | default | - | false | - | 2 | entities | cascade | has queue events | - | - | true | auto | - | - |
+| `event_handler` | enum | Event Handler | Which DML operations trigger a queue message | string | false | - | 20 | required | default | - | false | ["insert","update","upsert","delete","change"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `event_name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+
+---
+
 ## Entity: raci_assignments
 
 RACI matrix rows assigning roles to processes
@@ -698,8 +698,8 @@ RACI matrix rows assigning roles to processes
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `process_id` | parent | Process | - | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | - | - |
 | `role_id` | reference | Role | The persona role assigned this letter | integer | false | - | 20 | required | default | - | false | - | 2 | roles | cascade | has | - | - | false | auto | - | - |
-| `raci` | enum | RACI | - | string | false | - | 30 | required | default | - | false | ["responsible","accountable","consulted","informed"] | 2 | - | - | has | - | - | false | auto | - | - |
-| `consult_mode` | enum | Consult Mode | How a consulted actor takes part: read (passive), notify (push) or block (gate). Applies only when raci is consulted. | string | false | read | 40 | default | default | - | false | ["read","notify","block"] | 2 | - | - | has | - | - | false | auto | - | - |
+| `raci` | enum | RACI | - | string | false | - | 30 | required | default | - | false | [{"label":"Responsible (R)","value":"responsible"},{"label":"Accountable (A)","value":"accountable"},{"label":"Consulted (C)","value":"consulted"},{"label":"Informed (I)","value":"informed"}] | 2 | - | - | has | - | - | false | auto | - | - |
+| `consult_mode` | enum | Consult Mode | How a consulted actor takes part: read (passive), notify (push) or block (gate). Applies only when raci is consulted. | string | false | read | 40 | default | default | - | false | [{"label":"Read (passive)","value":"read"},{"label":"Notify (push)","value":"notify"},{"label":"Block (gate)","value":"block"}] | 2 | - | - | has | - | - | false | auto | - | - |
 | `origin` | enum | Origin | How this row was created: system (generated by the platform) or user (created or edited by a user) | string | false | user | 50 | default | default | - | false | ["system","user"] | 2 | - | - | has | - | - | false | auto | - | - |
 
 ---
@@ -748,7 +748,7 @@ Notify/consult audit log for RACI-governed record transitions
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `entity` | text | Entity | - | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `record_id` (label) | text | Record | Governed record PK (text for non-integer PKs) | string | false | - | 30 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `raci` | enum | RACI | RACI role of the actor. Only consulted and informed actors generate events, so these are the only values. | string | false | - | 40 | required | default | - | false | ["consulted","informed"] | 2 | - | - | has | - | - | false | auto | - | - |
+| `raci` | enum | RACI | RACI role of the actor. Only consulted and informed actors generate events, so these are the only values. | string | false | - | 40 | required | default | - | false | [{"label":"Consulted (C)","value":"consulted"},{"label":"Informed (I)","value":"informed"}] | 2 | - | - | has | - | - | false | auto | - | - |
 | `target_role_id` | reference | Target Role | Role to be notified or consulted | integer | false | - | 50 | required | default | - | false | - | 2 | roles | cascade | has | - | - | false | auto | - | - |
 | `status` | enum | Status | pending → sent → acted; acted = the consultation input was received | string | false | pending | 60 | required | default | - | false | ["pending","sent","acted"] | 2 | - | - | has | - | - | false | auto | - | - |
 | `acted_at` | date-time | Acted At | When the consulted party responded (NULL until acted) | string | false | - | 70 | disabled | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - |
@@ -848,7 +848,7 @@ Groups of permissions that can be assigned to users
 | `slug` (core) | text | Slug | Snake_case unique identifier for the role, derived from role_name when omitted. Cannot be changed on a system role. | string | false | - | 15 | default | default | core | false | - | 2 | - | - | - | - | - | true | auto | - | - |
 | `catalog_role_code` (core) | text | Catalog Role Code | Stable catalog persona/role this role was provisioned from (lineage; non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec. | string | false | - | 16 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `description` (core) | multiline | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | - | - |
-| `origin` (core) | enum | Origin | How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed. | string | false | user | 25 | readonly | default | core | false | ["system","model","model_master","user"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `origin` (core) | enum | Origin | How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed. | string | false | user | 25 | readonly | default | core | false | [{"label":"System (built-in)","value":"system"},{"label":"Domain module scaffold","value":"model"},{"label":"Master module scaffold","value":"model_master"},{"label":"Created by an admin","value":"user"}] | 2 | - | - | - | - | - | false | auto | - | - |
 | `module_id` (core) | reference | Module | - | integer | false | - | 30 | default | default | core | false | - | 2 | modules | clear | contains | - | - | false | auto | - | - |
 
 ---
@@ -1098,7 +1098,7 @@ Log of webhook receiver events
 | `webhook_timestamp` | date-time | Webhook Timestamp | Timestamp from webhook source | string | false | - | 30 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `received_timestamp` | date-time | Received Timestamp | - | string | false | CURRENT_TIMESTAMP | 40 | disabled | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `payload` | json | Payload | - | json | false | - | 50 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
-| `result` | enum | Result | Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error | string | false | 10 | 60 | default | default | - | false | ["10","20","30","40","50","60"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `result` | enum | Result | Processing result: 10=success, 20=signature failed, 30=invalid JSON, 40=target table not found, 50=insert failed, 60=JSONata transform error | string | false | 10 | 60 | default | default | - | false | [{"label":"Success","value":"10"},{"label":"Signature failed","value":"20"},{"label":"Invalid JSON","value":"30"},{"label":"Target table not found","value":"40"},{"label":"Insert failed","value":"50"},{"label":"JSONata transform error","value":"60"}] | 2 | - | - | - | - | - | false | auto | - | - |
 | `error_message` | text | Error Message | - | string | false | - | 70 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 
 ---
@@ -1147,7 +1147,7 @@ Configuration for webhook endpoints
 | `table_name` | reference | Entity | Target table for webhook data | string | false | - | 10 | default | default | - | false | - | 2 | entities | cascade | has receivers | - | - | false | auto | - | - |
 | `description` | text | Description | - | string | false | - | 20 | default | w | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `label` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `auth_type` | enum | Authentication Type | hmac = HMAC signature over the body; header = expected value in a named header | string | false | none | 30 | default | default | - | false | ["none","hmac","header"] | 2 | - | - | - | - | - | false | auto | - | - |
+| `auth_type` | enum | Authentication Type | hmac = HMAC signature over the body; header = expected value in a named header | string | false | none | 30 | default | default | - | false | [{"label":"None","value":"none"},{"label":"HMAC signature","value":"hmac"},{"label":"Header value","value":"header"}] | 2 | - | - | - | - | - | false | auto | - | - |
 | `secret` | text | Secret | - | string | false | - | 40 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `header_name` | text | Header Name | Custom header name for authentication | string | false | - | 45 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |
 | `header_value` | text | Header Value | Expected value for custom header authentication | string | false | - | 46 | default | default | - | false | - | 2 | - | - | - | - | - | false | auto | - | - |

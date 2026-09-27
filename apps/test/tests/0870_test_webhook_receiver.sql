@@ -51,7 +51,7 @@ SELECT ok(
 
 -- Test 8: auth_type has enum values including header
 SELECT ok(
-    (SELECT enum_values @> '["none", "hmac", "header"]'::jsonb FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'auth_type'),
+    (SELECT enum_value_list(enum_values) @> '["none", "hmac", "header"]'::jsonb FROM fields WHERE table_name = 'webhook_receivers' AND field_name = 'auth_type'),
     'auth_type should have enum values: none, hmac, header'
 );
 
@@ -133,7 +133,7 @@ SELECT ok(
 
 -- Test 21: result allows exactly the codes the webhook receiver writes
 SELECT ok(
-    (SELECT enum_values = '["10", "20", "30", "40", "50", "60"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'result'),
+    (SELECT enum_value_list(enum_values) = '["10", "20", "30", "40", "50", "60"]'::jsonb FROM fields WHERE table_name = 'webhook_receiver_logs' AND field_name = 'result'),
     'webhook_receiver_logs result field should have enum values: 10, 20, 30, 40, 50, 60'
 );
 

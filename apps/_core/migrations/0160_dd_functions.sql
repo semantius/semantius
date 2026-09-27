@@ -391,11 +391,24 @@ COMMENT ON FUNCTION is_nullable IS
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
+-- An entry of enum_values is a plain value ("active") or a value with its
+-- display label ({"value": "on_hold", "label": "On hold"}). Only the values
+-- reach the CHECK constraint and the column default.
 -- Centralized handling of enum default behavior:
+--   • enum_value_list        -- the values of an enum_values array, without labels.
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
 --                               based on input_type and the explicit default_value.
+
+CREATE OR REPLACE FUNCTION enum_value_list(p_enum_values JSONB)
+RETURNS JSONB AS $$
+    SELECT jsonb_agg(CASE WHEN jsonb_typeof(e) = 'object' THEN e -> 'value' ELSE e END ORDER BY n)
+      FROM jsonb_array_elements(p_enum_values) WITH ORDINALITY AS t(e, n);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION enum_value_list IS
+'Returns the values of an enum_values array in order, taking the "value" of an entry that is a {value, label} object. NULL for an empty array.';
 
 CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
 RETURNS JSONB AS $$
@@ -405,7 +418,7 @@ BEGIN
     END IF;
     -- For non-required enums, ensure '' is in the allowed list so the implicit
     -- empty-string default does not violate the CHECK constraint.
-    IF p_input_type IS DISTINCT FROM 'required' AND NOT (p_enum_values @> '[""]'::jsonb) THEN
+    IF p_input_type IS DISTINCT FROM 'required' AND NOT (enum_value_list(p_enum_values) @> '[""]'::jsonb) THEN
         RETURN p_enum_values || '[""]'::jsonb;
     END IF;
     RETURN p_enum_values;
@@ -413,7 +426,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION effective_enum_values IS
-'Returns the effective list of allowed enum values: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
+'Returns the effective list of allowed enum entries, values and {value, label} objects as stored: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
 
 CREATE OR REPLACE FUNCTION effective_enum_default(p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB)
 RETURNS TEXT AS $$
@@ -427,7 +440,7 @@ BEGIN
        AND p_enum_values IS NOT NULL
        AND jsonb_typeof(p_enum_values) = 'array'
        AND jsonb_array_length(p_enum_values) > 0 THEN
-        RETURN p_enum_values->>0;
+        RETURN enum_value_list(p_enum_values)->>0;
     END IF;
     -- Non-required enum without explicit default: empty string
     RETURN '';
@@ -548,7 +561,7 @@ BEGIN
        AND jsonb_typeof(p_enum_values) = 'array'
        AND jsonb_array_length(p_enum_values) > 0 THEN
         SELECT string_agg(value, ', ') INTO v_values
-        FROM jsonb_array_elements_text(p_enum_values) AS value;
+        FROM jsonb_array_elements_text(enum_value_list(p_enum_values)) AS value;
         v_body := v_body || E'\n\n' || v_values;
     END IF;
     RETURN NULLIF(v_body, '');
@@ -1082,7 +1095,7 @@ BEGIN
             -- Build SQL array from JSONB array for IN clause
             v_enum_values_sql := (
                 SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(v_effective_enum) AS value
+                FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
             );
             
             -- Add CHECK constraint
@@ -1406,7 +1419,7 @@ BEGIN
                     v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
                     v_enum_values_sql := (
                         SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(v_effective_enum) AS value
+                        FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
                     );
                     v_alter_sql := format(
                         'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
@@ -2329,8 +2342,11 @@ REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM P
 REVOKE EXECUTE ON FUNCTION dd_sync_typeid_prefix() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_data_type(TEXT, SMALLINT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION enum_value_list(JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) FROM PUBLIC;
+-- enum_value_list with them: both effective_* functions call it.
+GRANT EXECUTE ON FUNCTION enum_value_list(JSONB) TO semantius_user;
 GRANT EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) TO semantius_user;
 GRANT EXECUTE ON FUNCTION effective_enum_default(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION is_nullable(TEXT) FROM PUBLIC;
