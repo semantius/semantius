@@ -158,6 +158,35 @@ installs the core schema as ordinary objects.
   `audit_ddl_logs`, which records the change that caused it. The rebuild marks
   its transaction in the new owner-only table `audit.generated_ddl`, so no
   other role can keep its own DDL out of the log.
+- **Changing a family.**
+  - `entities.id_column` is set when an entity is created and cannot change,
+    for every key type (`90253`, next to `90233`). The key column is created
+    under that name, and a changed row renamed nothing.
+  - A change of a root's `label_column`, directly or by renaming its label
+    field, reaches every level below it. `ensure_entities()` no longer writes
+    `label_column` or `label_parent` of an `is_a` or `has_a` entity, which are
+    always the root's, so a file exported before such a change still applies,
+    and applies again unchanged.
+  - `entities.is_child` of an `is_a` or `has_a` entity also follows the parent
+    fields of the levels above it.
+  - Renaming a base rebuilds the `select_rule` functions of the entities based
+    on it; reads of such an entity failed with `42P01` before.
+  - A new `is_a` entity cannot take a prefix that rows of its root still carry
+    (`90254`). An update or delete, through the root or a supertype's view, of
+    a record that has no part in the subtype its id names is refused (`90255`)
+    instead of reported as done.
+  - A base field changed through a `has_a` extension of a subtype record is
+    written by the subtype's write routine, so the rules and edit permissions
+    of every `is_a` level apply to it; they were passed by before.
+  - `ensure_entities()` writes records from the deepest `is_a` level up, then
+    the bases, then the `has_a` entities, so an export that lists a subtype
+    record under its root as well applies. A subtype record that references a
+    record of its own base in the same file is refused (`22023`).
+  - A change that rebuilds a family (a field of any level, a searchable change,
+    a rename, a root prefix change, rules of a level) or deletes a family
+    entity is refused while an object the dictionary did not create is built
+    on one of the family's views (`90256`). The rebuild dropped such an object
+    without a word before.
 - **Record keys are immutable.** Every dictionary table, and `users`,
   `modules`, `roles` and `_apikeys`, carries a `pk_immutable` trigger: an
   update that changes the key is refused (`90236`); one that writes the

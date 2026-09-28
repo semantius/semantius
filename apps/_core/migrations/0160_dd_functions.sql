@@ -204,6 +204,18 @@ $$ LANGUAGE sql STABLE SET search_path = public;
 COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
 'The value of entities.searchable: TRUE when any field of the entity''s record (dd_family_fields) is searchable.';
 
+-- entities.is_child: some field of the record is a parent field. A record of
+-- a derived entity is a record of every level above it, so it belongs to the
+-- parent its root or a middle level names, and the application hides the
+-- derived entity from the navigation together with its root.
+CREATE OR REPLACE FUNCTION dd_entity_is_child(p_table_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.format = 'parent');
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_entity_is_child(TEXT) IS
+'The value of entities.is_child: TRUE when any field of the entity''s record (dd_family_fields) has format parent.';
+
 -- =====================================================
 -- ENTITY KEY TYPES (entities.id_type)
 -- =====================================================
@@ -1793,7 +1805,10 @@ BEGIN
     
     -- Drop the column (CASCADE to drop any dependent objects like generated
     -- columns, and the views of the entity and its descendants that show it,
-    -- which the family refresh at the end of the statement rebuilds)
+    -- which the family refresh at the end of the statement rebuilds). The
+    -- views would take the objects built on them along before the refresh
+    -- could see them, so those are checked here (90256).
+    PERFORM dd_check_family_dependents(ARRAY[OLD.table_name]);
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS %I CASCADE',
         v_rel,
@@ -1870,6 +1885,13 @@ BEGIN
         RAISE NOTICE 'Skipping table deletion for "%" (managed=false)', OLD.table_name;
         RETURN OLD;
     END IF;
+
+    -- Dropping a family entity drops its view, and a root's DROP TABLE (only
+    -- in a module-delete cascade) every view of its family; the rest of the
+    -- family is rebuilt afterwards. Objects of another author built on those
+    -- views would go with them, so the delete is refused while one exists
+    -- (90256). A plain entity's delete still drops what is built on its table.
+    PERFORM dd_check_family_dependents(ARRAY[OLD.table_name]);
 
     IF v_derived THEN
         -- The view takes its INSTEAD OF trigger, the write routine and the
@@ -2090,7 +2112,10 @@ BEGIN
         -- statement rebuilds them (dd_refresh_family, called from
         -- apply_field_searchable_change). Without it, the first searchable
         -- change on a family table would fail on the view depending on the
-        -- column.
+        -- column. The views would take the objects built on them along
+        -- before the refresh could see them, so those are checked here
+        -- (90256).
+        PERFORM dd_check_family_dependents(ARRAY[p_table_name]);
         EXECUTE format(
             'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector CASCADE',
             v_rel
@@ -2155,6 +2180,7 @@ BEGIN
     END IF;
 
     -- Drop existing search_vector column if it exists (CASCADE: see above)
+    PERFORM dd_check_family_dependents(ARRAY[p_table_name]);
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector CASCADE',
         v_rel
@@ -2410,37 +2436,32 @@ COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON entities IS
 -- =====================================================
 -- IS_CHILD FUNCTIONS AND TRIGGERS
 -- =====================================================
--- Manages entities.is_child based on whether any field has format='parent'
--- Automatically maintains entities.is_child similar to searchable
+-- Manages entities.is_child based on whether any field of the record has
+-- format='parent' (dd_entity_is_child), the way searchable is maintained.
 
 -- =====================================================
 -- HELPER FUNCTION: Update entities.is_child flag
 -- =====================================================
 
+-- The entities based on this one inherit its fields, so their flag is
+-- recomputed with its own.
 CREATE OR REPLACE FUNCTION update_table_is_child_flag(p_table_name TEXT)
 RETURNS VOID AS $$
-DECLARE
-    v_has_parent_fields BOOLEAN;
 BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
 
-    v_has_parent_fields := EXISTS (
-        SELECT 1 FROM fields
-        WHERE table_name = p_table_name
-          AND format = 'parent'
-    );
-    
     -- Gated like update_table_searchable_flag above.
-    UPDATE entities
-    SET is_child = v_has_parent_fields
-    WHERE table_name = p_table_name
-      AND is_child IS DISTINCT FROM v_has_parent_fields;
+    UPDATE entities e
+       SET is_child = dd_entity_is_child(e.table_name)
+     WHERE (e.table_name = p_table_name
+            OR e.table_name IN (SELECT d.table_name FROM dd_descendants(p_table_name) d))
+       AND e.is_child IS DISTINCT FROM dd_entity_is_child(e.table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION update_table_is_child_flag IS 
-'Auto-maintains the is_child flag on entities table based on whether any related fields have format=''parent''.';
+COMMENT ON FUNCTION update_table_is_child_flag IS
+'Auto-maintains the is_child flag of an entity and of the entities based on it: TRUE when any field of the record has format=''parent'' (dd_entity_is_child).';
 
 -- =====================================================
 -- TRIGGER FUNCTION: Handle field parent format changes
@@ -2496,11 +2517,12 @@ DECLARE
     v_computed_is_child BOOLEAN;
 BEGIN
     IF OLD.is_child IS DISTINCT FROM NEW.is_child THEN
+        -- The row's own parent fields, or those of the levels above it.
         v_computed_is_child := EXISTS (
-            SELECT 1 FROM fields 
-            WHERE table_name = NEW.table_name 
+            SELECT 1 FROM fields
+            WHERE table_name = NEW.table_name
               AND format = 'parent'
-        );
+        ) OR (NEW.id_refentity IS NOT NULL AND dd_entity_is_child(NEW.id_refentity));
 
         NEW.is_child := v_computed_is_child;
     END IF;
@@ -2533,8 +2555,10 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 --   90249  no order_column (the root's order column is no field and not in
 --          the views)
 --   90252  a base stays managed while entities are based on it
+--   90254  a new is_a entity's prefix is carried by no row of its root
 -- The key column and the label column are set from the base on insert; the
--- label column is the root's, which every level of a chain shares.
+-- label column is the root's, which every level of a chain shares. So is
+-- is_child, which a parent field on any level above sets.
 --
 -- The name sorts before set_entity_defaults_trigger, which derives
 -- singular_label from label_column and has to see the inherited one.
@@ -2544,7 +2568,9 @@ DECLARE
     v_derived    BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
     v_base       entities%ROWTYPE;
     v_has_base   BOOLEAN := FALSE;
+    v_root       TEXT;
     v_root_label TEXT;
+    v_taken      BOOLEAN;
     v_dependents TEXT;
 BEGIN
     IF TG_OP = 'INSERT' THEN
@@ -2565,13 +2591,37 @@ BEGIN
                               'hint', 'An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.')::text;
             END IF;
             IF v_has_base THEN
-                SELECT e.label_column INTO v_root_label
+                SELECT e.label_column, e.table_name INTO v_root_label, v_root
                   FROM dd_ancestors(NEW.id_refentity) a
                   JOIN entities e ON e.table_name = a.table_name
                  WHERE a.depth = 0;
+                -- The root dispatches a row to the subtype its id's prefix
+                -- names. A prefix the root gave up is free again, but its rows
+                -- keep it: a subtype taking it would be handed rows that have
+                -- no part in it. One scan of the root, as the definer, so rows
+                -- the caller cannot read count too.
+                IF NEW.id_type = 'is_a'
+                   AND pg_catalog.to_regclass(format('public.%I', v_root)) IS NOT NULL THEN
+                    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE common.typeid_prefix(t.%I) = $1)',
+                                   v_root, v_base.id_column)
+                       INTO v_taken
+                      USING NEW.id_prefix;
+                    IF v_taken THEN
+                        RAISE EXCEPTION 'Records of ${base} already carry the prefix ${prefix}'
+                            USING ERRCODE = '90254',
+                                  HINT = jsonb_build_object(
+                                      'table', NEW.table_name,
+                                      'base', v_root,
+                                      'prefix', NEW.id_prefix,
+                                      'hint', 'The prefix names the type of a record. Choose a prefix no record of the family carries.')::text;
+                    END IF;
+                END IF;
                 NEW.id_column := v_base.id_column;
                 NEW.label_column := v_root_label;
                 NEW.label_parent := '';
+                -- It has no fields yet; a parent field above it makes it a
+                -- child from the start.
+                NEW.is_child := dd_entity_is_child(NEW.id_refentity);
             END IF;
         END IF;
     ELSE
@@ -2587,12 +2637,11 @@ BEGIN
                       HINT = jsonb_build_object('table', NEW.table_name)::text;
         END IF;
 
-        -- Compared with the root's label column rather than the direct base's:
-        -- a label rename on the root updates every descendant in one
-        -- statement, in no particular order, after the root itself
-        -- (validate_field_rename_and_format in 0170_dd_rename.sql). The chain
-        -- is walked from the base, which exists under NEW.id_refentity even
-        -- while this row is being renamed or follows its base's rename.
+        -- Compared with the root's label column: a change of it reaches this
+        -- row through family_label_column_trigger, once every level above has
+        -- taken it. The chain is walked from the base, which exists under
+        -- NEW.id_refentity even while this row is being renamed or follows
+        -- its base's rename.
         IF v_derived THEN
             SELECT e.label_column INTO v_root_label
               FROM dd_ancestors(NEW.id_refentity) a
@@ -2629,12 +2678,40 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION check_entity_family() IS
-'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249) and refuses unmanaging a base with dependents (90252). Sets id_column, label_column and label_parent from the base on insert.';
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_parent and is_child from the base on insert.';
 
 CREATE OR REPLACE TRIGGER check_entity_family_trigger
     BEFORE INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION check_entity_family();
+
+-- Every level of a family carries the root's label column (90242 holds it
+-- there), so a change of a base's label column is carried to the entities
+-- based on it directly, and their own update carries it one level further.
+-- Without it, a changed root would leave its descendants with a value 90242
+-- refuses, and every later write to their rows - a rename, a searchable
+-- change - would fail. The change is written before the rows below are
+-- checked against it, because this runs after the base's row is updated.
+-- A plain entity has nothing based on it, and the update writes no row.
+CREATE OR REPLACE FUNCTION dd_family_label_column_changed()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE entities
+       SET label_column = NEW.label_column
+     WHERE id_refentity = NEW.table_name
+       AND label_column IS DISTINCT FROM NEW.label_column;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_label_column_changed() IS
+'AFTER UPDATE trigger on entities: carries a changed label_column to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
+
+CREATE OR REPLACE TRIGGER family_label_column_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column)
+    EXECUTE FUNCTION dd_family_label_column_changed();
 
 -- Two checks on the fields of a family:
 --   90243  a field name is unique across the entities that share records - an
@@ -2884,6 +2961,18 @@ COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 --           is written too, and its rules run in a second pass. A changed key
 --           raises 90236. Each column is written only when it changed, so a
 --           concurrent change to another column is kept.
+--           has_a: a change of the base's columns on a record whose id names
+--           an is_a subtype of the base is a change of that subtype record,
+--           so it goes to the subtype's write routine, which runs the rules
+--           and takes the locks of every level of the record; the extension
+--           then writes only its own part. A record the caller cannot write
+--           whole, or read through the subtype's view, is skipped. Written
+--           here instead, the base row would change at trigger depth 2, where
+--           the root's dispatch does not act, and every is_a level's rules and
+--           edit permissions would be passed by. The extension's part is
+--           locked before the subtype's levels, out of top-down order; every
+--           writer that changes the base columns locks the base row first,
+--           and that orders them.
 --   delete  is_a: every derived level's delete rules, bottom-up, then every
 --           part bottom-up and the root row. has_a: t's rules, then t_ext only
 --           (detach); the base record stays.
@@ -2925,6 +3014,11 @@ DECLARE
     v_del         TEXT := '';
     v_attach_in   TEXT := '';
     v_attach_out  TEXT := '';
+    v_root_cols   TEXT[] := ARRAY[]::TEXT[];
+    v_route_decls TEXT := '';
+    v_route_whens TEXT := '';
+    v_route       TEXT := '';
+    v_si          INTEGER := 0;
     v_cols        TEXT[];
     v_cond        TEXT;
     v_stmt        TEXT;
@@ -2955,6 +3049,9 @@ BEGIN
           INTO v_cols
           FROM dd_family_columns(p_table_name) fc
          WHERE fc.depth = r.depth;
+        IF r.depth = 0 THEN
+            v_root_cols := v_cols;
+        END IF;
 
         -- The highest level whose columns differ between v_new and p_old.
         IF cardinality(v_cols) > 0 THEN
@@ -3011,7 +3108,11 @@ BEGIN
         ELSE
             v_lock := v_lock || format(E'\n        IF %s THEN\n            %s\n        END IF;',
                 v_cond, format(v_stmt, '            ', '            ', '            '));
-            v_upd := v_upd || format(E'\n        IF %s THEN\n            %s;\n        END IF;', v_cond, v_update);
+            -- has_a: a base row the subtype's write routine wrote is not
+            -- written again.
+            v_upd := v_upd || format(E'\n        IF %s THEN\n            %s;\n        END IF;',
+                v_cond || CASE WHEN r.depth = 0 AND NOT v_is_a THEN ' AND NOT v_routed' ELSE '' END,
+                v_update);
         END IF;
 
         IF v_is_a OR r.depth = v_n THEN
@@ -3067,6 +3168,59 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- has_a: a base change of a subtype record goes to the subtype's write
+    -- routine, chosen by the id's prefix like the root's dispatch does. The
+    -- record is read through the subtype's view as the caller; the base
+    -- columns stored come back from the routine, whose computed fields may
+    -- have set them.
+    IF NOT v_is_a AND cardinality(v_root_cols) > 0 THEN
+        FOR r IN
+            SELECT e.table_name, e.id_prefix
+              FROM dd_descendants(v_root.table_name) d
+              JOIN entities e ON e.table_name = d.table_name
+             WHERE e.id_type = 'is_a'
+               AND pg_catalog.to_regclass(format('public.%I', e.table_name)) IS NOT NULL
+             ORDER BY d.depth, e.table_name
+        LOOP
+            v_si := v_si + 1;
+            v_route_decls := v_route_decls || format(E'\n    v_sub_old_%1$s public.%2$I;\n    v_sub_new_%1$s public.%2$I;',
+                v_si, r.table_name);
+            v_route_whens := v_route_whens || format($RT$
+                WHEN %1$L THEN
+                    SELECT * INTO v_sub_old_%2$s FROM public.%3$I AS t WHERE t.%4$I = p_old.%4$I;
+                    IF NOT FOUND THEN
+                        IF common.is_a_part_missing(%3$L, p_old.%4$I) THEN
+                            RAISE EXCEPTION 'Record ${id} of ${table} has no part in ${subtype}, the type its id names'
+                                USING ERRCODE = '90255',
+                                      HINT = jsonb_build_object('id', p_old.%4$I, 'table', %5$L, 'subtype', %3$L)::text;
+                        END IF;
+                        RETURN NULL;
+                    END IF;
+                    v_sub_new_%2$s := v_sub_old_%2$s;%6$s
+                    v_sub_new_%2$s := common.%7$I('update', v_sub_old_%2$s, v_sub_new_%2$s, false);
+                    IF v_sub_new_%2$s IS NULL THEN
+                        RETURN NULL;
+                    END IF;%8$s
+                    v_routed := true;$RT$,
+                r.id_prefix, v_si, r.table_name, v_k, p_table_name,
+                (SELECT string_agg(format(E'\n                    v_sub_new_%s.%I := v_new.%I;', v_si, x, x), '')
+                   FROM unnest(v_root_cols) x),
+                'record_write_' || r.table_name,
+                (SELECT string_agg(format(E'\n                    v_new.%I := v_sub_new_%s.%I;', x, v_si, x), '')
+                   FROM unnest(v_root_cols) x));
+        END LOOP;
+        IF v_route_whens <> '' THEN
+            v_route := format(E'\n        -- A base change of a subtype record is written by the subtype.'
+                              '\n        IF v_top <= 0 THEN'
+                              '\n            CASE common.typeid_prefix(p_old.%1$I)%2$s'
+                              '\n                ELSE'
+                              '\n                    NULL;'
+                              '\n            END CASE;'
+                              '\n        END IF;',
+                              v_k, v_route_whens);
+        END IF;
+    END IF;
+
     v_top_expr := CASE WHEN v_top_expr = '' THEN v_n::text
                        ELSE format('CASE%s ELSE %s END', v_top_expr, v_n) END;
 
@@ -3085,6 +3239,7 @@ DECLARE
     v_top2   integer;
     v_base   public.%3$I;
     v_attach boolean := false;
+    v_routed boolean := false;%14$s
 BEGIN
     IF p_op = 'insert' THEN
 %4$s
@@ -3095,7 +3250,7 @@ BEGIN
                       HINT = jsonb_build_object('column', %5$L, 'table', %6$L)::text;
         END IF;
         v_top := %7$s;%8$s
-        -- Lock every level that will be written, top-down, before writing any.%9$s
+        -- Lock every level that will be written, top-down, before writing any.%9$s%15$s
 %10$s
     ELSE
         -- Lock every part top-down before the rules run, so the rules of a
@@ -3154,7 +3309,9 @@ $BODY$,
         v_upd,
         v_dlock,
         v_rules_del,
-        v_del);
+        v_del,
+        v_route_decls,
+        v_route);
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
@@ -3203,10 +3360,18 @@ BEGIN
         v_i := v_i + 1;
         decls := decls || format(E'\n    v_old_%1$s public.%2$I;\n    v_new_%1$s public.%2$I;\n    v_res_%1$s public.%2$I;',
             v_i, r.table_name);
+        -- Not found is a part the caller may not read, and the record is
+        -- skipped like a row RLS hides; or a part that is missing, and the
+        -- write is refused rather than reported as done.
         branches := branches || format($BR$
         WHEN %1$L THEN
             SELECT * INTO v_old_%2$s FROM public.%3$I AS t WHERE t.%4$I = OLD.%4$I;
             IF NOT FOUND THEN
+                IF common.is_a_part_missing(%3$L, OLD.%4$I) THEN
+                    RAISE EXCEPTION 'Record ${id} of ${table} has no part in ${subtype}, the type its id names'
+                        USING ERRCODE = '90255',
+                              HINT = jsonb_build_object('id', OLD.%4$I, 'table', %9$L, 'subtype', %3$L)::text;
+                END IF;
                 RETURN NULL;
             END IF;
             IF TG_OP = 'UPDATE' THEN
@@ -3228,13 +3393,14 @@ BEGIN
                  THEN format(E'\n            IF TG_OP = ''UPDATE'' THEN%s\n            END IF;',
                         (SELECT coalesce(string_agg(format(E'\n                NEW.%I := v_res_%s.%I;', x, v_i, x), ''), '')
                            FROM unnest(v_cols) x))
-                 ELSE '' END);
+                 ELSE '' END,
+            p_table_name);
     END LOOP;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public;
 
 COMMENT ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) IS
-'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id. Shared by the view triggers and the root''s dispatch trigger.';
+'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id; a record the caller cannot read through the descendant''s view is skipped, one missing a part raises 90255. Shared by the view triggers and the root''s dispatch trigger.';
 
 -- The INSTEAD OF trigger of a derived entity's view. An insert creates a
 -- record of this entity. An update or delete of a record whose own type is a
@@ -3314,7 +3480,9 @@ COMMENT ON FUNCTION dd_build_view_write(TEXT) IS
 -- pg_trigger_depth() = 1, a direct write: at a deeper level the write comes
 -- from a write routine, which has done that already, or from an RI action,
 -- which reaches only the root row (the depth invariant above). A plain root
--- row costs one CASE. The name sorts before compute_validate_trigger, so the
+-- row costs one CASE. A row whose id names a subtype that has no part for it
+-- is refused (90255) rather than skipped, which would report a write that
+-- never happened. The name sorts before compute_validate_trigger, so the
 -- root's own rules run after the derived ones, on the final root row.
 CREATE OR REPLACE FUNCTION dd_build_is_a_dispatch(p_root TEXT)
 RETURNS VOID AS $$
@@ -3403,6 +3571,185 @@ $$;
 COMMENT ON FUNCTION common.has_a_guard() IS
 'BEFORE DELETE trigger of a has_a base (TG_ARGV: key column, then the extension entities): refuses to delete a record that still has an extension record (90251).';
 
+-- TRUE when the root holds a row with the id but some level of the is_a
+-- entity p_table has no part for it: a record the dispatch cannot carry to
+-- its own type. The dispatch reads the record through the subtype's view as
+-- the caller, and finds nothing both for a part the caller may not read and
+-- for a part that is not there; only the second is an error (90255), and
+-- only the definer can tell them apart. It answers FALSE for a complete
+-- record and for an id no row has, so it tells a caller nothing but that a
+-- record is broken. A missing part cannot come from the dictionary's own
+-- writes: 90254 keeps a new subtype off the prefixes of existing rows, and
+-- the parts are written only by the write routines.
+CREATE OR REPLACE FUNCTION common.is_a_part_missing(p_table TEXT, p_id TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+    v_key     TEXT;
+    v_missing BOOLEAN;
+    r         RECORD;
+BEGIN
+    SELECT e.id_column INTO v_key FROM entities e WHERE e.table_name = p_table AND e.id_type = 'is_a';
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+    FOR r IN
+        SELECT a.depth, dd_relation(e.table_name, e.id_type) AS rel
+          FROM dd_ancestors(p_table) a
+          JOIN entities e ON e.table_name = a.table_name
+         ORDER BY a.depth
+    LOOP
+        EXECUTE format('SELECT NOT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1::common.typeid)', r.rel, v_key)
+           INTO v_missing
+          USING p_id;
+        IF v_missing THEN
+            -- No root row: no record at all, which is no broken one.
+            RETURN r.depth > 0;
+        END IF;
+    END LOOP;
+    RETURN FALSE;
+END;
+$$;
+
+COMMENT ON FUNCTION common.is_a_part_missing(TEXT, TEXT) IS
+'TRUE when the root of is_a entity p_table holds a row with id p_id but a level of p_table has no part for it. Run as the definer, so a part the caller may not read counts as present. Used by the generated dispatch to refuse a write it cannot carry to the record''s own type (90255).';
+
+-- Objects built on a family view by someone else. A family is rebuilt by
+-- dropping its views with CASCADE (dd_refresh_family, and the DROP COLUMN
+-- ... CASCADE of a field delete or a search_vector rebuild before it), and
+-- PostgreSQL drops whatever depends on a view with it: a report view, a
+-- function over the view's row type, a policy that reads it. On a plain entity
+-- a field change never touches what is built on its table, so these would
+-- vanish without a word on a change that looks harmless, like a field add.
+-- A change that drops a family view is therefore refused while such an object
+-- exists (90256), and the refusal names it; the admin drops it, makes the
+-- change and creates it again.
+--
+-- What the dictionary itself builds on a view is not counted, and neither is
+-- what depends on that: the view's own rule, column defaults and row type
+-- (with its array type), its view_write trigger, the write, view trigger and
+-- dispatch routines, the one-argument _label / <fk>_label functions of its row
+-- type (rebuild_entity_label_functions drops every one of those itself), and
+-- the select_rule functions.
+CREATE OR REPLACE FUNCTION dd_generated_view_dependent(p_classid OID, p_objid OID, p_views OID[])
+RETURNS BOOLEAN AS $$
+    SELECT CASE p_classid
+        WHEN 'pg_catalog.pg_rewrite'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite r
+                     WHERE r.oid = p_objid AND r.ev_class = ANY (p_views))
+        WHEN 'pg_catalog.pg_attrdef'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_attrdef a
+                     WHERE a.oid = p_objid AND a.adrelid = ANY (p_views))
+        WHEN 'pg_catalog.pg_trigger'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+                     WHERE t.oid = p_objid AND t.tgrelid = ANY (p_views) AND t.tgname = 'view_write')
+        WHEN 'pg_catalog.pg_type'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_type t
+                      JOIN pg_catalog.pg_class c ON c.reltype IN (t.oid, t.typelem)
+                     WHERE t.oid = p_objid AND c.oid = ANY (p_views))
+        WHEN 'pg_catalog.pg_proc'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                     WHERE p.oid = p_objid
+                       AND ((p.pronamespace = 'common'::regnamespace
+                             AND (p.proname LIKE 'record\_write\_%'
+                                  OR p.proname LIKE 'view\_write\_%'
+                                  OR p.proname LIKE 'is\_a\_dispatch\_%'))
+                            OR (p.pronamespace = 'public'::regnamespace
+                                AND (p.proname LIKE 'select\_rule\_%'
+                                     OR (p.pronargs = 1
+                                         AND (p.proname = '_label' OR p.proname LIKE '%\_label'))))))
+        ELSE FALSE
+    END;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_generated_view_dependent(OID, OID, OID[]) IS
+'TRUE when the object (pg_depend classid, objid) that depends on one of the family views p_views is one the dictionary generates for them: a view''s rule, column default, row or array type, view_write trigger, write/view-trigger/dispatch routine, _label or <fk>_label function, or select_rule function.';
+
+-- The objects that depend on the views p_views, directly or through a
+-- generated object, and are not generated themselves; each with the view it
+-- is built on. The walk follows pg_depend from the views and continues only
+-- through generated objects: whatever depends on a foreign object is dropped
+-- with it, and naming the first is enough.
+CREATE OR REPLACE FUNCTION dd_family_view_dependents(p_views OID[])
+RETURNS TABLE (view_name TEXT, dependent TEXT) AS $$
+    WITH RECURSIVE dep(view_oid, classid, objid, generated, hops) AS (
+        SELECT d.refobjid, d.classid, d.objid,
+               dd_generated_view_dependent(d.classid, d.objid, p_views), 1
+          FROM pg_catalog.pg_depend d
+         WHERE d.refclassid = 'pg_catalog.pg_class'::regclass
+           AND d.refobjid = ANY (p_views)
+        UNION
+        SELECT dep.view_oid, d.classid, d.objid,
+               dd_generated_view_dependent(d.classid, d.objid, p_views), dep.hops + 1
+          FROM dep
+          JOIN pg_catalog.pg_depend d ON d.refclassid = dep.classid AND d.refobjid = dep.objid
+         WHERE dep.generated
+           AND dep.hops < 6
+    )
+    SELECT DISTINCT
+           dep.view_oid::regclass::text,
+           CASE WHEN dep.classid = 'pg_catalog.pg_rewrite'::regclass
+                THEN (SELECT CASE c.relkind WHEN 'm' THEN 'materialized view ' ELSE 'view ' END
+                             || c.oid::regclass::text
+                        FROM pg_catalog.pg_rewrite r
+                        JOIN pg_catalog.pg_class c ON c.oid = r.ev_class
+                       WHERE r.oid = dep.objid)
+                ELSE pg_catalog.pg_describe_object(dep.classid, dep.objid, 0)
+           END
+      FROM dep
+     WHERE NOT dep.generated;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_view_dependents(OID[]) IS
+'The objects built on the family views p_views, directly or through a generated object, that the dictionary did not generate (dd_generated_view_dependent), each with the view it depends on.';
+
+-- Refuses (90256) a change that drops the views of the families containing
+-- any of p_entities while objects of another author depend on them. Called
+-- before the first DROP ... CASCADE that can reach a family view: at the start
+-- of dd_refresh_family, and in delete_dd_field, update_search_vector_column and
+-- delete_dd_table, whose drops come before the refresh. Reads only, and
+-- returns at once for an entity outside every family.
+CREATE OR REPLACE FUNCTION dd_check_family_dependents(p_entities TEXT[])
+RETURNS VOID AS $$
+DECLARE
+    v_views      OID[];
+    v_on         TEXT;
+    v_dependents TEXT;
+BEGIN
+    SELECT array_agg(DISTINCT c.oid)
+      INTO v_views
+      FROM unnest(coalesce(p_entities, ARRAY[]::TEXT[])) AS t(name)
+     CROSS JOIN LATERAL dd_ancestors(t.name) a
+     CROSS JOIN LATERAL dd_descendants(a.table_name) d
+      JOIN pg_catalog.pg_class c ON c.oid = pg_catalog.to_regclass(format('public.%I', d.table_name))
+     WHERE a.depth = 0
+       AND c.relkind = 'v';
+    IF v_views IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT string_agg(DISTINCT x.view_name, ', ' ORDER BY x.view_name),
+           string_agg(DISTINCT x.dependent, ', ' ORDER BY x.dependent)
+      INTO v_on, v_dependents
+      FROM dd_family_view_dependents(v_views) x;
+    IF v_dependents IS NOT NULL THEN
+        RAISE EXCEPTION 'This change drops ${views}, and with them ${dependents}, which the dictionary did not create'
+            USING ERRCODE = '90256',
+                  HINT = jsonb_build_object(
+                      'views', v_on,
+                      'dependents', v_dependents,
+                      'hint', 'Drop those objects, make the change, then create them again.')::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_family_dependents(TEXT[]) IS
+'Raises 90256 when objects the dictionary did not generate depend on a view of a family containing any of the given entities, before a change drops those views. Returns at once for entities outside every family.';
+
 -- Rebuilds every family that contains one of the given entities: the views,
 -- the write routines and view triggers, the root's typeid_assign (with the
 -- subtype prefixes) and dispatch trigger, the has_a delete guard, and the
@@ -3433,6 +3780,10 @@ BEGIN
     IF v_roots IS NULL THEN
         RETURN;
     END IF;
+
+    -- Step 1 drops every view with CASCADE: refused while an object of
+    -- another author is built on one (90256).
+    PERFORM dd_check_family_dependents(v_roots);
 
     SET LOCAL client_min_messages = WARNING;
 
@@ -3711,6 +4062,8 @@ GRANT EXECUTE ON FUNCTION dd_descendants(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_family_fields(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_entity_viewable(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_entity_searchable(TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_entity_is_child(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_entity_is_child(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_family_columns(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_family_view(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_record_write(TEXT) FROM PUBLIC;
@@ -3718,10 +4071,17 @@ REVOKE EXECUTE ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_view_write(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_is_a_dispatch(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_refresh_family(TEXT[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_generated_view_dependent(OID, OID, OID[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family_view_dependents(OID[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_family_dependents(TEXT[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_family_member_changed() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION check_entity_family() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family_label_column_changed() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_family_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.has_a_guard() FROM PUBLIC;
+-- Called by the generated dispatch, which runs as the caller.
+REVOKE EXECUTE ON FUNCTION common.is_a_part_missing(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION common.is_a_part_missing(TEXT, TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;

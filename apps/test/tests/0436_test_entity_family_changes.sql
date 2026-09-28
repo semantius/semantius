@@ -64,9 +64,9 @@ CREATE TEMP TABLE fc_marks (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 GRANT SELECT, INSERT, UPDATE, DELETE ON fc_marks TO semantius_user;
 
 -- The standard family under the name prefix p and the TypeID prefix stem x,
--- with its records. p_key names the root's key column, which every level
--- inherits.
-CREATE FUNCTION pg_temp.fc_build(p TEXT, x TEXT, p_key TEXT DEFAULT 'id')
+-- with its records unless p_records is FALSE. p_key names the root's key
+-- column, which every level inherits.
+CREATE FUNCTION pg_temp.fc_build(p TEXT, x TEXT, p_key TEXT DEFAULT 'id', p_records BOOLEAN DEFAULT TRUE)
 RETURNS VOID LANGUAGE plpgsql AS $fn$
 BEGIN
     EXECUTE format($q$
@@ -124,6 +124,9 @@ BEGIN
         VALUES (%L, 'terms', 'Terms', 'text', 30)$q$,
         p || 'vendors');
 
+    IF NOT p_records THEN
+        RETURN;
+    END IF;
     EXECUTE format($q$INSERT INTO public.%I (label, city) VALUES ('P1', 'Rome')$q$, p || 'parties');
     EXECUTE format($q$INSERT INTO public.%I (label, city, vat) VALUES ('O1', 'Oslo', 'NO1')$q$, p || 'orgs');
     EXECUTE format($q$INSERT INTO public.%I (label, city, vat, bic) VALUES ('B1', 'Bern', 'CH1', 'BIC1')$q$, p || 'banks');
@@ -265,7 +268,8 @@ CREATE FUNCTION pg_temp.fc_snapshot(p_root TEXT) RETURNS TEXT LANGUAGE sql AS $f
                  OR c.relname::TEXT IN (SELECT m.table_name || '_ext' FROM members m)))));
 $fn$;
 
--- The messages a queue holds about one table.
+-- The messages a queue holds about one table. Called as the owner: the
+-- request roles have no access to the queue tables.
 CREATE FUNCTION pg_temp.fc_messages(p_queue TEXT, p_table TEXT) RETURNS INTEGER LANGUAGE sql AS $fn$
     SELECT count(*)::INTEGER FROM pgmq.read(p_queue, 0, 1000) m WHERE m.message ->> 'table' = p_table;
 $fn$;
@@ -646,8 +650,11 @@ VALUES ('fc1_parties', 'region_id', 'Region', 'reference', 'fc1_regions', 'casca
 UPDATE fc1_parties SET region_id = (SELECT id FROM fc1_regions WHERE label = 'RA') WHERE label = 'B2';
 UPDATE fc1_parties SET region_id = (SELECT id FROM fc1_regions WHERE label = 'RB') WHERE label = 'B1';
 
-SELECT throws_ok($$DELETE FROM fc1_regions WHERE label = 'RA'$$,
-    '23503', NULL,
+-- The part's RESTRICT key refuses it: 23001 (restrict_violation) on
+-- PostgreSQL 18, 23503 (foreign_key_violation) before it. The message is the
+-- same on both.
+SELECT throws_like($$DELETE FROM fc1_regions WHERE label = 'RA'$$,
+    '%foreign key constraint "fc1\_orgs\_ext\_id\_fkey"%',
     'a cascading root reference cannot delete the root row of a subtype record from under its parts');
 
 SELECT throws_ok($$DELETE FROM fc1_regions WHERE label = 'RB'$$,
@@ -1188,8 +1195,9 @@ SELECT is(pg_temp.fc_write($$UPDATE fc4m_parties SET city = 'Bremen' WHERE label
     'an administrator updates it');
 
 -- is_child follows the family: a level is a child when it or a level above
--- it has a parent field.
-SELECT pg_temp.fc_build('fc4c_', 'fcdc');
+-- it has a parent field. The family has no records: a parent field is NOT
+-- NULL, and a table with rows cannot take one.
+SELECT pg_temp.fc_build('fc4c_', 'fcdc', p_records => FALSE);
 INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fc4c_groups', 'Group', 'Groups', 1);
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
 VALUES ('fc4c_parties', 'group_id', 'Group', 'parent', 'fc4c_groups', 'cascade', 50);
@@ -1363,23 +1371,31 @@ SELECT id, 'party change', 'fc5q_parties', 'change' FROM queues WHERE queue_name
 
 INSERT INTO fc5q_banks (label, city, vat, bic) VALUES ('B7', 'Brno', 'CZ7', 'BIC7');
 
+RESET ROLE;
 SELECT is(pg_temp.fc_messages('fc5q_events', 'fc5q_parties'), 1,
     'a queue on the root: creating a subtype record sends one message');
+SELECT authenticate_as('user3');
 
 UPDATE fc5q_banks SET bic = 'BIC8' WHERE label = 'B7';
 
+RESET ROLE;
 SELECT is(pg_temp.fc_messages('fc5q_events', 'fc5q_parties'), 1,
     'a queue on the root: an update of subtype fields only sends none');
+SELECT authenticate_as('user3');
 
 UPDATE fc5q_banks SET city = 'Brugge' WHERE label = 'B7';
 
+RESET ROLE;
 SELECT is(pg_temp.fc_messages('fc5q_events', 'fc5q_parties'), 2,
     'a queue on the root: an update of a root field sends one');
+SELECT authenticate_as('user3');
 
 DELETE FROM fc5q_banks WHERE label = 'B7';
 
+RESET ROLE;
 SELECT is(pg_temp.fc_messages('fc5q_events', 'fc5q_parties'), 3,
     'a queue on the root: deleting the subtype record sends one');
+SELECT authenticate_as('user3');
 
 SELECT throws_ok(
     $$INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)

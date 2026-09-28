@@ -420,18 +420,12 @@ BEGIN
         -- Core fields (ctype <> '') cannot be renamed, except the label column
         IF coalesce(OLD.ctype, '') <> '' THEN
             IF OLD.ctype = 'label' THEN
-                -- Label column rename is allowed; update entities.label_column to match
+                -- Label column rename is allowed; update entities.label_column
+                -- to match. family_label_column_trigger (0160_dd_functions.sql)
+                -- carries it to the entities based on this one.
                 UPDATE entities
                    SET label_column = NEW.field_name
                  WHERE table_name = OLD.table_name
-                   AND label_column = OLD.field_name;
-                -- The entities based on this one carry its label column as
-                -- their own (90242 holds them to their root's). A second
-                -- statement rather than a wider WHERE: the check compares with
-                -- the root's value, which has to be written first.
-                UPDATE entities
-                   SET label_column = NEW.field_name
-                 WHERE table_name IN (SELECT d.table_name FROM dd_descendants(OLD.table_name) d)
                    AND label_column = OLD.field_name;
                 RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
                     OLD.field_name, NEW.field_name, OLD.table_name;

@@ -20,6 +20,10 @@
 --           on (90240-90243, 90246, 90249-90252); field DDL reaching views
 --   PART 12 the generated routines meet the catalog invariants
 --
+-- How an is_a / has_a family changes - dictionary changes on any level, labels,
+-- key column, prefixes, rules and permissions, drops, and objects built on the
+-- family views (90253-90256) - is pinned by 0436_test_entity_family_changes.sql.
+--
 -- Fixture entities use the 'idt_' and 'fam_' prefixes; everything is rolled back.
 
 BEGIN;

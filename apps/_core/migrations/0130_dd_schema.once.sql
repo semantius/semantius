@@ -131,7 +131,10 @@ CREATE INDEX idx_entities_id_refentity ON entities(id_refentity);
 -- Only the prefixes in use now are unique. An entity that changes its prefix
 -- releases the old one, and another entity may take it, so two entities can
 -- have ids with the same prefix: an id's prefix names the entity it was minted
--- for at the time, not necessarily the one that holds it today.
+-- for at the time, not necessarily the one that holds it today. Within a
+-- family the prefix is what says which subtype a record is, so a new is_a
+-- entity cannot take a prefix that rows of its root still carry (90254,
+-- check_entity_family in 0160_dd_functions.sql).
 CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_prefix <> '';
 -- The two permission columns are RESTRICT foreign keys, so every permission
 -- delete and every rename scans them. The dictionary builds idx_<table>_<field>

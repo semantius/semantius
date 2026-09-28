@@ -5380,7 +5380,10 @@ CREATE INDEX idx_entities_id_refentity ON entities(id_refentity);
 -- Only the prefixes in use now are unique. An entity that changes its prefix
 -- releases the old one, and another entity may take it, so two entities can
 -- have ids with the same prefix: an id's prefix names the entity it was minted
--- for at the time, not necessarily the one that holds it today.
+-- for at the time, not necessarily the one that holds it today. Within a
+-- family the prefix is what says which subtype a record is, so a new is_a
+-- entity cannot take a prefix that rows of its root still carry (90254,
+-- check_entity_family in 0160_dd_functions.sql).
 CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_prefix <> '';
 -- The two permission columns are RESTRICT foreign keys, so every permission
 -- delete and every rename scans them. The dictionary builds idx_<table>_<field>
@@ -5476,7 +5479,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', '84bbf7b96997641ffb209729de2863f974faaad72fd5744bae59026f3411265d')
+        VALUES ('_core.0130_dd_schema.once.sql', '75377ffaadc69b6dd9fbae9a4cb1f909e22ca10c74b6e84cf5188d5e2fbc02cf')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5729,7 +5732,7 @@ $pgsem__core_0140_dd_schema_sql$;
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule, id_type)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'text'),
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'text'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
      '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'unclassified', TRUE, 'field_order', '{}'::jsonb, 'computed'),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'email', '[]'::jsonb, 'unclassified', TRUE, '', '{}'::jsonb, 'auto_increment'),
@@ -6018,7 +6021,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', '84dcaf99e6c0ec33ba8e8664c65ccb0a935e60ec872aa49f75b3625aa3b90401')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', 'a2cc44b0b69f7e8577be8b69c55847bbb4a1bf767c43b14db693cced2529c8ac')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6055,7 +6058,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8921b4cace558e4dfd8a06da55e2f485391aff07113afcef1523daeb3077ee90') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -6263,6 +6266,18 @@ $$ LANGUAGE sql STABLE SET search_path = public;
 
 COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
 'The value of entities.searchable: TRUE when any field of the entity''s record (dd_family_fields) is searchable.';
+
+-- entities.is_child: some field of the record is a parent field. A record of
+-- a derived entity is a record of every level above it, so it belongs to the
+-- parent its root or a middle level names, and the application hides the
+-- derived entity from the navigation together with its root.
+CREATE OR REPLACE FUNCTION dd_entity_is_child(p_table_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.format = 'parent');
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_entity_is_child(TEXT) IS
+'The value of entities.is_child: TRUE when any field of the entity''s record (dd_family_fields) has format parent.';
 
 -- =====================================================
 -- ENTITY KEY TYPES (entities.id_type)
@@ -7853,7 +7868,10 @@ BEGIN
     
     -- Drop the column (CASCADE to drop any dependent objects like generated
     -- columns, and the views of the entity and its descendants that show it,
-    -- which the family refresh at the end of the statement rebuilds)
+    -- which the family refresh at the end of the statement rebuilds). The
+    -- views would take the objects built on them along before the refresh
+    -- could see them, so those are checked here (90256).
+    PERFORM dd_check_family_dependents(ARRAY[OLD.table_name]);
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS %I CASCADE',
         v_rel,
@@ -7930,6 +7948,13 @@ BEGIN
         RAISE NOTICE 'Skipping table deletion for "%" (managed=false)', OLD.table_name;
         RETURN OLD;
     END IF;
+
+    -- Dropping a family entity drops its view, and a root's DROP TABLE (only
+    -- in a module-delete cascade) every view of its family; the rest of the
+    -- family is rebuilt afterwards. Objects of another author built on those
+    -- views would go with them, so the delete is refused while one exists
+    -- (90256). A plain entity's delete still drops what is built on its table.
+    PERFORM dd_check_family_dependents(ARRAY[OLD.table_name]);
 
     IF v_derived THEN
         -- The view takes its INSTEAD OF trigger, the write routine and the
@@ -8150,7 +8175,10 @@ BEGIN
         -- statement rebuilds them (dd_refresh_family, called from
         -- apply_field_searchable_change). Without it, the first searchable
         -- change on a family table would fail on the view depending on the
-        -- column.
+        -- column. The views would take the objects built on them along
+        -- before the refresh could see them, so those are checked here
+        -- (90256).
+        PERFORM dd_check_family_dependents(ARRAY[p_table_name]);
         EXECUTE format(
             'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector CASCADE',
             v_rel
@@ -8215,6 +8243,7 @@ BEGIN
     END IF;
 
     -- Drop existing search_vector column if it exists (CASCADE: see above)
+    PERFORM dd_check_family_dependents(ARRAY[p_table_name]);
     EXECUTE format(
         'ALTER TABLE %I DROP COLUMN IF EXISTS search_vector CASCADE',
         v_rel
@@ -8470,37 +8499,32 @@ COMMENT ON TRIGGER enforce_table_searchable_consistency_trigger ON entities IS
 -- =====================================================
 -- IS_CHILD FUNCTIONS AND TRIGGERS
 -- =====================================================
--- Manages entities.is_child based on whether any field has format='parent'
--- Automatically maintains entities.is_child similar to searchable
+-- Manages entities.is_child based on whether any field of the record has
+-- format='parent' (dd_entity_is_child), the way searchable is maintained.
 
 -- =====================================================
 -- HELPER FUNCTION: Update entities.is_child flag
 -- =====================================================
 
+-- The entities based on this one inherit its fields, so their flag is
+-- recomputed with its own.
 CREATE OR REPLACE FUNCTION update_table_is_child_flag(p_table_name TEXT)
 RETURNS VOID AS $$
-DECLARE
-    v_has_parent_fields BOOLEAN;
 BEGIN
     -- Note: no rbac.uid() here — this function is called by triggers
     -- during migrations when there is no JWT context.
 
-    v_has_parent_fields := EXISTS (
-        SELECT 1 FROM fields
-        WHERE table_name = p_table_name
-          AND format = 'parent'
-    );
-    
     -- Gated like update_table_searchable_flag above.
-    UPDATE entities
-    SET is_child = v_has_parent_fields
-    WHERE table_name = p_table_name
-      AND is_child IS DISTINCT FROM v_has_parent_fields;
+    UPDATE entities e
+       SET is_child = dd_entity_is_child(e.table_name)
+     WHERE (e.table_name = p_table_name
+            OR e.table_name IN (SELECT d.table_name FROM dd_descendants(p_table_name) d))
+       AND e.is_child IS DISTINCT FROM dd_entity_is_child(e.table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-COMMENT ON FUNCTION update_table_is_child_flag IS 
-'Auto-maintains the is_child flag on entities table based on whether any related fields have format=''parent''.';
+COMMENT ON FUNCTION update_table_is_child_flag IS
+'Auto-maintains the is_child flag of an entity and of the entities based on it: TRUE when any field of the record has format=''parent'' (dd_entity_is_child).';
 
 -- =====================================================
 -- TRIGGER FUNCTION: Handle field parent format changes
@@ -8556,11 +8580,12 @@ DECLARE
     v_computed_is_child BOOLEAN;
 BEGIN
     IF OLD.is_child IS DISTINCT FROM NEW.is_child THEN
+        -- The row's own parent fields, or those of the levels above it.
         v_computed_is_child := EXISTS (
-            SELECT 1 FROM fields 
-            WHERE table_name = NEW.table_name 
+            SELECT 1 FROM fields
+            WHERE table_name = NEW.table_name
               AND format = 'parent'
-        );
+        ) OR (NEW.id_refentity IS NOT NULL AND dd_entity_is_child(NEW.id_refentity));
 
         NEW.is_child := v_computed_is_child;
     END IF;
@@ -8593,8 +8618,10 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 --   90249  no order_column (the root's order column is no field and not in
 --          the views)
 --   90252  a base stays managed while entities are based on it
+--   90254  a new is_a entity's prefix is carried by no row of its root
 -- The key column and the label column are set from the base on insert; the
--- label column is the root's, which every level of a chain shares.
+-- label column is the root's, which every level of a chain shares. So is
+-- is_child, which a parent field on any level above sets.
 --
 -- The name sorts before set_entity_defaults_trigger, which derives
 -- singular_label from label_column and has to see the inherited one.
@@ -8604,7 +8631,9 @@ DECLARE
     v_derived    BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
     v_base       entities%ROWTYPE;
     v_has_base   BOOLEAN := FALSE;
+    v_root       TEXT;
     v_root_label TEXT;
+    v_taken      BOOLEAN;
     v_dependents TEXT;
 BEGIN
     IF TG_OP = 'INSERT' THEN
@@ -8625,13 +8654,37 @@ BEGIN
                               'hint', 'An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.')::text;
             END IF;
             IF v_has_base THEN
-                SELECT e.label_column INTO v_root_label
+                SELECT e.label_column, e.table_name INTO v_root_label, v_root
                   FROM dd_ancestors(NEW.id_refentity) a
                   JOIN entities e ON e.table_name = a.table_name
                  WHERE a.depth = 0;
+                -- The root dispatches a row to the subtype its id's prefix
+                -- names. A prefix the root gave up is free again, but its rows
+                -- keep it: a subtype taking it would be handed rows that have
+                -- no part in it. One scan of the root, as the definer, so rows
+                -- the caller cannot read count too.
+                IF NEW.id_type = 'is_a'
+                   AND pg_catalog.to_regclass(format('public.%I', v_root)) IS NOT NULL THEN
+                    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE common.typeid_prefix(t.%I) = $1)',
+                                   v_root, v_base.id_column)
+                       INTO v_taken
+                      USING NEW.id_prefix;
+                    IF v_taken THEN
+                        RAISE EXCEPTION 'Records of ${base} already carry the prefix ${prefix}'
+                            USING ERRCODE = '90254',
+                                  HINT = jsonb_build_object(
+                                      'table', NEW.table_name,
+                                      'base', v_root,
+                                      'prefix', NEW.id_prefix,
+                                      'hint', 'The prefix names the type of a record. Choose a prefix no record of the family carries.')::text;
+                    END IF;
+                END IF;
                 NEW.id_column := v_base.id_column;
                 NEW.label_column := v_root_label;
                 NEW.label_parent := '';
+                -- It has no fields yet; a parent field above it makes it a
+                -- child from the start.
+                NEW.is_child := dd_entity_is_child(NEW.id_refentity);
             END IF;
         END IF;
     ELSE
@@ -8647,12 +8700,11 @@ BEGIN
                       HINT = jsonb_build_object('table', NEW.table_name)::text;
         END IF;
 
-        -- Compared with the root's label column rather than the direct base's:
-        -- a label rename on the root updates every descendant in one
-        -- statement, in no particular order, after the root itself
-        -- (validate_field_rename_and_format in 0170_dd_rename.sql). The chain
-        -- is walked from the base, which exists under NEW.id_refentity even
-        -- while this row is being renamed or follows its base's rename.
+        -- Compared with the root's label column: a change of it reaches this
+        -- row through family_label_column_trigger, once every level above has
+        -- taken it. The chain is walked from the base, which exists under
+        -- NEW.id_refentity even while this row is being renamed or follows
+        -- its base's rename.
         IF v_derived THEN
             SELECT e.label_column INTO v_root_label
               FROM dd_ancestors(NEW.id_refentity) a
@@ -8689,12 +8741,40 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION check_entity_family() IS
-'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249) and refuses unmanaging a base with dependents (90252). Sets id_column, label_column and label_parent from the base on insert.';
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_parent and is_child from the base on insert.';
 
 CREATE OR REPLACE TRIGGER check_entity_family_trigger
     BEFORE INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION check_entity_family();
+
+-- Every level of a family carries the root's label column (90242 holds it
+-- there), so a change of a base's label column is carried to the entities
+-- based on it directly, and their own update carries it one level further.
+-- Without it, a changed root would leave its descendants with a value 90242
+-- refuses, and every later write to their rows - a rename, a searchable
+-- change - would fail. The change is written before the rows below are
+-- checked against it, because this runs after the base's row is updated.
+-- A plain entity has nothing based on it, and the update writes no row.
+CREATE OR REPLACE FUNCTION dd_family_label_column_changed()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE entities
+       SET label_column = NEW.label_column
+     WHERE id_refentity = NEW.table_name
+       AND label_column IS DISTINCT FROM NEW.label_column;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_label_column_changed() IS
+'AFTER UPDATE trigger on entities: carries a changed label_column to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
+
+CREATE OR REPLACE TRIGGER family_label_column_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column)
+    EXECUTE FUNCTION dd_family_label_column_changed();
 
 -- Two checks on the fields of a family:
 --   90243  a field name is unique across the entities that share records - an
@@ -8944,6 +9024,18 @@ COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 --           is written too, and its rules run in a second pass. A changed key
 --           raises 90236. Each column is written only when it changed, so a
 --           concurrent change to another column is kept.
+--           has_a: a change of the base's columns on a record whose id names
+--           an is_a subtype of the base is a change of that subtype record,
+--           so it goes to the subtype's write routine, which runs the rules
+--           and takes the locks of every level of the record; the extension
+--           then writes only its own part. A record the caller cannot write
+--           whole, or read through the subtype's view, is skipped. Written
+--           here instead, the base row would change at trigger depth 2, where
+--           the root's dispatch does not act, and every is_a level's rules and
+--           edit permissions would be passed by. The extension's part is
+--           locked before the subtype's levels, out of top-down order; every
+--           writer that changes the base columns locks the base row first,
+--           and that orders them.
 --   delete  is_a: every derived level's delete rules, bottom-up, then every
 --           part bottom-up and the root row. has_a: t's rules, then t_ext only
 --           (detach); the base record stays.
@@ -8985,6 +9077,11 @@ DECLARE
     v_del         TEXT := '';
     v_attach_in   TEXT := '';
     v_attach_out  TEXT := '';
+    v_root_cols   TEXT[] := ARRAY[]::TEXT[];
+    v_route_decls TEXT := '';
+    v_route_whens TEXT := '';
+    v_route       TEXT := '';
+    v_si          INTEGER := 0;
     v_cols        TEXT[];
     v_cond        TEXT;
     v_stmt        TEXT;
@@ -9015,6 +9112,9 @@ BEGIN
           INTO v_cols
           FROM dd_family_columns(p_table_name) fc
          WHERE fc.depth = r.depth;
+        IF r.depth = 0 THEN
+            v_root_cols := v_cols;
+        END IF;
 
         -- The highest level whose columns differ between v_new and p_old.
         IF cardinality(v_cols) > 0 THEN
@@ -9071,7 +9171,11 @@ BEGIN
         ELSE
             v_lock := v_lock || format(E'\n        IF %s THEN\n            %s\n        END IF;',
                 v_cond, format(v_stmt, '            ', '            ', '            '));
-            v_upd := v_upd || format(E'\n        IF %s THEN\n            %s;\n        END IF;', v_cond, v_update);
+            -- has_a: a base row the subtype's write routine wrote is not
+            -- written again.
+            v_upd := v_upd || format(E'\n        IF %s THEN\n            %s;\n        END IF;',
+                v_cond || CASE WHEN r.depth = 0 AND NOT v_is_a THEN ' AND NOT v_routed' ELSE '' END,
+                v_update);
         END IF;
 
         IF v_is_a OR r.depth = v_n THEN
@@ -9127,6 +9231,59 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- has_a: a base change of a subtype record goes to the subtype's write
+    -- routine, chosen by the id's prefix like the root's dispatch does. The
+    -- record is read through the subtype's view as the caller; the base
+    -- columns stored come back from the routine, whose computed fields may
+    -- have set them.
+    IF NOT v_is_a AND cardinality(v_root_cols) > 0 THEN
+        FOR r IN
+            SELECT e.table_name, e.id_prefix
+              FROM dd_descendants(v_root.table_name) d
+              JOIN entities e ON e.table_name = d.table_name
+             WHERE e.id_type = 'is_a'
+               AND pg_catalog.to_regclass(format('public.%I', e.table_name)) IS NOT NULL
+             ORDER BY d.depth, e.table_name
+        LOOP
+            v_si := v_si + 1;
+            v_route_decls := v_route_decls || format(E'\n    v_sub_old_%1$s public.%2$I;\n    v_sub_new_%1$s public.%2$I;',
+                v_si, r.table_name);
+            v_route_whens := v_route_whens || format($RT$
+                WHEN %1$L THEN
+                    SELECT * INTO v_sub_old_%2$s FROM public.%3$I AS t WHERE t.%4$I = p_old.%4$I;
+                    IF NOT FOUND THEN
+                        IF common.is_a_part_missing(%3$L, p_old.%4$I) THEN
+                            RAISE EXCEPTION 'Record ${id} of ${table} has no part in ${subtype}, the type its id names'
+                                USING ERRCODE = '90255',
+                                      HINT = jsonb_build_object('id', p_old.%4$I, 'table', %5$L, 'subtype', %3$L)::text;
+                        END IF;
+                        RETURN NULL;
+                    END IF;
+                    v_sub_new_%2$s := v_sub_old_%2$s;%6$s
+                    v_sub_new_%2$s := common.%7$I('update', v_sub_old_%2$s, v_sub_new_%2$s, false);
+                    IF v_sub_new_%2$s IS NULL THEN
+                        RETURN NULL;
+                    END IF;%8$s
+                    v_routed := true;$RT$,
+                r.id_prefix, v_si, r.table_name, v_k, p_table_name,
+                (SELECT string_agg(format(E'\n                    v_sub_new_%s.%I := v_new.%I;', v_si, x, x), '')
+                   FROM unnest(v_root_cols) x),
+                'record_write_' || r.table_name,
+                (SELECT string_agg(format(E'\n                    v_new.%I := v_sub_new_%s.%I;', x, v_si, x), '')
+                   FROM unnest(v_root_cols) x));
+        END LOOP;
+        IF v_route_whens <> '' THEN
+            v_route := format(E'\n        -- A base change of a subtype record is written by the subtype.'
+                              '\n        IF v_top <= 0 THEN'
+                              '\n            CASE common.typeid_prefix(p_old.%1$I)%2$s'
+                              '\n                ELSE'
+                              '\n                    NULL;'
+                              '\n            END CASE;'
+                              '\n        END IF;',
+                              v_k, v_route_whens);
+        END IF;
+    END IF;
+
     v_top_expr := CASE WHEN v_top_expr = '' THEN v_n::text
                        ELSE format('CASE%s ELSE %s END', v_top_expr, v_n) END;
 
@@ -9145,6 +9302,7 @@ DECLARE
     v_top2   integer;
     v_base   public.%3$I;
     v_attach boolean := false;
+    v_routed boolean := false;%14$s
 BEGIN
     IF p_op = 'insert' THEN
 %4$s
@@ -9155,7 +9313,7 @@ BEGIN
                       HINT = jsonb_build_object('column', %5$L, 'table', %6$L)::text;
         END IF;
         v_top := %7$s;%8$s
-        -- Lock every level that will be written, top-down, before writing any.%9$s
+        -- Lock every level that will be written, top-down, before writing any.%9$s%15$s
 %10$s
     ELSE
         -- Lock every part top-down before the rules run, so the rules of a
@@ -9214,7 +9372,9 @@ $BODY$,
         v_upd,
         v_dlock,
         v_rules_del,
-        v_del);
+        v_del,
+        v_route_decls,
+        v_route);
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
@@ -9263,10 +9423,18 @@ BEGIN
         v_i := v_i + 1;
         decls := decls || format(E'\n    v_old_%1$s public.%2$I;\n    v_new_%1$s public.%2$I;\n    v_res_%1$s public.%2$I;',
             v_i, r.table_name);
+        -- Not found is a part the caller may not read, and the record is
+        -- skipped like a row RLS hides; or a part that is missing, and the
+        -- write is refused rather than reported as done.
         branches := branches || format($BR$
         WHEN %1$L THEN
             SELECT * INTO v_old_%2$s FROM public.%3$I AS t WHERE t.%4$I = OLD.%4$I;
             IF NOT FOUND THEN
+                IF common.is_a_part_missing(%3$L, OLD.%4$I) THEN
+                    RAISE EXCEPTION 'Record ${id} of ${table} has no part in ${subtype}, the type its id names'
+                        USING ERRCODE = '90255',
+                              HINT = jsonb_build_object('id', OLD.%4$I, 'table', %9$L, 'subtype', %3$L)::text;
+                END IF;
                 RETURN NULL;
             END IF;
             IF TG_OP = 'UPDATE' THEN
@@ -9288,13 +9456,14 @@ BEGIN
                  THEN format(E'\n            IF TG_OP = ''UPDATE'' THEN%s\n            END IF;',
                         (SELECT coalesce(string_agg(format(E'\n                NEW.%I := v_res_%s.%I;', x, v_i, x), ''), '')
                            FROM unnest(v_cols) x))
-                 ELSE '' END);
+                 ELSE '' END,
+            p_table_name);
     END LOOP;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public;
 
 COMMENT ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) IS
-'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id. Shared by the view triggers and the root''s dispatch trigger.';
+'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id; a record the caller cannot read through the descendant''s view is skipped, one missing a part raises 90255. Shared by the view triggers and the root''s dispatch trigger.';
 
 -- The INSTEAD OF trigger of a derived entity's view. An insert creates a
 -- record of this entity. An update or delete of a record whose own type is a
@@ -9374,7 +9543,9 @@ COMMENT ON FUNCTION dd_build_view_write(TEXT) IS
 -- pg_trigger_depth() = 1, a direct write: at a deeper level the write comes
 -- from a write routine, which has done that already, or from an RI action,
 -- which reaches only the root row (the depth invariant above). A plain root
--- row costs one CASE. The name sorts before compute_validate_trigger, so the
+-- row costs one CASE. A row whose id names a subtype that has no part for it
+-- is refused (90255) rather than skipped, which would report a write that
+-- never happened. The name sorts before compute_validate_trigger, so the
 -- root's own rules run after the derived ones, on the final root row.
 CREATE OR REPLACE FUNCTION dd_build_is_a_dispatch(p_root TEXT)
 RETURNS VOID AS $$
@@ -9463,6 +9634,185 @@ $$;
 COMMENT ON FUNCTION common.has_a_guard() IS
 'BEFORE DELETE trigger of a has_a base (TG_ARGV: key column, then the extension entities): refuses to delete a record that still has an extension record (90251).';
 
+-- TRUE when the root holds a row with the id but some level of the is_a
+-- entity p_table has no part for it: a record the dispatch cannot carry to
+-- its own type. The dispatch reads the record through the subtype's view as
+-- the caller, and finds nothing both for a part the caller may not read and
+-- for a part that is not there; only the second is an error (90255), and
+-- only the definer can tell them apart. It answers FALSE for a complete
+-- record and for an id no row has, so it tells a caller nothing but that a
+-- record is broken. A missing part cannot come from the dictionary's own
+-- writes: 90254 keeps a new subtype off the prefixes of existing rows, and
+-- the parts are written only by the write routines.
+CREATE OR REPLACE FUNCTION common.is_a_part_missing(p_table TEXT, p_id TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+    v_key     TEXT;
+    v_missing BOOLEAN;
+    r         RECORD;
+BEGIN
+    SELECT e.id_column INTO v_key FROM entities e WHERE e.table_name = p_table AND e.id_type = 'is_a';
+    IF NOT FOUND THEN
+        RETURN FALSE;
+    END IF;
+    FOR r IN
+        SELECT a.depth, dd_relation(e.table_name, e.id_type) AS rel
+          FROM dd_ancestors(p_table) a
+          JOIN entities e ON e.table_name = a.table_name
+         ORDER BY a.depth
+    LOOP
+        EXECUTE format('SELECT NOT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1::common.typeid)', r.rel, v_key)
+           INTO v_missing
+          USING p_id;
+        IF v_missing THEN
+            -- No root row: no record at all, which is no broken one.
+            RETURN r.depth > 0;
+        END IF;
+    END LOOP;
+    RETURN FALSE;
+END;
+$$;
+
+COMMENT ON FUNCTION common.is_a_part_missing(TEXT, TEXT) IS
+'TRUE when the root of is_a entity p_table holds a row with id p_id but a level of p_table has no part for it. Run as the definer, so a part the caller may not read counts as present. Used by the generated dispatch to refuse a write it cannot carry to the record''s own type (90255).';
+
+-- Objects built on a family view by someone else. A family is rebuilt by
+-- dropping its views with CASCADE (dd_refresh_family, and the DROP COLUMN
+-- ... CASCADE of a field delete or a search_vector rebuild before it), and
+-- PostgreSQL drops whatever depends on a view with it: a report view, a
+-- function over the view's row type, a policy that reads it. On a plain entity
+-- a field change never touches what is built on its table, so these would
+-- vanish without a word on a change that looks harmless, like a field add.
+-- A change that drops a family view is therefore refused while such an object
+-- exists (90256), and the refusal names it; the admin drops it, makes the
+-- change and creates it again.
+--
+-- What the dictionary itself builds on a view is not counted, and neither is
+-- what depends on that: the view's own rule, column defaults and row type
+-- (with its array type), its view_write trigger, the write, view trigger and
+-- dispatch routines, the one-argument _label / <fk>_label functions of its row
+-- type (rebuild_entity_label_functions drops every one of those itself), and
+-- the select_rule functions.
+CREATE OR REPLACE FUNCTION dd_generated_view_dependent(p_classid OID, p_objid OID, p_views OID[])
+RETURNS BOOLEAN AS $$
+    SELECT CASE p_classid
+        WHEN 'pg_catalog.pg_rewrite'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite r
+                     WHERE r.oid = p_objid AND r.ev_class = ANY (p_views))
+        WHEN 'pg_catalog.pg_attrdef'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_attrdef a
+                     WHERE a.oid = p_objid AND a.adrelid = ANY (p_views))
+        WHEN 'pg_catalog.pg_trigger'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+                     WHERE t.oid = p_objid AND t.tgrelid = ANY (p_views) AND t.tgname = 'view_write')
+        WHEN 'pg_catalog.pg_type'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_type t
+                      JOIN pg_catalog.pg_class c ON c.reltype IN (t.oid, t.typelem)
+                     WHERE t.oid = p_objid AND c.oid = ANY (p_views))
+        WHEN 'pg_catalog.pg_proc'::regclass THEN
+            EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+                     WHERE p.oid = p_objid
+                       AND ((p.pronamespace = 'common'::regnamespace
+                             AND (p.proname LIKE 'record\_write\_%'
+                                  OR p.proname LIKE 'view\_write\_%'
+                                  OR p.proname LIKE 'is\_a\_dispatch\_%'))
+                            OR (p.pronamespace = 'public'::regnamespace
+                                AND (p.proname LIKE 'select\_rule\_%'
+                                     OR (p.pronargs = 1
+                                         AND (p.proname = '_label' OR p.proname LIKE '%\_label'))))))
+        ELSE FALSE
+    END;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_generated_view_dependent(OID, OID, OID[]) IS
+'TRUE when the object (pg_depend classid, objid) that depends on one of the family views p_views is one the dictionary generates for them: a view''s rule, column default, row or array type, view_write trigger, write/view-trigger/dispatch routine, _label or <fk>_label function, or select_rule function.';
+
+-- The objects that depend on the views p_views, directly or through a
+-- generated object, and are not generated themselves; each with the view it
+-- is built on. The walk follows pg_depend from the views and continues only
+-- through generated objects: whatever depends on a foreign object is dropped
+-- with it, and naming the first is enough.
+CREATE OR REPLACE FUNCTION dd_family_view_dependents(p_views OID[])
+RETURNS TABLE (view_name TEXT, dependent TEXT) AS $$
+    WITH RECURSIVE dep(view_oid, classid, objid, generated, hops) AS (
+        SELECT d.refobjid, d.classid, d.objid,
+               dd_generated_view_dependent(d.classid, d.objid, p_views), 1
+          FROM pg_catalog.pg_depend d
+         WHERE d.refclassid = 'pg_catalog.pg_class'::regclass
+           AND d.refobjid = ANY (p_views)
+        UNION
+        SELECT dep.view_oid, d.classid, d.objid,
+               dd_generated_view_dependent(d.classid, d.objid, p_views), dep.hops + 1
+          FROM dep
+          JOIN pg_catalog.pg_depend d ON d.refclassid = dep.classid AND d.refobjid = dep.objid
+         WHERE dep.generated
+           AND dep.hops < 6
+    )
+    SELECT DISTINCT
+           dep.view_oid::regclass::text,
+           CASE WHEN dep.classid = 'pg_catalog.pg_rewrite'::regclass
+                THEN (SELECT CASE c.relkind WHEN 'm' THEN 'materialized view ' ELSE 'view ' END
+                             || c.oid::regclass::text
+                        FROM pg_catalog.pg_rewrite r
+                        JOIN pg_catalog.pg_class c ON c.oid = r.ev_class
+                       WHERE r.oid = dep.objid)
+                ELSE pg_catalog.pg_describe_object(dep.classid, dep.objid, 0)
+           END
+      FROM dep
+     WHERE NOT dep.generated;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_family_view_dependents(OID[]) IS
+'The objects built on the family views p_views, directly or through a generated object, that the dictionary did not generate (dd_generated_view_dependent), each with the view it depends on.';
+
+-- Refuses (90256) a change that drops the views of the families containing
+-- any of p_entities while objects of another author depend on them. Called
+-- before the first DROP ... CASCADE that can reach a family view: at the start
+-- of dd_refresh_family, and in delete_dd_field, update_search_vector_column and
+-- delete_dd_table, whose drops come before the refresh. Reads only, and
+-- returns at once for an entity outside every family.
+CREATE OR REPLACE FUNCTION dd_check_family_dependents(p_entities TEXT[])
+RETURNS VOID AS $$
+DECLARE
+    v_views      OID[];
+    v_on         TEXT;
+    v_dependents TEXT;
+BEGIN
+    SELECT array_agg(DISTINCT c.oid)
+      INTO v_views
+      FROM unnest(coalesce(p_entities, ARRAY[]::TEXT[])) AS t(name)
+     CROSS JOIN LATERAL dd_ancestors(t.name) a
+     CROSS JOIN LATERAL dd_descendants(a.table_name) d
+      JOIN pg_catalog.pg_class c ON c.oid = pg_catalog.to_regclass(format('public.%I', d.table_name))
+     WHERE a.depth = 0
+       AND c.relkind = 'v';
+    IF v_views IS NULL THEN
+        RETURN;
+    END IF;
+
+    SELECT string_agg(DISTINCT x.view_name, ', ' ORDER BY x.view_name),
+           string_agg(DISTINCT x.dependent, ', ' ORDER BY x.dependent)
+      INTO v_on, v_dependents
+      FROM dd_family_view_dependents(v_views) x;
+    IF v_dependents IS NOT NULL THEN
+        RAISE EXCEPTION 'This change drops ${views}, and with them ${dependents}, which the dictionary did not create'
+            USING ERRCODE = '90256',
+                  HINT = jsonb_build_object(
+                      'views', v_on,
+                      'dependents', v_dependents,
+                      'hint', 'Drop those objects, make the change, then create them again.')::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_family_dependents(TEXT[]) IS
+'Raises 90256 when objects the dictionary did not generate depend on a view of a family containing any of the given entities, before a change drops those views. Returns at once for entities outside every family.';
+
 -- Rebuilds every family that contains one of the given entities: the views,
 -- the write routines and view triggers, the root's typeid_assign (with the
 -- subtype prefixes) and dispatch trigger, the has_a delete guard, and the
@@ -9493,6 +9843,10 @@ BEGIN
     IF v_roots IS NULL THEN
         RETURN;
     END IF;
+
+    -- Step 1 drops every view with CASCADE: refused while an object of
+    -- another author is built on one (90256).
+    PERFORM dd_check_family_dependents(v_roots);
 
     SET LOCAL client_min_messages = WARNING;
 
@@ -9771,6 +10125,8 @@ GRANT EXECUTE ON FUNCTION dd_descendants(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_family_fields(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_entity_viewable(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_entity_searchable(TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_entity_is_child(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_entity_is_child(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_family_columns(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_family_view(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_record_write(TEXT) FROM PUBLIC;
@@ -9778,10 +10134,17 @@ REVOKE EXECUTE ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_view_write(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_is_a_dispatch(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_refresh_family(TEXT[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_generated_view_dependent(OID, OID, OID[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family_view_dependents(OID[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_family_dependents(TEXT[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_family_member_changed() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION check_entity_family() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family_label_column_changed() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_family_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.has_a_guard() FROM PUBLIC;
+-- Called by the generated dispatch, which runs as the caller.
+REVOKE EXECUTE ON FUNCTION common.is_a_part_missing(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION common.is_a_part_missing(TEXT, TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -9825,7 +10188,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30')
+        VALUES ('_core.0160_dd_functions.sql', '8921b4cace558e4dfd8a06da55e2f485391aff07113afcef1523daeb3077ee90')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -9862,7 +10225,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e1ca2682badd5f0c9c16d821a07b3c98044060c6c8ee868f1ea2deb8cf5fc338') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -10287,18 +10650,12 @@ BEGIN
         -- Core fields (ctype <> '') cannot be renamed, except the label column
         IF coalesce(OLD.ctype, '') <> '' THEN
             IF OLD.ctype = 'label' THEN
-                -- Label column rename is allowed; update entities.label_column to match
+                -- Label column rename is allowed; update entities.label_column
+                -- to match. family_label_column_trigger (0160_dd_functions.sql)
+                -- carries it to the entities based on this one.
                 UPDATE entities
                    SET label_column = NEW.field_name
                  WHERE table_name = OLD.table_name
-                   AND label_column = OLD.field_name;
-                -- The entities based on this one carry its label column as
-                -- their own (90242 holds them to their root's). A second
-                -- statement rather than a wider WHERE: the check compares with
-                -- the root's value, which has to be written first.
-                UPDATE entities
-                   SET label_column = NEW.field_name
-                 WHERE table_name IN (SELECT d.table_name FROM dd_descendants(OLD.table_name) d)
                    AND label_column = OLD.field_name;
                 RAISE NOTICE 'Updated entities.label_column from "%" to "%" for table "%"',
                     OLD.field_name, NEW.field_name, OLD.table_name;
@@ -10455,7 +10812,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', '8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64')
+        VALUES ('_core.0170_dd_rename.sql', 'e1ca2682badd5f0c9c16d821a07b3c98044060c6c8ee868f1ea2deb8cf5fc338')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12716,7 +13073,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -13461,10 +13818,15 @@ BEGIN
     END IF;
 
     IF TG_OP = 'UPDATE' THEN
+        -- The rule function of an is_a or has_a entity reads its base by name.
+        -- id_refentity changes only when the base is renamed (ON UPDATE
+        -- CASCADE), and a function left reading the old name fails every read
+        -- of the entity with 42P01.
         IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
            OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
            OR OLD.managed IS DISTINCT FROM NEW.managed
-           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+           OR OLD.table_name IS DISTINCT FROM NEW.table_name
+           OR OLD.id_refentity IS DISTINCT FROM NEW.id_refentity THEN
             PERFORM build_select_rule_policy(NEW.table_name);
         END IF;
         RETURN NEW;
@@ -13494,7 +13856,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51')
+        VALUES ('_core.0210_computed_validation.sql', '27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15771,7 +16133,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -15809,7 +16171,8 @@ $pgsem__core_0280_apikeys_sql$;
 -- after the entity it is based on; a file that names it first fails on
 -- entities_id_refentity_fkey. The records of such an entity carry the fields
 -- of its whole record and are written through its view, whose write routine
--- stores each part.
+-- stores each part. Records are written in the opposite direction: the deepest
+-- is_a level first, then its bases, then the has_a extensions (step 6).
 --
 -- All four functions are SECURITY INVOKER and granted to nobody: they run as
 -- the installing role, inside a migration. Their errors are install-time errors
@@ -16024,8 +16387,9 @@ DECLARE
     -- implied by the document's structure.
     c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
         'created_at', 'updated_at', 'module_id', 'search_vector'];
-    -- id_type is create-only because the key column is typed from it when the
-    -- table is created (rule 90233 refuses a change), and id_refentity because
+    -- id_column and id_type are create-only because the key column is named
+    -- and typed from them when the table is created (rules 90253 and 90233
+    -- refuse a change), and id_refentity because
     -- an is_a or has_a entity's records are stored in its base (90241).
     -- id_prefix is not: a changed prefix in the file is applied like any other
     -- difference, and refused for an is_a entity (90245).
@@ -16427,6 +16791,13 @@ BEGIN
         SELECT jsonb_object_agg(key, value) INTO v_row
           FROM jsonb_each(v_entity)
          WHERE key <> ALL (c_entity_deferred || c_entity_ignored || ARRAY['fields', 'module_name']);
+        -- An is_a or has_a entity's label settings are its root's: set on
+        -- insert and held there by check_entity_family (90242). The file's
+        -- values are not written, so an export made before the root's label
+        -- column changed still applies, and applies again unchanged.
+        IF coalesce(v_current.id_type, v_entity ->> 'id_type') IN ('is_a', 'has_a') THEN
+            v_row := v_row - 'label_column';
+        END IF;
         IF v_entity ? 'module_name' THEN
             SELECT id INTO v_module_id FROM modules WHERE module_name = v_entity ->> 'module_name';
             IF v_module_id IS NULL THEN
@@ -16523,7 +16894,11 @@ BEGIN
         v_table := v_entity ->> 'table_name';
         SELECT jsonb_object_agg(key, value) INTO v_row
           FROM jsonb_each(v_entity) WHERE key = ANY (c_entity_deferred);
-        CONTINUE WHEN v_row IS NULL;
+        -- label_parent of an is_a or has_a entity is its root's; see step 3.
+        IF (SELECT e.id_type FROM entities e WHERE e.table_name = v_table) IN ('is_a', 'has_a') THEN
+            v_row := v_row - 'label_parent';
+        END IF;
+        CONTINUE WHEN v_row IS NULL OR v_row = '{}'::jsonb;
         v_status := ensure_entities_row('entities',
             jsonb_build_object('table_name', v_table),
             v_row || jsonb_build_object('table_name', v_table),
@@ -16536,7 +16911,7 @@ BEGIN
     END LOOP;
 
     -- ---------------------------------------------------------------
-    -- 6. Records, table by table in foreign-key order.
+    -- 6. Records, table by table in foreign-key and family order.
     -- ---------------------------------------------------------------
     DECLARE
         v_pending  TEXT[];
@@ -16563,6 +16938,16 @@ BEGIN
             -- with records here) are all written. A reference to its own
             -- table needs no order: one INSERT writes every new row, and the
             -- foreign key is checked at the end of that statement.
+            --
+            -- Within a family, the deepest is_a level first, then its bases up
+            -- to the root, then the has_a entities. An export lists a subtype
+            -- record under every level it was read through; written through
+            -- its own type first, it has all its parts by the time a base's
+            -- copy comes, which then finds the row and updates it through the
+            -- dispatch. A base record written first would take a subtype's id
+            -- and be refused (90237). An extension attaches to a record that
+            -- exists. A subtype record that references a record of its own
+            -- base in the same file cannot be ordered either way.
             SELECT p INTO v_next
               FROM unnest(v_pending) WITH ORDINALITY AS u(p, ord)
              WHERE NOT EXISTS (
@@ -16571,6 +16956,20 @@ BEGIN
                         AND f.format IN ('reference', 'parent')
                         AND f.reference_table <> p
                         AND f.reference_table = ANY (v_pending))
+               AND NOT EXISTS (
+                     SELECT 1 FROM dd_descendants(p) d
+                       JOIN entities s ON s.table_name = d.table_name
+                      WHERE s.id_type = 'is_a'
+                        AND d.table_name = ANY (v_pending))
+               AND NOT EXISTS (
+                     SELECT 1 FROM entities h
+                      WHERE h.table_name = p
+                        AND h.id_type = 'has_a'
+                        AND (h.id_refentity = ANY (v_pending)
+                             OR EXISTS (SELECT 1 FROM dd_descendants(h.id_refentity) d
+                                          JOIN entities s ON s.table_name = d.table_name
+                                         WHERE s.id_type = 'is_a'
+                                           AND d.table_name = ANY (v_pending))))
              ORDER BY ord
              LIMIT 1;
             IF v_next IS NULL THEN
@@ -16688,7 +17087,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', 'e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa')
+        VALUES ('_core.0290_ensure_entities.sql', 'aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -21715,7 +22114,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"84bbf7b96997641ffb209729de2863f974faaad72fd5744bae59026f3411265d","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"84dcaf99e6c0ec33ba8e8664c65ccb0a935e60ec872aa49f75b3625aa3b90401","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"75377ffaadc69b6dd9fbae9a4cb1f909e22ca10c74b6e84cf5188d5e2fbc02cf","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"a2cc44b0b69f7e8577be8b69c55847bbb4a1bf767c43b14db693cced2529c8ac","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"8921b4cace558e4dfd8a06da55e2f485391aff07113afcef1523daeb3077ee90","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"e1ca2682badd5f0c9c16d821a07b3c98044060c6c8ee868f1ea2deb8cf5fc338","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -21779,7 +22178,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"84bbf7b96997641ffb209729de2863f974faaad72fd5744bae59026f3411265d","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"84dcaf99e6c0ec33ba8e8664c65ccb0a935e60ec872aa49f75b3625aa3b90401","_core.0160_dd_functions.sql":"97a84074e379a7ea81fbad97f81f38cb21210986e354e7e1c3ccf6c4c3cbde30","_core.0170_dd_rename.sql":"8bf70226d3baac927a601971e2110e1f77a2cad5ba4a5c3429c6c8f3897c0c64","_core.0180_managed_enable.sql":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","_core.0210_computed_validation.sql":"ff190cafa8d192e32fb527d75e63ab519d6535f23eb0818734e477ba656f9f51","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"e1ff644979fc8f7400f42c6acab0d839cf13cd40b1e3b039ab7b0efa93b5c2fa","_core.0300_audit_log.jsonc":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"af2c6847c851ddc6f147c9e3b4aa073ddfa2c9f07013c9e9bd15097bbc88b86b","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"6bdb923f03c0806a6d34ffe38d4b1b5cc899b6b0ef9bc09a1fd26bb55c6ca6a1","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"3f346dd24bb3aa5bf391319ec3e88a28d1b29564d8e37aed78e17c5665c600fd","_core.0130_dd_schema.once.sql":"75377ffaadc69b6dd9fbae9a4cb1f909e22ca10c74b6e84cf5188d5e2fbc02cf","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"a2cc44b0b69f7e8577be8b69c55847bbb4a1bf767c43b14db693cced2529c8ac","_core.0160_dd_functions.sql":"8921b4cace558e4dfd8a06da55e2f485391aff07113afcef1523daeb3077ee90","_core.0170_dd_rename.sql":"e1ca2682badd5f0c9c16d821a07b3c98044060c6c8ee868f1ea2deb8cf5fc338","_core.0180_managed_enable.sql":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","_core.0210_computed_validation.sql":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"afa3fa33fc6a7d7f2f254692ebac449fd677caf67c4617a656d0bc2dd6c4297b","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","_core.0300_audit_log.jsonc":"61a1dbc7bef22719849dd429ac4284aa8680af798a4bfe588388bb6323722b15","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"83f19c5f74be0e7e47497a007ed5d342143692986231ad95338b5b599095f0fe","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"8d7e2563a761f03bb058a6d422a862f449e1c73fba47ee9cce984340c4d4a992","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"3b288734162f9f0ed8b9c3ebbcf9afed3bddd192c1f6ed1734f8c5c23e3cfa8a","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"144a72b423cb9dd8ad5968f8b5bc69dd62abc15c6bb8cd601de2b8841669b36d","_core.0410_user_bookmarks.jsonc":"3a19196ce5308400625150d9888838096697b439efac7b6aeead55500e1e993a","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

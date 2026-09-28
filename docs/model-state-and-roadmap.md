@@ -1,6 +1,6 @@
 # Data model: state and roadmap
 
-**Status:** 2026-09-27.
+**Status:** 2026-09-28.
 
 This page is a data-modelling audit of platforms for internal systems: Semantius,
 Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
@@ -45,9 +45,16 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
     level's rules and permissions apply.
 - **`has_a`:** optional 0..1 extensions of a `typeid` base that share its key, such as
   the customer and supplier roles of a business partner. Removing an extension
-  detaches it; the base record stays.
+  detaches it; the base record stays. A base field changed through an extension of a
+  subtype record is a change of that record, so the subtype's rules and permissions
+  apply to it as well.
 - **Storage:** the entity name is a `security_invoker` view over the base chain and a
   physical `<entity>_ext` table.
+- **Changing a family:** a change on any level (a field, a rename, a prefix, rules) is
+  rebuilt into every level below it. Every level shares the root's label column, and a
+  parent field on any level makes every level below it a child. A view or function of
+  another author built on a family view blocks such a change until it is dropped,
+  because the rebuild would drop it too.
 
 ## Comparison
 

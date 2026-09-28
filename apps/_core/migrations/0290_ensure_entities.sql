@@ -33,7 +33,8 @@
 -- after the entity it is based on; a file that names it first fails on
 -- entities_id_refentity_fkey. The records of such an entity carry the fields
 -- of its whole record and are written through its view, whose write routine
--- stores each part.
+-- stores each part. Records are written in the opposite direction: the deepest
+-- is_a level first, then its bases, then the has_a extensions (step 6).
 --
 -- All four functions are SECURITY INVOKER and granted to nobody: they run as
 -- the installing role, inside a migration. Their errors are install-time errors
@@ -248,8 +249,9 @@ DECLARE
     -- implied by the document's structure.
     c_entity_ignored CONSTANT TEXT[] := ARRAY['searchable', 'is_child', 'plural', 'id',
         'created_at', 'updated_at', 'module_id', 'search_vector'];
-    -- id_type is create-only because the key column is typed from it when the
-    -- table is created (rule 90233 refuses a change), and id_refentity because
+    -- id_column and id_type are create-only because the key column is named
+    -- and typed from them when the table is created (rules 90253 and 90233
+    -- refuse a change), and id_refentity because
     -- an is_a or has_a entity's records are stored in its base (90241).
     -- id_prefix is not: a changed prefix in the file is applied like any other
     -- difference, and refused for an is_a entity (90245).
@@ -651,6 +653,13 @@ BEGIN
         SELECT jsonb_object_agg(key, value) INTO v_row
           FROM jsonb_each(v_entity)
          WHERE key <> ALL (c_entity_deferred || c_entity_ignored || ARRAY['fields', 'module_name']);
+        -- An is_a or has_a entity's label settings are its root's: set on
+        -- insert and held there by check_entity_family (90242). The file's
+        -- values are not written, so an export made before the root's label
+        -- column changed still applies, and applies again unchanged.
+        IF coalesce(v_current.id_type, v_entity ->> 'id_type') IN ('is_a', 'has_a') THEN
+            v_row := v_row - 'label_column';
+        END IF;
         IF v_entity ? 'module_name' THEN
             SELECT id INTO v_module_id FROM modules WHERE module_name = v_entity ->> 'module_name';
             IF v_module_id IS NULL THEN
@@ -747,7 +756,11 @@ BEGIN
         v_table := v_entity ->> 'table_name';
         SELECT jsonb_object_agg(key, value) INTO v_row
           FROM jsonb_each(v_entity) WHERE key = ANY (c_entity_deferred);
-        CONTINUE WHEN v_row IS NULL;
+        -- label_parent of an is_a or has_a entity is its root's; see step 3.
+        IF (SELECT e.id_type FROM entities e WHERE e.table_name = v_table) IN ('is_a', 'has_a') THEN
+            v_row := v_row - 'label_parent';
+        END IF;
+        CONTINUE WHEN v_row IS NULL OR v_row = '{}'::jsonb;
         v_status := ensure_entities_row('entities',
             jsonb_build_object('table_name', v_table),
             v_row || jsonb_build_object('table_name', v_table),
@@ -760,7 +773,7 @@ BEGIN
     END LOOP;
 
     -- ---------------------------------------------------------------
-    -- 6. Records, table by table in foreign-key order.
+    -- 6. Records, table by table in foreign-key and family order.
     -- ---------------------------------------------------------------
     DECLARE
         v_pending  TEXT[];
@@ -787,6 +800,16 @@ BEGIN
             -- with records here) are all written. A reference to its own
             -- table needs no order: one INSERT writes every new row, and the
             -- foreign key is checked at the end of that statement.
+            --
+            -- Within a family, the deepest is_a level first, then its bases up
+            -- to the root, then the has_a entities. An export lists a subtype
+            -- record under every level it was read through; written through
+            -- its own type first, it has all its parts by the time a base's
+            -- copy comes, which then finds the row and updates it through the
+            -- dispatch. A base record written first would take a subtype's id
+            -- and be refused (90237). An extension attaches to a record that
+            -- exists. A subtype record that references a record of its own
+            -- base in the same file cannot be ordered either way.
             SELECT p INTO v_next
               FROM unnest(v_pending) WITH ORDINALITY AS u(p, ord)
              WHERE NOT EXISTS (
@@ -795,6 +818,20 @@ BEGIN
                         AND f.format IN ('reference', 'parent')
                         AND f.reference_table <> p
                         AND f.reference_table = ANY (v_pending))
+               AND NOT EXISTS (
+                     SELECT 1 FROM dd_descendants(p) d
+                       JOIN entities s ON s.table_name = d.table_name
+                      WHERE s.id_type = 'is_a'
+                        AND d.table_name = ANY (v_pending))
+               AND NOT EXISTS (
+                     SELECT 1 FROM entities h
+                      WHERE h.table_name = p
+                        AND h.id_type = 'has_a'
+                        AND (h.id_refentity = ANY (v_pending)
+                             OR EXISTS (SELECT 1 FROM dd_descendants(h.id_refentity) d
+                                          JOIN entities s ON s.table_name = d.table_name
+                                         WHERE s.id_type = 'is_a'
+                                           AND d.table_name = ANY (v_pending))))
              ORDER BY ord
              LIMIT 1;
             IF v_next IS NULL THEN

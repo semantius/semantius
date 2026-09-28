@@ -740,10 +740,15 @@ BEGIN
     END IF;
 
     IF TG_OP = 'UPDATE' THEN
+        -- The rule function of an is_a or has_a entity reads its base by name.
+        -- id_refentity changes only when the base is renamed (ON UPDATE
+        -- CASCADE), and a function left reading the old name fails every read
+        -- of the entity with 42P01.
         IF OLD.select_rule IS DISTINCT FROM NEW.select_rule
            OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
            OR OLD.managed IS DISTINCT FROM NEW.managed
-           OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+           OR OLD.table_name IS DISTINCT FROM NEW.table_name
+           OR OLD.id_refentity IS DISTINCT FROM NEW.id_refentity THEN
             PERFORM build_select_rule_policy(NEW.table_name);
         END IF;
         RETURN NEW;

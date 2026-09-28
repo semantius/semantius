@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-09-27T19:33:19.747Z
+**Generated:** 2026-09-28T14:20:40.004Z
 
 ---
 
@@ -197,7 +197,7 @@ Catalog of tables in Semantius
 | audit_log | Audit Log | true |
 | entity_type | Entity Type | unclassified |
 | computed_fields | Computed Fields | - |
-| validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
+| validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
 | select_rule | Select Rule | - |
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
