@@ -28,7 +28,7 @@
 
 BEGIN;
 
-SELECT plan(173);
+SELECT plan(175);
 
 -- =====================================================
 -- PART 1: UUIDv7 and TypeID helpers
@@ -223,6 +223,25 @@ SELECT throws_ok($$ INSERT INTO idt_tid (id, label) VALUES ('other_01h455vb4pex5
 SELECT throws_ok($$ INSERT INTO idt_tid (id, label) VALUES ('idtacct_not-a-typeid', 'g-bad') $$,
     '23514', NULL,
     'typeid: a malformed key fails the common.typeid domain');
+
+-- The trigger that generates the key hands back the whole row. When a field
+-- is added and the table is then rewritten for its search_vector, a row whose
+-- key is generated still keeps every value the insert brought: a text field
+-- that lost its value would fail its NOT NULL, a date field would lose it
+-- without a word. idt_rw runs the trigger once before its columns change.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('idt_rw', 'Rewrite', 'Rewrites', 1, 'typeid', 'idtrw');
+INSERT INTO idt_rw (label) VALUES ('r1');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('idt_rw', 'due', 'Due', 'date', 50),
+       ('idt_rw', 'note', 'Note', 'text', 60);
+UPDATE fields SET searchable = TRUE WHERE table_name = 'idt_rw' AND field_name = 'note';
+
+SELECT lives_ok($$ INSERT INTO idt_rw (label, due, note) VALUES ('r2', '2026-01-02', 'kept') $$,
+    'typeid: after a field add and a table rewrite, a row whose key is generated is inserted');
+
+SELECT is((SELECT due::text || '/' || note FROM idt_rw WHERE label = 'r2'), '2026-01-02/kept',
+    'typeid: after a field add and a table rewrite, the row keeps the values of the new fields');
 
 -- =====================================================
 -- PART 4: the prefix

@@ -357,7 +357,16 @@ DECLARE
     v_id     TEXT := to_jsonb(NEW) ->> TG_ARGV[0];
 BEGIN
     IF v_id IS NULL THEN
-        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_column, common.typeid_generate_text(v_prefix)));
+        -- Through EXECUTE, not an assignment: an assignment's expression keeps
+        -- the plan, and with it the row type, the table had when this trigger
+        -- first ran on it in the session. Once a field is added and the table
+        -- rewritten (a search_vector rebuild), that row type leaves the new
+        -- columns out of the row handed back, and the insert loses their
+        -- values: a nullable column without a word, a NOT NULL one with
+        -- 23502. EXECUTE plans against the table as it is now.
+        EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
+           INTO NEW
+          USING NEW, jsonb_build_object(v_column, common.typeid_generate_text(v_prefix));
     ELSIF common.typeid_prefix(v_id) IS DISTINCT FROM v_prefix
           AND NOT (pg_trigger_depth() > 1 AND common.typeid_prefix(v_id) = ANY (TG_ARGV[2:])) THEN
         RAISE EXCEPTION 'Id ${id} does not carry the prefix ${prefix} of ${table}'

@@ -69,7 +69,13 @@ BEGIN
             INTO v_next;
         END IF;
 
-        NEW := jsonb_populate_record(NEW, jsonb_build_object(v_col, v_next));
+        -- Through EXECUTE, not an assignment, for the reason given in
+        -- common.typeid_assign (0045_typeid.sql): an assignment would hand
+        -- back the row type the table had when this trigger first ran on it,
+        -- and drop the values of fields added since.
+        EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
+           INTO NEW
+          USING NEW, jsonb_build_object(v_col, v_next);
     END IF;
 
     RETURN NEW;

@@ -19,7 +19,7 @@
 
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(27);
 
 -- Admin user (can write entities/fields and managed tables).
 SELECT authenticate_as('user3');
@@ -221,6 +221,52 @@ SELECT is(
     40,
     'second user-added field continues at 10 + max(field_order < 900000) = 40'
 );
+
+-- =====================================================
+-- A row that gets its position keeps the values of fields added later
+-- =====================================================
+-- The trigger that assigns the position hands back the whole row. When a
+-- field is added and the table is then rewritten for its search_vector, a row
+-- inserted without a position still keeps every value it brought: a text
+-- field that lost its value would fail its NOT NULL, a date field would lose
+-- it without a word. order_rw runs the trigger once before its columns change.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, view_permission, edit_permission, order_column)
+VALUES ('order_rw', 'order_rw', 'Order Rewrite', 'Order Rewrites', 1, 'public:read', 'nwind:manage', 'sort_order');
+INSERT INTO order_rw (label) VALUES ('r1');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('order_rw', 'due', 'Due', 'date', 50),
+       ('order_rw', 'note', 'Note', 'text', 60);
+UPDATE fields SET searchable = TRUE WHERE table_name = 'order_rw' AND field_name = 'note';
+
+SELECT lives_ok($$ INSERT INTO order_rw (label, due, note) VALUES ('r2', '2026-01-02', 'kept') $$,
+    'after a field add and a table rewrite, a row that gets its position is inserted');
+
+SELECT is((SELECT due::text || '/' || note FROM order_rw WHERE label = 'r2'), '2026-01-02/kept',
+    'after a field add and a table rewrite, the row keeps the values of the new fields');
+
+-- =====================================================
+-- A renamed entity keeps one auto-assign trigger, under its new name
+-- =====================================================
+-- A change of order_column finds the trigger by the entity's name. Left
+-- under the old name, it would stay behind after the change, still assigning
+-- the dropped column, and fail every insert.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, view_permission, edit_permission, order_column)
+VALUES ('order_rn', 'order_rn', 'Order Rename', 'Order Renames', 1, 'public:read', 'nwind:manage', 'sort_order');
+UPDATE entities SET table_name = 'order_rn2' WHERE table_name = 'order_rn';
+
+SELECT is(
+    (SELECT string_agg(tgname::TEXT, ', ' ORDER BY tgname) FROM pg_trigger
+      WHERE tgrelid = 'public.order_rn2'::regclass AND tgname LIKE 'zz\_auto\_order\_%'),
+    'zz_auto_order_order_rn2',
+    'a renamed entity''s auto-assign trigger carries the new name');
+
+UPDATE entities SET order_column = 'position2' WHERE table_name = 'order_rn2';
+
+SELECT lives_ok($$ INSERT INTO order_rn2 (label) VALUES ('r1') $$,
+    'after a rename, a changed order_column leaves no trigger behind that fails the insert');
+
+SELECT is((SELECT position2 FROM order_rn2 WHERE label = 'r1'), 10,
+    'after a rename, a changed order_column gets its positions assigned');
 
 SELECT * FROM finish();
 

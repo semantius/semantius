@@ -71,6 +71,26 @@ BEGIN
                 );
             END IF;
 
+            -- The order column's auto-assign trigger (zz_auto_order_<table>,
+            -- 0230_entity_order_column.sql). A later order_column change
+            -- finds it by the entity's name; left under the old one, it would
+            -- stay behind, still assigning the dropped column, and fail every
+            -- insert.
+            IF EXISTS (
+                SELECT 1 FROM pg_trigger t
+                JOIN pg_class c ON t.tgrelid = c.oid
+                WHERE c.relname = v_new_rel
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND t.tgname = 'zz_auto_order_' || v_old_rel
+            ) THEN
+                EXECUTE format(
+                    'ALTER TRIGGER %I ON %I RENAME TO %I',
+                    'zz_auto_order_' || v_old_rel,
+                    v_new_rel,
+                    'zz_auto_order_' || v_new_rel
+                );
+            END IF;
+
             -- Rename RLS policies (name patterns: <table>_select/insert/update/delete_policy)
             FOREACH v_suffix IN ARRAY ARRAY['select_policy', 'insert_policy', 'update_policy', 'delete_policy']
             LOOP
@@ -268,7 +288,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
-objects when table_name changes: updated_at trigger, RLS policies, GIN search_vector
+objects when table_name changes: updated_at trigger, order column trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
 unique indexes, compute_validate and rule functions, select_rule function, and queue event triggers.

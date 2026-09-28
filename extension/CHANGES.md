@@ -187,6 +187,17 @@ installs the core schema as ordinary objects.
     entity is refused while an object the dictionary did not create is built
     on one of the family's views (`90256`). The rebuild dropped such an object
     without a word before.
+- **Inserts keep the values of fields added later.** A row inserted into a
+  `typeid` table without an id, or into a table with an order column without a
+  position, is rebuilt by a trigger. In a session that had inserted into the
+  table before, that trigger kept handing back the table's old columns once a
+  field was added and the table rewritten (a searchable change): a new
+  nullable column lost the value the insert brought without an error, and a
+  NOT NULL one failed with `23502`. Both triggers now build the row against
+  the table as it is.
+- **Renaming an entity with an order column renames its auto-assign trigger.**
+  Left under the old name, a later `order_column` change kept the old trigger,
+  which then failed every insert with `42703`.
 - **Record keys are immutable.** Every dictionary table, and `users`,
   `modules`, `roles` and `_apikeys`, carries a `pk_immutable` trigger: an
   update that changes the key is refused (`90236`); one that writes the
