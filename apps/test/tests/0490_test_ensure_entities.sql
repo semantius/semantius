@@ -6,9 +6,11 @@
 --   1. ensure_entities
 --   2. jsonc_to_jsonb
 --   3. ensure_entities with an is_a family
+--   4. a family file applied again: grown, changed, and with records on
+--      several levels
 BEGIN;
 
-SELECT plan(55);
+SELECT plan(76);
 
 -- =====================================================
 -- PART 1: ensure_entities
@@ -389,6 +391,241 @@ SELECT throws_ok($$
     }'::jsonb) $$,
     '23503', NULL,
     'family: a derived entity named before its base fails on entities_id_refentity_fkey');
+
+-- =====================================================
+-- PART 4: a family file applied again: grown, changed, and with records on
+-- several levels
+-- =====================================================
+-- A module's file is applied again on every migrate. A later version may add
+-- members and fields to a family that has records, and may change the root's
+-- label column while its derived entities still carry the label settings an
+-- earlier export wrote for them; those settings are always the root's, so the
+-- installer leaves them alone. An export lists a subtype record under every
+-- level it was read through, so records are written from the deepest is_a
+-- level up, then the bases, then the has_a extensions: the root row of a
+-- subtype record exists by the time the root's records are written, and an
+-- extension attaches to a record that exists.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- The one value a query returns, as text, or 'ERROR <sqlstate>', so an apply
+-- that fails is reported instead of ending the file.
+CREATE FUNCTION pg_temp.ens4_value(p_sql TEXT) RETURNS TEXT LANGUAGE plpgsql AS $fn$
+DECLARE
+    v_value TEXT;
+BEGIN
+    EXECUTE p_sql INTO v_value;
+    RETURN v_value;
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'ERROR ' || SQLSTATE;
+END $fn$;
+
+CREATE TEMP TABLE ens4_docs (name TEXT PRIMARY KEY, def JSONB NOT NULL);
+
+INSERT INTO ens4_docs VALUES ('v1', '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens4_parties", "module_name": "_core", "singular_label": "Party",
+                    "plural_label": "Parties", "id_type": "typeid", "id_prefix": "ensfpty",
+                    "fields": [{"field_name": "city", "title": "City", "format": "text", "field_order": 30}]},
+         "records": [{"id": "ensfpty_01h455vb4pex5vsknk084sn02q", "label": "P1", "city": "Rome"}]},
+        {"entity": {"table_name": "ens4_orgs", "module_name": "_core", "singular_label": "Org",
+                    "plural_label": "Orgs", "id_type": "is_a", "id_prefix": "ensforg", "id_refentity": "ens4_parties",
+                    "fields": [{"field_name": "vat", "title": "VAT", "format": "text", "field_order": 30}]},
+         "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02r", "label": "O1", "city": "Oslo", "vat": "NO1"}]}
+    ]
+}');
+
+INSERT INTO ens4_docs VALUES ('v2', '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens4_parties", "module_name": "_core", "singular_label": "Party",
+                    "plural_label": "Parties", "id_type": "typeid", "id_prefix": "ensfpty",
+                    "fields": [{"field_name": "city", "title": "City", "format": "text", "field_order": 30},
+                               {"field_name": "country", "title": "Country", "format": "text", "field_order": 40}]},
+         "records": [{"id": "ensfpty_01h455vb4pex5vsknk084sn02q", "label": "P1", "city": "Rome"}]},
+        {"entity": {"table_name": "ens4_orgs", "module_name": "_core", "singular_label": "Org",
+                    "plural_label": "Orgs", "id_type": "is_a", "id_prefix": "ensforg", "id_refentity": "ens4_parties",
+                    "fields": [{"field_name": "vat", "title": "VAT", "format": "text", "field_order": 30}]},
+         "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02r", "label": "O1", "city": "Oslo", "vat": "NO1"}]},
+        {"entity": {"table_name": "ens4_banks", "module_name": "_core", "singular_label": "Bank",
+                    "plural_label": "Banks", "id_type": "is_a", "id_prefix": "ensfbnk", "id_refentity": "ens4_orgs",
+                    "fields": [{"field_name": "bic", "title": "BIC", "format": "text", "field_order": 30}]}},
+        {"entity": {"table_name": "ens4_vendors", "module_name": "_core", "singular_label": "Vendor",
+                    "plural_label": "Vendors", "id_type": "has_a", "id_refentity": "ens4_parties",
+                    "fields": [{"field_name": "terms", "title": "Terms", "format": "text", "field_order": 30}]}}
+    ]
+}');
+
+-- v2 as an export made before the root's label column changed would carry it:
+-- the root names its new label column, every derived entity the old one.
+INSERT INTO ens4_docs
+SELECT 'v3',
+       jsonb_set(jsonb_set(jsonb_set(jsonb_set(def,
+           '{entities,0,entity,label_column}', '"city"'),
+           '{entities,1,entity,label_column}', '"label"'),
+           '{entities,2,entity,label_column}', '"label"'),
+           '{entities,3,entity,label_column}', '"label"')
+  FROM ens4_docs WHERE name = 'v2';
+
+-- A new derived entity whose label column in the file is not its root's.
+INSERT INTO ens4_docs VALUES ('v4', '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens4_units", "module_name": "_core", "singular_label": "Unit",
+                    "plural_label": "Units", "id_type": "is_a", "id_prefix": "ensfunt", "id_refentity": "ens4_parties",
+                    "label_column": "label",
+                    "fields": [{"field_name": "code", "title": "Code", "format": "text", "field_order": 30}]}}
+    ]
+}');
+
+-- A subtype record listed under the root and under the subtype.
+INSERT INTO ens4_docs VALUES ('v5', '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens4_parties"},
+         "records": [{"id": "ensfpty_01h455vb4pex5vsknk084sn02q", "label": "P1", "city": "Rome"},
+                     {"id": "ensforg_01h455vb4pex5vsknk084sn02s", "label": "O2", "city": "Genoa"}]},
+        {"entity": {"table_name": "ens4_orgs"},
+         "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02s", "label": "O2", "city": "Genoa", "vat": "IT2"}]}
+    ]
+}');
+
+-- The same, with a root field that differs between the two copies.
+INSERT INTO ens4_docs VALUES ('v6', '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens4_parties"},
+         "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02t", "label": "O3", "city": "Turin"}]},
+        {"entity": {"table_name": "ens4_orgs"},
+         "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02t", "label": "O3", "city": "Naples", "vat": "IT3"}]}
+    ]
+}');
+
+-- An extension of a subtype record, listed before the subtype.
+INSERT INTO ens4_docs VALUES ('v7', '{
+    "version": 1,
+    "entities": [
+        {"entity": {"table_name": "ens4_vendors"},
+         "records": [{"id": "ensfbnk_01h455vb4pex5vsknk084sn02v", "terms": "net45"}]},
+        {"entity": {"table_name": "ens4_banks"},
+         "records": [{"id": "ensfbnk_01h455vb4pex5vsknk084sn02v", "label": "B2", "city": "Bonn", "vat": "DE2",
+                      "bic": "BIC2"}]}
+    ]
+}');
+
+-- Growing the family.
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v1'))$$,
+    'family file v1: a root and a subtype, with records');
+
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v2'))$$,
+    'family file v2: a grandchild, an extension and a root field are added to a family that has records');
+
+SELECT lives_ok($$INSERT INTO ens4_banks (label, city, vat, bic) VALUES ('B1', 'Bern', 'CH1', 'BIC1')$$,
+    'family file v2: the new grandchild takes records');
+
+SELECT lives_ok($$INSERT INTO ens4_vendors (id, terms) SELECT id, 'net30' FROM ens4_parties WHERE label = 'B1'$$,
+    'family file v2: the new extension attaches to a record');
+
+SELECT is(pg_temp.ens4_value($$
+    SELECT string_agg(p.label || ':' || p.city || coalesce(':' || x.vat, ''), ', ' ORDER BY p.label COLLATE "C")
+      FROM ens4_parties p LEFT JOIN ens4_orgs_ext x ON x.id = p.id
+     WHERE p.label IN ('P1', 'O1')$$),
+    'O1:Oslo:NO1, P1:Rome',
+    'family file v2: the records already there are untouched');
+
+SELECT ok(
+    EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.ens4_orgs') AND attname = 'country')
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.ens4_banks') AND attname = 'country')
+    AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('public.ens4_vendors') AND attname = 'country'),
+    'family file v2: the new root field reaches the views of the derived entities');
+
+-- The root's label column changes.
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v3'))$$,
+    'family file v3: the root names a new label column, the derived entities the old one');
+
+SELECT is(
+    (SELECT string_agg(table_name || '=' || label_column, ', ' ORDER BY table_name COLLATE "C") FROM entities
+      WHERE table_name IN ('ens4_parties', 'ens4_orgs', 'ens4_banks', 'ens4_vendors')),
+    'ens4_banks=city, ens4_orgs=city, ens4_parties=city, ens4_vendors=city',
+    'family file v3: the root''s new label column reaches every derived entity');
+
+SELECT is(pg_temp.ens4_value($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v3')) -> 'entities'$$),
+    ('{"created": [], "updated": []}'::jsonb)::TEXT,
+    'family file v3: applying it again writes no entity');
+
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v4'))$$,
+    'a derived entity whose label_column in the file is not its root''s is created');
+
+SELECT is(pg_temp.ens4_value($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v4')) -> 'entities'$$),
+    ('{"created": [], "updated": []}'::jsonb)::TEXT,
+    'the same file applied again succeeds and writes nothing: a derived entity''s label settings are its root''s');
+
+SELECT is((SELECT label_column FROM entities WHERE table_name = 'ens4_units'), 'city',
+    'the derived entity keeps its root''s label column');
+
+-- Records spread over the levels.
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v5'))$$,
+    'records: a subtype record listed under the root and under the subtype is written');
+
+SELECT is(pg_temp.ens4_value($$
+    SELECT p.label || '/' || p.city || '/' || x.vat
+      FROM ens4_parties p JOIN ens4_orgs_ext x ON x.id = p.id
+     WHERE p.id = 'ensforg_01h455vb4pex5vsknk084sn02s'$$),
+    'O2/Genoa/IT2',
+    'records: the record is whole: its root row, its part and the subtype''s own field');
+
+SELECT is(pg_temp.ens4_value($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v5')) -> 'records'$$),
+    ('{"ens4_orgs": {"inserted": 0, "updated": 0}, "ens4_parties": {"inserted": 0, "updated": 0}}'::jsonb)::TEXT,
+    'records: applying the same file again writes nothing');
+
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v6'))$$,
+    'records: a subtype record whose root copy differs from the subtype''s copy is written');
+
+SELECT is(pg_temp.ens4_value($$SELECT city FROM ens4_parties WHERE id = 'ensforg_01h455vb4pex5vsknk084sn02t'$$),
+    'Turin',
+    'records: the root''s copy is written last, so its value of a root field wins');
+
+SELECT lives_ok($$SELECT public.ensure_entities((SELECT def FROM ens4_docs WHERE name = 'v7'))$$,
+    'records: an extension listed before the subtype record it extends is written');
+
+SELECT is(pg_temp.ens4_value($$
+    SELECT v.terms || '/' || b.bic
+      FROM ens4_vendors v JOIN ens4_banks b ON b.id = v.id
+     WHERE v.id = 'ensfbnk_01h455vb4pex5vsknk084sn02v'$$),
+    'net45/BIC2',
+    'records: the extension is attached to the subtype record');
+
+SELECT throws_ok($$
+    SELECT public.ensure_entities('{
+        "version": 1,
+        "entities": [
+            {"entity": {"table_name": "ens4_parties"},
+             "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02w", "label": "O9", "city": "Ostia"}]}
+        ]
+    }'::jsonb) $$,
+    '90237', NULL,
+    'records: a subtype record listed under the root only is refused: it would have no part');
+
+-- A subtype record that references a record of its base in the same file
+-- would have to be written both before and after the base's records.
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('ens4_orgs', 'party_ref', 'Party', 'reference', 'ens4_parties', 'restrict', 40);
+
+SELECT throws_ok($$
+    SELECT public.ensure_entities('{
+        "version": 1,
+        "entities": [
+            {"entity": {"table_name": "ens4_parties"},
+             "records": [{"id": "ensfpty_01h455vb4pex5vsknk084sn02x", "label": "P9", "city": "Pavia"}]},
+            {"entity": {"table_name": "ens4_orgs"},
+             "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02y", "label": "O8", "city": "Ostia", "vat": "IT8",
+                          "party_ref": "ensfpty_01h455vb4pex5vsknk084sn02x"}]}
+        ]
+    }'::jsonb) $$,
+    '22023', NULL,
+    'records: a subtype record that references a record of its base in the same file cannot be ordered');
 
 SELECT * FROM finish();
 ROLLBACK;
