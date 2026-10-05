@@ -678,8 +678,8 @@ SELECT lives_ok(
 
 SELECT is(
     (public.get_schema('modules')::jsonb)->'properties'->'access_scope'->>'default',
-    'basic',
-    'modules.access_scope defaults to basic, the column default, not the empty string its CHECK rejects'
+    'custom',
+    'modules.access_scope defaults to custom, the column default, not the empty string its CHECK rejects'
 );
 
 SELECT is(

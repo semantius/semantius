@@ -201,7 +201,7 @@ export interface Modules {
   default_admin_role_id: number | null;
   catalog_module_code: string;
   domain_code: string;
-  access_scope: Generated<"basic" | "full">;
+  access_scope: Generated<"custom" | "basic" | "advanced" | "gated" | "raci">;
   settings: Json;
   dashboard_config: Json;
   version: number;

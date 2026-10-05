@@ -124,7 +124,7 @@ export const modules = pgTable("modules", {
   defaultAdminRoleId: bigint("default_admin_role_id", { mode: "number" }).references((): AnyPgColumn => roles.id, { onDelete: "set null" }),
   catalogModuleCode: text("catalog_module_code").notNull(),
   domainCode: text("domain_code").notNull(),
-  accessScope: text("access_scope", { enum: ["basic", "full"] }).notNull().default("basic"),
+  accessScope: text("access_scope", { enum: ["custom", "basic", "advanced", "gated", "raci"] }).notNull().default("custom"),
   settings: jsonb("settings").notNull(),
   dashboardConfig: jsonb("dashboard_config").notNull(),
   version: integer("version").notNull(),

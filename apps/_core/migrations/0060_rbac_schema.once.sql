@@ -25,8 +25,8 @@ CREATE TABLE modules (
     catalog_module_code TEXT NOT NULL DEFAULT '',
     -- Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM).
     domain_code TEXT NOT NULL DEFAULT '',
-    -- Access tier: 'basic' for simple read/edit; 'full' for role tiers, approvals & gating.
-    access_scope TEXT NOT NULL DEFAULT 'basic',
+    -- Permission structure of the module.
+    access_scope TEXT NOT NULL DEFAULT 'custom',
     settings JSONB,
     dashboard_config JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -34,7 +34,7 @@ CREATE TABLE modules (
     version INTEGER NOT NULL DEFAULT 0,
     version_date TIMESTAMPTZ,
     CONSTRAINT valid_module_type CHECK (module_type IN ('domain', 'master')),
-    CONSTRAINT valid_access_scope CHECK (access_scope IN ('basic', 'full'))
+    CONSTRAINT valid_access_scope CHECK (access_scope IN ('custom', 'basic', 'advanced', 'gated', 'raci'))
 );
 
 -- =====================================================

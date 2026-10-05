@@ -584,7 +584,7 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 | `valid_width` | `fields` | CHECK | `width` is `default`, `s`, `m` or `w` |
 | `modules_module_slug_key` | `modules` | UNIQUE | `module_slug` is unique |
 | `modules_view_permission_fkey` | `modules` | FOREIGN KEY | `view_permission` must name a permission |
-| `valid_access_scope` | `modules` | CHECK | `access_scope` is `basic` or `full` |
+| `valid_access_scope` | `modules` | CHECK | `access_scope` is `custom`, `basic`, `advanced`, `gated` or `raci` |
 | `valid_module_type` | `modules` | CHECK | `module_type` is `domain` or `master` |
 | `no_self_reference` | `permission_hierarchy` | CHECK | a permission cannot include itself |
 | `valid_permission_hierarchy_origin` | `permission_hierarchy` | CHECK | `origin` is `system`, `model`, `model_master` or `user` |

@@ -67,12 +67,16 @@ installs the core schema as ordinary objects.
   is set is never rewritten, so renaming a module keeps its URLs.
 - The field metadata of the core tables now carries the same defaults as their
   columns, so a record created through the generated UI gets the column's
-  default instead of an empty value: `modules.access_scope` (`basic`, now
+  default instead of an empty value: `modules.access_scope` (`custom`, now
   required), `modules.home_page` (`/`), `modules.module_type` (`domain`),
   `modules.view_permission` (`user:read`), `roles.origin` and
   `permission_hierarchy.origin` (`user`), `entities.computed_fields` and
   `entities.validation_rules` (`[]`). Creating a module in the UI failed with
   `valid_access_scope` before.
+- `modules.access_scope` takes `custom`, `basic`, `advanced`, `gated` or `raci`
+  instead of `basic` or `full`, and the default is `custom`. This is not an
+  upgrade path for an existing 0.5.0-beta1 install, which has to be reinstalled
+  to get them.
 - `get_schema()` no longer gives a reference to a text-keyed entity
   (`permissions`, `entities`) the empty string as its default. The column is
   nullable and `''` names no row, so a form that saved it failed the foreign
