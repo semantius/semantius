@@ -9,6 +9,7 @@
     "description": "Northwind Sample Database",
     "view_permission": "nwind:view",
     "manage_permission": "nwind:manage",
+    "access_scope": "basic",
     "home_page": "/nwind",
     "icon_name": "compass",
     "default_manager_role_slug": "northwind_sales"

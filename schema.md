@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Generated:** 2026-10-05T10:57:04.359Z
+**Generated:** 2026-10-05T12:52:36.687Z
 
 ---
 
@@ -365,7 +365,7 @@ Groups of related tables and permissions
 | `default_admin_role_id` (core) | reference | Default Admin Role | - | integer | false | - | 43 | default | default | core | false | - | 2 | roles | clear | has | - | - | false | auto | - | - |
 | `catalog_module_code` (core) | text | Catalog Module Code | Catalog blueprint this module was provisioned/cloned from; also the domain axis (non-unique). Empty = greenfield. | string | false | - | 44 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `domain_code` (core) | text | Domain Code | Short uppercase code for the business domain this module belongs to (e.g. ATS, HCM, ITSM, CRM) | string | false | - | 45 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `access_scope` (core) | enum | Access Scope | Permission structure of the module | string | false | custom | 46 | required | default | core | false | [{"label":"Custom permission structure","value":"custom"},{"label":"Two permissions: view and edit","value":"basic"},{"label":"Three permissions: view, edit and admin.","value":"advanced"},{"label":"Three permissions: view, edit and admin and process gates","value":"gated"},{"label":"Three permissions: view, edit and admin and enforced process gates.","value":"raci"}] | 2 | - | - | has | - | - | false | auto | - | - |
+| `access_scope` (core) | enum | Access Scope | Permission structure of the module | string | false | custom | 46 | required | default | core | false | [{"label":"Custom permission structure","value":"custom"},{"label":"Two permissions: view and edit","value":"basic"},{"label":"Three permissions: view, edit and admin.","value":"advanced"},{"label":"Three permissions: view, edit and admin and workflow_state gates","value":"gated"},{"label":"Three permissions: view, edit and admin and enforced process gates.","value":"raci"}] | 2 | - | - | has | - | - | false | auto | - | - |
 | `settings` (core) | json | Settings | - | json | false | - | 50 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `dashboard_config` (core) | json | Dashboard Configuration | Layout and widgets of the module dashboard | json | false | - | 60 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `version` (core) | int32 | Version | Auto-incremented version number | integer | false | - | 85 | readonly | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
