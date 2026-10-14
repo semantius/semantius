@@ -47,10 +47,19 @@ interface EntityRecord {
   id_type: string;
 }
 
-/** An entry of fields.enum_values: a value, or a value with its display label. */
-type EnumEntry = string | { value: string; label: string };
+/**
+ * An entry of fields.enum_values: a value, or a value with its display label and
+ * optionally a description, color and icon for the UI.
+ */
+export type EnumEntry = string | {
+  value: string;
+  label: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+};
 
-interface FieldRecord {
+export interface FieldRecord {
   table_name: string;
   field_name: string;
   format: string;
@@ -96,7 +105,7 @@ function isNullable(format: string): boolean {
  * Non-required enums also accept '' (the implicit empty default), so we add it
  * to keep the generated literal union in sync with the DB CHECK constraint.
  */
-function effectiveEnumValues(
+export function effectiveEnumValues(
   inputType: string,
   entries: EnumEntry[] | null,
 ): string[] | null {
@@ -168,7 +177,7 @@ const JSON_DEFS = [
  * `used`, applies nullability (mirror of is_nullable), and wraps DB-supplied
  * columns in Generated<…>.
  */
-function columnType(
+export function columnType(
   field: FieldRecord,
   used: Set<Alias>,
   keyFormatByTable: Map<string, string>,
@@ -192,6 +201,7 @@ function columnType(
   switch (format) {
     case "int32":
     case "integer":
+    case "rating":
     case "float":
     case "double":
       base = "number";

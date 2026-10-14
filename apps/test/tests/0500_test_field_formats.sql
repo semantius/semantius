@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. The field format list
 --   2. The jsonlogic format
+--   3. The color, icon and rating formats
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(27);
 
 -- =====================================================
 -- PART 1: The field format list
@@ -30,8 +31,8 @@ GRANT SELECT ON fmt_keys TO PUBLIC;
 -- The list
 -- =====================================================
 SELECT is(
-    (SELECT count(*)::int FROM fmt_keys), 44,
-    'dd_formats() should hold the 44 formats of formats.json'
+    (SELECT count(*)::int FROM fmt_keys), 47,
+    'dd_formats() should hold the 47 formats of formats.json'
 );
 
 SELECT ok(
@@ -189,6 +190,105 @@ SELECT is(
     (SELECT evaluate_json_logic(rule, to_jsonb(p)) FROM jl_fmt_probe p WHERE label = 'probe'),
     'true'::jsonb,
     'a stored jsonlogic value should evaluate as a rule'
+);
+
+-- =====================================================
+-- PART 3: The color, icon and rating formats
+-- =====================================================
+-- Test the color, icon and rating field formats.
+--
+-- color and icon are TEXT and take any string (an icon is a lucide icon name or
+-- a URL). rating is an INTEGER from 0 to 5, but by decision the database only
+-- maps the column type: the range and "a required rating is not 0" are checked
+-- by SemSchema, not by a CHECK constraint.
+--
+-- Fixtures: ONE ephemeral entity `cir_fmt_probe` created in-tx as user3 (module
+-- _core, public:read / admin, managed) with a color, an icon, a rating and an
+-- int32 field.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- =====================================================
+-- The formats are in the list, right after enum
+-- =====================================================
+SELECT is(
+    (SELECT array_agg(k ORDER BY n) FROM fmt_keys
+      WHERE n > (SELECT n FROM fmt_keys WHERE k = 'enum')
+        AND n <= (SELECT n FROM fmt_keys WHERE k = 'enum') + 3),
+    ARRAY['color', 'icon', 'rating'],
+    'dd_formats() should list color, icon and rating right after enum'
+);
+
+SELECT is(
+    ARRAY[format_to_json_type('color')::text, format_to_json_type('icon')::text, format_to_json_type('rating')::text],
+    ARRAY['"string"', '"string"', '"integer"'],
+    'color and icon should be strings and rating an integer'
+);
+
+SELECT is(
+    ARRAY[format_to_data_type('color'), format_to_data_type('icon'), format_to_data_type('rating')],
+    ARRAY['TEXT', 'TEXT', 'INTEGER'],
+    'color and icon should map to TEXT columns and rating to an INTEGER column'
+);
+
+-- =====================================================
+-- Fields of each format on a managed entity
+-- =====================================================
+select authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, managed
+)
+VALUES (
+    'cir_fmt_probe', 'cir_fmt_probe', 'cir_fmt_probes', 'Format Probe', 'Format Probes',
+    'Ephemeral probe for the color, icon and rating formats',
+    1, 'public:read', 'admin', 'id', 'label', TRUE
+);
+
+INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+VALUES ('cir_fmt_probe', 'shade', 'Shade', 'color', 'default', 30),
+       ('cir_fmt_probe', 'glyph', 'Glyph', 'icon', 'default', 40),
+       ('cir_fmt_probe', 'stars', 'Stars', 'rating', 'required', 50),
+       ('cir_fmt_probe', 'level', 'Level', 'int32', 'default', 60);
+
+SELECT is(
+    (SELECT jsonb_object_agg(column_name, jsonb_build_array(data_type, is_nullable, column_default))
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'cir_fmt_probe'
+        AND column_name IN ('shade', 'glyph', 'stars')),
+    jsonb_build_object(
+        'shade', jsonb_build_array('text', 'NO', '''''::text'),
+        'glyph', jsonb_build_array('text', 'NO', '''''::text'),
+        'stars', jsonb_build_array('integer', 'NO', '0')
+    ),
+    'color and icon fields should create NOT NULL text columns defaulting to '''', a rating field a NOT NULL integer column defaulting to 0'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO cir_fmt_probe (label, shade, glyph, stars) VALUES ('probe', 'not a color name', '/icons/probe.svg', 7)$$,
+    'the database should accept any string for color and icon and any integer for rating (no range CHECK)'
+);
+
+SELECT lives_ok(
+    $$UPDATE fields SET format = 'rating' WHERE table_name = 'cir_fmt_probe' AND field_name = 'level'$$,
+    'an int32 field should be changeable to rating'
+);
+
+SELECT is(
+    (SELECT data_type FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'cir_fmt_probe' AND column_name = 'level'),
+    'integer',
+    'changing int32 to rating should keep the integer column'
+);
+
+SELECT is(
+    (SELECT jsonb_object_agg(f, jsonb_build_array(s #>> ARRAY['properties', f, 'format'], s #>> ARRAY['properties', f, 'type']))
+       FROM (SELECT public.get_schema('cir_fmt_probe')::jsonb AS s) AS schema,
+            unnest(ARRAY['shade', 'glyph', 'stars', 'level']) AS f),
+    '{"shade": ["color", "string"], "glyph": ["icon", "string"], "stars": ["rating", "integer"], "level": ["rating", "integer"]}'::jsonb,
+    'get_schema should emit the format and type of color, icon and rating fields'
 );
 
 SELECT * FROM finish();

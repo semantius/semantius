@@ -17,9 +17,12 @@
 -- Last, entries that are {value, label} pairs: only the value reaches the CHECK
 -- constraint, the column default and the comment, while get_schema() returns
 -- the entries as stored, with '' appended for a non-required enum as before.
+--
+-- Then entries that also carry a description, color and icon: again only the
+-- value reaches the CHECK constraint, and get_schema() returns them as stored.
 BEGIN;
 
-SELECT plan(36);
+SELECT plan(40);
 
 -- Authenticate as admin user so we can create entities/fields
 SELECT authenticate_as('user3');
@@ -350,6 +353,39 @@ SELECT is(
     ),
     E'Stage (enum)\n\nopen, closed',
     'the column comment lists the values of labeled entries'
+);
+
+-- =====================================================
+-- Entries with a description, color and icon
+-- =====================================================
+
+-- Not required; the first entry carries all three, the second is plain
+INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
+VALUES ('enum_default_test', 'mood', 'Mood', 'enum', 'default',
+        '[{"value": "calm", "label": "Calm", "description": "No rush", "color": "green", "icon": "circle-check"}, "busy"]'::jsonb, '');
+
+SELECT is(
+    pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'enum_default_test_mood_check')),
+    $$CHECK ((mood = ANY (ARRAY['calm'::text, 'busy'::text, ''::text])))$$,
+    'the CHECK of an enum whose entries carry a description, color and icon holds the values alone'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO enum_default_test (label, mood) VALUES ('row_mood', 'calm')$$,
+    'the value of an entry with a description, color and icon is accepted'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO enum_default_test (label, mood) VALUES ('row_mood_color', 'green')$$,
+    '23514',
+    NULL,
+    'a color is not a value'
+);
+
+SELECT is(
+    (public.get_schema('enum_default_test')::jsonb)->'properties'->'mood'->'enum',
+    '[{"value": "calm", "label": "Calm", "description": "No rush", "color": "green", "icon": "circle-check"}, "busy", ""]'::jsonb,
+    'get_schema() returns entries with a description, color and icon as stored'
 );
 
 -- The core enums whose values are codes carry labels, and their hand-written

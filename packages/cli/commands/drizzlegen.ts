@@ -37,10 +37,19 @@ interface EntityRecord {
   description: string;
 }
 
-/** An entry of fields.enum_values: a value, or a value with its display label. */
-type EnumEntry = string | { value: string; label: string };
+/**
+ * An entry of fields.enum_values: a value, or a value with its display label and
+ * optionally a description, color and icon for the UI.
+ */
+export type EnumEntry = string | {
+  value: string;
+  label: string;
+  description?: string;
+  color?: string;
+  icon?: string;
+};
 
-interface FieldRecord {
+export interface FieldRecord {
   table_name: string;
   field_name: string;
   format: string;
@@ -101,7 +110,7 @@ function isNullable(format: string): boolean {
  * Non-required enums also accept '' (the implicit empty default), so we add it
  * to keep the generated literal union in sync with the DB CHECK constraint.
  */
-function effectiveEnumValues(
+export function effectiveEnumValues(
   inputType: string,
   entries: EnumEntry[] | null,
 ): string[] | null {
@@ -128,7 +137,7 @@ function effectiveEnumValues(
  * builder call for a key: the identity, or the default of a generated key, so
  * Drizzle's insert type leaves it optional.
  */
-function baseBuilder(
+export function baseBuilder(
   field: FieldRecord,
   keyFormatByTable: Map<string, string>,
   idType?: string,
@@ -181,6 +190,7 @@ function baseBuilder(
   switch (f) {
     case "int32":
     case "integer":
+    case "rating":
       return { fn: "integer", args: name };
     case "reference":
     case "parent":
@@ -238,7 +248,7 @@ function baseBuilder(
 }
 
 /** Best-effort default modifier, kept conservative to stay type-safe. */
-function defaultModifier(field: FieldRecord): string {
+export function defaultModifier(field: FieldRecord): string {
   if (field.is_pk) return "";
   if (field.format === "reference" || field.format === "parent") return "";
 
@@ -255,6 +265,7 @@ function defaultModifier(field: FieldRecord): string {
     case "int32":
     case "int64":
     case "integer":
+    case "rating":
     case "float":
     case "double":
       return /^-?\d+(\.\d+)?$/.test(v) ? `.default(${Number(v)})` : "";

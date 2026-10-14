@@ -20,6 +20,7 @@ BEGIN
         WHEN 'int32' THEN 'INTEGER'
         WHEN 'int64' THEN 'BIGINT'
         WHEN 'integer' THEN 'INTEGER'
+        WHEN 'rating' THEN 'INTEGER'
         -- The fallback for a reference whose target key cannot be read (see
         -- field_data_type): BIGINT, the type of an auto_increment key, which is
         -- what an entity gets unless it declares otherwise.
@@ -585,8 +586,9 @@ COMMENT ON FUNCTION is_nullable IS
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
 -- An entry of enum_values is a plain value ("active") or a value with its
--- display label ({"value": "on_hold", "label": "On hold"}). Only the values
--- reach the CHECK constraint and the column default.
+-- display label ({"value": "on_hold", "label": "On hold"}), and optionally a
+-- description, color and icon for the UI. Only the values reach the CHECK
+-- constraint and the column default.
 -- Centralized handling of enum default behavior:
 --   • enum_value_list        -- the values of an enum_values array, without labels.
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
@@ -601,7 +603,7 @@ RETURNS JSONB AS $$
 $$ LANGUAGE sql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION enum_value_list IS
-'Returns the values of an enum_values array in order, taking the "value" of an entry that is a {value, label} object. NULL for an empty array.';
+'Returns the values of an enum_values array in order, taking the "value" of an entry that is a {value, label, ...} object. NULL for an empty array.';
 
 CREATE OR REPLACE FUNCTION effective_enum_values(p_input_type TEXT, p_enum_values JSONB)
 RETURNS JSONB AS $$

@@ -10,7 +10,7 @@
 --      several levels
 BEGIN;
 
-SELECT plan(76);
+SELECT plan(77);
 
 -- =====================================================
 -- PART 1: ensure_entities
@@ -70,9 +70,10 @@ INSERT INTO ee_doc VALUES (jsonc_to_jsonb($jsonc$
           {"field_name": "alpha", "title": "Alpha", "format": "text",  "field_order": 40},
           {"field_name": "mid",   "title": "Mid",   "format": "int32", "field_order": 50, "description": "a number"},
           {"field_name": "price", "title": "Price", "format": "int32", "field_order": 60},
-          // an enum entry is a value or a {value, label} pair
+          // an enum entry is a value or a {value, label} pair, optionally with a
+          // description, color and icon
           {"field_name": "kind",  "title": "Kind",  "format": "enum",  "field_order": 70,
-           "enum_values": ["plain", {"value": "gift", "label": "Gift"}]},
+           "enum_values": ["plain", {"value": "gift", "label": "Gift", "description": "Wrapped", "color": "red", "icon": "gift"}]},
         ]
       },
       "records": [
@@ -147,6 +148,9 @@ SELECT is((SELECT description FROM fields WHERE id = 'ee_items.mid'), 'a number'
 SELECT is((SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ee_items_kind_check'),
     $$CHECK ((kind = ANY (ARRAY['plain'::text, 'gift'::text, ''::text])))$$,
     'a {value, label} entry puts only its value into the CHECK');
+SELECT is((SELECT enum_values FROM fields WHERE id = 'ee_items.kind'),
+    '["plain", {"value": "gift", "label": "Gift", "description": "Wrapped", "color": "red", "icon": "gift"}]'::jsonb,
+    'an entry with a description, color and icon is stored as given');
 SELECT ok(to_regclass('public.ee_ghosts') IS NULL
           AND (SELECT NOT managed FROM entities WHERE table_name = 'ee_ghosts'),
     'managed: false registers the entity without a table');
