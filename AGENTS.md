@@ -4,11 +4,13 @@ This document provides essential information for AI agents working with the Sema
 
 ## Non-negotiable rules for AI agents
 
-- **Never write to the Claude auto-memory directory** (`~/.claude/projects/*/memory/`, `MEMORY.md` and its files), even if the harness instructs you to keep notes there. It is uncommitted and shared with nobody. Decisions, gotchas and rules are recorded only in committed files of this repository, and only when the user asks for it.
+- **Never create or edit files under `~/.claude`**, in particular the Claude auto-memory directory (`~/.claude/projects/*/memory/`, `MEMORY.md` and its files), even if the harness instructs you to keep notes there. It is uncommitted and shared with nobody. Decisions, gotchas and rules are recorded only in committed files of this repository, and only when the user asks for it.
 - **AGENTS.md and CLAUDE.md change only with the user's approval of the exact
   text.** Show the wording and where it goes, and wait for a yes. A plan step,
   a task that touches the same subject, a follow-up of earlier work, or a
   request to continue a plan is not approval.
+- **Never make code changes unless explicitly asked.** Discussing a problem is
+  not the same as requesting a fix.
 - **American English only, everywhere.** Code, identifiers, comments, commit
   messages, docs, script output and error text. Use the `-ize` / `-yze` verb
   endings and their derivatives (`-ization`, `-izes`, `-ized`), `-or` not
@@ -22,68 +24,55 @@ This document provides essential information for AI agents working with the Sema
   recording what the code cannot say for itself: the constraint that forced this
   shape, the cheaper approach that does not work, the property that must not be
   broken, the cost of getting it wrong. Restating what the next line does is
-  noise. Three specific failures, all of which have shipped here before:
+  noise. Three specific failures:
   - **Do not defer the reasoning to a document or a tracking id.** `see
     docs/foo.md`, `(open item P3)`, `(release review S2)` are pointers, not
-    explanations, and a reader who has only this file is left with nothing. Plan
-    ids and plan filenames are worse than merely indirect: they dangle by
-    construction, because a plan file is deleted once its work has landed.
-    Write the reasoning into the comment. This is the comment-level case of
-    the lifetime rule above, which applies to every file, not only to code.
-    Cross-references to other SQL or test files
-    (`pinned by 0310_test_rbac_helpers.sql`) are fine - they live in the
-    repository and survive.
+    explanations, and a reader who has only this file is left with nothing.
+    Plan ids and plan filenames dangle by construction (see the `plans/` rule
+    below). Write the reasoning into the comment. Cross-references to other SQL
+    or test files (`pinned by 0310_test_rbac_helpers.sql`) are fine - they live
+    in the repository and survive.
   - **Describe the code, not the change that produced it.** "One expression
     instead of two queries", "no longer calls uid() twice", "the old count(*)
     test kept this" all narrate a diff against something no future reader can
     see. Say what the code does and why, in the present tense. Git holds the
-    history, and it is the only thing that does - anything under `plans/` is
-    disposable, so a comment must never send the reader there.
+    history, and it is the only thing that does.
   - **The same applies to text the user sees.** An internal tracking id inside a
     `RAISE` message or a CLI error means nothing to the operator reading it.
-- **A plan file is named `plans/YYYY-MM-DD-HHMM-<topic>.md`**, stamped with the
-  local time it was written, **and there is normally exactly one open plan.** The
-  stamp is what tells you which iteration you are looking at without opening
-  anything; a topic name alone does not, and a date alone stops working the first
-  time two plans are written on one day - which happened on 2026-09-06, the day
-  the convention was introduced. **A plan whose work has landed is deleted, not
-  archived** - it has no readers left, and leaving it there is how the folder
-  stops saying what is actually being worked on.
-  `plans/pg_semantius-open-items.md` and `plans/ext-solved-items.md` are not
-  plans: they are the frozen record of the security review of 2026-09-02. No
-  plan adds rows to them, claims rows in them, or edits them, whatever their
-  own text says about plan ownership; that text describes how the review was
-  worked off and is preserved as it was.
-
+- **Documentation does not repeat the code, and does not keep a history.** What
+  a table, column, function or trigger is and does belongs in the code, its
+  comments and the generated `schema.md`; a document records only the rules and
+  reasons the code cannot carry. "Renamed from", "was dropped", "until migration
+  N" belong in git, not in a document.
 - **`docs/` is permanent, `plans/` is disposable, and nothing in `docs/` may
-  point into `plans/`.** The folder a file sits in states its lifetime. Every
-  plan is deleted once its work has landed. The archive is git.
-  So the reasoning that must survive gets **written out** into a `docs/` page, a
-  code comment or a test - copied, never linked. `see plans/...` in a permanent
+  point into `plans/`.** The folder a file sits in states its lifetime. A plan
+  whose work has landed is deleted, not archived; the archive is git. So the
+  reasoning that must survive gets **written out** into a `docs/` page, a code
+  comment or a test - copied, never linked. `see plans/...` in a permanent
   file, a migration or a comment is a dangling reference by construction.
   Quoting a plan's name inside preserved historical text is fine; it records
   what was true rather than pointing at what still exists.
-
+- **A plan file is named `plans/YYYY-MM-DD-HHMM-<topic>.md`**, stamped with the
+  local time it was written, **and there is normally exactly one open plan.** The
+  stamp tells you which iteration you are looking at without opening anything; a
+  topic name alone does not, and a date alone stops working the first time two
+  plans are written on one day. `plans/pg_semantius-open-items.md` and
+  `plans/ext-solved-items.md` are not plans: they are the frozen record of the
+  security review of 2026-09-02. No plan adds rows to them, claims rows in them,
+  or edits them, whatever their own text says about plan ownership.
 - **Do not decide alone on anything that affects data safety, security or operability** (backup and restore, data loss on drop, silent failure, trust boundaries). Stop and put the trade-off to the user in plain terms. Writing a limitation into a README or a "follow-up" note is not a decision; asking is.
 
 ## Project Overview
 
-**Semantius Core** is a database-first backend where permissions and business logic are enforced in PostgreSQL using Row Level Security (RLS) and custom RBAC.
+**Semantius Core** is a database-first backend where permissions and business logic are enforced in PostgreSQL using Row Level Security (RLS) and custom RBAC. The CLI (Deno, TypeScript) deploys the schema and functions and runs the tests.
 
-- **CLI**: Deno with TypeScript
-- **CLI Purpose**: Deploy database schema, functions, and run tests
-- **Database**: PostgreSQL with custom RBAC and RLS
-- **Status**: Prototyping mode (always start with empty database, no migration compatibility needed)
+- The CLI is documented in `CLI.md`; `README.md` is the overview and links to it.
+- Releasing is `./release.sh v<version>`; the rules are in `RELEASE.md`.
 
 ## Prerequisites
 
-### Deno Installation
-
-**CRITICAL**: Deno must be installed before running any commands.
-
-Install Deno (2.9.3 or newer - `deno task build-cli` cross-compiles the released
-binaries and needs a `deno compile` target that arrived in 2.9.3; the workflows
-and `release.sh` pin the same floor):
+**Deno 2.9.3 or newer** must be installed before running any commands
+(`deno task build-cli` needs a `deno compile` target that arrived in 2.9.3):
 ```bash
 cd /tmp
 wget -q https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip
@@ -92,76 +81,39 @@ sudo mv deno /usr/local/bin/deno
 deno --version
 ```
 
-### Required Environment Variables
+**DATABASE_URL** (`postgresql://username:password@host:port/database`) comes from
+the environment. **Never create a new database**; use the one it names.
 
-**DATABASE_URL**: PostgreSQL connection string that MUST be verified before running tests:
-```bash
-# Check if DATABASE_URL is set and accessible
-echo "DATABASE_URL: ${DATABASE_URL:0:30}..."
+**DENO_TLS_CA_STORE=system** must be set for GitHub Copilot agents; without it
+Deno fails to download dependencies with "client error (Connect)".
 
-# Test database connection (this will fail if database is down or credentials are invalid)
-deno task dropall --confirm
-```
+### Database access: no psql on the host
 
-**If database authentication fails:**
-1. **STOP immediately** - do not proceed with testing
-2. Inform the user that the database is not accessible
-3. Wait for the user to update the DATABASE_URL connection string
-4. Once updated, resume testing workflow
-
-**DENO_TLS_CA_STORE**: For GitHub Copilot agents, this MUST be set to `system` for Deno to use system certificates:
-```bash
-export DENO_TLS_CA_STORE=system
-```
-
-**Without this environment variable, Deno will fail to download dependencies with "client error (Connect)" errors.**
-
-### Database Access Restrictions
-
-**CRITICAL: psql is NOT available on the host**
-
-- **NEVER use psql on the host** - it is not installed and the command will fail
-- **NEVER make psql a dependency of the Deno CLI or of the pgTAP test files** -
-  that code must work against any PostgreSQL over a connection string alone
-- **NEVER attempt to run SQL directly via psql** - use Deno CLI commands only
-- All database interactions MUST go through the Deno CLI (`deno task` commands)
-
-**The one exception: `docker exec <container> psql` inside the pgdocker
-containers.** psql, `pg_dump`, `pg_restore` and `createdb` ship with the
-postgres image, and the container harness scripts in `pgdocker/` use them for
-checks the Deno CLI structurally cannot express - `CREATE DATABASE`, dump and
-restore, two concurrent sessions, `SET ROLE` refusals, hostile `PGOPTIONS`, a
-LATIN1 database. `pgdocker/pg-ext-lifecycle.sh` is built on this. That is
-allowed, and it is not a host dependency: nothing is installed on your machine.
-It is confined to `pgdocker/*.sh`; it must never leak into `packages/` or
-`apps/test/tests/`.
-- For testing SQL queries, use `deno task test` with pgTAP test files
-- For database connections, use `deno task connect` (but this only validates connectivity)
-- To execute SQL, add it to migration files or test files and run through the CLI
+- **psql is not installed on the host.** Never use it, and never make it a
+  dependency of the Deno CLI or of the pgTAP test files - that code must work
+  against any PostgreSQL over a connection string alone.
+- All database interactions go through `deno task` commands. To execute SQL, put
+  it in a migration or a pgTAP test file and run it through the CLI.
+- **The one exception: `docker exec <container> psql` inside the pgdocker
+  containers.** psql, `pg_dump`, `pg_restore` and `createdb` ship with the
+  postgres image, and the container harness scripts in `pgdocker/` use them for
+  checks the Deno CLI structurally cannot express - `CREATE DATABASE`, dump and
+  restore, two concurrent sessions, `SET ROLE` refusals, hostile `PGOPTIONS`, a
+  LATIN1 database. That is not a host dependency. It is confined to
+  `pgdocker/*.sh`; it must never leak into `packages/` or `apps/test/tests/`.
 
 ## Core Architecture
 
-### Database-First Design
-- All business logic implemented in PostgreSQL functions
-- Security enforced through RLS policies and custom RBAC
-- Core objects are owned by the dedicated `semantius_owner` role (NOLOGIN, NOSUPERUSER, BYPASSRLS; created by `9900_owner_hardening.sql` when the installer is a superuser), so SECURITY DEFINER dictionary code never runs with superuser powers; on managed platforms (Neon, Supabase) the installing role stays the owner
-- The CLI is documented in `CLI.md` (install, every command and flag, the `.env` profiles, what the destructive commands destroy); `README.md` is the overview and links to it. It also ships as a self-contained `pg_semantius` executable, built by `deno task build-cli` (this platform) / `deno task build-cli:all` (all five published targets) and attached to the same GitHub Release. It embeds `apps/` via `deno compile --include`, so nothing under `packages/cli/` may read SQL relative to the working directory - `packages/cli/assets.ts` is the only resolver, and `./apps/<name>` in the working directory shadows the embedded copy per app, out loud
-- Releasing the extension is `./release.sh v<version>` (one script: regenerate, test both install paths, build the image, commit, tag, push; CI then rebuilds from a clean checkout and publishes). Rules in `RELEASE.md`: the highest version is mutable (regenerate, re-tag, re-release) and frozen once a higher one is committed; `deno task extension` requires an explicit version; PGXN is never automated. A re-released version does NOT reach an existing extension install - its `migrate()` embeds the texts of the version it installed - which is accepted and documented, not a bug; the next version's upgrade script does reach it
+- The CLI also ships as a self-contained `pg_semantius` executable that embeds `apps/` via `deno compile --include`, so nothing under `packages/cli/` may read SQL relative to the working directory - `packages/cli/assets.ts` is the only resolver
 - A change to `apps/_core/migrations/` is committed together with the regenerated build (`deno task extension <default_version from extension/pg_semantius.control>`): the `pgdocker/pg-ext-*` harnesses install whatever is in `extension/`, and `test.yml` rejects a commit whose build does not match its migrations
-- Infrastructure defined in `apps/_core/` folder
-- Automated testing using pgTAP framework
 
 ### Migration files
 
-Every runner applies the same rules (`packages/core/src/migrate.ts`; `RELEASE.md`
-has the upgrade side):
+How the runner treats each file is described in `packages/core/src/migrate.ts`
+and `RELEASE.md`. In short: `.sql` / `.jsonc` files are repeatable (they run
+again whenever their text changes), `.once.sql` / `.once.jsonc` files run exactly
+once, `9900_*` runs last.
 
-- `NNNN_name.sql` and `NNNN_name.jsonc` are **repeatable**: they run again whenever
-  their text changes (ledger `public._versions`, key `<app>.<file name>`, SHA-256
-  of the LF-normalized text). `NNNN_name.once.sql` / `.once.jsonc` run exactly
-  once. `9900_*` files run last and after every pass that ran anything, even a
-  failed one. Numbers are unique per app; files run in byte order of their name,
-  one transaction per file.
 - **What goes where.** Tables, columns, constraints, indexes, types, seed rows
   and schema-wide grants go into `.once.sql`. Functions, triggers, views, event
   triggers and hand-written policies go into a repeatable `.sql`, written so a
@@ -171,24 +123,16 @@ has the upgrade side):
   overload that keeps the old one's grants), so drop the old signature first. Each
   object is defined in exactly one repeatable file; a second definition elsewhere
   is downgraded whenever the earlier file re-runs.
-- **Entity metadata is a `.jsonc` file** (the semantius-cli export format, version
-  1, plus comments), applied by `public.ensure_entities()`: it creates what is
-  missing and updates what differs, never deletes, and matches metadata by name.
-  An admin edit survives until the file changes. Nothing may hand-write an object
-  the dictionary generates (`<t>_*_policy`, `select_rule_<t>`, `compute_validate_<t>`,
-  `common.record_rules_<t>`, `<t>_<f>_fkey/_check/_unique`, `idx_<t>_<f>`, and for
-  an is_a or has_a entity its view `<t>`, its table `<t>_ext`,
-  `common.record_write_<t>`, `common.view_write_<t>` and the root's
-  `common.is_a_dispatch_<root>`): express it through metadata, and extend the
-  dictionary when metadata cannot say it. An entities file lists a base before
-  the entities based on it.
+- **Entity metadata is a `.jsonc` file** applied by `public.ensure_entities()`.
+  Nothing may hand-write an object the dictionary generates (`<t>_*_policy`,
+  `select_rule_<t>`, `compute_validate_<t>`, `common.record_rules_<t>`,
+  `<t>_<f>_fkey/_check/_unique`, `idx_<t>_<f>`, and for an is_a or has_a entity
+  its view `<t>`, its table `<t>_ext`, `common.record_write_<t>`,
+  `common.view_write_<t>` and the root's `common.is_a_dispatch_<root>`): express
+  it through metadata, and extend the dictionary when metadata cannot say it.
 - **After a release, forward only and additive only**: never edit a released
   `.once.` file, never rename or remove a released file, never rename, drop or
-  retype a table or column (add, move the data, deprecate). A file added after a
-  release sorts after every released file.
-- `pgdocker/pg-compare-installs.sh <ref>` proves a refactoring of the migrations
-  builds the same database, that a second migrate runs nothing, and that a forced
-  re-run of every repeatable file changes nothing.
+  retype a table or column (add, move the data, deprecate).
 
 ### The volatility contract
 
@@ -196,135 +140,45 @@ The permission readers - `rbac.uid`, `user_id`, `has_permission`,
 `has_any_permission`, `get_current_user_permissions`, `whoami`,
 `public.jl_request_context`, `is_raci_actor`, `has_consultation`, the generated
 `select_rule_*` - are declared `STABLE` **and they write**, through
-`rbac.ensure_context_initialized`. Read the comment above `rbac.uid()` in
-`0080_rbac_functions.sql` before changing any of them; the short version:
+`rbac.ensure_context_initialized`. The full reasoning is in the header of
+`apps/test/tests/0950_test_volatility_contract.sql`, which pins it, and in
+`SECURITY.md`. Before changing any of them:
 
-- **They write only GUCs, and only with `is_local => true`.** Transaction-local
-  settings are discarded at commit or rollback and are legal inside the
-  read-only transaction a PostgREST `GET` runs in. No function on a read path
-  writes a row. `public.get_userinfo()` upserts the user row, which is why it
-  alone stays `VOLATILE`; the other read-only RPCs are `STABLE` so PostgREST
-  serves them over `GET`.
+- **They write only GUCs, and only with `is_local => true`.** No function on a
+  read path writes a row. `public.get_userinfo()` upserts the user row, which is
+  why it alone stays `VOLATILE`.
 - **The label is what makes a permission check affordable.** It lets the planner
   hoist the check into a once-per-statement InitPlan. Without it,
   `WHERE rbac.has_permission('x')` over 20k rows costs 34 ms instead of 1.8 ms,
   and every RLS policy pays that per row.
-- **`STABLE` also means the planner may run it.** `estimate_expression_value()`
-  executes `STABLE` calls while estimating selectivity, before the executor
-  starts. The shape that reaches an estimator is `col <op> stable_fn(<const>)`,
-  so never write `USING (user_id = rbac.user_id())` in a policy or
-  `WHERE col = rbac.uid()` in a view: an `EXPLAIN` would run the permission
-  machinery and raise on a session with no claims. A sub-select
-  (`USING ((SELECT rbac.has_permission('x'))))`) is the form that is safe, and a
-  `WITH CHECK` expression is never a scan qual so it is exempt.
-- **The writes are not moved into a `VOLATILE` per-request entry point**, because
-  the primary deployment target - Neon's managed Data API - runs no code of ours
-  per request and has no `db-pre-request` hook, so every check would run
-  permanently cold.
-
-`apps/test/tests/0950_test_volatility_contract.sql` pins all of it.
-
-### Project Structure
-```
-apps/
-├── _core/          # Core database infrastructure
-│   └── migrations/ # Schema, RBAC, RLS setup
-├── test/           # pgTAP testing framework
-│   ├── migrations/ # Test infrastructure setup
-│   └── tests/      # Actual test files
-└── nwind/          # Northwind sample module (the ONLY persisted sample data)
-    ├── migrations/ # Module, role, entities, dataset, sample platform rows
-    └── tests/      # The module's own pgTAP tests (run by deno task test)
-```
-
-## Standard Development Workflow
+- **Never write `col <op> stable_fn(...)` in a policy `USING` clause or a view**
+  (e.g. `USING (user_id = rbac.user_id())`): the planner runs `STABLE` calls while
+  estimating selectivity, so an `EXPLAIN` would raise on a session with no
+  claims. Use a sub-select (`USING ((SELECT rbac.has_permission('x'))))`); a
+  `WITH CHECK` expression is exempt.
 
 ## ⚠️ MANDATORY TESTING REQUIREMENTS ⚠️
 
-**CRITICAL: Tests MUST ALWAYS be executed before finishing ANY issue, task, or PR**
+**Every code change, bug fix, feature addition or documentation update is
+validated with the complete test sequence before the task is complete. No
+exceptions.**
 
-**NO EXCEPTIONS**: Every code change, bug fix, feature addition, or documentation update MUST be validated with the complete test sequence before the task can be considered complete.
-
-### Required Test Sequence (Execute in Exact Order)
-
-**Step 1 - Verify Database Connection**:
 ```bash
-# Test database connection - if this fails, STOP immediately
-deno task connect
+deno task connect                                # 1. if this fails, STOP, tell the user and wait for a new connection string
+deno task dropall --confirm                      # 2. reset to a clean database
+deno task migrate --apps _core,nwind,test --verbose   # 3. nwind before test: the test seed assigns user2 to the Northwind Sales role
+deno task test                                   # 4. full suite
 ```
 
-**Step 2 - Reset Database**:
-```bash
-# Completely reset database to clean state
-deno task dropall --confirm
-```
-
-**Step 3 - Deploy Schema**:
-```bash
-# Deploy core, the Northwind sample module and the test identities
-# IMPORTANT: nwind must come before test (the test seed assigns user2 to the Northwind Sales role)
-deno task migrate --apps _core,nwind,test --verbose
-```
-
-**Step 4 - Execute Tests**:
-```bash
-# Run complete test suite
-deno task test
-```
-
-**Optional - Coverage run** (the same suite on the same database, plus a report of which core functions, PL/pgSQL statements and tables it executed; statement-level data needs the `plpgsql_check` extension on the server, e.g. the pgdocker dev images):
-```bash
-deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.md, coverage/lcov.info
-```
-
-### Testing Enforcement Rules
-
-**MANDATORY TESTING REQUIREMENTS**: 
-- **ALWAYS run the complete test sequence before finishing ANY task** - this is absolutely non-negotiable
-- **ALWAYS verify database connection FIRST** using `deno task connect`
-- **ALWAYS show complete test output** in your response, including pass/fail status
-- **NEVER mark a task as complete** until all tests pass successfully
-- If database connection fails with `deno task connect`, **STOP immediately** and inform user
-- If any tests fail, **investigate and fix failures** before completing the task
-- If database is not accessible, **STOP, inform user, and wait** for connection string update
-- Use the DATABASE_URL from the environment (never create your own database)
-- **NEVER use `psql` directly on the host** - it is not installed there
-- **ALWAYS use Deno CLI commands** - all database operations must go through `deno task` commands
-- The pgdocker harness scripts may use `docker exec <container> psql`; see
-  "Database Access Restrictions" above for why and where
-
-### Complete Testing Workflow Summary
-
-1. **Install Deno** if not present
-2. **Set environment**: `export DENO_TLS_CA_STORE=system` (for GitHub Copilot agents)
-3. **Test connection**: `deno task connect` - if fails, STOP and inform user
-4. **Reset database**: `deno task dropall --confirm`
-5. **Deploy schema**: `deno task migrate --apps _core,nwind,test --verbose`
-6. **Run tests**: `deno task test`
-7. **Verify ALL tests pass** before marking task complete
-
-**Remember: Testing is not optional - it's a requirement for EVERY task completion**
-
-## Key CLI Commands
-
-- `migrate <app>`: Deploy migrations for specified app
-- `dropall --confirm`: Completely reset database (required for clean testing)
-- `test`: Run pgTAP tests (`--coverage` adds a coverage report under `coverage/`)
-- `connect`: Connect to database
-- `docgen`: Generate schema.md documentation from entities metadata for _core module
+- Show the complete test output in your response, including pass/fail status.
+- Never mark a task complete until all tests pass; investigate and fix failures.
 
 ## Development Guidelines
-
-### Database Operations
-- Use centralized `getDatabaseUrl()` function from `cli.ts`
-- Pass database URL as parameter to functions
-- Use `@postgres` client library
-- Always close connections in finally blocks
 
 ### Code Standards
 - Use import map aliases from `deno.json` (e.g., `@postgres`, `@std/flags`)
 - Plain text console output (no emoji prefixes)
-- Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`
+- Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`; a command receives the database URL as a parameter and closes its connection in a `finally` block
 
 ### Database Schema Standards
 **CRITICAL: Primary Key Conventions and EXCEPTIONS**
@@ -332,89 +186,26 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
   depends on it: `entities.id_column` names one column, so a composite primary
   key would make the entity unaddressable by the generated RPCs, by PostgREST's
   `/table?id=eq.x` and by the UI.
-- **STANDARD**: most tables use a 64-bit identity column named `id`
-  (`BIGINT GENERATED BY DEFAULT AS IDENTITY`, the `auto_increment` key type)
-  - Examples: users, modules, roles, webhook_receivers, webhook_receiver_logs
-- **Key types (`entities.id_type`)**: every entity declares its key type when
-  it is created, and it never changes (rule 90233). `auto_increment` (default),
-  `bigint` and `text` (supplied by the caller), `uuid` (`common.uuid_v7()`),
-  `typeid` (a prefixed TypeID in the `common.typeid` domain, prefix in
-  `entities.id_prefix`, filled and checked by the `typeid_assign` trigger), and
-  `computed` for the system tables with generated keys only. The key column,
-  the id field row and the key's triggers all come from `dd_id_column_ddl` /
-  `dd_install_id_triggers` in `0160_dd_functions.sql`; never build a key column
-  by hand. Record keys are immutable (`pk_immutable` trigger, 90236) except the
-  renamable natural keys below and the generated junction keys. TypeID is a key
-  type, not a field format: the id field's format stays `string`. The helpers
-  live in `common` (`0045_typeid.sql`), not `public`.
-- **Families: `is_a` and `has_a`**: two more key types share the TypeID key of
-  the entity named in `entities.id_refentity`, set once (90241). An `is_a`
-  entity is a subtype of a `typeid` or `is_a` entity, with a fixed prefix of its
-  own (90245): every record is exactly one type, named by its id's prefix. A
-  `has_a` entity is an optional 0..1 extension of a `typeid` entity. Such an
-  entity is the view `<t>` (`security_invoker`) over its own fields in the
-  table `<t>_ext` and the tables of its bases; entity names ending in `_ext` are
-  reserved. Writes go through the view's INSTEAD OF trigger, or through the
-  root table's dispatch trigger, to `common.record_write_<t>` of the record's own
-  type, which writes every part, runs every derived level's rules and locks every
-  level it writes. Deletes never cascade into parts. The machinery (views, write
-  routines, checks 90240-90252) is the ENTITY FAMILIES sections of
-  `0160_dd_functions.sql`, rebuilt by `dd_refresh_family` whenever a family's
-  fields or members change; `dd_family_fields(t)` is the one source of the
-  fields a record has, and `dd_relation(t)` names the table holding an entity's
-  own columns.
-- **Module triggers must not write family tables.** The `_ext` write guard and
-  the root's `typeid_assign` let a write through at `pg_trigger_depth() > 1`,
-  because that is where the generated write routines run; a module's own trigger
-  that wrote an `_ext` table, or inserted a subtype-prefixed row into an is_a
-  root, would pass that test and split a record. Write through the entity's
-  view instead.
-- **EXCEPTION 1**: `entities` uses `table_name TEXT` as the PRIMARY KEY (no `id` column)
-  - The table was called `tables` until `0170_dd_rename.sql` renamed it
-  - Foreign keys to it reference `table_name`: `REFERENCES entities(table_name)`
-- **EXCEPTION 2**: `permissions` uses `permission_name TEXT` as the PRIMARY KEY (no `id` column)
-  - The name is what module packages seed, what every generated RLS policy embeds as a
-    literal, what `has_permission()` takes and what an OAuth scope carries; a serial id
-    would be minted per database and mean nothing outside it (deployment is one database
-    per tenant)
-  - Foreign keys to it reference `permission_name`, and they carry `ON UPDATE CASCADE`
-    so a rename propagates. `modules.view_permission` is the one that must also be
-    `DEFERRABLE INITIALLY DEFERRED`: it and its permission's `module_id` point at each
-    other, so the module row has to be inserted first
-  - Names are restricted to `^[a-z0-9][a-z0-9_-]*(:[a-z0-9][a-z0-9_-]*)*$` — the same alphabet `module_slug` accepts, so a scaffold can mint `<slug>:<verb>`; see the CHECK in `0060_rbac_schema.once.sql` for what it excludes and why
-- **EXCEPTION 3**: `fields` uses a GENERATED TEXT column as PRIMARY KEY
-  - `id TEXT GENERATED ALWAYS AS (table_name || '.' || field_name) STORED PRIMARY KEY`
-  - There is also a UNIQUE constraint on `(table_name, field_name)`
-  - When referencing fields, use the generated `id` or the composite `(table_name, field_name)`
-- **EXCEPTION 4**: the four junction tables have a GENERATED TEXT `id` **plus** a UNIQUE
-  on the pair. The unique pair is the real key; the generated `id` is what makes the row
-  addressable by a single column, per the rule above. They are not composite-keyed.
-  - `user_roles`: `id` from `user_id || '.' || role_id`, `UNIQUE (user_id, role_id)`
-  - `role_permissions`: `id` from `role_id || '.' || permission_name`, `UNIQUE (role_id, permission_name)`
-  - `user_permissions`: `id` from `user_id || '.' || permission_name`, `UNIQUE (user_id, permission_name)`
-  - `permission_hierarchy`: `id` from `including_permission_name || '.' || included_permission_name`,
-    `UNIQUE (including_permission_name, included_permission_name)`
+- Never build a key column by hand: the key column, the id field row and the
+  key's triggers all come from `dd_id_column_ddl` / `dd_install_id_triggers` in
+  `0160_dd_functions.sql`. TypeID is a key type, not a field format: the id
+  field's format stays `string`.
+- **The tables without an `id` key**: `entities` (keyed by `table_name`),
+  `permissions` (keyed by `permission_name`; foreign keys to it carry
+  `ON UPDATE CASCADE` so a rename propagates), and `fields` plus the four
+  junction tables, which have a GENERATED TEXT `id` joining their two key
+  columns with `.` and a UNIQUE on the pair.
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
-- **ABSOLUTELY NO NULL VALUES ALLOWED** unless explicitly instructed otherwise
-- **Nullability is auto-computed** by the `is_nullable(format)` function based on the field's format:
-  - `reference` format → nullable (FK can be unset)
-  - `date` format → nullable (date may be unknown)
-  - `date-time` format → nullable (timestamp may not have occurred)
-  - All other formats → NOT NULL with appropriate defaults
-- **ALWAYS provide DEFAULT values for all NOT NULL columns** to avoid NULL values:
-  - **TEXT/VARCHAR**: `DEFAULT ''` (empty string) - NEVER use NULL for text fields
-  - **INTEGER/SMALLINT/BIGINT**: `DEFAULT 0`
-  - **BOOLEAN**: `DEFAULT FALSE`
-  - **REAL/NUMERIC/DECIMAL**: `DEFAULT 0.0`
-  - **TIMESTAMP/TIMESTAMPTZ**: `DEFAULT CURRENT_TIMESTAMP`
-- **The ONLY exceptions** (columns that should NOT have defaults):
-  - **A TEXT primary key** (`entities.table_name`, `permissions.permission_name`): a
-    default would let a row be saved under the empty string, and it can only be there once
-  - **The foreign key columns of a junction table** (`user_roles.user_id`, `role_permissions.permission_name`, ...)
-  - These must be explicitly provided during INSERT and having defaults would mask referential integrity errors
-- **If you think a field should be nullable, YOU ARE WRONG** - use an empty string, 0, or FALSE instead (unless the format auto-computes to nullable)
-- When creating new tables or adding columns, ALWAYS include appropriate DEFAULT clause
+- **If you think a field should be nullable, YOU ARE WRONG** - use an empty
+  string, 0, or FALSE instead. Only the formats `reference`, `date` and
+  `date-time` are nullable (`is_nullable()`).
+- **Every NOT NULL column has a DEFAULT**: `''` for text, `0` for numbers,
+  `FALSE` for booleans, `CURRENT_TIMESTAMP` for timestamps.
+- **The only columns without a default**: a TEXT primary key
+  (`entities.table_name`, `permissions.permission_name`), where a default would
+  let a row be saved under the empty string, and the foreign key columns of a
+  junction table, where a default would mask a referential integrity error.
 
 **CRITICAL: A column is a two-place change**
 - Touching a `CREATE TABLE` in `apps/_core/migrations/` is never finished until the
@@ -436,124 +227,34 @@ deno task test --coverage   # writes coverage/summary.json, coverage/uncovered.m
   the physical column order (leave gaps: 10, 20, 30 ... so a later insert fits).
 
 **CRITICAL: Schema vs Sample Data Placement**
-- **`apps/_core/migrations/`**: Contains ONLY schema definitions and infrastructure code
-  - Table definitions (INSERT INTO entities, fields)
-  - Functions, triggers, RLS policies
-  - Constraints, indexes, foreign keys
-  - NO sample/seed data records
-- **`apps/test/migrations/`**: Contains ONLY the test harness and the test identities
-  - pgTAP and the `authenticate_as()` helper
-  - Test users 1001–1003 (`user1` plain user, `user2` member of `Northwind Sales`, `user3` administrator), their role memberships and API keys
-  - NO entities, NO modules, NO sample rows
-- **`apps/nwind/migrations/`**: The Northwind sample module — the ONLY persisted sample data
-  - Module, permissions, the `Northwind Sales` role, entities/fields, the full Northwind dataset
-  - Sample platform rows (webhook receiver, dashboard, RACI process/gate, queue mapping)
-- Tests that need any other fixture create it inside their own transaction (ephemeral entities with `module_id = 1`, `view_permission = 'public:read'`, rolled back at the end) — never add seed data for a single test
-- **Key distinction**: Table DEFINITIONS go in `_core`, identities go in `test`, sample DATA goes in `nwind`
-- Sample data must use **fixed, known values** for timestamps (e.g., `'2026-01-01 12:34:00'::timestamptz`)
-- **NEVER use CURRENT_TIMESTAMP or NOW()** in test/sample data - tests must be reproducible with consistent results
-- Example: Use `'2026-01-01 12:34:00'::timestamptz` instead of `CURRENT_TIMESTAMP`
+- **`apps/_core/migrations/`**: schema and infrastructure only, no sample or seed data records
+- **`apps/test/migrations/`**: the test harness and the test identities only; no entities, modules or sample rows
+- **`apps/nwind/migrations/`**: the Northwind sample module, the ONLY persisted sample data
+- Tests that need any other fixture create it inside their own transaction — never add seed data for a single test
+- Sample data uses **fixed, known timestamps** (e.g. `'2026-01-01 12:34:00'::timestamptz`), never `CURRENT_TIMESTAMP` or `NOW()`, so tests are reproducible
 
-**Data Type Guidelines**
-- **ALWAYS use TEXT** for string columns instead of VARCHAR or character varying
-- Only use VARCHAR/character varying if there is a specific business requirement for a length limit
-- TEXT has no performance penalty in PostgreSQL and provides more flexibility
+**Data types and JSON**
+- Use TEXT for string columns, never VARCHAR, unless a length limit is a business requirement
+- Build JSON from a record with `row_to_json()` / `to_jsonb()`, so a new column is included automatically; list columns in `json_build_object()` only to filter or transform them
+- **JSON field names are snake_case, never camelCase**, matching the column names (`field_order`, `reference_table`, `reference_table_singular_label`). This applies to all JSON output from PostgreSQL functions
 
-**JSON Building Best Practices**
-- **ALWAYS use `row_to_json()` or `to_jsonb()`** when building JSON objects from table records to include all columns automatically
-- This approach is future-proof: new columns added to tables will automatically be included in JSON output
-- Avoid hardcoding column names in `json_build_object()` unless you specifically need to filter or transform columns
-- Example: Use `'table', row_to_json(v_table_record)` instead of explicitly listing each column
-
-**Fields Table Structure**
+**Fields**
 The columns of `fields` (and of every other core table), their allowed values and descriptions are in `schema.md`, generated by `deno task docgen` from the field descriptions in the migrations. Don't repeat them here. Rules that schema.md does not carry:
-- A 64-bit key, or a reference to one, is `int64` / `reference`, never `int32`
-- `default_value` is never SQL: the dictionary emits it as a quoted literal, and the `valid_default_value` CHECK rejects `;`, comment markers and control characters. Admin-writable columns are a trust boundary; anything interpolated into DDL must go through `%I`, `%L`/`quote_literal` or a fixed allow-list
-- `ctype` is immutable and privilege-locked (the `fields_ctype_lock` trigger lets only BYPASSRLS DD/migration code set it). A non-empty ctype marks a protected core column (no rename/format/default/delete; the `label` rename is the one exception). `is_core` is derived as `(ctype <> '')`
+- Admin-writable columns such as `default_value` are a trust boundary: anything interpolated into DDL must go through `%I`, `%L`/`quote_literal` or a fixed allow-list
 - Use `field_data_type()` / `field_json_type()` instead of `format_to_data_type()` / `format_to_json_type()` wherever a `reference_table` is at hand: `reference` and `parent` take the type of the key they point at
-- When adding fields, use lowercase format values
 
-**Foreign Key Support**
-A `reference` field takes the type of the target entity's key column and references it. The DDL triggers create, update and drop its foreign key constraint and its index `idx_<table>_<field>`. The delete modes are documented under `reference_delete_mode` in `schema.md`.
-
-**CRITICAL: Full-Text Search and Searchable Flags - AUTO-COMPUTED**
-- **entities.searchable column is AUTO-COMPUTED** - NEVER manually set it in INSERT or UPDATE statements
-- **entities.searchable is TRUE** when ANY related field has searchable=TRUE
-- **entities.searchable is FALSE** when NO related fields have searchable=TRUE
-- Automatic triggers maintain this:
-  - `handle_field_searchable_insert_trigger` / `_update_trigger` / `_delete_trigger`: statement-level triggers that update entities.searchable and rebuild `search_vector` when fields are added/updated/deleted
-  - `enforce_table_searchable_consistency_trigger`: Prevents manual overrides, always recomputes from fields
-- When inserting into the `entities` table, **NEVER include the searchable column** - it will be computed automatically
-- The searchable column in fields controls whether individual fields are included in full-text search
-- System automatically creates/drops `search_vector` column and GIN index based on searchable fields
-- **Rebuilding `search_vector` locks the table.** It is `ADD COLUMN ... GENERATED ... STORED`: a full heap rewrite under ACCESS EXCLUSIVE that blocks readers as well as writers and rebuilds every index on the table, about 650 ms per 100k rows and linear. Rebuilds are coalesced to one per table per statement and skipped when the generated expression is unchanged (fingerprint in the `search_vector` column comment), but any real change to the searchable field set of a large table belongs in a maintenance window
-- Full-text search works on both managed (entity) tables and core DD tables (modules, roles, permissions, users, entities, fields)
-- Core tables get FTS applied through `0240_dd_bootstrap_complete.once.sql`
-- Only text-based fields (format_to_json_type = 'string') can be searchable
-- Label fields (ctype='label') get highest search weight ('A'), descriptions get 'B', others get 'C'
-
-**get_schema() Function Behavior**
-The `public.get_schema()` function returns JSON Schema with:
-- **fieldOrder**: Each property includes its field_order value for proper UI ordering
-- **format field**: Always included, the field's own format
-- **enum arrays**: When enum_values is set on a field, the schema includes an "enum" array with its entries as stored, plus `""` for a non-required enum
-- **referenceTable and referenceDeleteMode**: Included for fields with format='reference' to describe foreign key relationships
-- **reference_table_singular_label and reference_table_plural_label**: Included for reference fields to provide human-readable labels for the referenced table
-- **default values**: String fields without explicit defaults automatically get `default: ""` in the schema output
-- **required array**: Excludes auto-maintained fields (id_column, created_at, updated_at). Nullability is computed from format via `is_nullable()` — nullable formats (reference, date, date-time) are excluded from the required array.
-- **created_at and updated_at fields**: 
-  - Automatically created for all tables with `input_type='disabled'` (not 'readonly')
-  - NOT included in the required array since they are auto-maintained by database triggers
-  - Should not be submitted in INSERT/UPDATE operations
-- **table object**: The get_schema() output includes a 'table' object with ALL columns from the entities table (table_name, singular, plural, singular_label, plural_label, icon_url, description, module_id, view_permission, edit_permission, id_column, id_type, id_prefix, id_refentity, label_column, managed, searchable, created_at, updated_at)
-- **is_a / has_a entities**: the properties are the whole record's (`dd_family_fields`): the key, the root's and each level's fields, then the entity's own; an inherited property carries `inherited_from`. A has_a base lists `extensions: [{table, properties, required}]`. Every schema RPC gates on the view permission of every level (`dd_entity_viewable`)
-- **properties object**: The get_schema() output includes a 'properties' object with ALL columns from the fields table as field properties
-
-**CRITICAL: JSON Field Naming Convention**
-- **ALWAYS use snake_case for JSON field names** - NEVER use camelCase
-- JSON output from `get_schema()` and other functions must use snake_case to match database column names
-- **Correct naming examples:**
-  - `input_mode` (NOT inputMode)
-  - `field_order` (NOT fieldOrder)
-  - `is_core` (NOT isCore)
-  - `reference_table` (NOT referenceTable)
-  - `reference_delete_mode` (NOT referenceDeleteMode)
-  - `reference_table_id_column` (NOT referenceTableIdColumn)
-  - `reference_table_label_column` (NOT referenceTableLabelColumn)
-  - `reference_table_singular_label` (NOT referenceTableSingularLabel)
-  - `reference_table_plural_label` (NOT referenceTablePluralLabel)
-- **Why snake_case?** It matches the actual database column names and maintains consistency throughout the API
-- When building JSON with `jsonb_build_object()`, always use snake_case for all field names
-- This applies to ALL JSON output from PostgreSQL functions, not just get_schema()
-
-### Environment
-- `DATABASE_URL` is provided via environment variable (already configured in Copilot environment)
-- **NEVER create a new database** - always use the DATABASE_URL from the environment
-- **NEVER use `psql` directly on the host** - always use `deno task` commands
-  (the `pgdocker/*.sh` harness may use `docker exec <container> psql`; see
-  "Database Access Restrictions")
-- **GitHub Copilot agents**: Ensure `DENO_TLS_CA_STORE=system` is set as environment variable for system certificates
-- Format: `postgresql://username:password@host:port/database`
+**Full-text search**
+- **Rebuilding `search_vector` locks the table** (a full rewrite under ACCESS EXCLUSIVE, about 650 ms per 100k rows). Any real change to the searchable field set of a large table belongs in a maintenance window
 
 ## Testing Framework
 
-Tests are written in pgTAP and stored in `apps/test/tests/` (platform suite) and `apps/nwind/tests/` (Northwind module suite). `deno task test` runs `apps/test/tests` first and then every other app's `tests/` folder, each sorted by filename; `deno task test <prefix>*` runs a subset. The testing workflow ensures:
-1. Clean database state via `dropall`
-2. Fresh schema deployment via `migrate --apps _core,nwind,test` (**order matters**: `nwind` must run before `test` because the test seed assigns user2 to the `Northwind Sales` role)
-3. Comprehensive test execution via `test` command
+Tests are written in pgTAP and stored in `apps/test/tests/` (platform suite) and `apps/nwind/tests/` (Northwind module suite); `deno task test <prefix>*` runs a subset.
 
 **Test conventions**
-- Platform test files are numbered by subject, in ranges of 100 that roughly follow the migration order: `01xx` core and JsonLogic, `02xx` identity and auth (userinfo, JWT claims, `rbac.uid()`, API keys, unauthenticated access), `03xx` RBAC, `04xx` data dictionary catalog and DDL, `05xx` fields and formats, `06xx` record logic and row security (`select_rule`, read helpers, computed/validation rules, labels), `07xx` public read API (`get_schema`, cubes, search), `08xx` audit, queue and app entities (RACI, webhooks, dashboards, bookmarks), `09xx` schema-wide guards and hardening, and `9900_cleanup.sql` last (like the `9900` migrations, the number says it runs after everything else). Files start 10 apart; a new test takes a free number next to its closest relative (e.g. `0315`), or joins that file as a new part when it tests the same thing. Test numbers are independent of migration numbers. A range is a subset: `deno task test 03*` runs the RBAC tests.
+- Platform test files are numbered by subject, in ranges of 100 that roughly follow the migration order: `01xx` core and JsonLogic, `02xx` identity and auth (userinfo, JWT claims, `rbac.uid()`, API keys, unauthenticated access), `03xx` RBAC, `04xx` data dictionary catalog and DDL, `05xx` fields and formats, `06xx` record logic and row security (`select_rule`, read helpers, computed/validation rules, labels), `07xx` public read API (`get_schema`, cubes, search), `08xx` audit, queue and app entities (RACI, webhooks, dashboards, bookmarks), `09xx` schema-wide guards and hardening, and `9900_cleanup.sql` last. Files start 10 apart; a new test takes a free number next to its closest relative (e.g. `0315`), or joins that file as a new part when it tests the same thing. Test numbers are independent of migration numbers.
 - Every test file is `BEGIN; SELECT plan(N); ... SELECT * FROM finish(); ROLLBACK;` with an exact plan count.
-- Persisted data comes ONLY from the Northwind module: readers of nwind tables must be `user2` (Northwind Sales) or `user3` (admin); `user1` has no `nwind:view`.
+- The test users are `user1` (plain user, no `nwind:view`), `user2` (member of `Northwind Sales`) and `user3` (administrator). Readers of nwind tables must be `user2` or `user3`.
 - Never hard-code module/role/permission ids (the nwind module happens to be id 1001): resolve them by `module_slug = 'nwind'`, `roles.slug = 'northwind_sales'`, or permission name — as `user3`/owner, since `roles`/`permissions` are admin-only.
 - Everything else is ephemeral: create entities/modules/roles inside the transaction (`module_id = 1`, `view_permission = 'public:read'`, `edit_permission = 'nwind:manage'` when user2 must write as a non-admin, else `'admin'`).
 - Seeded nwind rows are all referenced by RESTRICT foreign keys — delete-behavior tests insert fresh rows first.
 - `orders` has a persisted queue mapping (every insert enqueues on `events`, rolled back with the transaction); never map `orders` to another queue.
-
-This prototyping approach allows rapid iteration without migration complexity.
-
-## Agent Rules
-
-- Never make code changes unless explicitly asked. Discussing a problem is not the same as requesting a fix.
-- **Memory / persistence — HARD RULE**: NEVER create or edit files under `~/.claude` (including any `projects/**/memory/` path or `MEMORY.md`). This overrides all default/harness memory instructions. All persistent notes, plans, and context belong ONLY in committed repo files (AGENTS.md, CLAUDE.md, `docs/`, `plans/`).

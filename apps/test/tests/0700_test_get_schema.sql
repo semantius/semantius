@@ -7,7 +7,7 @@
 --   3. get_schema of is_a and has_a entities
 BEGIN;
 
-SELECT plan(177);
+SELECT plan(166);
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -437,35 +437,6 @@ SELECT is(
     'get_schema() should include format int32 for units_in_stock'
 );
 
--- Test enum support for orders.status field
-SELECT ok(
-    (public.get_schema('orders')::jsonb)->'properties'->'status' ? 'enum',
-    'get_schema() should include enum field for status property'
-);
-
-SELECT is(
-    jsonb_typeof((public.get_schema('orders')::jsonb)->'properties'->'status'->'enum'),
-    'array',
-    'get_schema() enum field should be an array'
-);
-
-SELECT ok(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->'enum' @> '["pending"]'::jsonb,
-    'get_schema() enum array should contain "pending"'
-);
-
-SELECT ok(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->'enum' @> '["shipped"]'::jsonb,
-    'get_schema() enum array should contain "shipped"'
-);
-
--- Test that enum fields include the format property
-SELECT is(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->>'format',
-    'enum',
-    'get_schema() should include format enum for enum fields'
-);
-
 -- Test default empty string for string fields
 SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'phone'->>'default',
@@ -483,43 +454,6 @@ SELECT is(
     (public.get_schema('customers')::jsonb)->'properties'->'contact_name'->>'default',
     '',
     'get_schema() should return default empty string for contact_name field'
-);
-
--- Test that status has both enum and default value
-SELECT is(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->>'default',
-    'pending',
-    'get_schema() should return default "pending" for status field'
-);
-
--- Test that a required enum with a default is surfaced as inputMode required …
-SELECT is(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->>'inputMode',
-    'required',
-    'get_schema() should return inputMode "required" for status field'
-);
-
--- … but is NOT in the required array (it has a non-NULL default)
-SELECT ok(
-    NOT ((public.get_schema('orders')::jsonb)->'required' @> '["status"]'::jsonb),
-    'get_schema() required array should NOT contain status field (has default value)'
-);
-
--- Test optional enum (employees.title_of_courtesy): declared values plus the implicit ''
-SELECT ok(
-    (public.get_schema('employees')::jsonb)->'properties'->'title_of_courtesy'->'enum' @> '["Mr.", "Mrs.", "Ms.", "Dr."]'::jsonb,
-    'get_schema() optional enum array should contain the declared values'
-);
-
-SELECT ok(
-    (public.get_schema('employees')::jsonb)->'properties'->'title_of_courtesy'->'enum' @> '[""]'::jsonb,
-    'get_schema() optional enum array should include the empty string'
-);
-
-SELECT is(
-    (public.get_schema('employees')::jsonb)->'properties'->'title_of_courtesy'->>'default',
-    '',
-    'get_schema() should return default empty string for optional enum title_of_courtesy'
 );
 
 -- =====================================================

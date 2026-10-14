@@ -20,9 +20,13 @@
 --
 -- Then entries that also carry a description, color and icon: again only the
 -- value reaches the CHECK constraint, and get_schema() returns them as stored.
+--
+-- Finally, changes to an existing enum rebuild its CHECK constraint: adding and
+-- removing values, required <-> optional, and switching format to and from enum.
+-- A change that existing rows would violate is refused.
 BEGIN;
 
-SELECT plan(40);
+SELECT plan(51);
 
 -- Authenticate as admin user so we can create entities/fields
 SELECT authenticate_as('user3');
@@ -231,6 +235,18 @@ SELECT is(
     'get_schema() default for NOT required enum without explicit default is empty string'
 );
 
+SELECT is(
+    (public.get_schema('enum_default_test')::jsonb)
+        ->'properties'->'status_required_with_default'->>'inputMode',
+    'required',
+    'get_schema() surfaces a required enum with a default as inputMode required'
+);
+
+SELECT ok(
+    NOT ((public.get_schema('enum_default_test')::jsonb)->'required' @> '["status_required_with_default"]'::jsonb),
+    'get_schema() does not list a required enum with a default in the required array'
+);
+
 -- =====================================================
 -- Enum column COMMENT carries the allowed value list
 -- =====================================================
@@ -406,6 +422,99 @@ SELECT is(
     pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'valid_reference_delete_mode')),
     $$CHECK ((reference_delete_mode = ANY ('{"",restrict,clear,cascade}'::text[])))$$,
     'valid_reference_delete_mode holds the values of the labeled fields.reference_delete_mode enum'
+);
+
+-- =====================================================
+-- Changing an enum after it exists: the CHECK is rebuilt
+-- =====================================================
+-- Rows at this point: stage holds '' or 'closed', priority holds 'p1' or 'p3',
+-- mood holds '' or 'calm'.
+
+-- A value added in the middle is accepted
+UPDATE fields
+SET enum_values = '[{"value": "open", "label": "Open"}, {"value": "review", "label": "In review"}, {"value": "closed", "label": "Closed"}]'::jsonb
+WHERE table_name = 'enum_default_test' AND field_name = 'stage';
+
+SELECT lives_ok(
+    $$INSERT INTO enum_default_test (label, stage) VALUES ('row_stage_review', 'review')$$,
+    'a value added to enum_values is accepted'
+);
+
+-- A value no row holds can be removed, and is rejected afterwards
+UPDATE fields
+SET enum_values = '[{"value": "review", "label": "In review"}, {"value": "closed", "label": "Closed"}]'::jsonb
+WHERE table_name = 'enum_default_test' AND field_name = 'stage';
+
+SELECT throws_ok(
+    $$INSERT INTO enum_default_test (label, stage) VALUES ('row_stage_open', 'open')$$,
+    '23514',
+    NULL,
+    'a value removed from enum_values is rejected'
+);
+
+-- Removing a value that rows still hold is refused, and the CHECK stays as it was
+SELECT throws_ok(
+    $$UPDATE fields SET enum_values = '[{"value": "review", "label": "In review"}]'::jsonb
+      WHERE table_name = 'enum_default_test' AND field_name = 'stage'$$,
+    '23514',
+    NULL,
+    'removing a value that rows still hold is refused'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO enum_default_test (label, stage) VALUES ('row_stage_closed', 'closed')$$,
+    'after the refused change the value is still accepted'
+);
+
+-- Required -> optional: '' is accepted
+UPDATE fields SET input_type = 'default'
+WHERE table_name = 'enum_default_test' AND field_name = 'priority';
+
+SELECT lives_ok(
+    $$INSERT INTO enum_default_test (label, priority) VALUES ('row_priority_empty', '')$$,
+    'an enum made optional accepts the empty string'
+);
+
+-- Optional -> required is refused while a row holds ''
+SELECT throws_ok(
+    $$UPDATE fields SET input_type = 'required'
+      WHERE table_name = 'enum_default_test' AND field_name = 'priority'$$,
+    '23514',
+    NULL,
+    'making an enum required is refused while rows hold the empty string'
+);
+
+-- ... and goes through once no row does; '' is rejected afterwards
+DELETE FROM enum_default_test WHERE label = 'row_priority_empty';
+
+UPDATE fields SET input_type = 'required'
+WHERE table_name = 'enum_default_test' AND field_name = 'priority';
+
+SELECT throws_ok(
+    $$INSERT INTO enum_default_test (label, priority) VALUES ('row_priority_empty2', '')$$,
+    '23514',
+    NULL,
+    'an enum made required rejects the empty string'
+);
+
+-- enum -> text drops the CHECK
+UPDATE fields SET format = 'text', enum_values = NULL
+WHERE table_name = 'enum_default_test' AND field_name = 'mood';
+
+SELECT lives_ok(
+    $$INSERT INTO enum_default_test (label, mood) VALUES ('row_mood_text', 'sleepy')$$,
+    'a field switched from enum to text accepts any value'
+);
+
+-- text -> enum adds it
+UPDATE fields SET format = 'enum', enum_values = '["calm", "busy", "sleepy"]'::jsonb
+WHERE table_name = 'enum_default_test' AND field_name = 'mood';
+
+SELECT throws_ok(
+    $$INSERT INTO enum_default_test (label, mood) VALUES ('row_mood_grumpy', 'grumpy')$$,
+    '23514',
+    NULL,
+    'a field switched from text to enum rejects values outside enum_values'
 );
 
 SELECT * FROM finish();

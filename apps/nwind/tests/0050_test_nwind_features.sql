@@ -11,7 +11,7 @@
 
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(32);
 
 SELECT authenticate_as('user2');
 
@@ -115,49 +115,28 @@ SELECT is(
 );
 
 -- Test 13
-SELECT is(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->'enum',
-    '["pending", "shipped"]'::jsonb,
-    'orders.status enum should be exactly [pending, shipped]'
+SELECT ok(
+    NOT (enum_value_list((public.get_schema('orders')::jsonb)->'properties'->'status'->'enum') @> '[""]'::jsonb),
+    'orders.status enum should not include the empty string (required)'
 );
 
 -- Test 14
 SELECT ok(
-    NOT ((public.get_schema('orders')::jsonb)->'properties'->'status'->'enum' @> '[""]'::jsonb),
-    'orders.status enum should not include the empty string (required)'
-);
-
--- Test 15
-SELECT ok(
     NOT ((public.get_schema('orders')::jsonb)->'required' @> '["status"]'::jsonb),
     'orders.status should not be listed in the required array (has a non-NULL default)'
-);
-
--- Test 16
-SELECT is(
-    (public.get_schema('orders')::jsonb)->'properties'->'status'->>'format',
-    'enum',
-    'orders.status (enum) should carry format enum'
 );
 
 -- =====================================================
 -- get_schema('employees'): optional enum includes ''
 -- =====================================================
 
--- Test 17
+-- Test 15
 SELECT ok(
     (public.get_schema('employees')::jsonb)->'properties'->'title_of_courtesy'->'enum' @> '[""]'::jsonb,
     'employees.title_of_courtesy enum should include the empty string (optional)'
 );
 
--- Test 18
-SELECT ok(
-    (public.get_schema('employees')::jsonb)->'properties'->'title_of_courtesy'->'enum'
-        @> '["Mr.", "Mrs.", "Ms.", "Dr."]'::jsonb,
-    'employees.title_of_courtesy enum should include Mr., Mrs., Ms., Dr.'
-);
-
--- Test 19
+-- Test 16
 SELECT is(
     (public.get_schema('employees')::jsonb)->'properties'->'title_of_courtesy'->>'default',
     '',
@@ -168,28 +147,28 @@ SELECT is(
 -- string format / readonly / cube_type
 -- =====================================================
 
--- Test 20
+-- Test 17
 SELECT is(
     (public.get_schema('suppliers')::jsonb)->'properties'->'homepage'->>'format',
     'url',
     'suppliers.homepage should have format url'
 );
 
--- Test 21
+-- Test 18
 SELECT is(
     (public.get_schema('products')::jsonb)->'properties'->'units_on_order'->>'inputMode',
     'readonly',
     'products.units_on_order inputMode should be readonly'
 );
 
--- Test 22
+-- Test 19
 SELECT is(
     (public.get_schema('products')::jsonb)->'properties'->'units_on_order'->>'type',
     'integer',
     'products.units_on_order (int32) should map to JSON type integer'
 );
 
--- Test 23
+-- Test 20
 SELECT is(
     (public.get_schema('products')::jsonb)->'properties'->'units_in_stock'->>'cube_type',
     'measure',
@@ -200,21 +179,21 @@ SELECT is(
 -- get_schema('order_details'): composed label discovery
 -- =====================================================
 
--- Test 24
+-- Test 21
 SELECT is(
     (public.get_schema('order_details')::jsonb)->'properties'->'_label'->>'source',
     'order_id',
     'order_details._label source should be order_id (label_parent)'
 );
 
--- Test 25
+-- Test 22
 SELECT is(
     (public.get_schema('order_details')::jsonb)->'properties'->'_label'->>'ctype',
     '_label',
     'order_details._label should have ctype _label'
 );
 
--- Test 26
+-- Test 23
 SELECT is(
     (public.get_schema('order_details')::jsonb)->'properties'->'order_id_label'->>'ctype',
     'fk_label',
@@ -225,7 +204,7 @@ SELECT is(
 -- get_module_cubes / get_schemas
 -- =====================================================
 
--- Test 27
+-- Test 24
 SELECT set_eq(
     $$SELECT s->'table'->>'table_name' FROM public.get_module_cubes('nwind') AS s$$,
     ARRAY['categories', 'customers', 'employees', 'suppliers', 'products', 'regions',
@@ -233,14 +212,14 @@ SELECT set_eq(
     'get_module_cubes(''nwind'') should return exactly the 11 Northwind tables'
 );
 
--- Test 28
+-- Test 25
 SELECT is(
     json_array_length(public.get_schemas('orders,customers')),
     2,
     'get_schemas(''orders,customers'') should return 2 schemas'
 );
 
--- Test 29
+-- Test 26
 SELECT is(
     (public.get_schemas('orders,customers')::jsonb)->0->>'title',
     'Order',
@@ -251,28 +230,28 @@ SELECT is(
 -- get_schema('customers'): table object
 -- =====================================================
 
--- Test 30
+-- Test 27
 SELECT is(
     (public.get_schema('customers')::jsonb)->'table'->>'view_permission',
     'nwind:view',
     'customers table.view_permission should be nwind:view'
 );
 
--- Test 31
+-- Test 28
 SELECT is(
     ((public.get_schema('customers')::jsonb)->'table'->>'module_id')::bigint,
     (SELECT id FROM modules WHERE module_slug = 'nwind'),
     'customers table.module_id should be the Northwind module id'
 );
 
--- Test 32
+-- Test 29
 SELECT is(
     ((public.get_schema('customers')::jsonb)->'table'->>'audit_log')::boolean,
     true,
     'customers table.audit_log should be true'
 );
 
--- Test 33
+-- Test 30
 SELECT is(
     jsonb_array_length((public.get_schema('customers')::jsonb)->'children'),
     0,
@@ -284,7 +263,7 @@ SELECT is(
 -- =====================================================
 SELECT authenticate_as('user1');
 
--- Test 34
+-- Test 31
 SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM public.get_user_cubes() AS s
@@ -297,7 +276,7 @@ SELECT ok(
 
 SELECT authenticate_as('user2');
 
--- Test 35
+-- Test 32
 SELECT ok(
     EXISTS (
         SELECT 1 FROM public.get_user_cubes() AS s

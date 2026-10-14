@@ -334,8 +334,8 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 -- every id it inserts. A direct insert (depth 1) with a subtype prefix would
 -- create a root row without its parts, so it is refused. That depth test holds
 -- only while nothing else inserts into a root table from inside a trigger: the
--- dictionary's own triggers do not, RI actions never insert, and module
--- authors are told not to (AGENTS.md).
+-- dictionary's own triggers do not, RI actions never insert, and a module's
+-- own trigger must not: write through the entity's view instead.
 --
 -- The prefixes travel as trigger arguments, not as a lookup in entities, so
 -- the check costs no query per row; changing an entity's prefix, or its
@@ -393,8 +393,9 @@ COMMENT ON FUNCTION common.typeid_assign() IS
 -- RI actions, which is why a SET NULL on a reference column of <entity>_ext
 -- still passes (without the entity's rules, since <entity>_ext has no rule
 -- trigger) and why no is_a subtype may declare a cascade (90249): a cascade
--- would delete one part of a record and leave the rest behind. Module triggers
--- must not write family tables (AGENTS.md); one that did would pass this test.
+-- would delete one part of a record and leave the rest behind. A module's own
+-- trigger must not write family tables: one that did would pass this test and
+-- split a record. It writes through the entity's view instead.
 --
 -- The entity is the table name without its suffix, which is unambiguous
 -- because entity names ending in _ext are reserved (valid_table_name).

@@ -231,7 +231,7 @@
           {"field_name": "ship_region", "title": "Ship Region", "format": "text", "field_order": 70, "input_type": "default", "width": "default", "description": "State or province for shipment", "default_value": "", "searchable": false, "ctype": ""},
           {"field_name": "ship_postal_code", "title": "Ship Postal Code", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
           {"field_name": "ship_country", "title": "Ship Country", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
-          {"field_name": "freight", "title": "Freight", "format": "number", "field_order": 100, "input_type": "default", "width": "default", "description": "Freight cost for the order", "default_value": "0.0", "searchable": false, "ctype": ""},
+          {"field_name": "freight", "title": "Freight", "format": "number", "field_order": 100, "input_type": "default", "width": "default", "description": "Freight cost for the order. Currency: US$", "default_value": "0.0", "searchable": false, "ctype": ""},
           // The label column, unchanged. Listing an existing field ends a batch
           // of new fields, and ensure_entities rebuilds search_vector after each
           // batch, so this entry places search_vector between the fields above
@@ -243,7 +243,7 @@
           // nullable: the order may not be shipped yet
           {"field_name": "shipped_date", "title": "Shipped Date", "format": "date", "field_order": 130, "input_type": "default", "width": "default", "description": "", "searchable": false, "ctype": ""},
           // lifecycle state: required enum with a default ('' is rejected)
-          {"field_name": "status", "title": "Status", "format": "enum", "field_order": 25, "input_type": "required", "width": "default", "description": "", "default_value": "pending", "enum_values": ["pending", "shipped"], "searchable": false, "ctype": ""},
+          {"field_name": "status", "title": "Status", "format": "enum", "field_order": 25, "input_type": "required", "width": "default", "description": "", "default_value": "pending", "enum_values": [{"value": "pending", "label": "Pending", "description": "Order can still be modified"}, {"value": "picking", "label": "Picking", "color": "#FDBA74", "icon": "forklift"}, {"value": "shipped", "label": "Shipped", "color": "#86EFAC", "icon": "truck"}], "searchable": false, "ctype": ""},
           // references, not parent: orders is not a junction or child table
           {"field_name": "customer_id", "title": "Customer", "format": "reference", "field_order": 30, "input_type": "required", "width": "default", "description": "", "reference_table": "customers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "places"},
           {"field_name": "employee_id", "title": "Employee", "format": "reference", "field_order": 34, "input_type": "default", "width": "default", "description": "", "reference_table": "employees", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "handles"},

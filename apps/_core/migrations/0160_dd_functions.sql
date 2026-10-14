@@ -2809,8 +2809,9 @@ CREATE OR REPLACE TRIGGER validate_family_field_trigger
 -- subtype's reference field cannot cascade (90249), a SET NULL on an _ext
 -- column runs without the derived rules (_ext has no rule trigger), and a
 -- cascade or SET NULL into an is_a root reaches only the root row - a subtype
--- record's delete then fails on <t>_ext_id_fkey. Module triggers must not
--- write family tables (AGENTS.md).
+-- record's delete then fails on <t>_ext_id_fkey. A module's own trigger must
+-- not write family tables, for the same reason: write through the entity's
+-- view instead.
 
 -- The data columns of an entity's record with the level that stores them, in
 -- the order of dd_family_fields: every field but the key and the audit fields,

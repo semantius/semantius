@@ -317,6 +317,5 @@ SELECT is(
     'pending',
     'orders.status should default to pending when omitted'
 );
-
 SELECT * FROM finish();
 ROLLBACK;
