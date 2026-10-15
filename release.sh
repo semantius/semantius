@@ -334,12 +334,13 @@ release.sh will release $NAME $TARGET ($MODE), in order:
                           volume is destroyed) and rebuilds the base image,
                           which compiles pg_oidc_validator from GitHub
        pg-cli-retest.sh   deno task retest --confirm, i.e. dropall on the CLI
-                          stack, then migrate + pgTAP
+                          stack, then migrate + pgTAP; then deno task docgen
+                          regenerates schema.md from that database
        pg-ext-lifecycle.sh  install, dump/restore, drop, uninstall, refusals
   6. build ghcr.io/semantius/postgres:$TARGET-pg<major> locally - no push, no
      registry login, but it does retag your local :latest when $TARGET is the
      highest version
-  7. commit $EXT_DIR/ and the two version files, then regenerate a second time
+  7. commit $EXT_DIR/, schema.md and the two version files, then regenerate a second time
      and require no diff - the same porcelain guard CI runs, which is what
      proves the generator is deterministic
   8. tag v$TARGET and push $BRANCH and the tag to origin
@@ -492,6 +493,7 @@ echo "  the embedded SQL matches apps/ in this checkout"
 if [ "$SKIP_TESTS" = "1" ]; then
   echo
   echo "== [6/10] Tests SKIPPED (--skip-tests) =="
+  echo "  schema.md is NOT regenerated: docgen reads the database Path A migrates"
 else
   echo
   echo "== [6/10] Path B: extension install + pgTAP suite =="
@@ -500,6 +502,24 @@ else
   echo
   echo "== [7/10] Path A: migrate install + pgTAP suite =="
   ./pgdocker/pg-cli-retest.sh
+
+  # schema.md documents the _core metadata, which only exists in a migrated
+  # database. Path A's is fresh and just passed the suite, and it is a sound
+  # source: docgen reads only module 1, nwind keeps its entities in its own
+  # module, and the pgTAP files roll back - the one committed write
+  # (9900_cleanup.sql) clears users.last_seen, which schema.md does not show.
+  # The URL is built from pgdocker/.env exactly as pg-cli-retest.sh builds it.
+  STAGE="schema.md"
+  echo "  regenerating schema.md from the Path A database..."
+  read_pg_env() { grep -E "^$1=" pgdocker/.env 2>/dev/null | tail -1 | cut -d '=' -f2- | tr -d '\r' || true; }
+  DOCGEN_PW="$(read_pg_env POSTGRES_PASSWORD)"
+  DOCGEN_DB="$(read_pg_env POSTGRES_DB)"; DOCGEN_DB="${DOCGEN_DB:-appdb}"
+  DOCGEN_PORT="$(read_pg_env POSTGRES_PORT)"; DOCGEN_PORT="${DOCGEN_PORT:-5432}"
+  [ -n "$DOCGEN_PW" ] || die "no POSTGRES_PASSWORD in pgdocker/.env, so schema.md cannot be
+  regenerated; nothing was committed"
+  deno task docgen --database-url "postgresql://postgres:${DOCGEN_PW}@localhost:${DOCGEN_PORT}/${DOCGEN_DB}" >/dev/null \
+    || die "deno task docgen failed; nothing was committed"
+  echo "  schema.md regenerated"
 
   echo
   echo "== [8/10] Extension lifecycle =="
@@ -550,6 +570,8 @@ git add -u -- "$EXT_DIR"
 # does: the tag has to point at a tree whose CLI reports the version being
 # released, or the build-cli job refuses to publish.
 git add -- packages/cli/deno.json package.json
+# The schema documentation travels with the build it describes.
+git add -- schema.md
 
 NOTHING_CHANGED=0
 if git diff --cached --quiet; then
@@ -626,6 +648,8 @@ tag_and_push() {
     || die "HEAD moved after the release commit; refusing to tag"
   [ -z "$(git status --porcelain -- "$EXT_DIR")" ] \
     || die "$EXT_DIR/ is not committed; CI's porcelain guard would fail. Refusing to tag."
+  [ -z "$(git status --porcelain -- schema.md)" ] \
+    || die "schema.md is not committed; the tag would document an older schema. Refusing to tag."
 
   # The fast-forward check in phase 1 is tens of minutes stale by now.
   git fetch --quiet origin "$BRANCH" 2>/dev/null || true

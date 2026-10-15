@@ -4,6 +4,7 @@
  */
 
 import { Client } from "@postgres";
+import denoJson from "../deno.json" with { type: "json" };
 
 interface EntityRecord {
   table_name: string;
@@ -139,7 +140,9 @@ export async function docgenCommand(databaseUrl: string): Promise<void> {
     // Build markdown document
     let markdown = "# Database Schema Documentation\n\n";
     markdown += "This document describes the database schema for the _core module.\n\n";
-    markdown += `**Generated:** ${new Date().toISOString()}\n\n`;
+    // The version, not a timestamp: release.sh regenerates and commits this file
+    // on every release, and a timestamp would make each run a diff of its own.
+    markdown += `**Version:** ${denoJson.version}\n\n`;
     markdown += "---\n\n";
     
     // Process each entity

@@ -48,7 +48,8 @@ It prints the preflight results and exactly what it is about to do, and
 the normal way to invoke it.
 
 One script, and the version argument selects the outcome. It regenerates
-`extension/`, runs all three harnesses in the order they depend on, builds the
+`extension/`, runs all three harnesses in the order they depend on, regenerates
+`schema.md` from the database Path A just migrated and tested, builds the
 image locally, commits the build, proves the generator is deterministic by
 regenerating a second time, then tags and pushes. Pushing the tag is what starts
 [the workflow](.github/workflows/extension-release.yml), which rebuilds from a
@@ -206,7 +207,7 @@ which resolves the version from the tag name and publishes:
 
 | Artifact | |
 |---|---|
-| git history | the `v<ver>` tag |
+| git history | the `v<ver>` tag, on a commit whose `schema.md` is generated from that version's migrations and stamped with `<ver>` |
 | GitHub Release | `pg_semantius-<ver>.zip` — the full install **plus the whole upgrade chain**, `META.json`, `.control`, `Makefile`, `README.md`, `CHANGES.md`, `SECURITY.md`, `LICENSE` — and the loose `.sql` and `.control` alongside it |
 | GitHub Release | the five `pg_semantius-<os>-<arch>[.exe]` CLI binaries and `checksums.txt`, which `install.sh` and `install.ps1` download by name |
 | GHCR | `postgres:<ver>-pg<major>`, `postgres:latest-pg<major>`, `postgres:latest` |
