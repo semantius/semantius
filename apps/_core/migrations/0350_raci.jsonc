@@ -21,6 +21,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "name",
+        "entity_type": "catalog",
         "fields": [
           {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 10, "description": ""},
           {"field_name": "module_id", "title": "Module", "format": "reference", "field_order": 20, "input_type": "default",
@@ -46,6 +47,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "name",
+        "entity_type": "catalog",
         // The label is a computed name mirroring the RACI letter, so raci can
         // stay a real enum (a label column is a core TEXT field and cannot
         // itself be an enum).
@@ -87,6 +89,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "name",
+        "entity_type": "catalog",
         // The label is a computed name mirroring gate_kind, so gate_kind can
         // stay a real enum (a label column is a core TEXT field and cannot
         // itself be an enum).
@@ -140,6 +143,9 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "record_id",
+        // status runs pending -> sent -> acted, and a pending blocking
+        // consultation holds the governed record's transition
+        "entity_type": "operational_workflow",
         "fields": [
           // record_id is TEXT on purpose: entity primary keys need not be
           // integer serials (as with entities.id_column).

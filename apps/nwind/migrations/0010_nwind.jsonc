@@ -45,6 +45,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "category_name",
+        "entity_type": "catalog",
         // a physical INTEGER column sort_order is provisioned with an
         // auto-assign trigger (10, 20, 30, ...) for manual ordering
         "order_column": "sort_order",
@@ -66,6 +67,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "company_name",
+        "entity_type": "operational_record",
         // DML audit logging
         "audit_log": true,
         // company_name is created as the label column
@@ -95,6 +97,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "last_name",
+        "entity_type": "operational_record",
         "fields": [
           {"field_name": "first_name", "title": "First Name", "format": "text", "field_order": 20, "input_type": "required", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "title", "title": "Title", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "Job title", "default_value": "", "searchable": false, "ctype": ""},
@@ -136,6 +139,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "company_name",
+        "entity_type": "operational_record",
         // company_name is created as the label column
         "fields": [
           {"field_name": "contact_name", "title": "Contact Name", "format": "text", "field_order": 20, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
@@ -163,6 +167,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "product_name",
+        "entity_type": "catalog",
         // DML audit logging
         "audit_log": true,
         // product_name is created as the label column
@@ -190,6 +195,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "region_description",
+        "entity_type": "catalog",
         // region_description is created as the label column; no other fields
         "fields": []
       }
@@ -206,6 +212,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "company_name",
+        "entity_type": "operational_record",
         // company_name is created as the label column
         "fields": [
           {"field_name": "phone", "title": "Phone", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""}
@@ -224,6 +231,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "ship_name",
+        "entity_type": "operational_workflow",
         // ship_name is created as the label column
         "fields": [
           {"field_name": "ship_address", "title": "Ship Address", "format": "text", "field_order": 50, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
@@ -263,6 +271,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "territory_description",
+        "entity_type": "catalog",
         // composed label: "Eastern > Westboro"
         "label_parent": "region_id",
         // territory_description is created as the label column
@@ -310,6 +319,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "label",
+        "entity_type": "operational_record",
         // composed label: an order line is labeled by its order (the local
         // label is empty)
         "label_parent": "order_id",

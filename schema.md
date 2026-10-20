@@ -35,7 +35,7 @@ DDL audit trail for schema change events
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | operational_record |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -86,7 +86,7 @@ DML audit trail for entity table records
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | operational_record |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -145,7 +145,7 @@ User-configured dashboard layouts and configurations
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -195,7 +195,7 @@ Catalog of tables in Semantius
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
 | select_rule | Select Rule | - |
@@ -269,7 +269,7 @@ Catalog of the fields that make up a table
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | [{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]},"source_module":"platform"}] |
 | select_rule | Select Rule | - |
@@ -337,7 +337,7 @@ Groups of related tables and permissions
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | [{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]},"source_module":"platform"},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, '-' and '_'","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]},"source_module":"platform"}] |
 | select_rule | Select Rule | {"or":[{"has_permission":"admin"},{"has_permission":{"var":"view_permission"}}]} |
@@ -450,7 +450,7 @@ System permissions that can be assigned to roles and organized via hierarchy
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -497,7 +497,7 @@ Governance registry: maps entity transitions to processes
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | [{"name":"name","jsonlogic":{"var":"gate_kind"}}] |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -549,7 +549,7 @@ RACI process catalog
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -599,7 +599,7 @@ Maps table DML events to queues
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -648,7 +648,7 @@ Message queues backed by pgmq
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -696,7 +696,7 @@ RACI matrix rows assigning roles to processes
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | [{"name":"name","jsonlogic":{"var":"raci"}}] |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -747,7 +747,7 @@ Notify/consult audit log for RACI-governed record transitions
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | operational_workflow |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -848,7 +848,7 @@ Groups of permissions that can be assigned to users
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | [{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90204","message":"system role slugs cannot be changed after creation","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90206","message":"catalog_role_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_role_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_role_code"},""]}]},true]},"source_module":"platform"}] |
 | select_rule | Select Rule | - |
@@ -899,7 +899,7 @@ Manage and order your facorites for quick access to frequently used apps and rec
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | operational_record |
 | computed_fields | Computed Fields | [{"name":"user_id","jsonlogic":{"var":"$user_id"}}] |
 | validation_rules | Validation Rules | [{"code":"90207","message":"A bookmark can only be written by an authenticated user","jsonlogic":{"or":[{"==":[{"var":"$mode"},"delete"]},{"!=":[{"var":"$user_id"},null]}]},"source_module":"platform"}] |
 | select_rule | Select Rule | {"==":[{"var":"user_id"},{"var":"$user_id"}]} |
@@ -1038,7 +1038,7 @@ Users and agents
 | id_type | Id Type | `auto_increment` |
 | id_prefix | Id Prefix | - |
 | id_refentity | Base Entity | - |
-| label_column | Label Column | `email` |
+| label_column | Label Column | `display_name` |
 | label_parent | Label Parent | - |
 | order_column | Order Column | - |
 | managed | Managed | true |
@@ -1047,7 +1047,7 @@ Users and agents
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | true |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | operational_record |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -1061,10 +1061,10 @@ Users and agents
 |------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 1 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `external_id` (core) | text | External Identity | Identity: the JWT sub claim from the authentication provider, or entra.<tenant id>.<object id> for a Microsoft Entra ID token. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>. | string | false | - | 10 | readonly | default | core | true | - | 2 | - | - | has | - | - | true | auto | - | - |
-| `email` (label) | email | Email | - | string | false | - | 20 | default | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `email` (core) | email | Email | - | string | false | - | 20 | default | default | core | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `first_name` (core) | text | First Name | - | string | false | - | 22 | default | default | core | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `last_name` (core) | text | Last Name | - | string | false | - | 23 | default | default | core | true | - | 2 | - | - | has | - | - | false | auto | - | - |
-| `display_name` (core) | text | Display Name | - | string | false | - | 25 | default | default | core | true | - | 2 | - | - | has | - | - | false | auto | - | - |
+| `display_name` (label) | text | Display Name | - | string | false | - | 25 | default | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `is_disabled` (core) | boolean | Is Disabled | - | boolean | false | - | 30 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `settings` (core) | json | Settings | - | json | false | - | 35 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
 | `last_seen` (core) | date-time | Last Seen | - | string | false | - | 60 | readonly | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - |
@@ -1101,7 +1101,7 @@ Log of webhook receiver events
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | operational_record |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |
@@ -1154,7 +1154,7 @@ Configuration for webhook endpoints
 | edit_mode | Edit Mode | auto |
 | cube_mode | Cube Mode | auto |
 | audit_log | Audit Log | false |
-| entity_type | Entity Type | unclassified |
+| entity_type | Entity Type | catalog |
 | computed_fields | Computed Fields | - |
 | validation_rules | Validation Rules | - |
 | select_rule | Select Rule | - |

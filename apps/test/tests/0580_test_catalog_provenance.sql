@@ -59,9 +59,10 @@ SELECT is((public.get_schema('entities')::jsonb->'properties'->'entity_type'->'e
 -- =====================================================
 -- GROUP 3: defaults + additive-safety
 -- =====================================================
--- A pre-existing seeded entity (modules) reads "absent" for every new column.
+-- A pre-existing seeded entity (modules) reads "absent" for every new column
+-- except entity_type: every shipped entity is classified, so none is left at the default.
 SELECT is((SELECT catalog_entity_code    FROM entities WHERE table_name='modules'), '',             'pre-existing entity: catalog_entity_code empty');
-SELECT is((SELECT entity_type            FROM entities WHERE table_name='modules'), 'unclassified', 'pre-existing entity: entity_type unclassified');
+SELECT is((SELECT count(*)::int          FROM entities WHERE entity_type='unclassified'), 0,         'every shipped entity has an entity_type other than unclassified');
 SELECT is((SELECT catalog_entity_aliases FROM entities WHERE table_name='modules'), '[]'::jsonb,    'pre-existing entity: catalog_entity_aliases []');
 
 -- A fresh probe entity reads the same defaults.

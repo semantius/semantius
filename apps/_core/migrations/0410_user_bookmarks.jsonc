@@ -21,6 +21,7 @@
         "edit_permission": "user:read",
         "id_column": "id",
         "label_column": "title",
+        "entity_type": "operational_record",
         // Per-row SELECT policy (own rows only); also scopes UPDATE and DELETE
         // to own rows.
         "select_rule": {"==": [{"var": "user_id"}, {"var": "$user_id"}]},

@@ -21,6 +21,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "table_name",
+        "entity_type": "operational_record",
         "managed": false,
         "fields": [
           {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
@@ -85,6 +86,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "command_tag",
+        "entity_type": "operational_record",
         "managed": false,
         "fields": [
           {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,

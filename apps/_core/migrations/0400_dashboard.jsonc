@@ -14,6 +14,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "label",
+        "entity_type": "catalog",
         "fields": [
           {"field_name": "config", "title": "Configuration", "format": "json", "field_order": 10,
            "input_type": "default", "width": "w", "description": "", "default_value": "",

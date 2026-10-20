@@ -18,6 +18,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "queue_name",
+        "entity_type": "catalog",
         "fields": [
           // The label column queue_name is created by the dictionary; a queue
           // name is unique and required.
@@ -56,6 +57,7 @@
         "edit_permission": "admin",
         "id_column": "id",
         "label_column": "event_name",
+        "entity_type": "catalog",
         "fields": [
           // A reference to entities is a TEXT column (entities.table_name is
           // TEXT). Listed first so it keeps the column position it had when it
