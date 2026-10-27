@@ -6,6 +6,8 @@
     {
       "entity": {
         "table_name": "webhook_receivers",
+        "icon_name": "webhook",
+        "name_sort": "440",
         "module_name": "_core",
         "singular": "webhook_receiver",
         "singular_label": "Webhook Receiver",
@@ -57,6 +59,8 @@
     {
       "entity": {
         "table_name": "webhook_receiver_logs",
+        "icon_name": "logs",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "webhook_receiver_log",
         "singular_label": "Webhook Receiver Log",

@@ -5,6 +5,8 @@
     {
       "entity": {
         "table_name": "dashboards",
+        "icon_name": "layout-dashboard",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "dashboard",
         "singular_label": "Dashboard",

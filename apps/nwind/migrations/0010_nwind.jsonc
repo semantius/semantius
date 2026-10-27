@@ -36,6 +36,7 @@
     {
       "entity": {
         "table_name": "categories",
+        "icon_name": "tags",
         "module_name": "Northwind",
         "singular": "category",
         "singular_label": "Category",
@@ -58,6 +59,7 @@
     {
       "entity": {
         "table_name": "customers",
+        "icon_name": "contact",
         "module_name": "Northwind",
         "singular": "customer",
         "singular_label": "Customer",
@@ -88,6 +90,7 @@
     {
       "entity": {
         "table_name": "employees",
+        "icon_name": "id-card",
         "module_name": "Northwind",
         "singular": "employee",
         "singular_label": "Employee",
@@ -130,6 +133,7 @@
     {
       "entity": {
         "table_name": "suppliers",
+        "icon_name": "factory",
         "module_name": "Northwind",
         "singular": "supplier",
         "singular_label": "Supplier",
@@ -158,6 +162,7 @@
     {
       "entity": {
         "table_name": "products",
+        "icon_name": "package",
         "module_name": "Northwind",
         "singular": "product",
         "singular_label": "Product",
@@ -186,6 +191,7 @@
     {
       "entity": {
         "table_name": "regions",
+        "icon_name": "globe",
         "module_name": "Northwind",
         "singular": "region",
         "singular_label": "Region",
@@ -203,6 +209,7 @@
     {
       "entity": {
         "table_name": "shippers",
+        "icon_name": "truck",
         "module_name": "Northwind",
         "singular": "shipper",
         "singular_label": "Shipper",
@@ -222,6 +229,7 @@
     {
       "entity": {
         "table_name": "orders",
+        "icon_name": "shopping-cart",
         "module_name": "Northwind",
         "singular": "order",
         "singular_label": "Order",
@@ -267,6 +275,7 @@
     {
       "entity": {
         "table_name": "territories",
+        "icon_name": "map",
         "module_name": "Northwind",
         "singular": "territory",
         "singular_label": "Territory",
@@ -294,6 +303,7 @@
     {
       "entity": {
         "table_name": "employee_territories",
+        "icon_name": "map-pin-check",
         "module_name": "Northwind",
         "singular": "employee_territory",
         "singular_label": "Employee Territory",
@@ -315,6 +325,7 @@
     {
       "entity": {
         "table_name": "order_details",
+        "icon_name": "receipt-text",
         "module_name": "Northwind",
         "singular": "order_detail",
         "singular_label": "Order Detail",

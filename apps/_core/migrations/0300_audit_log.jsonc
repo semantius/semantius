@@ -12,10 +12,12 @@
     {
       "entity": {
         "table_name": "audit_record_logs",
+        "icon_name": "history",
+        "name_sort": "500",
         "module_name": "_core",
         "singular": "audit_record_log",
         "singular_label": "Audit Record Log",
-        "plural_label": "Audit Record Logs",
+        "plural_label": "Audit Logs",
         "description": "DML audit trail for entity table records",
         "view_permission": "admin",
         "edit_permission": "admin",
@@ -77,10 +79,12 @@
     {
       "entity": {
         "table_name": "audit_ddl_logs",
+        "icon_name": "file-code",
+        "name_sort": "510",
         "module_name": "_core",
         "singular": "audit_ddl_log",
         "singular_label": "Audit DDL Log",
-        "plural_label": "Audit DDL Logs",
+        "plural_label": "Audit Logs Database",
         "description": "DDL audit trail for schema change events",
         "view_permission": "admin",
         "edit_permission": "admin",

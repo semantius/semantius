@@ -12,6 +12,8 @@
     {
       "entity": {
         "table_name": "processes",
+        "icon_name": "workflow",
+        "name_sort": "400",
         "module_name": "_core",
         "singular": "process",
         "singular_label": "Process",
@@ -38,6 +40,8 @@
     {
       "entity": {
         "table_name": "raci_assignments",
+        "icon_name": "grid-3x3",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "raci_assignment",
         "singular_label": "RACI Assignment",
@@ -80,6 +84,8 @@
     {
       "entity": {
         "table_name": "process_gates",
+        "icon_name": "shield",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "process_gate",
         "singular_label": "Process Gate",
@@ -134,6 +140,8 @@
       // audited and retryable.
       "entity": {
         "table_name": "raci_events",
+        "icon_name": "bell-ring",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "raci_event",
         "singular_label": "RACI Event",

@@ -12,6 +12,8 @@
     {
       "entity": {
         "table_name": "user_bookmarks",
+        "icon_name": "bookmark",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "user_bookmark",
         "singular_label": "User Bookmark",

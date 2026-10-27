@@ -9,6 +9,8 @@
     {
       "entity": {
         "table_name": "queues",
+        "icon_name": "inbox",
+        "name_sort": "420",
         "module_name": "_core",
         "singular": "queue",
         "singular_label": "Queue",
@@ -48,6 +50,8 @@
     {
       "entity": {
         "table_name": "queue_table_events",
+        "icon_name": "layers",
+        "name_sort": "900",
         "module_name": "_core",
         "singular": "queue_table_event",
         "singular_label": "Queue Table Event",
