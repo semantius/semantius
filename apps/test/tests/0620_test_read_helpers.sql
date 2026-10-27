@@ -6,9 +6,10 @@
 --   1. get_record_by_id honors select_rule
 --   2. Read-helper completeness
 --   3. get_record_by_id over an is_a chain
+--   4. get_record_by_id in a privileged direct session
 BEGIN;
 
-SELECT plan(15);
+SELECT plan(18);
 
 -- =====================================================
 -- PART 1: get_record_by_id honors select_rule
@@ -286,6 +287,49 @@ SELECT is(
     (SELECT count(*)::int FROM rh_hot),
     0,
     'get_record_by_id: ... which is what the view gives the same caller');
+
+-- =====================================================
+-- PART 4: get_record_by_id in a privileged direct session
+-- =====================================================
+-- The runner logs in as the BYPASSRLS owner, like a migration. With no SET
+-- ROLE and no claims, get_record_by_id reads unchecked, which is what lets a
+-- migration seed records whose computed fields use set_record. Claims, or a
+-- switch to the request role, put the same login back under the checks.
+-- products is the nwind sample table; user1 lacks nwind:view.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+-- authenticate_as set the claims transaction-locally; '' is what such a
+-- setting reads back as once cleared, and counts as no claim.
+DO $$
+BEGIN
+    PERFORM set_config('request.jwt.claim.' || k, '', true)
+       FROM unnest(ARRAY['sub', 'email', 'name', 'given_name', 'family_name', 'role', 'aud']) k;
+END $$;
+
+SELECT is(
+    get_record_by_id('products', '11') ->> 'product_name',
+    'Queso Cabrales',
+    'get_record_by_id: a privileged login with no SET ROLE and no claims reads the row');
+
+SELECT authenticate_as('user1');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    get_record_by_id('products', '11'),
+    NULL,
+    'get_record_by_id: the same login carrying claims is checked as that user');
+
+DO $$
+BEGIN
+    PERFORM set_config('request.jwt.claim.' || k, '', true)
+       FROM unnest(ARRAY['sub', 'email', 'name', 'given_name', 'family_name', 'role', 'aud']) k;
+END $$;
+SET LOCAL ROLE semantius_user;
+SELECT throws_ok(
+    $$ SELECT get_record_by_id('products', '11') $$,
+    '42501', NULL,
+    'get_record_by_id: the same login after SET ROLE to the request role, without claims, is refused');
 
 SELECT * FROM finish();
 ROLLBACK;

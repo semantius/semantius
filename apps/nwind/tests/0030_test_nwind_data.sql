@@ -13,7 +13,7 @@
 
 BEGIN;
 
-SELECT plan(36);
+SELECT plan(37);
 
 -- =====================================================
 -- SEQUENCES (owner): caught up with the explicit ids of the load
@@ -223,25 +223,33 @@ SELECT is(
     'employee_territories._label should compose employee › region › territory'
 );
 
--- Test 31: order line label is its order (empty local label)
+-- Test 31: order label folds the customer in; the local label is the order id
 SELECT is(
-    (SELECT DISTINCT public._label(od) FROM order_details od WHERE od.order_id = 10248),
-    'Vins et alcools Chevalier',
-    'order_details._label should be the parent order label'
+    (SELECT public._label(o) FROM orders o WHERE o.id = 10248),
+    'Vins et alcools Chevalier › 10248',
+    'orders._label should compose customer › order id'
+);
+
+-- Test 32: order line label folds the order in; the local label is
+-- quantity × product name, which the computed field set during the load
+SELECT is(
+    (SELECT public._label(od) FROM order_details od WHERE od.order_id = 10248 AND od.product_id = 11),
+    'Vins et alcools Chevalier › 10248 › 12 × Queso Cabrales',
+    'order_details._label should compose customer › order id › quantity × product'
 );
 
 -- =====================================================
 -- NON-ASCII DATA
 -- =====================================================
 
--- Test 32: umlaut in order ship_name
+-- Test 33: umlaut in order ship_name
 SELECT is(
     (SELECT ship_name FROM orders WHERE id = 10249),
     'Toms Spezialitäten',
     'Order 10249 ship_name should keep its non-ASCII characters'
 );
 
--- Test 33: umlauts in supplier name
+-- Test 34: umlauts in supplier name
 SELECT is(
     (SELECT COUNT(*)::integer FROM suppliers WHERE company_name = 'PB Knäckebröd AB'),
     1,
@@ -255,14 +263,14 @@ SELECT is(
 INSERT INTO orders (ship_name, customer_id)
 VALUES ('Date Default Order', (SELECT id FROM customers WHERE customer_id = 'ALFKI'));
 
--- Test 34: order_date defaults to CURRENT_DATE
+-- Test 35: order_date defaults to CURRENT_DATE
 SELECT is(
     (SELECT order_date FROM orders WHERE ship_name = 'Date Default Order'),
     CURRENT_DATE,
     'orders.order_date should default to CURRENT_DATE'
 );
 
--- Test 35: required_date defaults to CURRENT_DATE
+-- Test 36: required_date defaults to CURRENT_DATE
 SELECT is(
     (SELECT required_date FROM orders WHERE ship_name = 'Date Default Order'),
     CURRENT_DATE,
@@ -271,7 +279,7 @@ SELECT is(
 
 INSERT INTO employees (last_name, first_name) VALUES ('Date Default', 'Employee');
 
--- Test 36: hire_date defaults to CURRENT_DATE
+-- Test 37: hire_date defaults to CURRENT_DATE
 SELECT is(
     (SELECT hire_date FROM employees WHERE last_name = 'Date Default'),
     CURRENT_DATE,

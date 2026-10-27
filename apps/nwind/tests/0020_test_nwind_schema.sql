@@ -106,7 +106,7 @@ SELECT set_eq(
 -- Test 20
 SELECT set_eq(
     $$SELECT field_name FROM fields WHERE table_name = 'orders'$$,
-    ARRAY['id', 'ship_name', 'created_at', 'updated_at', 'status', 'ship_address', 'ship_city',
+    ARRAY['id', 'label', 'created_at', 'updated_at', 'ship_name', 'status', 'ship_address', 'ship_city',
           'ship_region', 'ship_postal_code', 'ship_country', 'freight', 'order_date', 'required_date',
           'shipped_date', 'customer_id', 'employee_id', 'ship_via'],
     'orders should have the expected field set'
@@ -143,7 +143,7 @@ SELECT set_eq(
       WHERE module_id = (SELECT id FROM modules WHERE module_slug = 'nwind')$$,
     ARRAY['categories:category_name', 'customers:company_name', 'employees:last_name',
           'suppliers:company_name', 'products:product_name', 'regions:region_description',
-          'shippers:company_name', 'orders:ship_name', 'territories:territory_description',
+          'shippers:company_name', 'orders:label', 'territories:territory_description',
           'employee_territories:label', 'order_details:label'],
     'Every Northwind entity should have the expected label_column'
 );
@@ -167,7 +167,7 @@ SELECT is(
 SELECT isnt(
     (SELECT entity_type FROM entities WHERE table_name = 'order_details'),
     'junction',
-    'order_details (junction with payload) should not have entity_type = junction'
+    'order_details (order line with payload) should not have entity_type = junction'
 );
 
 -- =====================================================
@@ -230,15 +230,16 @@ SELECT is(
     'products.units_on_order should have input_type readonly'
 );
 
--- Test 36: parent legs of the two junctions
+-- Test 36: parent fields - both legs of the employee_territories junction and
+-- the order an order line belongs to (the product is only a reference)
 SELECT set_eq(
     $$SELECT table_name || '.' || field_name FROM fields
       WHERE format = 'parent'
         AND table_name IN (SELECT table_name FROM entities
                            WHERE module_id = (SELECT id FROM modules WHERE module_slug = 'nwind'))$$,
     ARRAY['employee_territories.employee_id', 'employee_territories.territory_id',
-          'order_details.order_id', 'order_details.product_id'],
-    'Exactly the four junction legs should have format parent'
+          'order_details.order_id'],
+    'Exactly the junction legs and order_details.order_id should have format parent'
 );
 
 -- Test 37: unique_value fields (original text PKs)
@@ -367,8 +368,8 @@ SELECT set_eq(
     $$SELECT table_name || ':' || label_parent FROM entities
       WHERE label_parent <> ''
         AND module_id = (SELECT id FROM modules WHERE module_slug = 'nwind')$$,
-    ARRAY['territories:region_id', 'order_details:order_id'],
-    'territories and order_details should be the only entities with a label_parent'
+    ARRAY['territories:region_id', 'orders:customer_id', 'order_details:order_id'],
+    'territories, orders and order_details should be the only entities with a label_parent'
 );
 
 -- Test 51: a _label(<table>) function exists for every entity

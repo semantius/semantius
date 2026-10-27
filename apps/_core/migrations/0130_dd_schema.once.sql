@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS entities (
     plural TEXT DEFAULT '',  -- Nullable because trigger auto-sets it before constraint check
     singular_label TEXT NOT NULL DEFAULT '',
     plural_label TEXT NOT NULL DEFAULT '',
-    icon_url TEXT DEFAULT '',
+    icon_name TEXT NOT NULL DEFAULT '',
+    name_sort TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     module_id BIGINT NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
     -- RESTRICT, not the deferred NO ACTION modules.view_permission needs: an

@@ -230,21 +230,26 @@
         "view_permission": "nwind:view",
         "edit_permission": "nwind:manage",
         "id_column": "id",
-        "label_column": "ship_name",
+        "label_column": "label",
         "entity_type": "operational_workflow",
-        // ship_name is created as the label column
+        // composed label: an order is labeled by its customer and its number,
+        // "Vins et alcools Chevalier › 10248"; the local label is the order id
+        "label_parent": "customer_id",
+        "computed_fields": [{"name": "label", "jsonlogic": {"cat": [{"var": "id"}]}}],
         "fields": [
+          {"field_name": "ship_name", "title": "Ship Name", "format": "text", "field_order": 45, "input_type": "default", "width": "default", "description": "Name of the recipient the order ships to", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "ship_address", "title": "Ship Address", "format": "text", "field_order": 50, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
           {"field_name": "ship_city", "title": "Ship City", "format": "text", "field_order": 60, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "ship_region", "title": "Ship Region", "format": "text", "field_order": 70, "input_type": "default", "width": "default", "description": "State or province for shipment", "default_value": "", "searchable": false, "ctype": ""},
           {"field_name": "ship_postal_code", "title": "Ship Postal Code", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
           {"field_name": "ship_country", "title": "Ship Country", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "freight", "title": "Freight", "format": "number", "field_order": 100, "input_type": "default", "width": "default", "description": "Freight cost for the order. Currency: US$", "default_value": "0.0", "searchable": false, "ctype": ""},
-          // The label column, unchanged. Listing an existing field ends a batch
-          // of new fields, and ensure_entities rebuilds search_vector after each
-          // batch, so this entry places search_vector between the fields above
-          // and those below in the physical column order.
-          {"field_name": "ship_name"},
+          // The label column, read-only since it is computed. Listing an
+          // existing field ends a batch of new fields, and ensure_entities
+          // rebuilds search_vector after each batch, so this entry places
+          // search_vector between the fields above and those below in the
+          // physical column order.
+          {"field_name": "label", "input_type": "readonly"},
           // not nullable, with defaults
           {"field_name": "order_date", "title": "Order Date", "format": "date", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
           {"field_name": "required_date", "title": "Required Date", "format": "date", "field_order": 120, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
@@ -320,15 +325,19 @@
         "id_column": "id",
         "label_column": "label",
         "entity_type": "operational_record",
-        // composed label: an order line is labeled by its order (the local
-        // label is empty)
+        // composed label: an order line is labeled by its order and what it
+        // orders, "Vins et alcools Chevalier › 10248 › 12 × Queso Cabrales";
+        // the local label is quantity × product name, set when the line is
+        // written
         "label_parent": "order_id",
+        "computed_fields": [{"name": "label", "jsonlogic": {"set_record": ["p", "products", {"var": "product_id"}, {"cat": [{"var": "quantity"}, " × ", {"var": "p.product_name"}]}]}}],
         "fields": [
           {"field_name": "order_id", "title": "Order", "format": "parent", "field_order": 10, "input_type": "required", "width": "default", "description": "", "reference_table": "orders", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "contains"},
-          {"field_name": "product_id", "title": "Product", "format": "parent", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "products", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ordered in"},
+          {"field_name": "product_id", "title": "Product", "format": "reference", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "products", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ordered in"},
           {"field_name": "unit_price", "title": "Unit Price", "format": "number", "field_order": 30, "input_type": "default", "width": "default", "description": "Actual price per unit charged on this order", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
           {"field_name": "quantity", "title": "Quantity", "format": "int32", "field_order": 40, "input_type": "default", "width": "default", "description": "Number of units ordered", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
-          {"field_name": "discount", "title": "Discount", "format": "number", "field_order": 50, "input_type": "default", "width": "default", "description": "Discount rate applied to this line item", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"}
+          {"field_name": "discount", "title": "Discount", "format": "number", "field_order": 50, "input_type": "default", "width": "default", "description": "Discount rate applied to this line item", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
+          {"field_name": "label", "input_type": "readonly"}
         ]
       }
     }

@@ -12,7 +12,8 @@ interface EntityRecord {
   plural: string;
   singular_label: string;
   plural_label: string;
-  icon_url: string;
+  icon_name: string;
+  name_sort: string;
   description: string;
   module_id: number;
   view_permission: string;

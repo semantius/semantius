@@ -3927,13 +3927,45 @@ DECLARE
     v_key_type        TEXT;
     v_valid           BOOLEAN;
     v_level           RECORD;
+    v_privileged      BOOLEAN;
 BEGIN
+    -- A privileged direct session reads without the checks: a connection that
+    -- logged in as a superuser or BYPASSRLS role, has no SET ROLE in effect and
+    -- carries no claims. That is a migration seeding records, whose computed
+    -- fields reach this through set_record, and such a session can read the
+    -- table directly anyway, so the checks would protect nothing. Each part of
+    -- the test closes a way around that premise:
+    --   * session_user is the login role; current_user is useless here, since
+    --     inside a SECURITY DEFINER function it is always the owner.
+    --   * role = 'none': a privileged login that switched to the request role
+    --     (SET ROLE semantius_user, as the test harness and an app server do)
+    --     is under RLS for its own queries, so it is checked here as well.
+    --   * the claim settings are empty or unset ('' is what a SET LOCAL leaves
+    --     behind after its transaction). Present but invalid claims fall
+    --     through to rbac.uid() and fail there.
+    --   * not a bearer session, whose identity rbac.uid() takes from
+    --     system_user even when no claim setting is set. system_user is NULL
+    --     under trust authentication, which is not a bearer session either.
+    -- A client cannot fake the login role: changing it takes a new login, or
+    -- SET SESSION AUTHORIZATION, which only a superuser login may run.
+    v_privileged := current_setting('role') = 'none'
+        AND COALESCE(system_user, '') NOT LIKE 'oauth:%'
+        AND COALESCE(current_setting('request.jwt.claims', true), '') = ''
+        AND COALESCE(current_setting('request.jwt.claim.role', true), '') = ''
+        AND COALESCE(current_setting('request.jwt.claim.sub', true), '') = ''
+        AND COALESCE(current_setting('request.jwt.claim.roles', true), '') = ''
+        AND COALESCE((SELECT r.rolsuper OR r.rolbypassrls
+                        FROM pg_catalog.pg_roles r
+                       WHERE r.rolname = session_user), FALSE);
+
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
     -- rbac.uid() validates the JWT and raises on a session that carries no valid
     -- claims; the permission check further down builds the context cache if this
     -- is the first check of the transaction.
-    PERFORM rbac.uid();
+    IF NOT v_privileged THEN
+        PERFORM rbac.uid();
+    END IF;
 
     -- Look up the entity to find its id_column.
     SELECT id_column INTO v_id_column
@@ -3974,7 +4006,7 @@ BEGIN
     -- malformed; anybody else gets the NULL that also answers "no such entity",
     -- so the refusal does not reveal that the entity exists or what its key is.
     IF NOT v_valid THEN
-        IF dd_entity_viewable(p_entity_name) THEN
+        IF v_privileged OR dd_entity_viewable(p_entity_name) THEN
             RAISE EXCEPTION 'Invalid record id ${id} for entity ${table}'
                 USING ERRCODE = '90238',
                       HINT = jsonb_build_object('id', p_id, 'table', p_entity_name)::text;
@@ -3989,11 +4021,12 @@ BEGIN
     -- their policies. Return NULL rather than raising when the row is
     -- inaccessible, so callers (incl. the set_record operator) cannot
     -- distinguish "not allowed" from "does not exist", preventing
-    -- record-existence leakage.
+    -- record-existence leakage. A privileged direct session (above) skips it.
     FOR v_level IN
         SELECT e.table_name, e.id_type, e.view_permission, e.select_rule
           FROM dd_ancestors(p_entity_name) a
           JOIN entities e ON e.table_name = a.table_name
+         WHERE NOT v_privileged
          ORDER BY a.depth
     LOOP
         IF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
@@ -4025,7 +4058,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema). Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
 
 -- Numeric callers: a bigint or integer argument resolves here rather than to
 -- the TEXT version, since PostgreSQL casts neither to text implicitly. The

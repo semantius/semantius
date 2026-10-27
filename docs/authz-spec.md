@@ -208,6 +208,10 @@ core of the remediation — today it is not):
   governs), with a mandatory I9 characterization test.
 - **D4 · Privileged path (BYPASSRLS/superuser/owner) → TRUSTED / out of scope.** Regular
   access is `authenticated`/`semantius_user`, fully in scope. DEFINER *logic* is in scope.
+  `get_record_by_id` (and so `set_record`) reads unchecked only in a privileged *direct*
+  session: a superuser/BYPASSRLS login with no `SET ROLE` in effect, no claims and no bearer
+  identity, which can read the table anyway (a migration seeding records with computed
+  fields). A privileged login that switched to the request role is checked like any request.
 - **D5 · Core-field protection → TRIGGER, all roles, keyed on `ctype`.** Not a JsonLogic rule
   (a tenant-editable rule could be edited away). is_core *identity* → `ctype`; *protection*
   stays a trigger; the `$mode`/DELETE arm is for tenant rules, not core protection.
