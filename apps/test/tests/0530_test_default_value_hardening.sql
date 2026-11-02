@@ -14,7 +14,7 @@
 -- emitted as proper literals.
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(44);
 
 -- =====================================================
 -- GROUP 1: quote_default_value never returns caller text bare
@@ -130,6 +130,45 @@ SELECT throws_ok($$INSERT INTO dv_probe (label, note) VALUES ('r3', 'bad')$$,
 SELECT throws_like($$INSERT INTO dv_probe (label, note) VALUES ('r4', 'bad')$$,
     '%50\% off isn''t allowed%',
     'the rule message survives as the exception text');
+
+-- =====================================================
+-- GROUP 5: changing and clearing a default
+-- =====================================================
+-- A blank default restores the zero value of a NOT NULL column instead of
+-- dropping the default, and the label column is the one core field whose
+-- default can be changed, so a default set on it by mistake can be cleared.
+CREATE FUNCTION pg_temp.column_default(p_column TEXT) RETURNS TEXT AS $f$
+    SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
+      JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+     WHERE d.adrelid = 'dv_probe'::regclass AND a.attname = p_column
+$f$ LANGUAGE sql;
+
+SELECT lives_ok($$UPDATE fields SET default_value = 'Offer' WHERE table_name = 'dv_probe' AND field_name = 'label'$$,
+    'the label column takes a default');
+INSERT INTO dv_probe (note) VALUES ('r5');
+SELECT is((SELECT label FROM dv_probe WHERE note = 'r5'), 'Offer',
+    'the label default is applied');
+SELECT lives_ok($$UPDATE fields SET default_value = '' WHERE table_name = 'dv_probe' AND field_name = 'label'$$,
+    'the label default can be cleared with an empty string');
+SELECT is(pg_temp.column_default('label'), '''''::text',
+    'a cleared label default falls back to the empty string');
+UPDATE fields SET default_value = 'Offer' WHERE table_name = 'dv_probe' AND field_name = 'label';
+SELECT lives_ok($$UPDATE fields SET default_value = NULL WHERE table_name = 'dv_probe' AND field_name = 'label'$$,
+    'the label default can be cleared with NULL');
+SELECT is(pg_temp.column_default('label'), '''''::text',
+    'clearing with NULL keeps a default on the NOT NULL column');
+SELECT lives_ok($$UPDATE fields SET default_value = '' WHERE table_name = 'dv_probe' AND field_name = 'note'$$,
+    'an ordinary text default can be cleared with an empty string');
+SELECT is(pg_temp.column_default('note'), '''''::text',
+    'a cleared text default falls back to the empty string');
+SELECT lives_ok($$UPDATE fields SET default_value = '' WHERE table_name = 'dv_probe' AND field_name = 'created'$$,
+    'a date default can be cleared');
+SELECT is(pg_temp.column_default('created'), NULL,
+    'a cleared default on a nullable format leaves no default');
+SELECT throws_ok($$UPDATE fields SET default_value = 'x' WHERE table_name = 'dv_probe' AND field_name = 'id'$$,
+    '90220', NULL, 'the id column default stays locked');
+SELECT throws_ok($$UPDATE fields SET default_value = '2026-01-01' WHERE table_name = 'dv_probe' AND field_name = 'created_at'$$,
+    '90220', NULL, 'an audit column default stays locked');
 
 SELECT * FROM finish();
 ROLLBACK;

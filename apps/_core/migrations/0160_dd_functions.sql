@@ -712,6 +712,42 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION quote_default_value IS
 'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
 
+-- The column default a field resolves to, shared by the ADD COLUMN and the
+-- SET DEFAULT paths. A blank default_value is not "no default": every NOT NULL
+-- column carries one, so a blank falls back to the zero value of the column
+-- type. Without that fallback, clearing a default would DROP it and leave an
+-- insert that omits the column failing on NOT NULL.
+CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_resolved TEXT := CASE WHEN p_format = 'enum'
+                            THEN effective_enum_default(p_default_value, p_input_type, p_enum_values)
+                            ELSE p_default_value END;
+BEGIN
+    IF v_resolved IS NOT NULL AND trim(v_resolved) <> '' THEN
+        RETURN quote_default_value(v_resolved, p_data_type);
+    END IF;
+
+    IF is_nullable(p_format) THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN CASE
+        WHEN p_data_type IN ('JSONB', 'JSON') AND p_format = 'array' THEN '''[]''::jsonb'
+        WHEN p_data_type IN ('JSONB', 'JSON') THEN '''{}''::jsonb'
+        WHEN p_data_type = 'TEXT' THEN ''''''
+        WHEN p_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN '0'
+        WHEN p_data_type IN ('REAL', 'DOUBLE PRECISION') OR p_data_type LIKE 'NUMERIC%' OR p_data_type LIKE 'DECIMAL%' THEN '0.0'
+        WHEN p_data_type = 'BOOLEAN' THEN 'FALSE'
+        WHEN p_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ') THEN 'CURRENT_TIMESTAMP'
+        WHEN p_data_type = 'DATE' THEN 'CURRENT_DATE'
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_column_default IS
+'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
 -- =====================================================
@@ -1195,41 +1231,7 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
     
-    -- Build default clause with sensible defaults based on data type
-    DECLARE
-        v_resolved_default TEXT;
-    BEGIN
-        IF NEW.format = 'enum' THEN
-            v_resolved_default := effective_enum_default(NEW.default_value, NEW.input_type, NEW.enum_values);
-        ELSE
-            v_resolved_default := NEW.default_value;
-        END IF;
-
-        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
-            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT is_nullable(NEW.format) THEN
-            -- Provide sensible defaults for NOT NULL columns without explicit default
-            IF v_data_type IN ('JSONB', 'JSON') THEN
-                IF NEW.format = 'array' THEN
-                    v_default_clause := 'DEFAULT ''[]''::jsonb';
-                ELSE
-                    v_default_clause := 'DEFAULT ''{}''::jsonb';
-                END IF;
-            ELSE
-                CASE
-                    WHEN v_data_type = 'TEXT' THEN v_default_clause := 'DEFAULT ''''';
-                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT') THEN v_default_clause := 'DEFAULT 0';
-                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION') OR v_data_type LIKE 'NUMERIC%' OR v_data_type LIKE 'DECIMAL%' THEN v_default_clause := 'DEFAULT 0.0';
-                    WHEN v_data_type = 'BOOLEAN' THEN v_default_clause := 'DEFAULT FALSE';
-                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ') THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                    WHEN v_data_type = 'DATE' THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                    ELSE v_default_clause := '';
-                END CASE;
-            END IF;
-        ELSE
-            v_default_clause := '';
-        END IF;
-    END;
+    v_default_clause := coalesce('DEFAULT ' || dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values, v_data_type), '');
     
     -- Build ALTER TABLE statement
     v_alter_sql := format(
@@ -1429,6 +1431,7 @@ DECLARE
     v_on_delete      TEXT;
     v_comment        TEXT;
     v_rel            TEXT;
+    v_default_clause TEXT;
 BEGIN
     -- Check if the parent table is managed. The DDL below goes to the entity's
     -- physical relation, <entity>_ext for an is_a or has_a entity.
@@ -1470,7 +1473,14 @@ BEGIN
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
 
-        IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+        -- The label column is exempt: it is a plain text column that nothing in
+        -- the dictionary derives a default for, so a default on it is the
+        -- entity's own business, and one set by mistake must stay clearable.
+        -- id and audit columns get their defaults from the dictionary (key
+        -- generation, CURRENT_TIMESTAMP), and the core columns of the system
+        -- tables carry defaults the platform reads ('public:read', 'domain');
+        -- changing any of those breaks the table.
+        IF OLD.default_value IS DISTINCT FROM NEW.default_value AND OLD.ctype <> 'label' THEN
             RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
                 USING ERRCODE = '90220',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
@@ -1571,9 +1581,11 @@ BEGIN
             NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
-    -- Allow updating default value
+    -- Allow updating default value; clearing it restores the type's zero value
     IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
-        IF NEW.default_value IS NULL THEN
+        v_default_clause := dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values,
+                                              field_data_type(NEW.format, NEW."precision", NEW.reference_table));
+        IF v_default_clause IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
                 v_rel, NEW.field_name
@@ -1581,8 +1593,7 @@ BEGIN
         ELSE
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
-                v_rel, NEW.field_name,
-                quote_default_value(NEW.default_value, field_data_type(NEW.format, NEW."precision", NEW.reference_table))
+                v_rel, NEW.field_name, v_default_clause
             );
         END IF;
         EXECUTE v_alter_sql;
@@ -4138,6 +4149,7 @@ GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;

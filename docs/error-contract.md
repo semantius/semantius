@@ -430,7 +430,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90217` | `90217` | `Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.` | - | `field_name` | |
 | `90218` | `90218` | `Cannot rename core system field ${field_name}` | - | `field_name` | |
 | `90219` | `90219` | `Cannot change format of core system field ${field_name}` | - | `field_name` | |
-| `90220` | `90220` | `Cannot change default value of core system field ${field_name}` | - | `field_name` | |
+| `90220` | `90220` | `Cannot change default value of core system field ${field_name}` | - | `field_name` | The label column is exempt; id, audit and core columns are not. |
 | `90221` | `90221` | `Cannot change table_name of a field` | - | - | Except as the cascade of a table rename. |
 | `90222` | `90222` | `Cannot change primary key status of existing field` | - | - | |
 | `90223` | `90223` | `Cannot change format of field ${field_name} from ${old_format} to ${new_format} because it would require changing the column type from ${old_type} to ${new_type}. Drop and recreate the field instead.` | - | `field_name`, `old_format`, `new_format`, `old_type`, `new_type` | Two sites, one row: the rename guard and the update guard. |

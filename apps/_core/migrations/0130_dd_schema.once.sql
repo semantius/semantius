@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Catalog codes: which catalog blueprint this entity was built from. The modeler writes them so a
     -- later run can find the entity again after a rename or merge. They default empty, which is what
     -- an entity created outside the catalog has.
-    catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical uber-model code; rename/dialect/silo join key
+    catalog_entity_code TEXT NOT NULL DEFAULT '',        -- canonical domain-map code; rename/dialect/silo join key
     catalog_owner_module TEXT NOT NULL DEFAULT '',       -- soft slug pointer to the catalog owner module (not an FK)
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- kind of data held; editable; the platform acts only on 'junction' (dd_is_junction in 0180_managed_enable.sql)
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
