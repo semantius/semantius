@@ -159,6 +159,14 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   with the flag, the administrator has decided that readers of the parent may
   learn the sum, count, minimum or maximum over child rows their row security
   hides. The flag is in the definition, so the decision is on record.
+- **Saving a computed rule or a rollup definition rewrites stored values with no
+  record audit row.** Applying it to existing records is a recalculation, so it
+  moves no `updated_at` and writes no audit row, queue message or RACI event. An
+  administrator who may edit the dictionary can therefore change the values of
+  those columns, and only those, without an entry in `audit_record_logs`. The
+  rule is in the dictionary, so the decision is on record. The triggers are
+  disabled by `ALTER TABLE` inside the saving transaction, never by a setting a
+  client could write, so no other session can write past them.
 - **Anything requiring superuser, the schema owner, or the database's
   environment.** That is the trust boundary of any extension. Whoever holds
   it already holds what the extension protects.

@@ -43,6 +43,13 @@ installs the core schema as ordinary objects.
   and a child write that only moves a total neither bumps the parent's
   `updated_at` nor writes an audit row. Errors `90261`-`90269`;
   `docs/rollup-fields.md`.
+- **A computed rule applies to existing records when it is saved.** Adding or
+  changing an entity's `computed_fields` recomputes the records whose value
+  moves, and a record that cannot take its new value refuses the save (`90908`).
+  Removing a rule keeps the values and clears the `computed` marker. This pass
+  and the rollup one are recalculations: they move no `updated_at` and write no
+  audit row, queue message or RACI event, on any table they reach, and those
+  tables take no other writes until the saving transaction commits.
 - **`ctype` marks derived fields.** A field one of the entity's
   `computed_fields` names carries `ctype = 'computed'`, derived like `rollup`
   and never set by hand (the label column keeps `label`); both markers leave

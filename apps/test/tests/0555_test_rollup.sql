@@ -11,9 +11,10 @@
 --   6. Renames
 --   7. Lifecycle: nested rollups, a tree, truncate, deletes, a module delete,
 --      and ensure_entities ordering
+--   8. A definition removed while the field stays
 BEGIN;
 
-SELECT plan(117);
+SELECT plan(123);
 
 SELECT authenticate_as('user3');
 
@@ -660,6 +661,40 @@ SELECT is(
         ]}'::jsonb) -> 'fields' -> 'updated')),
     '[]'::jsonb,
     'applying an export that carries ctype rollup again changes nothing');
+
+-- =====================================================
+-- PART 8: A definition removed while the field stays
+-- =====================================================
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('rr_parent', 'rr_parent', 'RR Parent', 'RR Parents', 'rollup removal parent', 1, 'public:read', 'admin', 'id', 'label'),
+       ('rr_child', 'rr_child', 'RR Child', 'RR Children', 'rollup removal child', 1, 'public:read', 'admin', 'id', 'label');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('rr_child', 'parent_id', 'Parent', 'parent', 10, 'rr_parent', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES ('rr_child', 'qty', 'Qty', 'int32', 20);
+INSERT INTO rr_parent (label) VALUES ('P');
+INSERT INTO rr_child (label, parent_id, qty) SELECT 'c', id, 3 FROM rr_parent;
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('rr_parent', 'agg', 'Agg', 'int32', 10, '{"link_field": "rr_child.parent_id", "function": "sum", "value_field": "qty"}');
+
+UPDATE fields SET rollup = '{}' WHERE table_name = 'rr_parent' AND field_name = 'agg';
+SELECT is((SELECT agg FROM rr_parent), 3, 'a definition removed: the record keeps the last aggregate');
+SELECT is((SELECT ctype FROM fields WHERE table_name = 'rr_parent' AND field_name = 'agg'), '', 'and the field loses ctype rollup');
+SELECT ok(
+    to_regprocedure('common.rollup_guard_rr_parent()') IS NULL AND to_regprocedure('common.rollup_rr_child_parent_id()') IS NULL,
+    'and the guard and the maintenance function are gone');
+SELECT ok(
+    pg_get_triggerdef((SELECT oid FROM pg_trigger WHERE tgrelid = 'public.rr_parent'::regclass AND tgname = 'update_rr_parent_updated_at'))
+        LIKE '%update_updated_at_column()',
+    'and the updated_at trigger is argument-less again');
+UPDATE rr_child SET qty = 9;
+SELECT is((SELECT agg FROM rr_parent), 3, 'a child write no longer moves the value');
+UPDATE rr_parent SET agg = 99;
+SELECT is((SELECT agg FROM rr_parent), 99, 'and it is ordinary data a write can change');
 
 SELECT * FROM finish();
 ROLLBACK;

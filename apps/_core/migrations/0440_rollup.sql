@@ -1000,12 +1000,20 @@ REVOKE EXECUTE ON FUNCTION rollup_build_guard(TEXT) FROM PUBLIC;
 -- =====================================================
 -- One pass over the parent table when a rollup is created or its definition
 -- changes. Row locks on the rows whose value changes only, no table rewrite;
--- the guard recomputes each changed row once more.
+-- the guard recomputes each changed row once more. The rollup column itself is
+-- an ignored column of the updated_at and audit triggers, but a computed field
+-- over it is not, and queue mappings look at no column at all, so the pass is
+-- muted (dd_backfill_mute); the EXISTS keeps a pass with nothing to write from
+-- taking its lock.
 CREATE OR REPLACE FUNCTION rollup_backfill(p_table TEXT, p_field TEXT)
 RETURNS VOID AS $fn$
 DECLARE
-    v_f   fields%ROWTYPE;
-    v_def JSONB;
+    v_f     fields%ROWTYPE;
+    v_def   JSONB;
+    v_value TEXT;
+    v_moved BOOLEAN;
+    v_undo  TEXT[];
+    v_stmt  TEXT;
 BEGIN
     SELECT * INTO v_f FROM fields WHERE table_name = p_table AND field_name = p_field;
     IF NOT FOUND THEN
@@ -1018,9 +1026,19 @@ BEGIN
        OR NOT (v_def ->> 'column_exists')::boolean THEN
         RETURN;
     END IF;
+    v_value := rollup_value_sql(v_def, format('p2.%I', v_def ->> 'parent_key'));
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%1$I p2 WHERE p2.%2$I IS DISTINCT FROM %3$s)',
+                   v_def ->> 'parent_rel', p_field, v_value)
+       INTO v_moved;
+    IF NOT v_moved THEN
+        RETURN;
+    END IF;
+    v_undo := dd_backfill_mute(p_table);
     EXECUTE format('UPDATE public.%1$I p SET %2$I = s.v FROM (SELECT p2.%3$I AS k, %4$s AS v FROM public.%1$I p2) s WHERE p.%3$I = s.k AND p.%2$I IS DISTINCT FROM s.v',
-                   v_def ->> 'parent_rel', p_field, v_def ->> 'parent_key',
-                   rollup_value_sql(v_def, format('p2.%I', v_def ->> 'parent_key')));
+                   v_def ->> 'parent_rel', p_field, v_def ->> 'parent_key', v_value);
+    FOREACH v_stmt IN ARRAY v_undo LOOP
+        EXECUTE v_stmt;
+    END LOOP;
 END;
 $fn$ LANGUAGE plpgsql SET search_path = public;
 

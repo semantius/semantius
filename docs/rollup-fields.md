@@ -179,6 +179,16 @@ dollar tag derived from the body itself, so no literal can end it early.
   record whose stored value differs (a backfill): one pass over the parent
   table, row locks on the rows that change, no rewrite. The guard recomputes
   each changed row once more.
+- **A backfill is a recalculation, not an edit.** Unlike a child write, it moves
+  no `updated_at` and writes no audit row, queue message or RACI event, on the
+  parent or on any rollup parent above it. Those tables take no other writes
+  until its transaction commits. Saving a computed rule applies it to existing
+  records the same way, and a record that cannot take its new value refuses the
+  save (90908), so a computed field over a rollup is never left behind.
+- **Removing the definition** (`rollup` back to `{}`, the field stays) keeps the
+  last values as ordinary data, clears the `rollup` marker and drops the
+  generated objects. `input_type` stays `disabled` until the administrator
+  changes it. Removing a computed rule works the same way.
 - **Renames** are followed: a renamed child or parent table, link field, value
   field, filtered column or rollup field rewrites the definitions that name it
   and regenerates the objects under the new names.

@@ -526,6 +526,12 @@ BEGIN
                     OR (f.input_type IN ('default', 'readonly')
                         AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)));
         END IF;
+        -- Last, so the pass runs through the rule trigger rebuilt above. Removing
+        -- a rule writes nothing: its column keeps the last value as ordinary data.
+        IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields
+           OR (NEW.managed AND NOT OLD.managed) THEN
+            PERFORM computed_backfill(NEW.table_name);
+        END IF;
         RETURN NEW;
     END IF;
 
@@ -608,6 +614,232 @@ CREATE OR REPLACE TRIGGER zz_derive_computed_ctype
     BEFORE INSERT OR UPDATE ON fields
     FOR EACH ROW
     EXECUTE FUNCTION zz_derive_computed_ctype();
+
+-- =====================================================
+-- STEP 2c: applying a rule to the records that already exist
+-- =====================================================
+-- A backfill recalculates stored values after a rule or a rollup definition
+-- changed. Nobody edited those records, so it must not look as if somebody had:
+-- no updated_at, no audit row, no queue message, no RACI event, on the table it
+-- writes and on every table the write reaches, which is the rest of an is_a or
+-- has_a family and any rollup parent above it (a moved line amount moves the
+-- order's subtotal, and through a computed field its total).
+--
+-- The triggers are switched off with ALTER TABLE rather than told through a
+-- setting, because a client can write any custom setting and could then skip the
+-- audit log. ALTER TABLE takes a lock that conflicts with every writer until the
+-- transaction ends, so no other session can write past a disabled trigger, and
+-- it rolls back with the transaction. The cost is that those tables take no
+-- writes until the transaction that changed the rule commits; a pass with nothing
+-- to write never gets here. The RACI gate trigger stays on: it holds a state
+-- column during a consultation, which is a constraint, not a side effect.
+--
+-- Returns the statements that switch the triggers back on. Only triggers that are
+-- plainly enabled are touched, so one an operator disabled stays disabled.
+CREATE OR REPLACE FUNCTION dd_backfill_mute(p_table TEXT)
+RETURNS TEXT[] AS $fn$
+DECLARE
+    v_undo TEXT[] := ARRAY[]::TEXT[];
+    r      RECORD;
+BEGIN
+    FOR r IN
+        WITH RECURSIVE reach(t) AS (
+            SELECT p_table
+            UNION
+            SELECT x.t
+              FROM reach, LATERAL (
+                  SELECT f.table_name AS t FROM fields f
+                   WHERE f.rollup <> '{}'::jsonb
+                     AND split_part(f.rollup ->> 'link_field', '.', 1) = reach.t
+                  UNION ALL
+                  SELECT e.table_name FROM entities e
+                   WHERE e.id_refentity = reach.t AND e.id_type IN ('is_a', 'has_a')
+                  UNION ALL
+                  SELECT e.id_refentity FROM entities e
+                   WHERE e.table_name = reach.t AND e.id_type IN ('is_a', 'has_a')
+              ) x
+        )
+        SELECT c.relname, t.tgname
+          FROM reach
+          JOIN entities e ON e.table_name = reach.t
+          JOIN pg_class c ON c.oid = pg_catalog.to_regclass(format('public.%I', dd_relation(e.table_name, e.id_type)))
+          JOIN pg_trigger t ON t.tgrelid = c.oid
+         WHERE NOT t.tgisinternal
+           AND t.tgenabled = 'O'
+           AND t.tgfoid = ANY (ARRAY[to_regproc('common.update_updated_at_column'),
+                                     to_regproc('audit.insert_update_delete_trigger'),
+                                     to_regproc('public.queue_build_record_json'),
+                                     to_regproc('public.raci_emit_trigger_fn')]::oid[])
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I DISABLE TRIGGER %I', r.relname, r.tgname);
+        v_undo := v_undo || format('ALTER TABLE public.%I ENABLE TRIGGER %I', r.relname, r.tgname);
+    END LOOP;
+    RETURN v_undo;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION dd_backfill_mute(TEXT) IS
+'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write, and returns the statements that enable them again.';
+
+REVOKE EXECUTE ON FUNCTION dd_backfill_mute(TEXT) FROM PUBLIC;
+
+-- The computed rules in order over a record that already carries its context, as
+-- the block build_record_logic_trigger generates for each rule does.
+CREATE OR REPLACE FUNCTION computed_values(p_rules JSONB, p_data JSONB)
+RETURNS JSONB AS $fn$
+DECLARE
+    v_data JSONB := p_data;
+    v_rule JSONB;
+BEGIN
+    FOR v_rule IN SELECT jsonb_array_elements(p_rules) LOOP
+        v_data := jsonb_set(v_data, string_to_array(v_rule ->> 'name', '.'),
+                            COALESCE(evaluate_json_logic(v_rule -> 'jsonlogic', v_data), 'null'::jsonb), true);
+    END LOOP;
+    RETURN v_data;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION computed_values(JSONB, JSONB) IS
+'Evaluates a computed_fields array over a record and returns the record with the values applied.';
+
+REVOKE EXECUTE ON FUNCTION computed_values(JSONB, JSONB) FROM PUBLIC;
+
+-- One pass over the records of an entity after its computed_fields changed.
+--
+-- The rules are evaluated here rather than through common.record_rules_<entity>,
+-- because that function also runs the validation rules, and a record that fails
+-- one must block the change only when its value has to move: a validation added
+-- after a record was written is not retroactive, and such a record would
+-- otherwise refuse every later rule change on the entity. The context matches the
+-- generated function with $mode = 'update' and $old = the record, so an
+-- insert-only stamp such as {"if": [{"==": [{"var": "$mode"}, "insert"]},
+-- {"var": "$user_id"}, {"var": "$old.created_by"}]} returns what it already holds.
+-- A rule that stamps $user_id or $now unconditionally moves on this pass, as it
+-- does on any other update.
+--
+-- A record whose value moves is written through the entity's own write path, the
+-- table or the view of an is_a or has_a entity, so the rule trigger validates it
+-- and rollups above it follow. One statement per record: the error has to name
+-- the record, and a set-based UPDATE fails without saying which row it was on.
+--
+-- Values are compared as text through the column types, so 163.625 from a rule
+-- and 163.63 in a two-decimal column count as equal, and json columns compare at
+-- all.
+CREATE OR REPLACE FUNCTION computed_backfill(p_table TEXT)
+RETURNS VOID AS $fn$
+DECLARE
+    v_e       entities%ROWTYPE;
+    v_cols    TEXT[];
+    v_uid     TEXT;
+    v_ctx     JSONB;
+    v_differs TEXT;
+    v_write   TEXT;
+    v_old     JSONB;
+    v_new     JSONB;
+    v_moved   BOOLEAN;
+    v_undo    TEXT[];
+    v_stmt    TEXT;
+    v_state   TEXT;
+    v_msg     TEXT;
+BEGIN
+    SELECT * INTO v_e FROM entities WHERE table_name = p_table;
+    IF NOT FOUND OR NOT v_e.managed OR pg_catalog.to_regclass(format('public.%I', p_table)) IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- A rule may name a field that does not exist yet; zz_computed_field_added
+    -- runs this pass again when it arrives. A dotted name writes into a JSON column.
+    SELECT array_agg(a.attname::text ORDER BY a.attnum) INTO v_cols
+      FROM pg_attribute a
+     WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', p_table))
+       AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
+       AND a.attname::text IN (SELECT split_part(c ->> 'name', '.', 1)
+                                 FROM jsonb_array_elements(v_e.computed_fields) c);
+    IF v_cols IS NULL THEN
+        RETURN;
+    END IF;
+
+    v_uid := rbac.user_id_or_null()::text;
+    v_ctx := jsonb_build_object(
+        '$today',   to_jsonb(CURRENT_DATE),
+        '$now',     to_jsonb(CURRENT_TIMESTAMP),
+        '$user_id', CASE WHEN v_uid IS NULL OR v_uid = '' THEN 'null'::jsonb ELSE to_jsonb(v_uid::bigint) END,
+        '$mode',    'update');
+
+    v_differs := format(
+        'SELECT ROW(%1$s) IS DISTINCT FROM ROW(%2$s) FROM jsonb_populate_record(NULL::public.%3$I, $1) o, jsonb_populate_record(NULL::public.%3$I, $2) n',
+        (SELECT string_agg(format('o.%I::text', c), ', ') FROM unnest(v_cols) c),
+        (SELECT string_agg(format('n.%I::text', c), ', ') FROM unnest(v_cols) c),
+        p_table);
+    v_write := format(
+        'UPDATE public.%1$I x SET (%2$s) = ROW(%3$s) FROM jsonb_populate_record(NULL::public.%1$I, $1) n WHERE x.%4$I = n.%4$I',
+        p_table,
+        (SELECT string_agg(format('%I', c), ', ') FROM unnest(v_cols) c),
+        (SELECT string_agg(format('n.%I', c), ', ') FROM unnest(v_cols) c),
+        v_e.id_column);
+
+    BEGIN
+        -- Two scans, because ALTER TABLE refuses a table this session has a cursor
+        -- open on. The first stops at the first record that moves, so a pass with
+        -- nothing to write takes no lock and leaves no DDL in the audit log.
+        FOR v_old IN EXECUTE format('SELECT to_jsonb(t) FROM public.%I t', p_table) LOOP
+            v_new := computed_values(v_e.computed_fields, v_old || v_ctx || jsonb_build_object('$old', v_old));
+            EXECUTE v_differs INTO v_moved USING v_old, v_new;
+            EXIT WHEN v_moved;
+        END LOOP;
+        IF NOT COALESCE(v_moved, FALSE) THEN
+            RETURN;
+        END IF;
+
+        v_undo := dd_backfill_mute(p_table);
+        FOR v_old IN EXECUTE format('SELECT to_jsonb(t) FROM public.%I t', p_table) LOOP
+            v_new := computed_values(v_e.computed_fields, v_old || v_ctx || jsonb_build_object('$old', v_old));
+            EXECUTE v_differs INTO v_moved USING v_old, v_new;
+            IF v_moved THEN
+                EXECUTE v_write USING v_new;
+            END IF;
+        END LOOP;
+    EXCEPTION
+        WHEN OTHERS THEN
+            GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+            RAISE EXCEPTION 'computed_fields on ${table} cannot be applied to record ${record_id}: ${problem}'
+                USING ERRCODE = '90908',
+                      HINT = jsonb_build_object('table', p_table, 'record_id', v_old ->> v_e.id_column,
+                                                'problem', v_msg, 'cause_code', v_state)::text;
+    END;
+
+    FOREACH v_stmt IN ARRAY v_undo LOOP
+        EXECUTE v_stmt;
+    END LOOP;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION computed_backfill(TEXT) IS
+'Applies an entity''s computed_fields to its existing records, writing only those whose value moves, without touching updated_at, the audit log, queues or RACI events. A record that cannot take its new value refuses the change (90908).';
+
+REVOKE EXECUTE ON FUNCTION computed_backfill(TEXT) FROM PUBLIC;
+
+-- The other order of the two steps: a rule that named a field before it existed.
+-- zz_ puts it after add_field_trigger, which creates the column.
+CREATE OR REPLACE FUNCTION zz_computed_field_added()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.ctype = 'computed' THEN
+        PERFORM computed_backfill(NEW.table_name);
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_computed_field_added() IS
+'AFTER INSERT trigger function on fields: applies the rule to existing records when a field arrives that a computed rule already names.';
+
+REVOKE EXECUTE ON FUNCTION zz_computed_field_added() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER zz_computed_field_added
+    AFTER INSERT ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_computed_field_added();
 
 -- =====================================================
 -- STEP 3: Per-row SELECT policy generator (select_rule)
