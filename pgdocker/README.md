@@ -436,6 +436,11 @@ on a live database, which needs two sessions: the search for missing values bloc
 writer, and a table too busy to lock is skipped rather than queued behind. It runs on
 the database a migrate left on the plain CLI container, and removes what it creates.
 
+`pg-reference-delete-race.sh` (no `.cmd` variant) proves that a field being written and
+the entity it points at being deleted cannot both succeed, which needs two sessions:
+whichever arrives second waits for the first to commit and is then refused. It runs on
+the database a migrate left on the plain CLI container, and removes what it creates.
+
 ### Just deploy a module (no reset, no tests)
 
 To load one or more app modules onto an **already-running** container without

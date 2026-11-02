@@ -2161,6 +2161,7 @@ DECLARE
     v_derived    BOOLEAN := OLD.id_type IN ('is_a', 'has_a');
     v_rel        TEXT := dd_relation(OLD.table_name, OLD.id_type);
     v_dependents TEXT;
+    v_references TEXT;
     v_has_rows   BOOLEAN := FALSE;
 BEGIN
     -- The family refusals come first, before anything is dropped.
@@ -2179,6 +2180,31 @@ BEGIN
         RAISE EXCEPTION 'Entity ${table} cannot be deleted while ${dependents} are based on it'
             USING ERRCODE = '90248',
                   HINT = jsonb_build_object('table', OLD.table_name, 'dependents', v_dependents)::text;
+    END IF;
+
+    -- A field of another entity would be left pointing at nothing: DROP TABLE
+    -- ... CASCADE takes its foreign key but leaves its column, its values and
+    -- its row. A field of this entity goes with it. A field whose entity or
+    -- module is already gone does not count, for the reason above; the delete of
+    -- its own row follows at the end of this statement. reference_delete_mode
+    -- plays no part: it governs deleting records, not the entity. No foreign key
+    -- backs this up, because reference_table uses '' for "no reference", so a
+    -- field being written concurrently is held off by the row lock
+    -- validate_reference_table takes.
+    SELECT string_agg(f.table_name || '.' || f.field_name, ', ' ORDER BY f.table_name, f.field_name)
+      INTO v_references
+      FROM fields f
+      JOIN entities d ON d.table_name = f.table_name
+      JOIN modules m ON m.id = d.module_id
+     WHERE f.reference_table = OLD.table_name
+       AND f.table_name <> OLD.table_name;
+    IF v_references IS NOT NULL THEN
+        RAISE EXCEPTION 'Entity ${table} cannot be deleted while ${fields} reference it'
+            USING ERRCODE = '90260',
+                  HINT = jsonb_build_object(
+                      'table', OLD.table_name,
+                      'fields', v_references,
+                      'hint', 'Delete those fields or point them at another entity first.')::text;
     END IF;
 
     -- A plain entity is dropped with its data. A family entity is not: its
@@ -2239,7 +2265,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION delete_dd_table IS
-'Trigger function that drops a table when a row is deleted from entities table. Refuses first when entities are still based on it (90248) or when an is_a/has_a family entity still has records (90247); for an is_a or has_a entity it drops the view, its generated routines and <entity>_ext.';
+'Trigger function that drops a table when a row is deleted from entities table. Refuses first when entities are still based on it (90248), when fields of other entities reference it (90260) or when an is_a/has_a family entity still has records (90247); for an is_a or has_a entity it drops the view, its generated routines and <entity>_ext.';
 
 -- Apply trigger BEFORE DELETE on entities
 -- Note: Fields will be deleted via CASCADE on the foreign key

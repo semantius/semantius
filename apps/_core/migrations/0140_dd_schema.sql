@@ -5,24 +5,43 @@
 
 -- Create trigger function to validate reference_table when not empty
 -- We use a trigger instead of CHECK constraint to allow subqueries
+-- SECURITY DEFINER because a locking read is subject to the UPDATE policy of
+-- entities: a writer allowed on fields but not on entities would get no row and
+-- therefore no lock.
 CREATE OR REPLACE FUNCTION validate_reference_table()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Only validate if reference_table is not empty
-    IF NEW.reference_table != '' THEN
-        -- Check if the referenced table exists
-        IF NOT EXISTS (SELECT 1 FROM entities WHERE table_name = NEW.reference_table) THEN
-            RAISE EXCEPTION 'Referenced table ${table} not found in entities'
-                USING ERRCODE = '90212',
-                      HINT = jsonb_build_object('table', NEW.reference_table)::text;
-        END IF;
+    -- Only a reference being set is validated. One that is not changing was
+    -- checked when it was set and delete_dd_table keeps its entity from going
+    -- away. Checking it again would refuse a rename of an entity that references
+    -- itself: the foreign key on fields.table_name cascades the rename to the
+    -- field while reference_table still holds the old name, which
+    -- rename_dd_reference_tables rewrites only afterwards. Locking for it would
+    -- let an edit of the field deadlock with a rename of the entity, which
+    -- updates the same row.
+    IF NEW.reference_table = ''
+       OR (TG_OP = 'UPDATE' AND OLD.reference_table = NEW.reference_table) THEN
+        RETURN NEW;
+    END IF;
+
+    -- A field newly pointing at an entity holds the entity's row until it
+    -- commits. delete_dd_table refuses to delete an entity that fields reference
+    -- (90260), but cannot see a field that has not committed, so without the lock
+    -- the delete would pass and leave the field pointing at nothing. The delete
+    -- waits here instead and then sees the field; a delete that got here first
+    -- makes this wait, and then finds no row.
+    PERFORM 1 FROM entities WHERE table_name = NEW.reference_table FOR KEY SHARE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Referenced table ${table} not found in entities'
+            USING ERRCODE = '90212',
+                  HINT = jsonb_build_object('table', NEW.reference_table)::text;
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION validate_reference_table IS
-'Trigger function that rejects a field whose reference_table is set but does not match any entities.table_name. Enforced via trigger (not a CHECK) so it can run a subquery.';
+'Trigger function that rejects a field being pointed at a reference_table that does not match any entities.table_name, and holds that entity''s row until the field commits, so a concurrent delete of the entity cannot miss the field. A reference that is not changing is not checked again. Enforced via trigger (not a CHECK) so it can run a subquery.';
 
 CREATE OR REPLACE TRIGGER validate_reference_table_trigger
     BEFORE INSERT OR UPDATE ON fields

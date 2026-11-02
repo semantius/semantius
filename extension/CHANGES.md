@@ -85,6 +85,16 @@ installs the core schema as ordinary objects.
   value for it, and `required` with delete mode `clear` with `90257`.
 - A required enum with no explicit default no longer takes its first value when a
   write leaves it out: the write fails with `90258`.
+- Deleting an entity that fields of other entities reference is refused with
+  `90260`, which names the fields. The delete used to succeed and leave them
+  pointing at nothing, with their columns and values in place and every edit of
+  the field refused with `90212`. Delete those fields or point them at another
+  entity first. A module delete is refused the same way by a reference from another
+  module, so two modules that reference each other need one such field removed
+  first. Fields already left that way are not repaired; they can be edited, deleted
+  or pointed at an existing entity.
+- Renaming an entity with a field that references the entity itself no longer fails
+  with `90212`.
 - `modules.access_scope` takes `custom`, `basic`, `advanced`, `gated` or `raci`
   instead of `basic` or `full`, and the default is `custom`. This is not an
   upgrade path for an existing 0.5.0-beta1 install, which has to be reinstalled
