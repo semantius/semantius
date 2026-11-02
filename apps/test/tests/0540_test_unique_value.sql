@@ -3,13 +3,18 @@
 -- For string types: empty string is excluded from uniqueness enforcement
 -- (explicit NULL is rejected on every TEXT column, so it is never inserted here)
 --
--- Target: nwind territories.territory_id (TEXT, unique_value=TRUE, required)
+-- Target: nwind territories.territory_id (TEXT, unique_value=TRUE). The field is
+-- required, and a required field refuses an empty string, so this file makes it
+-- optional first: what it tests is that uniqueness leaves empty strings alone.
 BEGIN;
 
 SELECT plan(8);
 
 -- Authenticate as admin user (writes territories and fields)
 SELECT authenticate_as('user3');
+
+UPDATE fields SET input_type = 'default'
+ WHERE table_name = 'territories' AND field_name = 'territory_id';
 
 -- =====================================================
 -- TEST: unique index exists for territories.territory_id

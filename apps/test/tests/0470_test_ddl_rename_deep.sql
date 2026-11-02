@@ -112,9 +112,10 @@ VALUES ('rn_nephews', 'parent_title', 'Parent Title', 'text', 30, 'readonly', 'd
 
 INSERT INTO queues (queue_name) VALUES ('rn_test_queue');
 
-INSERT INTO queue_table_events (queue_id, table_name, event_handler)
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
 VALUES (
     (SELECT id FROM queues WHERE queue_name = 'rn_test_queue'),
+    'rn_parents_change',
     'rn_parents',
     'change'
 );

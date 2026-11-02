@@ -114,6 +114,14 @@ A change to a dictionary generator (`create_dd_table`, `build_select_rule_policy
 functions and triggers it generated earlier. It therefore ships with a `.once.`
 file that rebuilds the generated objects of every affected entity.
 
+A field's required check is the exception, because a `.once.` file is one
+transaction and its table locks would pile up until it commits, on a database
+with no maintenance window. Every runner instead calls
+`dd_install_missing_checks()` in a loop after the migration files, one table per
+transaction, and it adds only what is missing. A field whose rows already have
+missing values, or a table too busy to lock within 2 s, is skipped with a warning
+and picked up by a later migrate.
+
 ## What the version argument selects
 
 **The floor is what has been released, not what has been built.** `git tag -l 'v*'`

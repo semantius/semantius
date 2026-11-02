@@ -317,6 +317,8 @@
         // from both legs
         "entity_type": "junction",
         "fields": [
+          // Nothing writes this label: the record is named by the two it links.
+          {"field_name": "label", "input_type": "default"},
           {"field_name": "employee_id", "title": "Employee", "format": "parent", "field_order": 10, "input_type": "required", "width": "default", "description": "", "reference_table": "employees", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "assigned to"},
           {"field_name": "territory_id", "title": "Territory", "format": "parent", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "territories", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "staffed by"}
         ]

@@ -467,6 +467,9 @@ the JSON hint that fill their `${name}` placeholders.
 | `90254` | `90254` | `Records of ${base} already carry the prefix ${prefix}` | `The prefix names the type of a record. Choose a prefix no record of the family carries.` | `table`, `base`, `prefix` | Creating an is_a entity whose prefix rows of its root still carry: a prefix the root gave up is free among entities, but the root's rows keep it, and the dispatch would hand them to the new subtype, which has no part for them. `base` is the root. |
 | `90255` | `90255` | `Record ${id} of ${table} has no part in ${subtype}, the type its id names` | - | `id`, `table`, `subtype` | An update or delete through the root, or through the view of a supertype, of a record whose id names a subtype that holds no part for it. Only a write past the dictionary can leave such a record. A part the caller may not read is not this error: that record is skipped, like any row RLS hides. |
 | `90256` | `90256` | `This change drops ${views}, and with them ${dependents}, which the dictionary did not create` | `Drop those objects, make the change, then create them again.` | `views`, `dependents` | Any change that rebuilds an is_a/has_a family (a field of any level added, changed or deleted, a searchable change, a rename, a root prefix change, rules added to or removed from a level) or deletes a family entity (itself, or through a module delete) drops the family's views, and PostgreSQL would drop what is built on them with them. Refused while such an object exists. `views` and `dependents` are comma-separated strings; a dependent is described as `view <name>`, `function <signature>`, `policy <name> on table <name>` and so on. What the dictionary builds on the views itself does not count. A plain entity's delete still drops what is built on its table. |
+| `90257` | `90257` | `Field ${field_name} on ${table} cannot be required while its delete mode is clear` | - | `table`, `field_name` | `ON DELETE SET NULL` would make every delete of the referenced record fail on this field. Refused when the combination is set, so a field that already has it stays editable. |
+| `90258` | `90258` | `Field ${field_name} on ${table} is required` | - | `table`, `field_name` | A write left a required field missing: `NULL` for `reference`, `date` and `date-time`, blank or whitespace-only text, an empty enum, JSON `{}`, `[]`, `null` or `""`, an empty `binary`, a `rating` of 0. Raised by the field's required check, so every writer gets it. Explicit `NULL` on a `NOT NULL` column stays PostgreSQL's 23502, because `NOT NULL` runs before any check. |
+| `90259` | `90259` | `Field ${field_name} on ${table} cannot be required while rows have no value for it` | - | `table`, `field_name` | Changing a field to required while rows are missing a value, or adding a required field with no usable default to a table with rows. |
 
 ### 903xx - schema and record RPCs
 
@@ -540,7 +543,9 @@ at the table, the row trigger runs before the constraint is evaluated, and
 there is no code of ours between the client and the refusal to give it a
 number or a JSON hint. What comes back is 23514, 23505 or 23503 with
 PostgreSQL's own sentence, and the only stable token in that sentence is the
-constraint's name. These are the names our own tables declare and the names we
+constraint's name. The one exception is a required field's check, generated as
+`<table>_<field>_assert`, which calls a function that raises 90258 instead.
+These are the names our own tables declare and the names we
 keep stable, so a translation keyed on one of them survives a rewrite of the
 expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 `entities_pkey`) are not listed - they are not ours to keep.

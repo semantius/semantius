@@ -24,7 +24,7 @@ VALUES
     ('rgt_beta', 'rgt_beta', 'rgt_betas', 'RGT Beta', 'RGT Betas',
      'raci gate installer test', 1, 'public:read', 'admin', 'id', 'label');
 
-INSERT INTO processes (name, module_id) VALUES ('rgt_process', 1);
+INSERT INTO processes (name, process_key, module_id) VALUES ('rgt_process', 'rgt_process', 1);
 
 CREATE TEMP TABLE _rgt AS
 SELECT id AS pid FROM processes WHERE name = 'rgt_process';

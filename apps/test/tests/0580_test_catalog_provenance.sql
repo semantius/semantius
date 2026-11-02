@@ -77,7 +77,7 @@ SELECT is((SELECT catalog_entity_aliases FROM entities WHERE table_name='prov_e'
 -- GROUP 4: entity_type closed-enum CHECK (exactly 6, no '')
 -- =====================================================
 SELECT throws_ok($$UPDATE entities SET entity_type='platform' WHERE table_name='prov_e'$$, '23514', NULL, 'entity_type rejects an out-of-set value (platform)');
-SELECT throws_ok($$UPDATE entities SET entity_type='' WHERE table_name='prov_e'$$, '23514', NULL, 'entity_type rejects empty string (closed 6-value set)');
+SELECT throws_ok($$UPDATE entities SET entity_type='' WHERE table_name='prov_e'$$, '90258', NULL, 'entity_type rejects empty string (closed 6-value set)');
 SELECT lives_ok($$UPDATE entities SET entity_type='catalog' WHERE table_name='prov_e'$$, 'entity_type accepts catalog');
 SELECT lives_ok($$UPDATE entities SET entity_type='operational_workflow' WHERE table_name='prov_e'$$, 'entity_type accepts operational_workflow');
 SELECT lives_ok($$UPDATE entities SET entity_type='junction' WHERE table_name='prov_e'$$, 'entity_type accepts junction');

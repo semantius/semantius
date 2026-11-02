@@ -502,9 +502,42 @@ export interface AppMigrations {
 }
 
 /**
+ * Adds the required checks fields do not have yet, one table per transaction, so
+ * that locks never pile up across tables on a live database. See
+ * dd_install_missing_checks in 0180_managed_enable.sql. Whatever it skips is
+ * picked up by a later run, so a skip is reported and does not fail this one.
+ */
+async function installMissingChecks(client: DatabaseClient): Promise<void> {
+  const present = await client.queryObject(
+    `SELECT to_regprocedure('public.dd_install_missing_checks(text)') IS NOT NULL AS present`,
+  );
+  if (!(present.rows[0] as { present: boolean }).present) return;
+
+  let after: string | null = null;
+  while (true) {
+    const res = await client.queryObject(
+      `SELECT p_table, p_skipped FROM public.dd_install_missing_checks($1)`,
+      [after],
+    );
+    const row = res.rows[0] as {
+      p_table: string | null;
+      p_skipped: { table: string; field?: string; reason: string }[];
+    };
+    for (const s of row.p_skipped) {
+      console.warn(
+        `  Not enforced yet: ${s.table}${s.field ? `.${s.field}` : ""}: ${s.reason}`,
+      );
+    }
+    if (row.p_table === null) return;
+    after = row.p_table;
+  }
+}
+
+/**
  * The whole run: takes the migration lock once, ensures the ledger exists,
- * migrates each app in order on this one client, and releases the lock on
- * every path. A failure stops the run after the failing app's 9900 files.
+ * migrates each app in order on this one client, adds the missing required
+ * checks, and releases the lock on every path. A failure stops the run after the
+ * failing app's 9900 files.
  */
 export async function runMigrations(
   client: DatabaseClient,
@@ -519,6 +552,7 @@ export async function runMigrations(
       total.applied += r.applied;
       total.skipped += r.skipped;
     }
+    await installMissingChecks(client);
     return total;
   } finally {
     await releaseMigrationLock(client);

@@ -1406,6 +1406,8 @@ DECLARE
   v_failed_file text;
   v_fail_state text; v_fail_msg text; v_fail_detail text; v_fail_hint text;
   v_also  text := '';
+  v_check_table text;
+  v_check_next  text;
 BEGIN
   PERFORM pg_catalog.set_config('search_path', 'public', true);
 
@@ -1496,6 +1498,26 @@ ${steps}
       USING DETAIL = v_fail_detail || v_also,
             HINT   = v_fail_hint;
   END IF;
+
+  -- The required checks fields do not have yet, one table per transaction, so that
+  -- locks never pile up across tables on a live database. See
+  -- dd_install_missing_checks in 0180_managed_enable.sql. The COMMIT sits outside the
+  -- block because a block with an EXCEPTION clause cannot commit.
+  LOOP
+    PERFORM pg_catalog.set_config('search_path', 'public', true);
+    PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+    PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+    BEGIN
+      SELECT c.p_table INTO v_check_next FROM public.dd_install_missing_checks(v_check_table) c;
+    EXCEPTION WHEN OTHERS THEN
+      PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+      RAISE;
+    END;
+    COMMIT;
+    EXIT WHEN v_check_next IS NULL;
+    v_check_table := v_check_next;
+  END LOOP;
 
   BEGIN
     -- Nothing the migrations created may belong to an extension.

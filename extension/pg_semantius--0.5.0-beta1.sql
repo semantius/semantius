@@ -133,6 +133,8 @@ DECLARE
   v_failed_file text;
   v_fail_state text; v_fail_msg text; v_fail_detail text; v_fail_hint text;
   v_also  text := '';
+  v_check_table text;
+  v_check_next  text;
 BEGIN
   PERFORM pg_catalog.set_config('search_path', 'public', true);
 
@@ -6084,7 +6086,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '073ebf9fce33168e0f8ff4f25ed330fe700d6629aeab41b302752923e1df6bd5') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'fc28cf7c8e5573d1c8119800e8444828ae59269a0596a355ea1107cd1474f5a6') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -6683,7 +6685,7 @@ COMMENT ON FUNCTION is_nullable IS
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
---                               based on input_type and the explicit default_value.
+--                               from its explicit default_value.
 
 CREATE OR REPLACE FUNCTION enum_value_list(p_enum_values JSONB)
 RETURNS JSONB AS $$
@@ -6712,27 +6714,26 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION effective_enum_values IS
 'Returns the effective list of allowed enum entries, values and {value, label} objects as stored: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
 
+-- A required enum without an explicit default gets '' like any other, which its
+-- required check refuses: a write that leaves it out fails rather than saving a
+-- value nobody chose.
+--
+-- p_input_type and p_enum_values no longer decide anything, and the signature
+-- keeps them on purpose. Each migration file commits on its own, and
+-- 0250_public_functions.sql calls this function, so dropping the signature here
+-- would make get_schema() fail on a live database until that later file commits.
 CREATE OR REPLACE FUNCTION effective_enum_default(p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB)
 RETURNS TEXT AS $$
 BEGIN
-    -- Explicit default takes precedence
     IF p_default_value IS NOT NULL AND trim(p_default_value) != '' THEN
         RETURN p_default_value;
     END IF;
-    -- Required enum without explicit default: pick the first allowed value
-    IF p_input_type = 'required'
-       AND p_enum_values IS NOT NULL
-       AND jsonb_typeof(p_enum_values) = 'array'
-       AND jsonb_array_length(p_enum_values) > 0 THEN
-        RETURN enum_value_list(p_enum_values)->>0;
-    END IF;
-    -- Non-required enum without explicit default: empty string
     RETURN '';
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION effective_enum_default IS
-'Computes the effective default for an enum field: explicit default_value if set, else first enum value when input_type is required, else empty string.';
+'Computes the effective default for an enum field: explicit default_value if set, else empty string, which the required check of a required enum refuses.';
 
 -- Nullability is derived on demand from a field's format via the is_nullable()
 -- function above; callers invoke is_nullable(format) directly rather than reading
@@ -6836,6 +6837,316 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION dd_column_default IS
 'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+
+-- =====================================================
+-- REQUIRED FIELDS
+-- =====================================================
+-- A field with input_type 'required' refuses a missing value at the table, so
+-- every writer is covered, not only forms. The rule belongs to the field's
+-- metadata and nothing else: no field, the label included, gets special
+-- treatment here.
+--
+-- Everything below has to be safe on a live database with no maintenance window,
+-- which decides the shape of it:
+--   * Adding a CHECK takes ACCESS EXCLUSIVE, and validating it scans the table
+--     while holding that lock. So the check always goes on NOT VALID, which takes
+--     the lock only for a moment, and any search for missing values runs first as
+--     a plain read that blocks nobody.
+--   * A row that is already missing a value stays readable. An UPDATE of it fails
+--     until the value is filled in.
+--   * The name sorts before <rel>_<field>_check on purpose. PostgreSQL runs CHECK
+--     constraints in name order, so an empty required enum raises 90258 before its
+--     own check returns 23514.
+
+-- The condition a value of this field must meet, or NULL when the field gets no
+-- check:
+--   * a key is already constrained by being the key;
+--   * an input_type_rule can turn 'required' off per record, so a static check
+--     would refuse writes the rule allows;
+--   * a parent is NOT NULL and its fallback fails the foreign key;
+--   * numbers and booleans have no missing value: 0 and false are real ones, and
+--     a rating is the exception because its own format defines 0 as not rated.
+-- The enum and rating branches come before the type: an enum is stored as TEXT, and
+-- field_data_type would also send a text-keyed parent down the TEXT branch.
+-- The text test is a character class rather than \S because this text is run as DDL in
+-- the session of whoever edits the field: with standard_conforming_strings off, a
+-- backslash would silently turn the pattern into a different one.
+CREATE OR REPLACE FUNCTION dd_required_test(p_field fields)
+RETURNS TEXT AS $$
+DECLARE
+    v_col TEXT := quote_ident(p_field.field_name);
+BEGIN
+    IF p_field.input_type IS DISTINCT FROM 'required'
+       OR p_field.is_pk
+       OR p_field.input_type_rule IS DISTINCT FROM '{}'::jsonb
+       OR p_field.format = 'parent' THEN
+        RETURN NULL;
+    END IF;
+    IF is_nullable(p_field.format) THEN
+        RETURN v_col || ' IS NOT NULL';
+    END IF;
+    IF p_field.format = 'enum' THEN
+        RETURN v_col || ' <> ''''';
+    END IF;
+    IF p_field.format = 'rating' THEN
+        RETURN v_col || ' <> 0';
+    END IF;
+    RETURN CASE field_data_type(p_field.format, p_field."precision", p_field.reference_table)
+        WHEN 'TEXT'  THEN v_col || ' ~ ''[^[:space:]]'''
+        WHEN 'JSONB' THEN v_col || ' NOT IN (''{}''::jsonb, ''[]''::jsonb, ''null''::jsonb, ''""''::jsonb)'
+        WHEN 'BYTEA' THEN 'octet_length(' || v_col || ') > 0'
+    END;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_test(fields) IS
+'The SQL condition a value of a required field must meet, or NULL when the field gets no required check.';
+
+-- Raised from inside the check, because a plain CHECK can only return 23514.
+-- VOLATILE on purpose: the planner may evaluate a function with constant arguments
+-- early, and this one must only run when the value really is missing. It is granted
+-- to the request role because a CHECK runs its functions as the writer.
+--
+-- The table comes from tableoid so that renaming the entity needs no rebuild. It is
+-- stripped of _ext because the hint names the entity, and an entity name cannot end
+-- in _ext (valid_table_name).
+CREATE OR REPLACE FUNCTION common.dd_raise_required(p_table OID, p_field TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_table TEXT;
+BEGIN
+    SELECT regexp_replace(c.relname::text, '_ext$', '') INTO v_table
+      FROM pg_catalog.pg_class c WHERE c.oid = p_table;
+    RAISE EXCEPTION 'Field ${field_name} on ${table} is required'
+        USING ERRCODE = '90258',
+              HINT = jsonb_build_object('table', v_table, 'field_name', p_field)::text;
+END;
+$$ LANGUAGE plpgsql VOLATILE SET search_path = public;
+
+COMMENT ON FUNCTION common.dd_raise_required(OID, TEXT) IS
+'Raises 90258 for a missing value on a required field. Called from the required check of the field, only when the value is missing.';
+
+-- CASE, not OR: PostgreSQL does not promise to evaluate OR from left to right, and
+-- this function raises when it runs.
+CREATE OR REPLACE FUNCTION dd_required_check_expr(p_field fields)
+RETURNS TEXT AS $$
+    SELECT format('CASE WHEN %s THEN TRUE ELSE common.dd_raise_required(tableoid, %L) END',
+                  dd_required_test(p_field), p_field.field_name)
+     WHERE dd_required_test(p_field) IS NOT NULL;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_check_expr(fields) IS
+'The expression of a required field''s check, or NULL when the field gets none.';
+
+CREATE OR REPLACE FUNCTION dd_constraint_exists(p_rel TEXT, p_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c
+         WHERE c.conrelid = pg_catalog.to_regclass(format('public.%I', p_rel))
+           AND c.conname = p_name::name);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_constraint_exists(TEXT, TEXT) IS
+'Whether a table has a constraint of this name. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
+
+CREATE OR REPLACE FUNCTION dd_relation_has_rows(p_rel TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_found BOOLEAN;
+BEGIN
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)', p_rel) INTO v_found;
+    RETURN v_found;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_relation_has_rows(TEXT) IS
+'Whether a table has any row. Reads at most one row, so it is safe under a lock.';
+
+-- A plain read, so writers carry on while it runs. Call it before anything in the
+-- transaction has locked the table: it scans until it finds a missing value, and
+-- under a lock that scan would block every other session.
+CREATE OR REPLACE FUNCTION dd_field_has_missing(p_field fields, p_rel TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_test  TEXT := dd_required_test(p_field);
+    v_found BOOLEAN;
+BEGIN
+    IF v_test IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE (%s) IS NOT TRUE)', p_rel, v_test) INTO v_found;
+    RETURN v_found;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_field_has_missing(fields, TEXT) IS
+'Whether any row is missing a value for a required field. A plain read: call it before the transaction locks the table.';
+
+-- Whether a new column's default already meets the field's condition. Every existing
+-- row takes that default, so this answers for all of them without reading one, which
+-- is what makes adding a column to a large table cheap.
+CREATE OR REPLACE FUNCTION dd_required_default_ok(p_field fields)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_test TEXT := dd_required_test(p_field);
+    v_type TEXT := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
+    v_ok   BOOLEAN;
+BEGIN
+    IF v_test IS NULL THEN
+        RETURN TRUE;
+    END IF;
+    EXECUTE format('SELECT (%s) IS TRUE FROM (SELECT %s::%s AS %I) s',
+        v_test,
+        coalesce(dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_type), 'NULL'),
+        v_type,
+        p_field.field_name) INTO v_ok;
+    RETURN v_ok;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_default_ok(fields) IS
+'Whether the column default of a required field meets the field''s condition.';
+
+-- The lock_timeout makes a busy table give up instead of queueing live traffic behind
+-- this ALTER: a waiting ACCESS EXCLUSIVE request blocks every session that arrives
+-- after it. The caller sees 55P03 with nothing changed, and can retry.
+CREATE OR REPLACE FUNCTION dd_add_required_check(p_field fields, p_rel TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_expr TEXT := dd_required_check_expr(p_field);
+    v_name TEXT := format('%s_%s_assert', p_rel, p_field.field_name);
+BEGIN
+    IF v_expr IS NULL OR dd_constraint_exists(p_rel, v_name) THEN
+        RETURN;
+    END IF;
+    EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%s) NOT VALID', p_rel, v_name, v_expr);
+END;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+
+COMMENT ON FUNCTION dd_add_required_check(fields, TEXT) IS
+'Adds the required check of a field NOT VALID, unless it has one or gets none. Takes its lock for a moment and gives up after 2 s.';
+
+-- Looks before it drops: DROP CONSTRAINT IF EXISTS takes the table lock even when
+-- there is nothing to drop. Returns whether there was one.
+CREATE OR REPLACE FUNCTION dd_drop_required_check(p_rel TEXT, p_field_name TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_name TEXT := format('%s_%s_assert', p_rel, p_field_name);
+BEGIN
+    IF NOT dd_constraint_exists(p_rel, v_name) THEN
+        RETURN FALSE;
+    END IF;
+    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', p_rel, v_name);
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+
+COMMENT ON FUNCTION dd_drop_required_check(TEXT, TEXT) IS
+'Drops the required check of a field if it has one, and returns whether it did.';
+
+-- Why a required field that has no check yet must not get one now, or NULL when it
+-- may. Missing values in existing rows show that live writers may not send this
+-- field, and enforcing it would start refusing them: a later pass adds the check once
+-- the rows are clean. A cleared reference would make every delete of its parent fail.
+-- A plain read: call it before the transaction locks the table.
+CREATE OR REPLACE FUNCTION dd_required_skip_reason(p_field fields, p_rel TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    IF dd_required_test(p_field) IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF p_field.format = 'reference' AND p_field.reference_delete_mode = 'clear' THEN
+        RETURN 'its delete mode is clear';
+    END IF;
+    IF dd_field_has_missing(p_field, p_rel) THEN
+        RETURN 'rows have no value for it';
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_skip_reason(fields, TEXT) IS
+'Why an existing required field must not get its check yet, or NULL when it may. Reads the table, so call it before locking it.';
+
+-- The refusal comes from the plain read before the ALTER, in the sentence PostgreSQL
+-- itself uses and carrying the constraint's name, because that name is the token
+-- docs/error-contract.md promises a client for a 23514.
+CREATE OR REPLACE FUNCTION dd_check_enum_values_cover_rows(p_field fields, p_rel TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_list  TEXT;
+    v_found BOOLEAN;
+    v_name  TEXT := format('%s_%s_check', p_rel, p_field.field_name);
+BEGIN
+    SELECT string_agg(quote_literal(value), ', ') INTO v_list
+      FROM jsonb_array_elements_text(enum_value_list(effective_enum_values(p_field.input_type, p_field.enum_values))) AS value;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE %I NOT IN (%s))', p_rel, p_field.field_name, v_list) INTO v_found;
+    IF v_found THEN
+        RAISE EXCEPTION 'check constraint "%" of relation "%" is violated by some row', v_name, p_rel
+            USING ERRCODE = '23514', CONSTRAINT = v_name, TABLE = p_rel;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) IS
+'Raises 23514 when a row holds a value outside the enum values of a field. A plain read: call it before locking the table.';
+
+-- The list and the name are the only copy of an enum's check. An empty table is
+-- validated, which costs nothing and keeps a fresh install's constraint the same as
+-- the one an earlier release created. A table with rows goes on NOT VALID, because
+-- validating would scan under the lock; its caller has already looked at the rows.
+CREATE OR REPLACE FUNCTION dd_replace_enum_check(p_field fields, p_rel TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_list TEXT;
+    v_name TEXT := format('%s_%s_check', p_rel, p_field.field_name);
+BEGIN
+    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I', p_rel, v_name);
+    IF p_field.format IS DISTINCT FROM 'enum'
+       OR p_field.enum_values IS NULL
+       OR jsonb_typeof(p_field.enum_values) <> 'array'
+       OR jsonb_array_length(p_field.enum_values) = 0 THEN
+        RETURN;
+    END IF;
+    SELECT string_agg(quote_literal(value), ', ') INTO v_list
+      FROM jsonb_array_elements_text(enum_value_list(effective_enum_values(p_field.input_type, p_field.enum_values))) AS value;
+    EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))%s',
+        p_rel, v_name, p_field.field_name, v_list,
+        CASE WHEN dd_relation_has_rows(p_rel) THEN ' NOT VALID' ELSE '' END);
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION dd_replace_enum_check(fields, TEXT) IS
+'Replaces the CHECK listing the allowed values of an enum field, or drops it when the field is no longer an enum with values.';
+
+-- Refused only when the row is new or one of these columns changes: a field that
+-- already has this combination from before this rule must stay editable, and a
+-- cascade that renames the referenced entity must go through.
+CREATE OR REPLACE FUNCTION validate_required_delete_mode()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF dd_required_test(NEW) IS NOT NULL
+       AND (TG_OP = 'INSERT'
+            OR OLD.input_type IS DISTINCT FROM NEW.input_type
+            OR OLD.input_type_rule IS DISTINCT FROM NEW.input_type_rule
+            OR OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode
+            OR OLD.format IS DISTINCT FROM NEW.format) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while its delete mode is clear'
+            USING ERRCODE = '90257',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION validate_required_delete_mode() IS
+'BEFORE INSERT/UPDATE guard on fields: refuses a required reference whose delete mode is clear, because ON DELETE SET NULL would make every delete of its parent fail.';
+
+CREATE OR REPLACE TRIGGER validate_required_delete_mode_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    WHEN (NEW.format = 'reference' AND NEW.reference_delete_mode = 'clear')
+    EXECUTE FUNCTION validate_required_delete_mode();
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -7307,12 +7618,38 @@ BEGIN
         IF v_comment IS NOT NULL THEN
             EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
         END IF;
+        -- A table with rows is being adopted: enable_dd_table read them before it
+        -- locked the table, and decides there.
+        IF NOT dd_relation_has_rows(v_rel) THEN
+            PERFORM dd_add_required_check(NEW, v_rel);
+        END IF;
         RETURN NEW;
     END IF;
-    
+
+    -- Decided before the ALTER below locks the table. Every existing row takes the
+    -- column's default, so the default answers for all of them.
+    IF dd_relation_has_rows(v_rel) THEN
+        IF NOT dd_required_default_ok(NEW) THEN
+            RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
+                USING ERRCODE = '90259',
+                      HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name)::text;
+        END IF;
+        IF NEW.format = 'enum'
+           AND jsonb_typeof(NEW.enum_values) = 'array'
+           AND jsonb_array_length(NEW.enum_values) > 0
+           AND NOT enum_value_list(effective_enum_values(NEW.input_type, NEW.enum_values))
+                   @> to_jsonb(effective_enum_default(NEW.default_value, NEW.input_type, NEW.enum_values)) THEN
+            RAISE EXCEPTION 'check constraint "%" of relation "%" is violated by some row',
+                    format('%s_%s_check', v_rel, NEW.field_name), v_rel
+                USING ERRCODE = '23514',
+                      CONSTRAINT = format('%s_%s_check', v_rel, NEW.field_name),
+                      TABLE = v_rel;
+        END IF;
+    END IF;
+
     -- Convert format to PostgreSQL data type
     v_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
-    
+
     -- Build nullable clause based on format
     IF is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
@@ -7429,40 +7766,13 @@ BEGIN
         EXECUTE v_alter_sql;
     END IF;
     
-    -- If this is an enum field, add CHECK constraint for allowed values
-    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
-        DECLARE
-            v_check_name TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum JSONB;
-        BEGIN
-            -- Generate CHECK constraint name
-            v_check_name := format('%s_%s_check', v_rel, NEW.field_name);
-            
-            -- Compute effective allowed values (adds '' for non-required enums)
-            v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
-
-            -- Build SQL array from JSONB array for IN clause
-            v_enum_values_sql := (
-                SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
-            );
-            
-            -- Add CHECK constraint
-            v_alter_sql := format(
-                'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                v_rel,
-                v_check_name,
-                NEW.field_name,
-                v_enum_values_sql
-            );
-            EXECUTE v_alter_sql;
-            
-            RAISE NOTICE 'Added CHECK constraint "%" for enum field "%.%"',
-                v_check_name, NEW.table_name, NEW.field_name;
-        END;
+    IF NEW.format = 'enum' THEN
+        PERFORM dd_replace_enum_check(NEW, v_rel);
     END IF;
-    
+
+    PERFORM dd_add_required_check(NEW, v_rel);
+
+
     -- If unique_value is TRUE, create a partial unique index
     IF NEW.unique_value THEN
         DECLARE
@@ -7521,6 +7831,9 @@ DECLARE
     v_comment        TEXT;
     v_rel            TEXT;
     v_default_clause TEXT;
+    v_old_as_renamed fields;
+    v_required_changed BOOLEAN;
+    v_enum_changed   BOOLEAN;
 BEGIN
     -- Check if the parent table is managed. The DDL below goes to the entity's
     -- physical relation, <entity>_ext for an is_a or has_a entity.
@@ -7614,6 +7927,29 @@ BEGIN
         PERFORM apply_field_ddl(NEW);
         RAISE NOTICE 'Created missing column "%.%" in managed table', NEW.table_name, NEW.field_name;
         RETURN NEW;
+    END IF;
+
+    -- The searches come first, as plain reads, before anything below locks the table.
+    -- The old condition is built under the new name so that a rename alone does not
+    -- look like a change: it must never be refused because of what old rows hold.
+    v_old_as_renamed := OLD;
+    v_old_as_renamed.field_name := NEW.field_name;
+    v_required_changed := dd_required_test(v_old_as_renamed) IS DISTINCT FROM dd_required_test(NEW);
+    IF v_required_changed AND dd_field_has_missing(NEW, v_rel) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
+            USING ERRCODE = '90259',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name)::text;
+    END IF;
+
+    v_enum_changed := (OLD.format = 'enum' OR NEW.format = 'enum')
+        AND (OLD.enum_values IS DISTINCT FROM NEW.enum_values
+             OR OLD.format <> NEW.format
+             OR OLD.input_type IS DISTINCT FROM NEW.input_type);
+    IF v_enum_changed
+       AND NEW.format = 'enum'
+       AND jsonb_typeof(NEW.enum_values) = 'array'
+       AND jsonb_array_length(NEW.enum_values) > 0 THEN
+        PERFORM dd_check_enum_values_cover_rows(NEW, v_rel);
     END IF;
 
     -- Keep column comment in sync when title/format/description/enum values change
@@ -7753,46 +8089,19 @@ BEGIN
         END IF;
     END IF;
 
-    -- Handle enum CHECK constraint changes
-    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
-        DECLARE
-            v_check_name      TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum  JSONB;
-        BEGIN
-            v_check_name := format('%s_%s_check', v_rel, NEW.field_name);
+    IF v_enum_changed THEN
+        PERFORM dd_replace_enum_check(NEW, v_rel);
+    END IF;
 
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
-               OR (OLD.format <> NEW.format)
-               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
-                IF OLD.format = 'enum' THEN
-                    EXECUTE format(
-                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        v_rel, v_check_name
-                    );
-                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
-                END IF;
-
-                IF NEW.format = 'enum'
-                   AND NEW.enum_values IS NOT NULL
-                   AND jsonb_typeof(NEW.enum_values) = 'array'
-                   AND jsonb_array_length(NEW.enum_values) > 0
-                THEN
-                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
-                    v_enum_values_sql := (
-                        SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
-                    );
-                    v_alter_sql := format(
-                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        v_rel, v_check_name, NEW.field_name, v_enum_values_sql
-                    );
-                    EXECUTE v_alter_sql;
-                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
-                        v_check_name, NEW.table_name, NEW.field_name;
-                END IF;
-            END IF;
-        END;
+    -- A rename alone rebuilds the check only if the field has one: a field left without
+    -- one because its rows have missing values must not get it by being renamed. The
+    -- rebuild is needed because the check carries the field's name as a literal for the
+    -- error message, and PostgreSQL only rewrites column references.
+    IF v_required_changed THEN
+        PERFORM dd_drop_required_check(v_rel, OLD.field_name);
+        PERFORM dd_add_required_check(NEW, v_rel);
+    ELSIF OLD.field_name <> NEW.field_name AND dd_drop_required_check(v_rel, OLD.field_name) THEN
+        PERFORM dd_add_required_check(NEW, v_rel);
     END IF;
 
     -- Handle unique_value changes
@@ -10239,6 +10548,47 @@ REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_test(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_check_expr(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_constraint_exists(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_relation_has_rows(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_field_has_missing(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_default_ok(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_add_required_check(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_drop_required_check(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_skip_reason(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_replace_enum_check(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_required_delete_mode() FROM PUBLIC;
+-- A required check runs this function as the writer, so the request role needs it.
+-- All it can do is raise.
+REVOKE EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) TO semantius_user;
+
+-- On an upgrade the dictionary triggers already run as semantius_owner, while a function
+-- new in this file stays owned by the installer until 9900_owner_hardening.sql runs last.
+-- A .jsonc file in between fires those triggers, which would be refused these helpers.
+-- A fresh install has no such role yet, and the triggers run as the installer throughout.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT),
+            dd_required_test(fields),
+            dd_required_check_expr(fields),
+            dd_constraint_exists(TEXT, TEXT),
+            dd_relation_has_rows(TEXT),
+            dd_field_has_missing(fields, TEXT),
+            dd_required_default_ok(fields),
+            dd_add_required_check(fields, TEXT),
+            dd_drop_required_check(TEXT, TEXT),
+            dd_required_skip_reason(fields, TEXT),
+            dd_check_enum_values_cover_rows(fields, TEXT),
+            dd_replace_enum_check(fields, TEXT),
+            common.dd_raise_required(OID, TEXT)
+        TO semantius_owner;
+    END IF;
+END $$;
 REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;
@@ -10262,7 +10612,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '073ebf9fce33168e0f8ff4f25ed330fe700d6629aeab41b302752923e1df6bd5')
+        VALUES ('_core.0160_dd_functions.sql', 'fc28cf7c8e5573d1c8119800e8444828ae59269a0596a355ea1107cd1474f5a6')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -10299,7 +10649,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8127e44a5c0d9914d066e12d0ad5fab34c4463043855b42adbb8f4c84d19764a') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -10495,6 +10845,23 @@ BEGIN
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
                   AND c.conname LIKE (v_old_rel || '\_%\_check') ESCAPE '\'
+                  AND c.contype = 'c'
+            LOOP
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    v_new_rel, v_old_name, v_new_name);
+            END LOOP;
+
+            -- Rename all required checks named <old_table>_<field>_assert. Only the name
+            -- changes: the check finds its table through tableoid, so renaming an entity
+            -- needs no rebuild.
+            FOR v_old_name IN
+                SELECT c.conname::text
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = v_new_rel
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (v_old_rel || '\_%\_assert') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -10906,7 +11273,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', '8127e44a5c0d9914d066e12d0ad5fab34c4463043855b42adbb8f4c84d19764a')
+        VALUES ('_core.0170_dd_rename.sql', 'b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -10943,7 +11310,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -10992,42 +11359,7 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
 
-    -- Build default clause with sensible fallbacks for NOT NULL columns
-    DECLARE
-        v_resolved_default TEXT;
-    BEGIN
-        IF p_field.format = 'enum' THEN
-            v_resolved_default := effective_enum_default(p_field.default_value, p_field.input_type, p_field.enum_values);
-        ELSE
-            v_resolved_default := p_field.default_value;
-        END IF;
-
-        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
-            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT is_nullable(p_field.format) THEN
-            IF v_data_type IN ('JSONB', 'JSON') THEN
-                IF p_field.format = 'array' THEN
-                    v_default_clause := 'DEFAULT ''[]''::jsonb';
-                ELSE
-                    v_default_clause := 'DEFAULT ''{}''::jsonb';
-                END IF;
-            ELSE
-                CASE
-                    WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
-                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT')    THEN v_default_clause := 'DEFAULT 0';
-                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION')
-                         OR v_data_type LIKE 'NUMERIC%'
-                         OR v_data_type LIKE 'DECIMAL%'                       THEN v_default_clause := 'DEFAULT 0.0';
-                    WHEN v_data_type = 'BOOLEAN'                              THEN v_default_clause := 'DEFAULT FALSE';
-                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ')          THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                    WHEN v_data_type = 'DATE'                                 THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                    ELSE v_default_clause := '';
-                END CASE;
-            END IF;
-        ELSE
-            v_default_clause := '';
-        END IF;
-    END;
+    v_default_clause := coalesce('DEFAULT ' || dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_data_type), '');
 
     -- Add column (IF NOT EXISTS makes this idempotent)
     v_alter_sql := format(
@@ -11085,32 +11417,20 @@ BEGIN
         END IF;
     END IF;
 
-    -- Enum CHECK constraint
+    -- Only added when the name is free: this path never replaces a constraint that
+    -- is already on the table.
     IF p_field.format = 'enum'
-       AND p_field.enum_values IS NOT NULL
-       AND jsonb_typeof(p_field.enum_values) = 'array'
-       AND jsonb_array_length(p_field.enum_values) > 0
-    THEN
-        DECLARE
-            v_check_name      TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum  JSONB;
-        BEGIN
-            v_check_name := format('%s_%s_check', p_field.table_name, p_field.field_name);
-            v_effective_enum := effective_enum_values(p_field.input_type, p_field.enum_values);
-            v_enum_values_sql := (
-                SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
-            );
-            BEGIN
-                EXECUTE format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                    p_field.table_name, v_check_name, p_field.field_name, v_enum_values_sql
-                );
-            EXCEPTION WHEN duplicate_object THEN
-                RAISE NOTICE 'CHECK constraint "%" already exists, skipping', v_check_name;
-            END;
-        END;
+       AND NOT dd_constraint_exists(p_field.table_name, format('%s_%s_check', p_field.table_name, p_field.field_name)) THEN
+        PERFORM dd_replace_enum_check(p_field, p_field.table_name);
+    END IF;
+
+    -- The column was just added, so every row holds its default and nothing needs
+    -- reading. This path adopts tables, and existing rows must never abort that.
+    IF dd_required_default_ok(p_field) OR NOT dd_relation_has_rows(p_field.table_name) THEN
+        PERFORM dd_add_required_check(p_field, p_field.table_name);
+    ELSE
+        RAISE WARNING 'Field %.% stays unenforced: rows have no value for it',
+            p_field.table_name, p_field.field_name;
     END IF;
 
     -- Partial unique index
@@ -11187,6 +11507,8 @@ DECLARE
     v_field      fields%ROWTYPE;
     v_sequence_name TEXT;
     v_key        RECORD;
+    v_skips      JSONB := '{}'::jsonb;
+    v_reason     TEXT;
 BEGIN
     -- Guard: only proceed when managed transitions FALSE → TRUE
     IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
@@ -11199,6 +11521,40 @@ BEGIN
     -- computed, 90239 for an id field row that describes another key type.
     v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
     PERFORM dd_check_id_field(NEW.table_name, NEW.id_column, NEW.id_type, v_key.id_format);
+
+    -- Which required fields of an existing table must stay unenforced, read here because
+    -- the statements below lock the table and these reads can scan all of it. The label
+    -- row may not exist yet; the row it will get is required by default, so it is read
+    -- as one.
+    IF pg_catalog.to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL THEN
+        FOR v_field IN
+            SELECT f.* FROM fields f
+              JOIN information_schema.columns c
+                ON c.table_schema = 'public' AND c.table_name = f.table_name AND c.column_name = f.field_name
+             WHERE f.table_name = NEW.table_name
+        LOOP
+            v_reason := dd_required_skip_reason(v_field, NEW.table_name);
+            IF v_reason IS NOT NULL THEN
+                v_skips := v_skips || jsonb_build_object(v_field.field_name, v_reason);
+            END IF;
+        END LOOP;
+
+        IF NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = NEW.table_name AND f.field_name = NEW.label_column)
+           AND EXISTS (SELECT 1 FROM information_schema.columns c
+                        WHERE c.table_schema = 'public' AND c.table_name = NEW.table_name AND c.column_name = NEW.label_column) THEN
+            v_field := NULL;
+            v_field.table_name := NEW.table_name;
+            v_field.field_name := NEW.label_column;
+            v_field.format := 'text';
+            v_field.input_type := 'required';
+            v_field.is_pk := FALSE;
+            v_field.input_type_rule := '{}'::jsonb;
+            v_reason := dd_required_skip_reason(v_field, NEW.table_name);
+            IF v_reason IS NOT NULL THEN
+                v_skips := v_skips || jsonb_build_object(v_field.field_name, v_reason);
+            END IF;
+        END IF;
+    END IF;
 
     -- ── Create the physical table if it does not yet exist ──────────────
     IF NOT EXISTS (
@@ -11360,6 +11716,21 @@ BEGIN
             PERFORM apply_field_ddl(v_field);
             RAISE NOTICE 'Added missing column "%" to table "%" (managed changed to true)',
                 v_field.field_name, NEW.table_name;
+        ELSE
+            -- A column the table already had: only what is missing gets added. A
+            -- constraint already on the table is never dropped or changed, whoever wrote
+            -- it, because PostgreSQL's automatic name for an inline CHECK on a column is
+            -- the very name an enum's check uses here.
+            IF v_field.format = 'enum'
+               AND NOT dd_constraint_exists(NEW.table_name, format('%s_%s_check', NEW.table_name, v_field.field_name)) THEN
+                PERFORM dd_replace_enum_check(v_field, NEW.table_name);
+            END IF;
+            IF v_skips ? v_field.field_name THEN
+                RAISE WARNING 'Field %.% stays unenforced: %',
+                    NEW.table_name, v_field.field_name, v_skips ->> v_field.field_name;
+            ELSE
+                PERFORM dd_add_required_check(v_field, NEW.table_name);
+            END IF;
         END IF;
     END LOOP;
 
@@ -11436,6 +11807,111 @@ COMMENT ON TRIGGER enable_table_trigger ON entities IS
 -- exist, so the partial index they would build for it is built here.
 CREATE UNIQUE INDEX IF NOT EXISTS users_external_id_unique ON users(external_id) WHERE external_id IS NOT NULL AND external_id != '';
 
+-- =====================================================
+-- REQUIRED CHECKS OF EXISTING FIELDS
+-- =====================================================
+-- A required check is created when a field is added or changed, so a field that was
+-- already required never gets one that way, and the core tables' fields are seeded
+-- before the triggers exist.
+--
+-- This is not a migration file because a migration file is one transaction in every
+-- runner: its locks would pile up across all tables until it commits, and a live
+-- database has no maintenance window to absorb that. Each call handles one table in
+-- the caller's one transaction, and every runner calls it in a loop after the migration
+-- files: runMigrations in packages/core/src/migrate.ts and the migrate() procedure
+-- generated by packages/cli/commands/extension.ts.
+--
+-- It only adds what is missing, so it needs no ledger: a table skipped today because
+-- it was busy, or a field skipped because its rows have missing values, is picked up
+-- by a later migrate. All reads happen before the first statement that locks the
+-- table. p_table is the table this call handled, to pass back as p_after, and NULL
+-- when none are left.
+CREATE OR REPLACE FUNCTION dd_install_missing_checks(p_after TEXT, OUT p_table TEXT, OUT p_skipped JSONB)
+AS $$
+DECLARE
+    v_rel      TEXT;
+    v_fields   fields[];
+    v_field    fields;
+    v_reason   TEXT;
+    v_add      fields[] := ARRAY[]::fields[];
+    v_defaults TEXT[]   := ARRAY[]::TEXT[];
+    v_col      TEXT;
+BEGIN
+    p_skipped := '[]'::jsonb;
+
+    SELECT e.table_name, dd_relation(e.table_name, e.id_type) INTO p_table, v_rel
+      FROM entities e
+     WHERE e.managed
+       AND (p_after IS NULL OR e.table_name COLLATE "C" > p_after COLLATE "C")
+     ORDER BY e.table_name COLLATE "C"
+     LIMIT 1;
+
+    IF p_table IS NULL OR pg_catalog.to_regclass(format('public.%I', v_rel)) IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- Read into an array before anything changes: this table may be fields itself, and
+    -- PostgreSQL refuses ALTER TABLE while a loop in this session is still reading it.
+    v_fields := ARRAY(
+        SELECT f FROM fields f
+          JOIN information_schema.columns c
+            ON c.table_schema = 'public' AND c.table_name = v_rel AND c.column_name = f.field_name
+         WHERE f.table_name = p_table AND f.input_type = 'required');
+
+    FOREACH v_field IN ARRAY v_fields LOOP
+        IF dd_required_test(v_field) IS NOT NULL
+           AND NOT dd_constraint_exists(v_rel, format('%s_%s_assert', v_rel, v_field.field_name)) THEN
+            v_reason := dd_required_skip_reason(v_field, v_rel);
+            IF v_reason IS NULL THEN
+                v_add := v_add || v_field;
+            ELSE
+                RAISE WARNING 'Field %.% stays unenforced: %', p_table, v_field.field_name, v_reason;
+                p_skipped := p_skipped || jsonb_build_object('table', p_table, 'field', v_field.field_name, 'reason', v_reason);
+            END IF;
+        END IF;
+
+        -- A required enum without an explicit default used to get its first value as the
+        -- column default, and must now refuse a write that leaves it out.
+        IF v_field.format = 'enum'
+           AND coalesce(trim(v_field.default_value), '') = ''
+           AND EXISTS (SELECT 1
+                         FROM pg_catalog.pg_attribute a
+                         JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+                        WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', v_rel))
+                          AND a.attname = v_field.field_name
+                          AND pg_catalog.pg_get_expr(d.adbin, d.adrelid) <> '''''::text') THEN
+            v_defaults := v_defaults || v_field.field_name;
+        END IF;
+    END LOOP;
+
+    IF cardinality(v_add) = 0 AND cardinality(v_defaults) = 0 THEN
+        RETURN;
+    END IF;
+
+    -- The default of an is_a or has_a view and write routine is a copy, so a changed one
+    -- rebuilds the family. 90256 means an object someone else built depends on that view.
+    BEGIN
+        FOREACH v_field IN ARRAY v_add LOOP
+            PERFORM dd_add_required_check(v_field, v_rel);
+        END LOOP;
+        FOREACH v_col IN ARRAY v_defaults LOOP
+            EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT ''''', v_rel, v_col);
+        END LOOP;
+        IF cardinality(v_defaults) > 0 THEN
+            PERFORM dd_refresh_family(ARRAY[p_table]);
+        END IF;
+    EXCEPTION
+        WHEN lock_not_available OR SQLSTATE '90256' THEN
+            RAISE WARNING 'Table % skipped until the next migrate: %', p_table, SQLERRM;
+            p_skipped := p_skipped || jsonb_build_object('table', p_table, 'reason', SQLERRM);
+    END;
+END;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+
+COMMENT ON FUNCTION dd_install_missing_checks(TEXT) IS
+'Adds the missing required checks of one table, the next managed entity after p_after, and resets the column default of its required enums without an explicit default. Reads first, locks for a moment, and skips what must wait, reporting it in p_skipped. Called in a loop by the migration runners, one transaction per table.';
+
+REVOKE EXECUTE ON FUNCTION dd_install_missing_checks(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -11949,7 +12425,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', 'd392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9')
+        VALUES ('_core.0180_managed_enable.sql', '9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14561,7 +15037,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -14922,7 +15398,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
         END ||
         -- Add default field separately to handle type conversion properly
         CASE
-            -- Enum: use effective default (first value when required without explicit default, else '')
+            -- Enum: use effective default (its explicit default, else '')
             WHEN format = 'enum' THEN
                 jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
             WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
@@ -15525,7 +16001,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231')
+        VALUES ('_core.0250_public_functions.sql', 'cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -21283,7 +21759,7 @@ $pgsem__core_0370_raci_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0380_webhook_receiver.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8b4d104bfebd7c332f76b7297cf7d7481e251bf351f40e1f1b3112b7ea939e5d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0380_webhook_receiver.jsonc';
       EXECUTE $pgsem__core_0380_webhook_receiver_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Webhook receiver entities: webhook_receivers (configuration of the webhook
@@ -21360,6 +21836,9 @@ $pgsem__core_0370_raci_sql$;
         "label_column": "label",
         "entity_type": "operational_record",
         "fields": [
+          // The receiver writes a log row without a label, and the log runs inside the
+          // transaction of the delivered record, so refusing it would lose the delivery.
+          {"field_name": "label", "input_type": "default"},
           // The parent reference to webhook_receivers (ON DELETE CASCADE).
           {"field_name": "webhook_receiver_id", "title": "Webhook Receiver", "format": "parent", "is_pk": false, "field_order": 5,
            "input_type": "default", "width": "default", "description": "",
@@ -21405,7 +21884,7 @@ $pgsem_jsonc$));
 $pgsem__core_0380_webhook_receiver_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0380_webhook_receiver.jsonc', '8b4d104bfebd7c332f76b7297cf7d7481e251bf351f40e1f1b3112b7ea939e5d')
+        VALUES ('_core.0380_webhook_receiver.jsonc', '33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -21913,6 +22392,58 @@ $pgsem__core_0420_module_version_sql$;
   END;
   COMMIT;
 
+  -- _core.0430_required_field_description.once.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0430_required_field_description.once.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND NOT v_found THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0430_required_field_description.once.sql';
+      EXECUTE $pgsem__core_0430_required_field_description_once_sql$-- =====================================================
+-- fields.input_type: 'required' is enforced by the database
+-- =====================================================
+-- The fields rows of the bootstrap tables are seeded in 0150_dd_bootstrap.once.sql,
+-- which never runs again on a database that already has it, so a changed description
+-- reaches both fresh installs and upgrades from here.
+UPDATE fields
+   SET description = 'How the UI presents the field for input; input_type_rule can override it per record. On a required field with no input_type_rule, the database also refuses a missing value.'
+ WHERE table_name = 'fields' AND field_name = 'input_type';
+$pgsem__core_0430_required_field_description_once_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0430_required_field_description.once.sql', '78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0430_required_field_description.once.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0430_required_field_description.once.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
   -- _core.9900_owner_hardening.sql
   PERFORM pg_catalog.set_config('search_path', 'public', true);
   PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
@@ -22209,6 +22740,26 @@ $pgsem__core_9900_owner_hardening_sql$;
             HINT   = v_fail_hint;
   END IF;
 
+  -- The required checks fields do not have yet, one table per transaction, so that
+  -- locks never pile up across tables on a live database. See
+  -- dd_install_missing_checks in 0180_managed_enable.sql. The COMMIT sits outside the
+  -- block because a block with an EXCEPTION clause cannot commit.
+  LOOP
+    PERFORM pg_catalog.set_config('search_path', 'public', true);
+    PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+    PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+    BEGIN
+      SELECT c.p_table INTO v_check_next FROM public.dd_install_missing_checks(v_check_table) c;
+    EXCEPTION WHEN OTHERS THEN
+      PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
+      RAISE;
+    END;
+    COMMIT;
+    EXIT WHEN v_check_next IS NULL;
+    v_check_table := v_check_next;
+  END LOOP;
+
   BEGIN
     -- Nothing the migrations created may belong to an extension.
     SELECT string_agg(DISTINCT e.extname, ', ') INTO v_bad
@@ -22252,7 +22803,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"073ebf9fce33168e0f8ff4f25ed330fe700d6629aeab41b302752923e1df6bd5","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"8127e44a5c0d9914d066e12d0ad5fab34c4463043855b42adbb8f4c84d19764a","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"8b4d104bfebd7c332f76b7297cf7d7481e251bf351f40e1f1b3112b7ea939e5d","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"fc28cf7c8e5573d1c8119800e8444828ae59269a0596a355ea1107cd1474f5a6","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -22314,9 +22865,9 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.9900_owner_hardening.sql'];
-  v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27","_core.0160_dd_functions.sql":"073ebf9fce33168e0f8ff4f25ed330fe700d6629aeab41b302752923e1df6bd5","_core.0170_dd_rename.sql":"8127e44a5c0d9914d066e12d0ad5fab34c4463043855b42adbb8f4c84d19764a","_core.0180_managed_enable.sql":"d392844aca74af3a448ab61967c45f098b9dc46f04b4d50789bd784b2aea31a9","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","_core.0210_computed_validation.sql":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"5ee19a149bb7f60b0823ea4fff88a4708d7fcaf20266499453180a3448d19231","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"8b4d104bfebd7c332f76b7297cf7d7481e251bf351f40e1f1b3112b7ea939e5d","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.9900_owner_hardening.sql'];
+  v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a","_core.0140_dd_schema.sql":"409a2bda0be7229e81c6513b92936e3ea9efe829c8ec7774cac914548e466158","_core.0150_dd_bootstrap.once.sql":"fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27","_core.0160_dd_functions.sql":"fc28cf7c8e5573d1c8119800e8444828ae59269a0596a355ea1107cd1474f5a6","_core.0170_dd_rename.sql":"b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d","_core.0180_managed_enable.sql":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","_core.0210_computed_validation.sql":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

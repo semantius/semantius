@@ -303,9 +303,9 @@ SELECT throws_ok(
 SELECT throws_ok(
     $$INSERT INTO orders (ship_name, customer_id, status)
       VALUES ('RBAC Empty Status', (SELECT id FROM customers WHERE customer_id = 'ALFKI'), '')$$,
-    '23514',
+    '90258',
     NULL,
-    'orders.status = '''' should be rejected (required enum, 23514)'
+    'orders.status = '''' should be rejected (required enum, 90258)'
 );
 
 -- Test 32: omitted status defaults to pending

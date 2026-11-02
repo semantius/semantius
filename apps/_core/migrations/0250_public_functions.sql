@@ -356,7 +356,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
         END ||
         -- Add default field separately to handle type conversion properly
         CASE
-            -- Enum: use effective default (first value when required without explicit default, else '')
+            -- Enum: use effective default (its explicit default, else '')
             WHEN format = 'enum' THEN
                 jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
             WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN

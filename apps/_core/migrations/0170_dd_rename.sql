@@ -198,6 +198,23 @@ BEGIN
                     v_new_rel, v_old_name, v_new_name);
             END LOOP;
 
+            -- Rename all required checks named <old_table>_<field>_assert. Only the name
+            -- changes: the check finds its table through tableoid, so renaming an entity
+            -- needs no rebuild.
+            FOR v_old_name IN
+                SELECT c.conname::text
+                FROM pg_constraint c
+                JOIN pg_class t ON c.conrelid = t.oid
+                WHERE t.relname = v_new_rel
+                  AND t.relnamespace = 'public'::regnamespace
+                  AND c.conname LIKE (v_old_rel || '\_%\_assert') ESCAPE '\'
+                  AND c.contype = 'c'
+            LOOP
+                v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
+                EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                    v_new_rel, v_old_name, v_new_name);
+            END LOOP;
+
             -- Rename all NOT NULL constraints named <old_table>_<field>_not_null.
             -- PostgreSQL 18+ stores NOT NULL as named pg_constraint rows; on
             -- PG<=17 no such rows exist, so this SELECT returns nothing and the

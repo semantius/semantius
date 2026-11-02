@@ -131,8 +131,8 @@ SELECT is(
 SELECT is(
     (SELECT column_default FROM information_schema.columns
        WHERE table_name = 'enum_default_test' AND column_name = 'status_required_no_default'),
-    '''draft''::text',
-    'required enum (no default, required) column default should be the first enum value'
+    '''''::text',
+    'required enum (no default) column default should be the empty string, which its required check refuses'
 );
 
 -- =====================================================
@@ -160,7 +160,7 @@ SELECT throws_ok(
     $$INSERT INTO enum_default_test (label, status_required_with_default,
             status_required_no_default)
       VALUES ('row3', '', 'draft')$$,
-    '23514',
+    '90258',
     NULL,
     'required enum (with default) should reject empty string'
 );
@@ -169,7 +169,7 @@ SELECT throws_ok(
     $$INSERT INTO enum_default_test (label, status_required_no_default,
             status_required_with_default)
       VALUES ('row4', '', 'high')$$,
-    '23514',
+    '90258',
     NULL,
     'required enum (no default) should reject empty string'
 );
@@ -178,8 +178,8 @@ SELECT throws_ok(
 -- Default-value behavior — fall back when column omitted from INSERT
 -- =====================================================
 
--- Insert a row that omits all four enum columns; the column DEFAULTs should kick in
-INSERT INTO enum_default_test (label) VALUES ('row_defaults');
+-- Insert a row that omits the three enum columns whose DEFAULT is a value it accepts
+INSERT INTO enum_default_test (label, status_required_no_default) VALUES ('row_defaults', 'published');
 
 SELECT is(
     (SELECT status_optional_with_default FROM enum_default_test WHERE label = 'row_defaults'),
@@ -199,10 +199,11 @@ SELECT is(
     'required enum (with default) should default to the explicit value'
 );
 
-SELECT is(
-    (SELECT status_required_no_default FROM enum_default_test WHERE label = 'row_defaults'),
-    'draft',
-    'required enum (no default) should default to the first enum value'
+SELECT throws_ok(
+    $$INSERT INTO enum_default_test (label) VALUES ('row_omitted')$$,
+    '90258',
+    NULL,
+    'required enum (no default) left out of a write is refused, not given a value nobody chose'
 );
 
 -- =====================================================
@@ -224,8 +225,8 @@ SELECT ok(
 SELECT is(
     (public.get_schema('enum_default_test')::jsonb)
         ->'properties'->'status_required_no_default'->>'default',
-    'draft',
-    'get_schema() default for required enum without explicit default is the first enum value'
+    '',
+    'get_schema() default for required enum without explicit default is the empty string'
 );
 
 SELECT is(
@@ -246,6 +247,10 @@ SELECT ok(
     NOT ((public.get_schema('enum_default_test')::jsonb)->'required' @> '["status_required_with_default"]'::jsonb),
     'get_schema() does not list a required enum with a default in the required array'
 );
+
+-- The rest of this file writes rows that do not name this field.
+UPDATE fields SET default_value = 'draft'
+ WHERE table_name = 'enum_default_test' AND field_name = 'status_required_no_default';
 
 -- =====================================================
 -- Enum column COMMENT carries the allowed value list
@@ -290,10 +295,11 @@ SELECT is(
     'enum_value_list takes the value of a pair and a plain entry as it is'
 );
 
--- Required, no default, the first entry a pair; plain and pair entries mixed
+-- Required, the first entry a pair; plain and pair entries mixed. The table has rows
+-- by now, and each takes the column's default, so a required field needs a real one.
 INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
 VALUES ('enum_default_test', 'priority', 'Priority', 'enum', 'required',
-        '[{"value": "p1", "label": "Urgent"}, "p2", {"value": "p3", "label": "Low"}]'::jsonb, '');
+        '[{"value": "p1", "label": "Urgent"}, "p2", {"value": "p3", "label": "Low"}]'::jsonb, 'p1');
 
 -- Not required, pairs only
 INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values, default_value)
@@ -307,13 +313,13 @@ VALUES ('enum_default_test', 'choice', 'Choice', 'enum', 'default',
 
 SELECT is(
     pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'enum_default_test_stage_check')),
-    $$CHECK ((stage = ANY (ARRAY['open'::text, 'closed'::text, ''::text])))$$,
+    $$CHECK ((stage = ANY (ARRAY['open'::text, 'closed'::text, ''::text]))) NOT VALID$$,
     'the CHECK of a labeled enum holds the values, plus '''' when not required'
 );
 
 SELECT is(
     pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'enum_default_test_choice_check')),
-    $$CHECK ((choice = ANY (ARRAY[''::text, 'yes'::text])))$$,
+    $$CHECK ((choice = ANY (ARRAY[''::text, 'yes'::text]))) NOT VALID$$,
     'a labeled '''' entry counts as the empty value, which is not added a second time'
 );
 
@@ -321,7 +327,7 @@ SELECT is(
     (SELECT column_default FROM information_schema.columns
        WHERE table_name = 'enum_default_test' AND column_name = 'priority'),
     '''p1''::text',
-    'required labeled enum without default: column default is the value of the first entry'
+    'required labeled enum: column default is its explicit value'
 );
 
 SELECT lives_ok(
@@ -345,7 +351,7 @@ SELECT is(
 SELECT is(
     (public.get_schema('enum_default_test')::jsonb)->'properties'->'priority'->>'default',
     'p1',
-    'get_schema() default of a required labeled enum is the value of the first entry'
+    'get_schema() default of a required labeled enum is its explicit value'
 );
 
 SELECT is(
@@ -382,7 +388,7 @@ VALUES ('enum_default_test', 'mood', 'Mood', 'enum', 'default',
 
 SELECT is(
     pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'enum_default_test_mood_check')),
-    $$CHECK ((mood = ANY (ARRAY['calm'::text, 'busy'::text, ''::text])))$$,
+    $$CHECK ((mood = ANY (ARRAY['calm'::text, 'busy'::text, ''::text]))) NOT VALID$$,
     'the CHECK of an enum whose entries carry a description, color and icon holds the values alone'
 );
 
@@ -479,7 +485,7 @@ SELECT lives_ok(
 SELECT throws_ok(
     $$UPDATE fields SET input_type = 'required'
       WHERE table_name = 'enum_default_test' AND field_name = 'priority'$$,
-    '23514',
+    '90259',
     NULL,
     'making an enum required is refused while rows hold the empty string'
 );
@@ -492,7 +498,7 @@ WHERE table_name = 'enum_default_test' AND field_name = 'priority';
 
 SELECT throws_ok(
     $$INSERT INTO enum_default_test (label, priority) VALUES ('row_priority_empty2', '')$$,
-    '23514',
+    '90258',
     NULL,
     'an enum made required rejects the empty string'
 );

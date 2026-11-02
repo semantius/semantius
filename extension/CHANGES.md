@@ -73,6 +73,18 @@ installs the core schema as ordinary objects.
   `permission_hierarchy.origin` (`user`), `entities.computed_fields` and
   `entities.validation_rules` (`[]`). Creating a module in the UI failed with
   `valid_access_scope` before.
+- A field with `input_type` `required` now refuses a missing value at the table,
+  so API writes are covered as well as forms. A write leaving one missing fails
+  with `90258`. This includes the label an entity gets automatically, so an entity
+  whose writers send no label sets that field to `default`. Checks go on
+  `NOT VALID`, and `migrate()` adds them to existing fields one table per
+  transaction. A field whose rows already have missing values is skipped with a
+  warning, and a later `migrate()` adds its check once they are clean. Existing rows
+  are never changed. Changing a field to required, or adding a required field with
+  no usable default to a table with rows, is refused with `90259` while rows have no
+  value for it, and `required` with delete mode `clear` with `90257`.
+- A required enum with no explicit default no longer takes its first value when a
+  write leaves it out: the write fails with `90258`.
 - `modules.access_scope` takes `custom`, `basic`, `advanced`, `gated` or `raci`
   instead of `basic` or `full`, and the default is `custom`. This is not an
   upgrade path for an existing 0.5.0-beta1 install, which has to be reinstalled

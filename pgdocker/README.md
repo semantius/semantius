@@ -431,6 +431,11 @@ core schema as ordinary objects rather than extension members, a plain
 `apps/test/tests/0980_test_extension_membership.sql` pins the membership
 invariants the round trip depends on.
 
+`pg-required-locks.sh` (no `.cmd` variant) proves that adding a required check is safe
+on a live database, which needs two sessions: the search for missing values blocks no
+writer, and a table too busy to lock is skipped rather than queued behind. It runs on
+the database a migrate left on the plain CLI container, and removes what it creates.
+
 ### Just deploy a module (no reset, no tests)
 
 To load one or more app modules onto an **already-running** container without

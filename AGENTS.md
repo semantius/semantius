@@ -126,7 +126,7 @@ once, `9900_*` runs last.
 - **Entity metadata is a `.jsonc` file** applied by `public.ensure_entities()`.
   Nothing may hand-write an object the dictionary generates (`<t>_*_policy`,
   `select_rule_<t>`, `compute_validate_<t>`, `common.record_rules_<t>`,
-  `<t>_<f>_fkey/_check/_unique`, `idx_<t>_<f>`, and for an is_a or has_a entity
+  `<t>_<f>_fkey/_assert/_check/_unique`, `idx_<t>_<f>`, and for an is_a or has_a entity
   its view `<t>`, its table `<t>_ext`, `common.record_write_<t>`,
   `common.view_write_<t>` and the root's `common.is_a_dispatch_<root>`): express
   it through metadata, and extend the dictionary when metadata cannot say it.

@@ -117,14 +117,16 @@ SELECT lives_ok(
     'Should be able to insert product with NULL supplier_id (reference fields are nullable)'
 );
 
--- Test 10: orders.customer_id has input_type='required', which is a UI hint only —
--- the physical reference column stays nullable.
-SELECT lives_ok(
+-- Test 10: orders.customer_id has input_type='required'. The physical column stays
+-- nullable, and the field's required check refuses the NULL.
+SELECT throws_ok(
     $$
     INSERT INTO orders (ship_name, customer_id)
     VALUES ('FK No Customer Order', NULL)
     $$,
-    'Should be able to insert order with NULL customer_id even though input_type=required (reference fields are nullable)'
+    '90258',
+    NULL,
+    'A required reference refuses NULL even though the column is nullable'
 );
 
 -- =====================================================

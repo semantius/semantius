@@ -594,7 +594,7 @@ COMMENT ON FUNCTION is_nullable IS
 --   • effective_enum_values  -- expands enum_values with '' for non-required enums,
 --                               so empty defaults are accepted by the CHECK constraint.
 --   • effective_enum_default -- resolves the actual column default for an enum field
---                               based on input_type and the explicit default_value.
+--                               from its explicit default_value.
 
 CREATE OR REPLACE FUNCTION enum_value_list(p_enum_values JSONB)
 RETURNS JSONB AS $$
@@ -623,27 +623,26 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 COMMENT ON FUNCTION effective_enum_values IS
 'Returns the effective list of allowed enum entries, values and {value, label} objects as stored: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
 
+-- A required enum without an explicit default gets '' like any other, which its
+-- required check refuses: a write that leaves it out fails rather than saving a
+-- value nobody chose.
+--
+-- p_input_type and p_enum_values no longer decide anything, and the signature
+-- keeps them on purpose. Each migration file commits on its own, and
+-- 0250_public_functions.sql calls this function, so dropping the signature here
+-- would make get_schema() fail on a live database until that later file commits.
 CREATE OR REPLACE FUNCTION effective_enum_default(p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB)
 RETURNS TEXT AS $$
 BEGIN
-    -- Explicit default takes precedence
     IF p_default_value IS NOT NULL AND trim(p_default_value) != '' THEN
         RETURN p_default_value;
     END IF;
-    -- Required enum without explicit default: pick the first allowed value
-    IF p_input_type = 'required'
-       AND p_enum_values IS NOT NULL
-       AND jsonb_typeof(p_enum_values) = 'array'
-       AND jsonb_array_length(p_enum_values) > 0 THEN
-        RETURN enum_value_list(p_enum_values)->>0;
-    END IF;
-    -- Non-required enum without explicit default: empty string
     RETURN '';
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION effective_enum_default IS
-'Computes the effective default for an enum field: explicit default_value if set, else first enum value when input_type is required, else empty string.';
+'Computes the effective default for an enum field: explicit default_value if set, else empty string, which the required check of a required enum refuses.';
 
 -- Nullability is derived on demand from a field's format via the is_nullable()
 -- function above; callers invoke is_nullable(format) directly rather than reading
@@ -747,6 +746,316 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION dd_column_default IS
 'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+
+-- =====================================================
+-- REQUIRED FIELDS
+-- =====================================================
+-- A field with input_type 'required' refuses a missing value at the table, so
+-- every writer is covered, not only forms. The rule belongs to the field's
+-- metadata and nothing else: no field, the label included, gets special
+-- treatment here.
+--
+-- Everything below has to be safe on a live database with no maintenance window,
+-- which decides the shape of it:
+--   * Adding a CHECK takes ACCESS EXCLUSIVE, and validating it scans the table
+--     while holding that lock. So the check always goes on NOT VALID, which takes
+--     the lock only for a moment, and any search for missing values runs first as
+--     a plain read that blocks nobody.
+--   * A row that is already missing a value stays readable. An UPDATE of it fails
+--     until the value is filled in.
+--   * The name sorts before <rel>_<field>_check on purpose. PostgreSQL runs CHECK
+--     constraints in name order, so an empty required enum raises 90258 before its
+--     own check returns 23514.
+
+-- The condition a value of this field must meet, or NULL when the field gets no
+-- check:
+--   * a key is already constrained by being the key;
+--   * an input_type_rule can turn 'required' off per record, so a static check
+--     would refuse writes the rule allows;
+--   * a parent is NOT NULL and its fallback fails the foreign key;
+--   * numbers and booleans have no missing value: 0 and false are real ones, and
+--     a rating is the exception because its own format defines 0 as not rated.
+-- The enum and rating branches come before the type: an enum is stored as TEXT, and
+-- field_data_type would also send a text-keyed parent down the TEXT branch.
+-- The text test is a character class rather than \S because this text is run as DDL in
+-- the session of whoever edits the field: with standard_conforming_strings off, a
+-- backslash would silently turn the pattern into a different one.
+CREATE OR REPLACE FUNCTION dd_required_test(p_field fields)
+RETURNS TEXT AS $$
+DECLARE
+    v_col TEXT := quote_ident(p_field.field_name);
+BEGIN
+    IF p_field.input_type IS DISTINCT FROM 'required'
+       OR p_field.is_pk
+       OR p_field.input_type_rule IS DISTINCT FROM '{}'::jsonb
+       OR p_field.format = 'parent' THEN
+        RETURN NULL;
+    END IF;
+    IF is_nullable(p_field.format) THEN
+        RETURN v_col || ' IS NOT NULL';
+    END IF;
+    IF p_field.format = 'enum' THEN
+        RETURN v_col || ' <> ''''';
+    END IF;
+    IF p_field.format = 'rating' THEN
+        RETURN v_col || ' <> 0';
+    END IF;
+    RETURN CASE field_data_type(p_field.format, p_field."precision", p_field.reference_table)
+        WHEN 'TEXT'  THEN v_col || ' ~ ''[^[:space:]]'''
+        WHEN 'JSONB' THEN v_col || ' NOT IN (''{}''::jsonb, ''[]''::jsonb, ''null''::jsonb, ''""''::jsonb)'
+        WHEN 'BYTEA' THEN 'octet_length(' || v_col || ') > 0'
+    END;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_test(fields) IS
+'The SQL condition a value of a required field must meet, or NULL when the field gets no required check.';
+
+-- Raised from inside the check, because a plain CHECK can only return 23514.
+-- VOLATILE on purpose: the planner may evaluate a function with constant arguments
+-- early, and this one must only run when the value really is missing. It is granted
+-- to the request role because a CHECK runs its functions as the writer.
+--
+-- The table comes from tableoid so that renaming the entity needs no rebuild. It is
+-- stripped of _ext because the hint names the entity, and an entity name cannot end
+-- in _ext (valid_table_name).
+CREATE OR REPLACE FUNCTION common.dd_raise_required(p_table OID, p_field TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_table TEXT;
+BEGIN
+    SELECT regexp_replace(c.relname::text, '_ext$', '') INTO v_table
+      FROM pg_catalog.pg_class c WHERE c.oid = p_table;
+    RAISE EXCEPTION 'Field ${field_name} on ${table} is required'
+        USING ERRCODE = '90258',
+              HINT = jsonb_build_object('table', v_table, 'field_name', p_field)::text;
+END;
+$$ LANGUAGE plpgsql VOLATILE SET search_path = public;
+
+COMMENT ON FUNCTION common.dd_raise_required(OID, TEXT) IS
+'Raises 90258 for a missing value on a required field. Called from the required check of the field, only when the value is missing.';
+
+-- CASE, not OR: PostgreSQL does not promise to evaluate OR from left to right, and
+-- this function raises when it runs.
+CREATE OR REPLACE FUNCTION dd_required_check_expr(p_field fields)
+RETURNS TEXT AS $$
+    SELECT format('CASE WHEN %s THEN TRUE ELSE common.dd_raise_required(tableoid, %L) END',
+                  dd_required_test(p_field), p_field.field_name)
+     WHERE dd_required_test(p_field) IS NOT NULL;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_check_expr(fields) IS
+'The expression of a required field''s check, or NULL when the field gets none.';
+
+CREATE OR REPLACE FUNCTION dd_constraint_exists(p_rel TEXT, p_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM pg_catalog.pg_constraint c
+         WHERE c.conrelid = pg_catalog.to_regclass(format('public.%I', p_rel))
+           AND c.conname = p_name::name);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_constraint_exists(TEXT, TEXT) IS
+'Whether a table has a constraint of this name. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
+
+CREATE OR REPLACE FUNCTION dd_relation_has_rows(p_rel TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_found BOOLEAN;
+BEGIN
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)', p_rel) INTO v_found;
+    RETURN v_found;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_relation_has_rows(TEXT) IS
+'Whether a table has any row. Reads at most one row, so it is safe under a lock.';
+
+-- A plain read, so writers carry on while it runs. Call it before anything in the
+-- transaction has locked the table: it scans until it finds a missing value, and
+-- under a lock that scan would block every other session.
+CREATE OR REPLACE FUNCTION dd_field_has_missing(p_field fields, p_rel TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_test  TEXT := dd_required_test(p_field);
+    v_found BOOLEAN;
+BEGIN
+    IF v_test IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE (%s) IS NOT TRUE)', p_rel, v_test) INTO v_found;
+    RETURN v_found;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_field_has_missing(fields, TEXT) IS
+'Whether any row is missing a value for a required field. A plain read: call it before the transaction locks the table.';
+
+-- Whether a new column's default already meets the field's condition. Every existing
+-- row takes that default, so this answers for all of them without reading one, which
+-- is what makes adding a column to a large table cheap.
+CREATE OR REPLACE FUNCTION dd_required_default_ok(p_field fields)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_test TEXT := dd_required_test(p_field);
+    v_type TEXT := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
+    v_ok   BOOLEAN;
+BEGIN
+    IF v_test IS NULL THEN
+        RETURN TRUE;
+    END IF;
+    EXECUTE format('SELECT (%s) IS TRUE FROM (SELECT %s::%s AS %I) s',
+        v_test,
+        coalesce(dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_type), 'NULL'),
+        v_type,
+        p_field.field_name) INTO v_ok;
+    RETURN v_ok;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_default_ok(fields) IS
+'Whether the column default of a required field meets the field''s condition.';
+
+-- The lock_timeout makes a busy table give up instead of queueing live traffic behind
+-- this ALTER: a waiting ACCESS EXCLUSIVE request blocks every session that arrives
+-- after it. The caller sees 55P03 with nothing changed, and can retry.
+CREATE OR REPLACE FUNCTION dd_add_required_check(p_field fields, p_rel TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_expr TEXT := dd_required_check_expr(p_field);
+    v_name TEXT := format('%s_%s_assert', p_rel, p_field.field_name);
+BEGIN
+    IF v_expr IS NULL OR dd_constraint_exists(p_rel, v_name) THEN
+        RETURN;
+    END IF;
+    EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%s) NOT VALID', p_rel, v_name, v_expr);
+END;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+
+COMMENT ON FUNCTION dd_add_required_check(fields, TEXT) IS
+'Adds the required check of a field NOT VALID, unless it has one or gets none. Takes its lock for a moment and gives up after 2 s.';
+
+-- Looks before it drops: DROP CONSTRAINT IF EXISTS takes the table lock even when
+-- there is nothing to drop. Returns whether there was one.
+CREATE OR REPLACE FUNCTION dd_drop_required_check(p_rel TEXT, p_field_name TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_name TEXT := format('%s_%s_assert', p_rel, p_field_name);
+BEGIN
+    IF NOT dd_constraint_exists(p_rel, v_name) THEN
+        RETURN FALSE;
+    END IF;
+    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', p_rel, v_name);
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+
+COMMENT ON FUNCTION dd_drop_required_check(TEXT, TEXT) IS
+'Drops the required check of a field if it has one, and returns whether it did.';
+
+-- Why a required field that has no check yet must not get one now, or NULL when it
+-- may. Missing values in existing rows show that live writers may not send this
+-- field, and enforcing it would start refusing them: a later pass adds the check once
+-- the rows are clean. A cleared reference would make every delete of its parent fail.
+-- A plain read: call it before the transaction locks the table.
+CREATE OR REPLACE FUNCTION dd_required_skip_reason(p_field fields, p_rel TEXT)
+RETURNS TEXT AS $$
+BEGIN
+    IF dd_required_test(p_field) IS NULL THEN
+        RETURN NULL;
+    END IF;
+    IF p_field.format = 'reference' AND p_field.reference_delete_mode = 'clear' THEN
+        RETURN 'its delete mode is clear';
+    END IF;
+    IF dd_field_has_missing(p_field, p_rel) THEN
+        RETURN 'rows have no value for it';
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_required_skip_reason(fields, TEXT) IS
+'Why an existing required field must not get its check yet, or NULL when it may. Reads the table, so call it before locking it.';
+
+-- The refusal comes from the plain read before the ALTER, in the sentence PostgreSQL
+-- itself uses and carrying the constraint's name, because that name is the token
+-- docs/error-contract.md promises a client for a 23514.
+CREATE OR REPLACE FUNCTION dd_check_enum_values_cover_rows(p_field fields, p_rel TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_list  TEXT;
+    v_found BOOLEAN;
+    v_name  TEXT := format('%s_%s_check', p_rel, p_field.field_name);
+BEGIN
+    SELECT string_agg(quote_literal(value), ', ') INTO v_list
+      FROM jsonb_array_elements_text(enum_value_list(effective_enum_values(p_field.input_type, p_field.enum_values))) AS value;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE %I NOT IN (%s))', p_rel, p_field.field_name, v_list) INTO v_found;
+    IF v_found THEN
+        RAISE EXCEPTION 'check constraint "%" of relation "%" is violated by some row', v_name, p_rel
+            USING ERRCODE = '23514', CONSTRAINT = v_name, TABLE = p_rel;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) IS
+'Raises 23514 when a row holds a value outside the enum values of a field. A plain read: call it before locking the table.';
+
+-- The list and the name are the only copy of an enum's check. An empty table is
+-- validated, which costs nothing and keeps a fresh install's constraint the same as
+-- the one an earlier release created. A table with rows goes on NOT VALID, because
+-- validating would scan under the lock; its caller has already looked at the rows.
+CREATE OR REPLACE FUNCTION dd_replace_enum_check(p_field fields, p_rel TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_list TEXT;
+    v_name TEXT := format('%s_%s_check', p_rel, p_field.field_name);
+BEGIN
+    EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I', p_rel, v_name);
+    IF p_field.format IS DISTINCT FROM 'enum'
+       OR p_field.enum_values IS NULL
+       OR jsonb_typeof(p_field.enum_values) <> 'array'
+       OR jsonb_array_length(p_field.enum_values) = 0 THEN
+        RETURN;
+    END IF;
+    SELECT string_agg(quote_literal(value), ', ') INTO v_list
+      FROM jsonb_array_elements_text(enum_value_list(effective_enum_values(p_field.input_type, p_field.enum_values))) AS value;
+    EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))%s',
+        p_rel, v_name, p_field.field_name, v_list,
+        CASE WHEN dd_relation_has_rows(p_rel) THEN ' NOT VALID' ELSE '' END);
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION dd_replace_enum_check(fields, TEXT) IS
+'Replaces the CHECK listing the allowed values of an enum field, or drops it when the field is no longer an enum with values.';
+
+-- Refused only when the row is new or one of these columns changes: a field that
+-- already has this combination from before this rule must stay editable, and a
+-- cascade that renames the referenced entity must go through.
+CREATE OR REPLACE FUNCTION validate_required_delete_mode()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF dd_required_test(NEW) IS NOT NULL
+       AND (TG_OP = 'INSERT'
+            OR OLD.input_type IS DISTINCT FROM NEW.input_type
+            OR OLD.input_type_rule IS DISTINCT FROM NEW.input_type_rule
+            OR OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode
+            OR OLD.format IS DISTINCT FROM NEW.format) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while its delete mode is clear'
+            USING ERRCODE = '90257',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION validate_required_delete_mode() IS
+'BEFORE INSERT/UPDATE guard on fields: refuses a required reference whose delete mode is clear, because ON DELETE SET NULL would make every delete of its parent fail.';
+
+CREATE OR REPLACE TRIGGER validate_required_delete_mode_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    WHEN (NEW.format = 'reference' AND NEW.reference_delete_mode = 'clear')
+    EXECUTE FUNCTION validate_required_delete_mode();
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -1218,12 +1527,38 @@ BEGIN
         IF v_comment IS NOT NULL THEN
             EXECUTE format('COMMENT ON COLUMN %I.%I IS %L', v_rel, NEW.field_name, v_comment);
         END IF;
+        -- A table with rows is being adopted: enable_dd_table read them before it
+        -- locked the table, and decides there.
+        IF NOT dd_relation_has_rows(v_rel) THEN
+            PERFORM dd_add_required_check(NEW, v_rel);
+        END IF;
         RETURN NEW;
     END IF;
-    
+
+    -- Decided before the ALTER below locks the table. Every existing row takes the
+    -- column's default, so the default answers for all of them.
+    IF dd_relation_has_rows(v_rel) THEN
+        IF NOT dd_required_default_ok(NEW) THEN
+            RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
+                USING ERRCODE = '90259',
+                      HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name)::text;
+        END IF;
+        IF NEW.format = 'enum'
+           AND jsonb_typeof(NEW.enum_values) = 'array'
+           AND jsonb_array_length(NEW.enum_values) > 0
+           AND NOT enum_value_list(effective_enum_values(NEW.input_type, NEW.enum_values))
+                   @> to_jsonb(effective_enum_default(NEW.default_value, NEW.input_type, NEW.enum_values)) THEN
+            RAISE EXCEPTION 'check constraint "%" of relation "%" is violated by some row',
+                    format('%s_%s_check', v_rel, NEW.field_name), v_rel
+                USING ERRCODE = '23514',
+                      CONSTRAINT = format('%s_%s_check', v_rel, NEW.field_name),
+                      TABLE = v_rel;
+        END IF;
+    END IF;
+
     -- Convert format to PostgreSQL data type
     v_data_type := field_data_type(NEW.format, NEW."precision", NEW.reference_table);
-    
+
     -- Build nullable clause based on format
     IF is_nullable(NEW.format) THEN
         v_nullable_clause := 'NULL';
@@ -1340,40 +1675,13 @@ BEGIN
         EXECUTE v_alter_sql;
     END IF;
     
-    -- If this is an enum field, add CHECK constraint for allowed values
-    IF NEW.format = 'enum' AND NEW.enum_values IS NOT NULL AND jsonb_typeof(NEW.enum_values) = 'array' AND jsonb_array_length(NEW.enum_values) > 0 THEN
-        DECLARE
-            v_check_name TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum JSONB;
-        BEGIN
-            -- Generate CHECK constraint name
-            v_check_name := format('%s_%s_check', v_rel, NEW.field_name);
-            
-            -- Compute effective allowed values (adds '' for non-required enums)
-            v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
-
-            -- Build SQL array from JSONB array for IN clause
-            v_enum_values_sql := (
-                SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
-            );
-            
-            -- Add CHECK constraint
-            v_alter_sql := format(
-                'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                v_rel,
-                v_check_name,
-                NEW.field_name,
-                v_enum_values_sql
-            );
-            EXECUTE v_alter_sql;
-            
-            RAISE NOTICE 'Added CHECK constraint "%" for enum field "%.%"',
-                v_check_name, NEW.table_name, NEW.field_name;
-        END;
+    IF NEW.format = 'enum' THEN
+        PERFORM dd_replace_enum_check(NEW, v_rel);
     END IF;
-    
+
+    PERFORM dd_add_required_check(NEW, v_rel);
+
+
     -- If unique_value is TRUE, create a partial unique index
     IF NEW.unique_value THEN
         DECLARE
@@ -1432,6 +1740,9 @@ DECLARE
     v_comment        TEXT;
     v_rel            TEXT;
     v_default_clause TEXT;
+    v_old_as_renamed fields;
+    v_required_changed BOOLEAN;
+    v_enum_changed   BOOLEAN;
 BEGIN
     -- Check if the parent table is managed. The DDL below goes to the entity's
     -- physical relation, <entity>_ext for an is_a or has_a entity.
@@ -1525,6 +1836,29 @@ BEGIN
         PERFORM apply_field_ddl(NEW);
         RAISE NOTICE 'Created missing column "%.%" in managed table', NEW.table_name, NEW.field_name;
         RETURN NEW;
+    END IF;
+
+    -- The searches come first, as plain reads, before anything below locks the table.
+    -- The old condition is built under the new name so that a rename alone does not
+    -- look like a change: it must never be refused because of what old rows hold.
+    v_old_as_renamed := OLD;
+    v_old_as_renamed.field_name := NEW.field_name;
+    v_required_changed := dd_required_test(v_old_as_renamed) IS DISTINCT FROM dd_required_test(NEW);
+    IF v_required_changed AND dd_field_has_missing(NEW, v_rel) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
+            USING ERRCODE = '90259',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name)::text;
+    END IF;
+
+    v_enum_changed := (OLD.format = 'enum' OR NEW.format = 'enum')
+        AND (OLD.enum_values IS DISTINCT FROM NEW.enum_values
+             OR OLD.format <> NEW.format
+             OR OLD.input_type IS DISTINCT FROM NEW.input_type);
+    IF v_enum_changed
+       AND NEW.format = 'enum'
+       AND jsonb_typeof(NEW.enum_values) = 'array'
+       AND jsonb_array_length(NEW.enum_values) > 0 THEN
+        PERFORM dd_check_enum_values_cover_rows(NEW, v_rel);
     END IF;
 
     -- Keep column comment in sync when title/format/description/enum values change
@@ -1664,46 +1998,19 @@ BEGIN
         END IF;
     END IF;
 
-    -- Handle enum CHECK constraint changes
-    IF OLD.format = 'enum' OR NEW.format = 'enum' THEN
-        DECLARE
-            v_check_name      TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum  JSONB;
-        BEGIN
-            v_check_name := format('%s_%s_check', v_rel, NEW.field_name);
+    IF v_enum_changed THEN
+        PERFORM dd_replace_enum_check(NEW, v_rel);
+    END IF;
 
-            IF (OLD.enum_values IS DISTINCT FROM NEW.enum_values)
-               OR (OLD.format <> NEW.format)
-               OR (OLD.input_type IS DISTINCT FROM NEW.input_type) THEN
-                IF OLD.format = 'enum' THEN
-                    EXECUTE format(
-                        'ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I',
-                        v_rel, v_check_name
-                    );
-                    RAISE NOTICE 'Dropped CHECK constraint "%"', v_check_name;
-                END IF;
-
-                IF NEW.format = 'enum'
-                   AND NEW.enum_values IS NOT NULL
-                   AND jsonb_typeof(NEW.enum_values) = 'array'
-                   AND jsonb_array_length(NEW.enum_values) > 0
-                THEN
-                    v_effective_enum := effective_enum_values(NEW.input_type, NEW.enum_values);
-                    v_enum_values_sql := (
-                        SELECT string_agg(quote_literal(value::text), ', ')
-                        FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
-                    );
-                    v_alter_sql := format(
-                        'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                        v_rel, v_check_name, NEW.field_name, v_enum_values_sql
-                    );
-                    EXECUTE v_alter_sql;
-                    RAISE NOTICE 'Updated CHECK constraint "%" for enum field "%.%"',
-                        v_check_name, NEW.table_name, NEW.field_name;
-                END IF;
-            END IF;
-        END;
+    -- A rename alone rebuilds the check only if the field has one: a field left without
+    -- one because its rows have missing values must not get it by being renamed. The
+    -- rebuild is needed because the check carries the field's name as a literal for the
+    -- error message, and PostgreSQL only rewrites column references.
+    IF v_required_changed THEN
+        PERFORM dd_drop_required_check(v_rel, OLD.field_name);
+        PERFORM dd_add_required_check(NEW, v_rel);
+    ELSIF OLD.field_name <> NEW.field_name AND dd_drop_required_check(v_rel, OLD.field_name) THEN
+        PERFORM dd_add_required_check(NEW, v_rel);
     END IF;
 
     -- Handle unique_value changes
@@ -4150,6 +4457,47 @@ REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_test(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_check_expr(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_constraint_exists(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_relation_has_rows(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_field_has_missing(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_default_ok(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_add_required_check(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_drop_required_check(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_required_skip_reason(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_replace_enum_check(fields, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_required_delete_mode() FROM PUBLIC;
+-- A required check runs this function as the writer, so the request role needs it.
+-- All it can do is raise.
+REVOKE EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) TO semantius_user;
+
+-- On an upgrade the dictionary triggers already run as semantius_owner, while a function
+-- new in this file stays owned by the installer until 9900_owner_hardening.sql runs last.
+-- A .jsonc file in between fires those triggers, which would be refused these helpers.
+-- A fresh install has no such role yet, and the triggers run as the installer throughout.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT),
+            dd_required_test(fields),
+            dd_required_check_expr(fields),
+            dd_constraint_exists(TEXT, TEXT),
+            dd_relation_has_rows(TEXT),
+            dd_field_has_missing(fields, TEXT),
+            dd_required_default_ok(fields),
+            dd_add_required_check(fields, TEXT),
+            dd_drop_required_check(TEXT, TEXT),
+            dd_required_skip_reason(fields, TEXT),
+            dd_check_enum_values_cover_rows(fields, TEXT),
+            dd_replace_enum_check(fields, TEXT),
+            common.dd_raise_required(OID, TEXT)
+        TO semantius_owner;
+    END IF;
+END $$;
 REVOKE EXECUTE ON FUNCTION dd_table_comment(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_field_comment(TEXT, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION create_dd_table() FROM PUBLIC;

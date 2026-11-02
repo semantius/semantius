@@ -181,8 +181,8 @@ SELECT pass('Delete from permissions increments module version');
 
 DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
     SELECT version INTO v_before FROM modules WHERE module_name = 'MV Test Module';
-    INSERT INTO processes (name, module_id)
-    VALUES ('mv_test_process', (SELECT id FROM modules WHERE module_name = 'MV Test Module'));
+    INSERT INTO processes (name, process_key, module_id)
+    VALUES ('mv_test_process', 'mv_test_process', (SELECT id FROM modules WHERE module_name = 'MV Test Module'));
     SELECT version INTO v_after FROM modules WHERE module_name = 'MV Test Module';
     ASSERT v_after = v_before + 1, format('processes INSERT: expected version = %s, got %s', v_before + 1, v_after);
 END $$;

@@ -581,7 +581,7 @@ SELECT public.ensure_entities('{
         "fields": [{"field_name": "note", "title": "Note", "format": "text", "field_order": 30}]
     }}]
 }'::jsonb);
-INSERT INTO idt_ens (note) VALUES ('after');
+INSERT INTO idt_ens (label, note) VALUES ('after', 'after');
 
 SELECT ok((SELECT id LIKE 'idtens\_two\_%' FROM idt_ens WHERE note = 'after'),
     'ensure_entities: a changed id_prefix is applied to the table''s trigger');

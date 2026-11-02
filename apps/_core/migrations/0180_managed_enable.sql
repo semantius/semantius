@@ -44,42 +44,7 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
 
-    -- Build default clause with sensible fallbacks for NOT NULL columns
-    DECLARE
-        v_resolved_default TEXT;
-    BEGIN
-        IF p_field.format = 'enum' THEN
-            v_resolved_default := effective_enum_default(p_field.default_value, p_field.input_type, p_field.enum_values);
-        ELSE
-            v_resolved_default := p_field.default_value;
-        END IF;
-
-        IF v_resolved_default IS NOT NULL AND trim(v_resolved_default) != '' THEN
-            v_default_clause := format('DEFAULT %s', quote_default_value(v_resolved_default, v_data_type));
-        ELSIF NOT is_nullable(p_field.format) THEN
-            IF v_data_type IN ('JSONB', 'JSON') THEN
-                IF p_field.format = 'array' THEN
-                    v_default_clause := 'DEFAULT ''[]''::jsonb';
-                ELSE
-                    v_default_clause := 'DEFAULT ''{}''::jsonb';
-                END IF;
-            ELSE
-                CASE
-                    WHEN v_data_type = 'TEXT'                                THEN v_default_clause := 'DEFAULT ''''';
-                    WHEN v_data_type IN ('INTEGER', 'BIGINT', 'SMALLINT')    THEN v_default_clause := 'DEFAULT 0';
-                    WHEN v_data_type IN ('REAL', 'DOUBLE PRECISION')
-                         OR v_data_type LIKE 'NUMERIC%'
-                         OR v_data_type LIKE 'DECIMAL%'                       THEN v_default_clause := 'DEFAULT 0.0';
-                    WHEN v_data_type = 'BOOLEAN'                              THEN v_default_clause := 'DEFAULT FALSE';
-                    WHEN v_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ')          THEN v_default_clause := 'DEFAULT CURRENT_TIMESTAMP';
-                    WHEN v_data_type = 'DATE'                                 THEN v_default_clause := 'DEFAULT CURRENT_DATE';
-                    ELSE v_default_clause := '';
-                END CASE;
-            END IF;
-        ELSE
-            v_default_clause := '';
-        END IF;
-    END;
+    v_default_clause := coalesce('DEFAULT ' || dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_data_type), '');
 
     -- Add column (IF NOT EXISTS makes this idempotent)
     v_alter_sql := format(
@@ -137,32 +102,20 @@ BEGIN
         END IF;
     END IF;
 
-    -- Enum CHECK constraint
+    -- Only added when the name is free: this path never replaces a constraint that
+    -- is already on the table.
     IF p_field.format = 'enum'
-       AND p_field.enum_values IS NOT NULL
-       AND jsonb_typeof(p_field.enum_values) = 'array'
-       AND jsonb_array_length(p_field.enum_values) > 0
-    THEN
-        DECLARE
-            v_check_name      TEXT;
-            v_enum_values_sql TEXT;
-            v_effective_enum  JSONB;
-        BEGIN
-            v_check_name := format('%s_%s_check', p_field.table_name, p_field.field_name);
-            v_effective_enum := effective_enum_values(p_field.input_type, p_field.enum_values);
-            v_enum_values_sql := (
-                SELECT string_agg(quote_literal(value::text), ', ')
-                FROM jsonb_array_elements_text(enum_value_list(v_effective_enum)) AS value
-            );
-            BEGIN
-                EXECUTE format(
-                    'ALTER TABLE %I ADD CONSTRAINT %I CHECK (%I IN (%s))',
-                    p_field.table_name, v_check_name, p_field.field_name, v_enum_values_sql
-                );
-            EXCEPTION WHEN duplicate_object THEN
-                RAISE NOTICE 'CHECK constraint "%" already exists, skipping', v_check_name;
-            END;
-        END;
+       AND NOT dd_constraint_exists(p_field.table_name, format('%s_%s_check', p_field.table_name, p_field.field_name)) THEN
+        PERFORM dd_replace_enum_check(p_field, p_field.table_name);
+    END IF;
+
+    -- The column was just added, so every row holds its default and nothing needs
+    -- reading. This path adopts tables, and existing rows must never abort that.
+    IF dd_required_default_ok(p_field) OR NOT dd_relation_has_rows(p_field.table_name) THEN
+        PERFORM dd_add_required_check(p_field, p_field.table_name);
+    ELSE
+        RAISE WARNING 'Field %.% stays unenforced: rows have no value for it',
+            p_field.table_name, p_field.field_name;
     END IF;
 
     -- Partial unique index
@@ -239,6 +192,8 @@ DECLARE
     v_field      fields%ROWTYPE;
     v_sequence_name TEXT;
     v_key        RECORD;
+    v_skips      JSONB := '{}'::jsonb;
+    v_reason     TEXT;
 BEGIN
     -- Guard: only proceed when managed transitions FALSE → TRUE
     IF NOT (OLD.managed = FALSE AND NEW.managed = TRUE) THEN
@@ -251,6 +206,40 @@ BEGIN
     -- computed, 90239 for an id field row that describes another key type.
     v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
     PERFORM dd_check_id_field(NEW.table_name, NEW.id_column, NEW.id_type, v_key.id_format);
+
+    -- Which required fields of an existing table must stay unenforced, read here because
+    -- the statements below lock the table and these reads can scan all of it. The label
+    -- row may not exist yet; the row it will get is required by default, so it is read
+    -- as one.
+    IF pg_catalog.to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL THEN
+        FOR v_field IN
+            SELECT f.* FROM fields f
+              JOIN information_schema.columns c
+                ON c.table_schema = 'public' AND c.table_name = f.table_name AND c.column_name = f.field_name
+             WHERE f.table_name = NEW.table_name
+        LOOP
+            v_reason := dd_required_skip_reason(v_field, NEW.table_name);
+            IF v_reason IS NOT NULL THEN
+                v_skips := v_skips || jsonb_build_object(v_field.field_name, v_reason);
+            END IF;
+        END LOOP;
+
+        IF NOT EXISTS (SELECT 1 FROM fields f WHERE f.table_name = NEW.table_name AND f.field_name = NEW.label_column)
+           AND EXISTS (SELECT 1 FROM information_schema.columns c
+                        WHERE c.table_schema = 'public' AND c.table_name = NEW.table_name AND c.column_name = NEW.label_column) THEN
+            v_field := NULL;
+            v_field.table_name := NEW.table_name;
+            v_field.field_name := NEW.label_column;
+            v_field.format := 'text';
+            v_field.input_type := 'required';
+            v_field.is_pk := FALSE;
+            v_field.input_type_rule := '{}'::jsonb;
+            v_reason := dd_required_skip_reason(v_field, NEW.table_name);
+            IF v_reason IS NOT NULL THEN
+                v_skips := v_skips || jsonb_build_object(v_field.field_name, v_reason);
+            END IF;
+        END IF;
+    END IF;
 
     -- ── Create the physical table if it does not yet exist ──────────────
     IF NOT EXISTS (
@@ -412,6 +401,21 @@ BEGIN
             PERFORM apply_field_ddl(v_field);
             RAISE NOTICE 'Added missing column "%" to table "%" (managed changed to true)',
                 v_field.field_name, NEW.table_name;
+        ELSE
+            -- A column the table already had: only what is missing gets added. A
+            -- constraint already on the table is never dropped or changed, whoever wrote
+            -- it, because PostgreSQL's automatic name for an inline CHECK on a column is
+            -- the very name an enum's check uses here.
+            IF v_field.format = 'enum'
+               AND NOT dd_constraint_exists(NEW.table_name, format('%s_%s_check', NEW.table_name, v_field.field_name)) THEN
+                PERFORM dd_replace_enum_check(v_field, NEW.table_name);
+            END IF;
+            IF v_skips ? v_field.field_name THEN
+                RAISE WARNING 'Field %.% stays unenforced: %',
+                    NEW.table_name, v_field.field_name, v_skips ->> v_field.field_name;
+            ELSE
+                PERFORM dd_add_required_check(v_field, NEW.table_name);
+            END IF;
         END IF;
     END LOOP;
 
@@ -488,6 +492,111 @@ COMMENT ON TRIGGER enable_table_trigger ON entities IS
 -- exist, so the partial index they would build for it is built here.
 CREATE UNIQUE INDEX IF NOT EXISTS users_external_id_unique ON users(external_id) WHERE external_id IS NOT NULL AND external_id != '';
 
+-- =====================================================
+-- REQUIRED CHECKS OF EXISTING FIELDS
+-- =====================================================
+-- A required check is created when a field is added or changed, so a field that was
+-- already required never gets one that way, and the core tables' fields are seeded
+-- before the triggers exist.
+--
+-- This is not a migration file because a migration file is one transaction in every
+-- runner: its locks would pile up across all tables until it commits, and a live
+-- database has no maintenance window to absorb that. Each call handles one table in
+-- the caller's one transaction, and every runner calls it in a loop after the migration
+-- files: runMigrations in packages/core/src/migrate.ts and the migrate() procedure
+-- generated by packages/cli/commands/extension.ts.
+--
+-- It only adds what is missing, so it needs no ledger: a table skipped today because
+-- it was busy, or a field skipped because its rows have missing values, is picked up
+-- by a later migrate. All reads happen before the first statement that locks the
+-- table. p_table is the table this call handled, to pass back as p_after, and NULL
+-- when none are left.
+CREATE OR REPLACE FUNCTION dd_install_missing_checks(p_after TEXT, OUT p_table TEXT, OUT p_skipped JSONB)
+AS $$
+DECLARE
+    v_rel      TEXT;
+    v_fields   fields[];
+    v_field    fields;
+    v_reason   TEXT;
+    v_add      fields[] := ARRAY[]::fields[];
+    v_defaults TEXT[]   := ARRAY[]::TEXT[];
+    v_col      TEXT;
+BEGIN
+    p_skipped := '[]'::jsonb;
+
+    SELECT e.table_name, dd_relation(e.table_name, e.id_type) INTO p_table, v_rel
+      FROM entities e
+     WHERE e.managed
+       AND (p_after IS NULL OR e.table_name COLLATE "C" > p_after COLLATE "C")
+     ORDER BY e.table_name COLLATE "C"
+     LIMIT 1;
+
+    IF p_table IS NULL OR pg_catalog.to_regclass(format('public.%I', v_rel)) IS NULL THEN
+        RETURN;
+    END IF;
+
+    -- Read into an array before anything changes: this table may be fields itself, and
+    -- PostgreSQL refuses ALTER TABLE while a loop in this session is still reading it.
+    v_fields := ARRAY(
+        SELECT f FROM fields f
+          JOIN information_schema.columns c
+            ON c.table_schema = 'public' AND c.table_name = v_rel AND c.column_name = f.field_name
+         WHERE f.table_name = p_table AND f.input_type = 'required');
+
+    FOREACH v_field IN ARRAY v_fields LOOP
+        IF dd_required_test(v_field) IS NOT NULL
+           AND NOT dd_constraint_exists(v_rel, format('%s_%s_assert', v_rel, v_field.field_name)) THEN
+            v_reason := dd_required_skip_reason(v_field, v_rel);
+            IF v_reason IS NULL THEN
+                v_add := v_add || v_field;
+            ELSE
+                RAISE WARNING 'Field %.% stays unenforced: %', p_table, v_field.field_name, v_reason;
+                p_skipped := p_skipped || jsonb_build_object('table', p_table, 'field', v_field.field_name, 'reason', v_reason);
+            END IF;
+        END IF;
+
+        -- A required enum without an explicit default used to get its first value as the
+        -- column default, and must now refuse a write that leaves it out.
+        IF v_field.format = 'enum'
+           AND coalesce(trim(v_field.default_value), '') = ''
+           AND EXISTS (SELECT 1
+                         FROM pg_catalog.pg_attribute a
+                         JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+                        WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', v_rel))
+                          AND a.attname = v_field.field_name
+                          AND pg_catalog.pg_get_expr(d.adbin, d.adrelid) <> '''''::text') THEN
+            v_defaults := v_defaults || v_field.field_name;
+        END IF;
+    END LOOP;
+
+    IF cardinality(v_add) = 0 AND cardinality(v_defaults) = 0 THEN
+        RETURN;
+    END IF;
+
+    -- The default of an is_a or has_a view and write routine is a copy, so a changed one
+    -- rebuilds the family. 90256 means an object someone else built depends on that view.
+    BEGIN
+        FOREACH v_field IN ARRAY v_add LOOP
+            PERFORM dd_add_required_check(v_field, v_rel);
+        END LOOP;
+        FOREACH v_col IN ARRAY v_defaults LOOP
+            EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT ''''', v_rel, v_col);
+        END LOOP;
+        IF cardinality(v_defaults) > 0 THEN
+            PERFORM dd_refresh_family(ARRAY[p_table]);
+        END IF;
+    EXCEPTION
+        WHEN lock_not_available OR SQLSTATE '90256' THEN
+            RAISE WARNING 'Table % skipped until the next migrate: %', p_table, SQLERRM;
+            p_skipped := p_skipped || jsonb_build_object('table', p_table, 'reason', SQLERRM);
+    END;
+END;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+
+COMMENT ON FUNCTION dd_install_missing_checks(TEXT) IS
+'Adds the missing required checks of one table, the next managed entity after p_after, and resets the column default of its required enums without an explicit default. Reads first, locks for a moment, and skips what must wait, reporting it in p_skipped. Called in a loop by the migration runners, one transaction per table.';
+
+REVOKE EXECUTE ON FUNCTION dd_install_missing_checks(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION apply_field_ddl(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enable_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;

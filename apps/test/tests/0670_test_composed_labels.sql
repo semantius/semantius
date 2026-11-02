@@ -23,6 +23,8 @@ VALUES ('lt_applications', 'lt_application', 'Application', 'Applications', 'tes
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_applications', 'candidate_id', 'Candidate', 'reference', 20, 'lt_candidates', 'clear');
 UPDATE entities SET label_parent = 'candidate_id' WHERE table_name = 'lt_applications';
+-- app3 below has an empty local label on purpose, so this label is not required.
+UPDATE fields SET input_type = 'default' WHERE table_name = 'lt_applications' AND field_name = 'job_title';
 
 -- lt_interviews: relational, spine = application_id.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)

@@ -72,6 +72,9 @@
         "label_column": "label",
         "entity_type": "operational_record",
         "fields": [
+          // The receiver writes a log row without a label, and the log runs inside the
+          // transaction of the delivered record, so refusing it would lose the delivery.
+          {"field_name": "label", "input_type": "default"},
           // The parent reference to webhook_receivers (ON DELETE CASCADE).
           {"field_name": "webhook_receiver_id", "title": "Webhook Receiver", "format": "parent", "is_pk": false, "field_order": 5,
            "input_type": "default", "width": "default", "description": "",
