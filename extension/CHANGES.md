@@ -32,6 +32,32 @@ installs the core schema as ordinary objects.
   "admin, or the row's own `view_permission`", so `get_record_by_id()` returns
   what RLS returns. `user_bookmarks.user_id` is a computed field forced to the
   current user; a bookmark written without claims is refused (`90207`).
+- **Rollup fields.** A field of an ordinary format whose value the database
+  computes over the records of a child entity: `sum`, `min`, `max`, `avg` or
+  `count` of a child field, over the records whose `reference` or `parent`
+  field points at the record, with an optional JsonLogic filter (a compiled
+  subset). The definition is the new `fields.rollup` column; the field's
+  `ctype` is derived as `rollup`. Generated triggers on the child keep the
+  value current, a guard on the parent keeps it from being written by hand,
+  existing records are recomputed when a definition is created or changed,
+  and a child write that only moves a total neither bumps the parent's
+  `updated_at` nor writes an audit row. Errors `90261`-`90269`;
+  `docs/rollup-fields.md`.
+- **`ctype` marks derived fields.** A field one of the entity's
+  `computed_fields` names carries `ctype = 'computed'`, derived like `rollup`
+  and never set by hand (the label column keeps `label`); both markers leave
+  the field renameable and deletable (`dd_ctype_is_core`). A computed or
+  rollup field's `input_type` `default` or `readonly` becomes `disabled`: a
+  form must not submit a computed value, and an HTML readonly input is still
+  submitted. A field has one derivation (`90907`, `90261`). The Northwind
+  and RACI computed fields are `disabled` accordingly.
+- Every generated function body (the record-rule and select-rule functions,
+  the rollup functions) is dollar-quoted with a tag derived from the body
+  itself (`dd_dollar_quote`). A fixed tag could be ended by the same tag
+  written into a validation message, a computed field's name or a rule, which
+  would have handed the rest of the text to the `EXECUTE` that creates the
+  function, run as the owner. Existing generated functions need no rebuild:
+  the risk was in generating them, not in the generated text.
 
 - Backup is a plain `pg_dump` and restore a single-pass `pg_restore`, on the
   same cluster or a fresh one. No flags, no `PGOPTIONS`, no three passes.

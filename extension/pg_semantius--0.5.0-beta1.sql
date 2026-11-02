@@ -5460,6 +5460,10 @@ CREATE TABLE IF NOT EXISTS fields (
     -- Catalog/blueprint provenance (v0.1.2): stable design-time field identity (blueprint field name);
     -- the field-rename join key. Empty = created outside the deploy pipeline.
     catalog_field_code TEXT NOT NULL DEFAULT '',
+    -- A rollup definition (0440_rollup.sql): the field's value is an aggregate
+    -- over the records of a child entity, maintained by the database. Empty
+    -- for an ordinary field; the field's ctype is derived as 'rollup' from it.
+    rollup JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -5482,7 +5486,11 @@ CREATE TABLE IF NOT EXISTS fields (
     -- Ensure format is 'reference' or 'parent' when reference_table is set
     CONSTRAINT reference_table_requires_reference_format CHECK (
         (reference_table != '' AND format IN ('reference', 'parent')) OR (reference_table = '')
-    )
+    ),
+
+    -- Shape only, like select_rule_is_object; the keys of a rollup definition
+    -- are validated by zz_validate_rollup_field (0440_rollup.sql).
+    CONSTRAINT rollup_is_object CHECK (jsonb_typeof(rollup) = 'object')
 );
 
 -- Add this partial unique index:
@@ -5504,7 +5512,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', '43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a')
+        VALUES ('_core.0130_dd_schema.once.sql', 'cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5813,9 +5821,14 @@ DECLARE
   width_values TEXT[] := ARRAY(
     SELECT e ->> 'value' FROM jsonb_array_elements(width_entries) WITH ORDINALITY AS t(e, n) ORDER BY n
   );
+  -- rollup (0440_rollup.sql) and computed (0210_computed_validation.sql) are
+  -- derived from a rollup definition and from the entity's computed_fields; they
+  -- are the two managed markers that do not make a core column (dd_ctype_is_core).
   ctype_entries JSONB := '[{"value": "", "label": "Regular field"}, {"value": "id", "label": "Primary key"},
                            {"value": "label", "label": "Display label"}, {"value": "audit", "label": "Audit column"},
-                           {"value": "core", "label": "System column"}]';
+                           {"value": "core", "label": "System column"},
+                           {"value": "rollup", "label": "Rollup (aggregated by the database)"},
+                           {"value": "computed", "label": "Computed (by a rule of the entity)"}]';
   ctype_values TEXT[] := ARRAY(
     SELECT e ->> 'value' FROM jsonb_array_elements(ctype_entries) WITH ORDINALITY AS t(e, n) ORDER BY n
   );
@@ -5889,7 +5902,7 @@ BEGIN
       ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type',           'Input Type',           'How the UI presents the field for input; input_type_rule can override it per record',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        '', '{}'::jsonb),
       ('fields', 'width',                'Width',                'default (automatic), s (small), m (medium), w (wide)',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, width_entries,                  '',          '',        '', '{}'::jsonb),
-      ('fields', 'ctype',                'Column Type',          'Special column type (id, label, etc.)',                                  '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, ctype_entries,                  '',          '',        '', '{}'::jsonb),
+      ('fields', 'ctype',                'Column Type',          'Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity''s computed_fields rules writes (the label column keeps label). Derived, never set by hand.', '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, ctype_entries,                  '',          '',        '', '{}'::jsonb),
       ('fields', 'searchable',           'Searchable',           '',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'::jsonb),
       ('fields', 'enum_values',          'Enum Values',          'JSON array in display order. Each entry is a value or a {"value", "label"} object with an optional "description", "color" and "icon", e.g. ["active", {"value": "on_hold", "label": "On hold", "color": "amber"}]',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'::jsonb),
       ('fields', 'precision',            'Precision',            'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'::jsonb),
@@ -5902,6 +5915,7 @@ BEGIN
       ('fields', 'cube_type',            'Cube Type',            'Role of the field in the generated OLAP cube (dimension or measure); auto lets the platform choose, disabled leaves the field out',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', 'core',  FALSE, to_jsonb(cube_type_values),      '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic rule evaluated client-side against the record being edited. It returns an input_type (default, required, readonly, disabled or hidden) that replaces the static input_type. Empty = no rule.', '',         'jsonlogic', FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'catalog_field_code',   'Catalog Field Code',   'Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', '', 'text', FALSE, 260, 'default', 'default', 'core', FALSE, NULL,           '',          '',        '', '{}'::jsonb),
+      ('fields', 'rollup',               'Rollup',               'Rollup definition, empty for an ordinary field. Keys: link_field (<child entity>.<reference or parent field pointing at this entity>), function (sum, min, max, avg or count), value_field (a field of the child; not with count), filter (JsonLogic over the child record, restricted to and, or, !, comparisons, in and var; optional) and include_hidden_rows (true accepts aggregating child records that readers of this entity may not see). The field keeps an ordinary format that fits the result: int64 for count, the value field''s format for min and max, a numeric format for sum and avg; precision is copied from the value field. The database maintains the column and sets ctype to rollup.', '', 'json', FALSE, 270, 'default', 'w', 'core', FALSE, NULL, '', '', '', '{}'::jsonb),
       ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '', '{}'::jsonb);
 
@@ -6068,7 +6082,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', 'fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', 'cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6105,7 +6119,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ed9217d585d504f41ec2bcfb5c32180b489994824a2daa9c38e96a6ba8ab436d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -7531,6 +7545,33 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
     EXECUTE FUNCTION update_dd_table_comment();
 
 -- =====================================================
+-- ctype PREDICATE: which ctype values make a core column
+-- =====================================================
+-- A non-empty ctype marks a column the dictionary manages, and the structural
+-- protection (no delete, no format or default change, no rename but the label
+-- column's: update_dd_field, delete_dd_field, validate_field_rename_and_format,
+-- and is_core in get_schema) keys on this predicate rather than on ctype <> ''.
+-- 'rollup' (0440_rollup.sql) and 'computed' (0210_computed_validation.sql) are
+-- the two managed markers that are not core: the dictionary derives them from
+-- a rollup definition or from the entity's computed_fields and maintains the
+-- column's values, but the field itself stays the administrator's to rename,
+-- retype within its column type and delete, so they answer FALSE here. One
+-- predicate rather than a condition repeated at every site, so the two
+-- directions cannot drift apart: a site that forgot a derived marker would lock
+-- that field, a site that forgot the core markers would unlock a key column.
+CREATE OR REPLACE FUNCTION dd_ctype_is_core(p_ctype TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE
+SET search_path = public
+AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
+
+COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
+'TRUE when a ctype marks a core column (id, label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
+
+REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
+
+-- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
 -- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
@@ -7885,9 +7926,9 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
     END IF;
 
-    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- Prevent changing structural attributes of core fields (dd_ctype_is_core marks a
     -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
-    IF coalesce(OLD.ctype, '') <> '' THEN
+    IF dd_ctype_is_core(OLD.ctype) THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
                 USING ERRCODE = '90219',
@@ -8191,9 +8232,9 @@ BEGIN
         RETURN OLD;
     END IF;
     
-    -- Prevent deletion of core fields (a non-empty ctype marks a DD-managed core column)
+    -- Prevent deletion of core fields (dd_ctype_is_core marks a DD-managed core column)
     -- for standalone field deletions.
-    IF coalesce(OLD.ctype, '') <> '' THEN
+    IF dd_ctype_is_core(OLD.ctype) THEN
         RAISE EXCEPTION 'Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.'
             USING ERRCODE = '90217',
                   HINT = jsonb_build_object('field_name', OLD.field_name)::text;
@@ -10657,7 +10698,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', 'ed9217d585d504f41ec2bcfb5c32180b489994824a2daa9c38e96a6ba8ab436d')
+        VALUES ('_core.0160_dd_functions.sql', '8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -10694,7 +10735,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -11153,8 +11194,8 @@ BEGIN
     -- A) Handle field_name rename
     -- --------------------------------------------------
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
-        -- Core fields (ctype <> '') cannot be renamed, except the label column
-        IF coalesce(OLD.ctype, '') <> '' THEN
+        -- Core fields (dd_ctype_is_core) cannot be renamed, except the label column
+        IF dd_ctype_is_core(OLD.ctype) THEN
             IF OLD.ctype = 'label' THEN
                 -- Label column rename is allowed; update entities.label_column
                 -- to match. family_label_column_trigger (0160_dd_functions.sql)
@@ -11264,8 +11305,8 @@ BEGIN
     -- both are TEXT, but email → json is not because TEXT ≠ JSONB).
     -- Unmanaged tables have no physical columns, so any format change is allowed.
     IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
-        -- Core field formats cannot be changed (ctype <> '' marks a core column; enforced here too)
-        IF coalesce(OLD.ctype, '') <> '' THEN
+        -- Core field formats cannot be changed (dd_ctype_is_core marks a core column; enforced here too)
+        IF dd_ctype_is_core(OLD.ctype) THEN
             RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
                 USING ERRCODE = '90219',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
@@ -11318,7 +11359,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', 'b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d')
+        VALUES ('_core.0170_dd_rename.sql', '95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12745,7 +12786,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -13508,8 +13549,30 @@ COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
 --   C) Rename: audit triggers follow automatically (trigger names are stable:
 --      audit_i, audit_i_u_d, audit_d, audit_t)
 
--- The ignored columns are decided table by table, here and in the STEP 10 loop,
--- or a re-toggle would rebuild audit_i_u_d with none and audit the heartbeat again.
+-- The columns the audit UPDATE trigger leaves out of its comparison, decided
+-- table by table: users.last_seen is a heartbeat, and a rollup column
+-- (0440_rollup.sql) is maintained by the database from the entity's child
+-- records, so a child write that only moves a total is not an edit of the
+-- parent record. One function for every installer of audit_i_u_d
+-- (manage_audit_log here, rollup_build_guard in 0440), or a re-toggle of
+-- audit_log would rebuild the trigger with a different list. The same list
+-- is what rollup_build_guard hands the parent's updated_at trigger, for the
+-- same reason.
+CREATE OR REPLACE FUNCTION dd_audit_ignored_columns(p_table_name TEXT)
+RETURNS TEXT[] AS $$
+    SELECT CASE WHEN p_table_name = 'users' THEN ARRAY['last_seen'] ELSE ARRAY[]::TEXT[] END
+           || COALESCE((SELECT array_agg(f.field_name ORDER BY f.field_name)
+                          FROM fields f
+                         WHERE f.table_name = p_table_name
+                           AND f.rollup <> '{}'::jsonb),
+                       ARRAY[]::TEXT[]);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_audit_ignored_columns(TEXT) IS
+'The columns audit_i_u_d ignores on an entity''s table: users.last_seen, and every rollup column of the entity. Shared by manage_audit_log and the rollup builder so the two never install different lists.';
+
+REVOKE EXECUTE ON FUNCTION dd_audit_ignored_columns(TEXT) FROM PUBLIC;
+
 -- The triggers go on the entity's physical relation. An is_a or has_a
 -- entity's own part lives in <entity>_ext, so that is the table its audit_log
 -- flag audits; the parts in its bases' tables are logged by their own
@@ -13517,7 +13580,7 @@ COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_ignored_columns TEXT[] := CASE WHEN NEW.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END;
+    v_ignored_columns TEXT[] := dd_audit_ignored_columns(NEW.table_name);
     v_rel TEXT := dd_relation(NEW.table_name, NEW.id_type);
 BEGIN
     IF TG_OP = 'INSERT' THEN
@@ -13651,7 +13714,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', '667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7')
+        VALUES ('_core.0200_audit_log.sql', '5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13688,7 +13751,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '01a89b77aa2595d9581eb6f5570a63565a84ba4bf9a34b70e046978c9276a827') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -13754,6 +13817,37 @@ COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
 
 REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
+-- Dollar-quoting a generated function body
+-- =====================================================
+-- A generated body is handed to EXECUTE as the owner, and text an
+-- administrator wrote (a rule, a validation message, a computed field's name,
+-- a filter literal) lands inside it through quote_literal. quote_literal
+-- protects the single-quote context only: a dollar-quoted body ends at the
+-- first occurrence of its tag wherever that is, a quoted literal included, so
+-- a fixed tag such as $RULES$ written into a message would end the body early
+-- and hand the rest of the text to EXECUTE as SQL run by the owner. The tag is
+-- therefore derived from the body itself: no literal inside the body can hold
+-- a hash of the whole body, and the check makes sure of it. Deterministic, so
+-- a regenerated body is byte-identical to the one before.
+CREATE OR REPLACE FUNCTION dd_dollar_quote(p_body TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_tag TEXT := '$dd_' || md5(p_body) || '$';
+BEGIN
+    IF position(v_tag IN p_body) > 0 THEN
+        RAISE EXCEPTION 'generated function body contains its own delimiter'
+            USING ERRCODE = '22023';
+    END IF;
+    RETURN v_tag || p_body || v_tag;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
+'Wraps a generated function body in a dollar tag derived from the body, so no quoted literal inside it can end the body early when the CREATE FUNCTION is executed. Used by every dictionary generator.';
+
+REVOKE EXECUTE ON FUNCTION dd_dollar_quote(TEXT) FROM PUBLIC;
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -13877,14 +13971,24 @@ BEGIN
                 USING ERRCODE = '90901',
                       HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
+        -- A rollup column takes its value from other records, and a rule
+        -- writing it would run after the rollup guard and overwrite the
+        -- aggregate: one derivation per field (the other direction is 90261).
+        IF EXISTS (SELECT 1 FROM fields f
+                    WHERE f.table_name = p_table_name AND f.field_name = v_name AND f.rollup <> '{}'::jsonb) THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} names the rollup field ${field_name}'
+                USING ERRCODE = '90907',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'field_name', v_name)::text;
+        END IF;
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
         SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
           INTO v_path_sql
           FROM unnest(string_to_array(v_name, '.')) AS part;
 
         -- The field name is admin-supplied text that lands inside the generated
-        -- function body: it is emitted as a quoted literal so quotes or dollar
-        -- signs in it cannot break out of the string. It is a value handed to
+        -- function body: it is emitted as a quoted literal, so a quote cannot
+        -- break out of the string, and the body is wrapped by dd_dollar_quote,
+        -- so a dollar tag in it cannot end the body. It is a value handed to
         -- jsonb_build_object, never a RAISE format string, so nothing in it
         -- needs escaping.
         --
@@ -13971,7 +14075,8 @@ $BLOCK$,
 
         -- code, message and hint are admin-supplied text that lands inside the
         -- generated function body, all three emitted as quoted literals so a
-        -- quote or a dollar sign cannot break out of the string. None of them
+        -- quote cannot break out of the string, inside a body wrapped by
+        -- dd_dollar_quote so a dollar tag in them cannot end it. None of them
         -- is a RAISE format string: the message is passed as the argument of a
         -- '%' format instead, which is what lets a rule author write a percent
         -- sign without escaping it.
@@ -14026,7 +14131,8 @@ $BLOCK$,
     -- has_a entities, which run as the caller, call it. It lives in common,
     -- which PostgREST does not expose, so it is no RPC.
     v_body := format($FUNC$
-CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS $RULES$
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_rules_name, dd_dollar_quote(format($RULES$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -14050,8 +14156,7 @@ BEGIN
 %s
     RETURN v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
 END;
-$RULES$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_rules_name, v_extra_ctx, v_rules_block);
+$RULES$, v_extra_ctx, v_rules_block)));
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
@@ -14094,7 +14199,8 @@ $WB$;
     -- On DELETE there is no NEW row; the rules evaluate against the row being
     -- removed (OLD), which is also $old.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, dd_dollar_quote(format($TRIG$
 DECLARE
     v_data jsonb;
 BEGIN
@@ -14108,12 +14214,11 @@ BEGIN
     END IF;
 %s    RETURN NEW;
 END;
-$TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rules_name,
+$TRIG$, v_rules_name,
         CASE WHEN v_needs_old
              THEN $OLD$CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) END$OLD$
              ELSE 'NULL' END,
-        v_writeback);
+        v_writeback)));
 
     EXECUTE v_body;
 
@@ -14162,6 +14267,21 @@ BEGIN
            OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
             PERFORM build_record_logic_trigger(NEW.table_name);
         END IF;
+        -- The ctype marker and the input mode of the fields the rules name
+        -- follow the rules. A write that changes nothing of its own runs
+        -- zz_derive_computed_ctype on the row, the one place that derives
+        -- them; only the rows whose derived state would change are written,
+        -- since every fields write costs a label-function rebuild.
+        IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields THEN
+            UPDATE fields f
+               SET ctype = f.ctype
+             WHERE f.table_name = NEW.table_name
+               AND coalesce(f.ctype, '') IN ('', 'computed')
+               AND ((f.ctype = 'computed') IS DISTINCT FROM
+                        EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)
+                    OR (f.input_type IN ('default', 'readonly')
+                        AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)));
+        END IF;
         RETURN NEW;
     END IF;
 
@@ -14189,6 +14309,61 @@ CREATE OR REPLACE TRIGGER manage_record_logic_trigger
     EXECUTE FUNCTION manage_record_logic_trigger();
 
 REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 2b: the derived ctype of a computed field
+-- =====================================================
+-- A field that one of its entity's computed_fields names carries ctype
+-- 'computed', as a rollup field carries 'rollup': derived from the rule, never
+-- sent by a client (fields_ctype_lock runs first and refuses a ctype a caller
+-- sends, so the marker never passes through it), and not a core marker
+-- (dd_ctype_is_core), so the field stays the administrator's to rename and
+-- delete. The label column is the exception: it keeps 'label', whose
+-- protection must not be lost, so a client that wants the computed labels too
+-- reads the entity's computed_fields. A computed value is not the form's to
+-- submit, so input_type default and readonly become disabled (an HTML readonly
+-- input is still part of the submission, a disabled one is not); hidden stays.
+--
+-- BEFORE INSERT OR UPDATE, so a field created after its rule is marked, a
+-- renamed field the rule no longer names loses the marker, and the no-op write
+-- manage_record_logic_trigger issues when the rules change re-derives it. The
+-- zz_ name puts it after fields_ctype_lock and before zz_validate_rollup_field,
+-- which refuses a rollup on a computed field.
+CREATE OR REPLACE FUNCTION zz_derive_computed_ctype()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_named BOOLEAN;
+BEGIN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed') THEN
+        RETURN NEW;
+    END IF;
+    SELECT EXISTS (
+        SELECT 1
+          FROM entities e, jsonb_array_elements(e.computed_fields) c
+         WHERE e.table_name = NEW.table_name
+           AND c ->> 'name' = NEW.field_name)
+      INTO v_named;
+    IF v_named THEN
+        NEW.ctype := 'computed';
+        IF NEW.input_type IN ('default', 'readonly') THEN
+            NEW.input_type := 'disabled';
+        END IF;
+    ELSIF NEW.ctype = 'computed' THEN
+        NEW.ctype := '';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_derive_computed_ctype() IS
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed (and input_type disabled) on a field that one of its entity''s computed_fields names, and clears the marker when no rule names it. The label column keeps ctype label.';
+
+REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER zz_derive_computed_ctype
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_derive_computed_ctype();
 
 -- =====================================================
 -- STEP 3: Per-row SELECT policy generator (select_rule)
@@ -14343,8 +14518,15 @@ BEGIN
     -- for callers outside a policy, get_record_by_id in 0160_dd_functions.sql
     -- among them. It carries the authentication gate for those callers, which is
     -- why it must not be reduced to a convenience wrapper that skips it.
+    -- Both bodies are wrapped by dd_dollar_quote: the rule is a quoted literal
+    -- inside the first, and a fixed body tag would be ended by the same tag
+    -- written into the rule.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS $SEL$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, v_rel,
+        dd_dollar_quote(format($SEL$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -14359,12 +14541,11 @@ BEGIN
 
     RETURN jl_truthy(v_result);
 END;
-$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+$SEL$, v_row_data, v_logic_lit)),
+        v_fn_name, v_rel,
+        dd_dollar_quote(format($SEL$
     SELECT public.%I(p_row, public.jl_request_context());
-$SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rel, v_row_data, v_logic_lit, v_fn_name, v_rel, v_fn_name);
+$SEL$, v_fn_name)));
 
     EXECUTE v_body;
 
@@ -14471,7 +14652,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557')
+        VALUES ('_core.0210_computed_validation.sql', '01a89b77aa2595d9581eb6f5570a63565a84ba4bf9a34b70e046978c9276a827')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15082,7 +15263,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -15346,6 +15527,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
             -- first time an entity changes its key.
             field_json_type(f.format, f.reference_table) AS json_type,
+            f.rollup,
             ent.id_column AS entity_id_column,
             ent.id_type AS entity_id_type
         FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
@@ -15371,8 +15553,9 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             THEN jsonb_build_object('ctype', ctype)
             ELSE '{}'::jsonb
         END ||
-        -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
-        jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+        -- Add is_core field — derived from ctype (is_core column was dropped; core =
+        -- dd_ctype_is_core, which leaves the derived rollup marker out)
+        jsonb_build_object('is_core', dd_ctype_is_core(ctype)) ||
         -- Add searchable field
         jsonb_build_object('searchable', searchable) ||
         -- Add cube_type field
@@ -15392,6 +15575,13 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             ELSE '{}'::jsonb
         END ||
         jsonb_build_object('format', format) ||
+        -- A rollup field carries its definition (0440_rollup.sql), so a client
+        -- can show what the value is computed from.
+        CASE
+            WHEN rollup <> '{}'::jsonb
+            THEN jsonb_build_object('rollup', rollup)
+            ELSE '{}'::jsonb
+        END ||
         -- A field of an is_a or has_a entity's record that one of its bases
         -- owns: it is written through this entity like its own fields, and
         -- changed in the dictionary through the entity that owns it.
@@ -16046,7 +16236,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', 'cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9')
+        VALUES ('_core.0250_public_functions.sql', '6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -16754,7 +16944,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -17064,6 +17254,13 @@ DECLARE
     v_idx       INTEGER;
     v_batch     JSONB;
     v_batch_n   INTEGER;
+    v_batch_table TEXT;
+    v_order     JSONB;
+    v_deferred  JSONB;
+    v_exists    BOOLEAN;
+    v_last      BOOLEAN;
+    v_b         JSONB;
+    v_cur_ctype TEXT;
     v_role_id   BIGINT;
     v_label     TEXT;
     v_n         BIGINT;
@@ -17441,67 +17638,100 @@ BEGIN
     --    inserted by one statement, as a hand-written migration would, so
     --    the dictionary's statement-level work (the search_vector rebuild)
     --    runs once for them and the physical column order is array order.
+    --
+    --    A rollup field (a non-empty "rollup" in the document) is applied
+    --    after every other field of every entity, whether it is new or
+    --    changed: its definition names a reference field of another entity,
+    --    which may come later in the file, and its validation needs that
+    --    field to exist. Its column therefore lands after the entity's other
+    --    columns. This step stays before step 5, whose computed_fields may
+    --    name a rollup column.
     -- ---------------------------------------------------------------
+    v_order := '[]'::jsonb;
+    v_deferred := '[]'::jsonb;
     FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
         v_entity := v_entry -> 'entity';
         CONTINUE WHEN NOT (v_entity ? 'fields');
         v_table := v_entity ->> 'table_name';
-        v_batch := '[]'::jsonb;
-
-        FOR v_field, v_idx IN
-            SELECT f, i FROM jsonb_array_elements(v_entity -> 'fields') WITH ORDINALITY AS t(f, i)
-        LOOP
-            v_row := v_field - c_field_ignored;
-            IF EXISTS (SELECT 1 FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name') THEN
-                -- Flush the pending inserts first, to keep array order.
-                IF jsonb_array_length(v_batch) > 0 THEN
-                    PERFORM ensure_entities_insert_rows('fields', v_batch);
-                    PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
-                    FOR v_item IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
-                        RAISE NOTICE 'ensure_entities: created field %.%', v_table, v_item ->> 'field_name';
-                    END LOOP;
-                    v_summary := jsonb_set(v_summary, ARRAY['fields', 'created'],
-                        (v_summary #> ARRAY['fields', 'created'])
-                        || (SELECT jsonb_agg(to_jsonb(v_table || '.' || (b ->> 'field_name')))
-                              FROM jsonb_array_elements(v_batch) b));
-                    v_batch := '[]'::jsonb;
-                END IF;
-                IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM
-                   (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name') THEN
-                    RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
-                        v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
-                END IF;
-                v_status := ensure_entities_row('fields',
-                    jsonb_build_object('table_name', v_table, 'field_name', v_field -> 'field_name'),
-                    v_row || jsonb_build_object('table_name', v_table),
-                    c_field_create_only, format('field %s.%s', v_table, v_field ->> 'field_name'));
-                IF v_status = 'updated' THEN
-                    v_summary := jsonb_insert(v_summary, ARRAY['fields', 'updated', '-1'],
-                        to_jsonb(v_table || '.' || (v_field ->> 'field_name')), true);
-                END IF;
+        FOR v_field IN SELECT f FROM jsonb_array_elements(v_entity -> 'fields') f LOOP
+            v_item := jsonb_build_object('table_name', v_table, 'field', v_field);
+            IF coalesce(v_field -> 'rollup', '{}'::jsonb) <> '{}'::jsonb THEN
+                v_deferred := v_deferred || jsonb_build_array(v_item);
             ELSE
-                v_batch := v_batch || jsonb_build_array(v_row || jsonb_build_object('table_name', v_table));
+                v_order := v_order || jsonb_build_array(v_item);
             END IF;
         END LOOP;
-        IF jsonb_array_length(v_batch) > 0 THEN
+    END LOOP;
+    v_order := v_order || v_deferred;
+
+    -- A trailing JSON null ends the loop with one more pass, so the pending
+    -- inserts are flushed from the same place as everywhere else.
+    v_batch := '[]'::jsonb;
+    v_batch_table := NULL;
+    FOR v_item IN SELECT o FROM jsonb_array_elements(v_order || 'null'::jsonb) o LOOP
+        v_last := jsonb_typeof(v_item) = 'null';
+        IF NOT v_last THEN
+            v_table := v_item ->> 'table_name';
+            v_field := v_item -> 'field';
+            v_row := v_field - c_field_ignored;
+            v_exists := EXISTS (SELECT 1 FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name');
+        END IF;
+
+        -- One statement per run of new fields of one entity: flushed before a
+        -- field of another entity, before an existing field (to keep array
+        -- order) and at the end.
+        IF jsonb_array_length(v_batch) > 0 AND (v_last OR v_exists OR v_batch_table <> v_table) THEN
             PERFORM ensure_entities_insert_rows('fields', v_batch);
             PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
-            FOR v_item IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
-                RAISE NOTICE 'ensure_entities: created field %.%', v_table, v_item ->> 'field_name';
+            FOR v_b IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
+                RAISE NOTICE 'ensure_entities: created field %.%', v_batch_table, v_b ->> 'field_name';
             END LOOP;
             v_summary := jsonb_set(v_summary, ARRAY['fields', 'created'],
                 (v_summary #> ARRAY['fields', 'created'])
-                || (SELECT jsonb_agg(to_jsonb(v_table || '.' || (b ->> 'field_name')))
+                || (SELECT jsonb_agg(to_jsonb(v_batch_table || '.' || (b ->> 'field_name')))
                       FROM jsonb_array_elements(v_batch) b));
+            v_batch := '[]'::jsonb;
         END IF;
+        EXIT WHEN v_last;
 
-        -- Reported, never deleted.
+        IF v_exists THEN
+            -- ctype is set when a field is created. The empty value and the
+            -- derived rollup marker count as the same here: the dictionary
+            -- writes 'rollup' itself when a definition is added, so a document
+            -- that adds one to an existing field, or an export applied again,
+            -- is not asking for a change.
+            v_cur_ctype := (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name');
+            IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM v_cur_ctype
+               AND (dd_ctype_is_core(v_row ->> 'ctype') OR dd_ctype_is_core(v_cur_ctype)) THEN
+                RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
+                    v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
+            END IF;
+            v_status := ensure_entities_row('fields',
+                jsonb_build_object('table_name', v_table, 'field_name', v_field -> 'field_name'),
+                v_row || jsonb_build_object('table_name', v_table),
+                c_field_create_only, format('field %s.%s', v_table, v_field ->> 'field_name'));
+            IF v_status = 'updated' THEN
+                v_summary := jsonb_insert(v_summary, ARRAY['fields', 'updated', '-1'],
+                    to_jsonb(v_table || '.' || (v_field ->> 'field_name')), true);
+            END IF;
+        ELSE
+            v_batch := v_batch || jsonb_build_array(v_row || jsonb_build_object('table_name', v_table));
+            v_batch_table := v_table;
+        END IF;
+    END LOOP;
+
+    -- Reported, never deleted. A rollup field is the administrator's like any
+    -- other (dd_ctype_is_core), so one missing from the document is reported.
+    FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
+        v_entity := v_entry -> 'entity';
+        CONTINUE WHEN NOT (v_entity ? 'fields');
+        v_table := v_entity ->> 'table_name';
         v_summary := jsonb_set(v_summary, ARRAY['fields_not_in_definition'],
             (v_summary -> 'fields_not_in_definition')
             || coalesce((SELECT jsonb_agg(to_jsonb(f.id) ORDER BY f.field_order, f.field_name)
                            FROM fields f
                           WHERE f.table_name = v_table
-                            AND coalesce(f.ctype, '') = ''
+                            AND NOT dd_ctype_is_core(f.ctype)
                             AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_entity -> 'fields') d
                                              WHERE d ->> 'field_name' = f.field_name)), '[]'::jsonb));
     END LOOP;
@@ -17708,7 +17938,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', 'aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170')
+        VALUES ('_core.0290_ensure_entities.sql', '688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -20870,7 +21100,7 @@ $pgsem__core_0340_queue_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0350_raci.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0350_raci.jsonc';
       EXECUTE $pgsem__core_0350_raci_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// RACI entities (Responsible, Accountable, Consulted, Informed):
@@ -20932,7 +21162,7 @@ $pgsem__core_0340_queue_sql$;
         // itself be an enum).
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "raci"}}],
         "fields": [
-          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "readonly", "field_order": 5,
+          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "disabled", "field_order": 5,
            "description": "Display label — mirrors the RACI letter (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -20976,7 +21206,7 @@ $pgsem__core_0340_queue_sql$;
         // itself be an enum).
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "gate_kind"}}],
         "fields": [
-          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "readonly", "field_order": 5,
+          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "disabled", "field_order": 5,
            "description": "Display label — mirrors the gate kind (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -21063,7 +21293,7 @@ $pgsem_jsonc$));
 $pgsem__core_0350_raci_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0350_raci.jsonc', '91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f')
+        VALUES ('_core.0350_raci.jsonc', '1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -22489,6 +22719,1485 @@ $pgsem__core_0430_required_field_description_once_sql$;
   END;
   COMMIT;
 
+  -- _core.0440_rollup.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8392ab6da4347c46dafc26bedef8c5006304940441ca5cf37e0a7efe8575b78c') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
+      EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
+-- ROLLUP FIELDS
+-- =====================================================
+-- Repeatable. A rollup field is a field of an ordinary format whose value the
+-- database computes over the records of a child entity: sum, min, max, avg or
+-- count of a child field, over the child records whose reference or parent
+-- field points at the record, optionally narrowed by a filter. The definition
+-- is the fields.rollup object (0130_dd_schema.once.sql, described in its field
+-- row in 0150_dd_bootstrap.once.sql); the field's ctype is derived as 'rollup',
+-- the one managed marker that does not make a core column (dd_ctype_is_core).
+--
+-- What this file generates for a rollup, all as the dictionary owner:
+--   * common.rollup_<child>_<link>(), one per (child table, link field), and
+--     the statement-level triggers <name>_ins, _upd, _del and _trc on the child
+--     table: one UPDATE per statement that recomputes every rollup column using
+--     that link for the parents the statement touched, and writes a parent
+--     only when a value moved.
+--   * common.rollup_guard_<parent>() behind the row trigger a_rollup_guard on
+--     the parent table: a rollup column cannot be written by hand. On INSERT it
+--     is the empty aggregate, on UPDATE a changed value is recomputed, so the
+--     stored value is the truth whoever wrote the row.
+--   * The parent's update_<parent>_updated_at and audit_i_u_d triggers carry
+--     the rollup columns as ignored columns: a child write that only moves a
+--     total is not an edit of the parent record.
+--
+-- The filter is JsonLogic compiled to SQL by rollup_filter_sql: a fixed subset
+-- (and, or, !, !!, ==, ===, !=, !==, <, <=, >, >=, in with a literal list, var
+-- naming a column of the child record). Identifiers reach the SQL only after a
+-- catalog lookup and through %I, literals only through %L with a cast to the
+-- column's catalog type, and everything else is refused when the definition is
+-- saved. docs/rollup-fields.md has the rules, docs/jsonlogic-optimization-
+-- candidates.md records why this subset exists next to the one interpreter.
+--
+-- Everything here binds late (PL/pgSQL), so the generated functions reference
+-- the tables of the moment they are built; renames and deletes rebuild or drop
+-- them through the triggers at the end of this file.
+
+-- =====================================================
+-- Errors
+-- =====================================================
+-- The messages keep their ${placeholders}: a client fills them from the JSON
+-- hint, as docs/error-contract.md describes for every code.
+CREATE OR REPLACE FUNCTION rollup_refuse(p_code TEXT, p_message TEXT, p_hint JSONB)
+RETURNS VOID AS $fn$
+BEGIN
+    RAISE EXCEPTION USING ERRCODE = p_code, MESSAGE = p_message, HINT = p_hint::text;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_refuse(TEXT, TEXT, JSONB) IS
+'Raises a rollup error of the given code with the error contract''s message template and a JSON hint.';
+
+REVOKE EXECUTE ON FUNCTION rollup_refuse(TEXT, TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
+-- Names of the generated objects
+-- =====================================================
+-- An identifier is cut to 63 bytes silently, and two long names cut to the
+-- same 63 bytes would be one function replacing the other without a word. A
+-- name that would not fit with its longest suffix (_ins, 4 bytes) is shortened
+-- and given 8 characters of the md5 of what it names instead.
+CREATE OR REPLACE FUNCTION rollup_object_name(p_child TEXT, p_link TEXT)
+RETURNS TEXT
+LANGUAGE sql IMMUTABLE SET search_path = public
+AS $fn$
+    SELECT CASE WHEN length('rollup_' || p_child || '_' || p_link) <= 59
+                THEN 'rollup_' || p_child || '_' || p_link
+                ELSE 'rollup_' || left(p_child || '_' || p_link, 42) || '_' || left(md5(p_child || '.' || p_link), 8)
+           END
+$fn$;
+
+COMMENT ON FUNCTION rollup_object_name(TEXT, TEXT) IS
+'Name of the maintenance function common.rollup_<child>_<link> and the stem of its four triggers; shortened with an md5 tail when the full name would not fit an identifier.';
+
+CREATE OR REPLACE FUNCTION rollup_guard_name(p_parent TEXT)
+RETURNS TEXT
+LANGUAGE sql IMMUTABLE SET search_path = public
+AS $fn$
+    SELECT CASE WHEN length('rollup_guard_' || p_parent) <= 59
+                THEN 'rollup_guard_' || p_parent
+                ELSE 'rollup_guard_' || left(p_parent, 37) || '_' || left(md5(p_parent), 8)
+           END
+$fn$;
+
+COMMENT ON FUNCTION rollup_guard_name(TEXT) IS
+'Name of the guard function common.rollup_guard_<parent> behind the a_rollup_guard trigger; shortened with an md5 tail when the full name would not fit an identifier.';
+
+REVOKE EXECUTE ON FUNCTION rollup_object_name(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_guard_name(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- The filter compiler
+-- =====================================================
+-- A rollup filter is JsonLogic, but it runs inside a generated SQL aggregate
+-- as the dictionary owner, so it is compiled, not interpreted, and compiled
+-- from a fixed subset:
+--   * a column is {"var": "<name>"}: a plain name, present in pg_attribute of
+--     the child table, of a type in the allow-list below, emitted through %I;
+--   * a literal is a string, number, boolean or null, emitted through %L with
+--     a cast to the catalog type of the column it is compared with (or its own
+--     natural type when both sides are literals);
+--   * operators are and, or, !, !!, ==, ===, !=, !==, <, <=, >, >= (the last
+--     two forms also take three operands), in with a list of literals, and a
+--     bare boolean column.
+-- Anything else is refused with 90265 naming what was refused, never
+-- approximated. The semantics are SQL's, not the interpreter's coercion: ==
+-- and != are IS [NOT] DISTINCT FROM, so null compares as JsonLogic expects,
+-- while an ordering comparison with a NULL column excludes the row where
+-- evaluate_json_logic would have read NULL as 0, and a string meets a number
+-- only through an explicit cast. docs/jsonlogic-optimization-candidates.md
+-- records why no larger translation is attempted.
+--
+-- The compiled text is probed with EXPLAIN when the definition is saved
+-- (zz_validate_rollup_field), so a cast that cannot succeed fails there and
+-- not at the first child write. There is no depth limit: an absurd filter is
+-- the same trusted-administrator cost SECURITY.md accepts for an absurd rule.
+
+CREATE OR REPLACE FUNCTION rollup_filter_problem(p_problem TEXT)
+RETURNS VOID AS $fn$
+BEGIN
+    PERFORM rollup_refuse('90265',
+        'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
+        jsonb_build_object('problem', p_problem));
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_problem(TEXT) IS
+'Raises 90265 for a filter the rollup compiler refuses; rollup_definition adds the field''s table and name to the hint.';
+
+REVOKE EXECUTE ON FUNCTION rollup_filter_problem(TEXT) FROM PUBLIC;
+
+-- A column reference. The lookup is pinned to the child relation, to attnum > 0
+-- and to columns that are not dropped, so no other table's column and no system
+-- column can be named; a column that exists physically but has no fields row
+-- is reachable, which is no leak (the aggregate reads the child's own columns
+-- as the owner anyway) and keeps the compiler independent of the dictionary.
+CREATE OR REPLACE FUNCTION rollup_filter_column(p_name TEXT, p_rel TEXT, p_alias TEXT)
+RETURNS JSONB AS $fn$
+DECLARE
+    v_oid  OID;
+    v_type TEXT;
+BEGIN
+    IF p_name LIKE '$%' THEN
+        PERFORM rollup_filter_problem(format('%s is a request variable; a rollup filter can only use columns of the child record', p_name));
+    END IF;
+    IF p_name !~ '^[a-z_][a-z0-9_]*$' THEN
+        PERFORM rollup_filter_problem(format('var %s is not a plain column name', p_name));
+    END IF;
+    SELECT a.atttypid, pg_catalog.format_type(a.atttypid, a.atttypmod)
+      INTO v_oid, v_type
+      FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', p_rel))
+       AND a.attname = p_name
+       AND a.attnum > 0
+       AND NOT a.attisdropped;
+    IF NOT FOUND THEN
+        PERFORM rollup_filter_problem(format('column %s does not exist on %s', p_name, p_rel));
+    END IF;
+    -- The catalog type, not the field's format: format_to_data_type falls back
+    -- to TEXT for what it does not know, and a wrong type here would surface as
+    -- a planner error inside a fields trigger.
+    IF v_oid <> ALL (ARRAY['text', 'bool', 'int2', 'int4', 'int8', 'numeric', 'float4', 'float8',
+                           'date', 'timestamptz', 'time', 'uuid']::regtype[])
+       AND v_oid <> 'common.typeid'::regtype THEN
+        PERFORM rollup_filter_problem(format('column %s has type %s, which a rollup filter cannot compare', p_name, v_type));
+    END IF;
+    RETURN jsonb_build_object(
+        'sql',    format('%I.%I', p_alias, p_name),
+        'type',   v_type,
+        'kind',   CASE WHEN v_oid = 'bool'::regtype THEN 'bool'
+                       WHEN v_oid = 'common.typeid'::regtype THEN 'typeid'
+                       ELSE 'other' END,
+        'is_var', TRUE);
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) IS
+'Resolves a var of a rollup filter against pg_attribute of the child relation and returns its SQL reference and catalog type, or raises 90265.';
+
+-- A literal, cast to the type of the column it is compared with. The type name
+-- comes from format_type, so it is safe to splice; the value goes through %L.
+-- A TypeID literal is checked here because the domain's CHECK is not folded
+-- at plan time and would slip past the EXPLAIN probe.
+CREATE OR REPLACE FUNCTION rollup_filter_literal(p_node JSONB, p_type TEXT, p_kind TEXT)
+RETURNS TEXT AS $fn$
+DECLARE
+    v_text TEXT := p_node #>> '{}';
+BEGIN
+    CASE jsonb_typeof(p_node)
+        WHEN 'string' THEN
+            IF p_kind = 'bool' THEN
+                PERFORM rollup_filter_problem(format('string %s compared with a boolean column', v_text));
+            END IF;
+            IF p_kind = 'typeid' AND NOT common.typeid_check_text(v_text) THEN
+                PERFORM rollup_filter_problem(format('%s is not a well-formed TypeID', v_text));
+            END IF;
+            RETURN format('%L::%s', v_text, COALESCE(p_type, 'text'));
+        WHEN 'number' THEN
+            IF p_kind IN ('bool', 'typeid') THEN
+                PERFORM rollup_filter_problem(format('number %s compared with a column of type %s', v_text, p_type));
+            END IF;
+            RETURN format('%L::%s', v_text, COALESCE(p_type, 'numeric'));
+        WHEN 'boolean' THEN
+            IF p_type IS NOT NULL AND p_kind <> 'bool' THEN
+                PERFORM rollup_filter_problem(format('boolean %s compared with a column of type %s', v_text, p_type));
+            END IF;
+            RETURN CASE WHEN v_text = 'true' THEN 'TRUE' ELSE 'FALSE' END;
+        WHEN 'null' THEN
+            RETURN 'NULL';
+        ELSE
+            PERFORM rollup_filter_problem('a literal must be a string, a number, a boolean or null');
+    END CASE;
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) IS
+'Emits a scalar JSON literal of a rollup filter as a quoted SQL literal cast to the given catalog type (its natural type when none), or raises 90265.';
+
+-- An operand of a comparison: a var or a literal. Any other operator object is
+-- refused here, which is what keeps arithmetic and the custom operators out.
+CREATE OR REPLACE FUNCTION rollup_filter_operand(p_node JSONB, p_rel TEXT, p_alias TEXT)
+RETURNS JSONB AS $fn$
+DECLARE
+    v_op TEXT;
+BEGIN
+    IF jsonb_typeof(p_node) = 'object' THEN
+        IF (SELECT count(*) FROM jsonb_object_keys(p_node)) <> 1 THEN
+            PERFORM rollup_filter_problem('an operator object has exactly one key');
+        END IF;
+        SELECT k INTO v_op FROM jsonb_object_keys(p_node) k;
+        IF v_op <> 'var' THEN
+            PERFORM rollup_filter_problem(format('operator %s cannot be used as a value in a rollup filter', v_op));
+        END IF;
+        IF jsonb_typeof(p_node -> 'var') <> 'string' THEN
+            PERFORM rollup_filter_problem('var takes a plain column name, without a path or a default');
+        END IF;
+        RETURN rollup_filter_column(p_node ->> 'var', p_rel, p_alias);
+    ELSIF jsonb_typeof(p_node) IN ('string', 'number', 'boolean', 'null') THEN
+        RETURN jsonb_build_object('literal', p_node, 'is_var', FALSE);
+    END IF;
+    PERFORM rollup_filter_problem('an operand must be a column (var), a literal or null');
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT) IS
+'Classifies an operand of a rollup filter comparison as a column or a literal, or raises 90265.';
+
+-- The operands of one comparison, as SQL. The first column among them anchors
+-- the type every literal is cast to, so '5' meets a numeric column as a number
+-- and a date column as a date; with no column the literals keep their own type.
+CREATE OR REPLACE FUNCTION rollup_filter_operands(p_args JSONB, p_rel TEXT, p_alias TEXT, p_allow_null BOOLEAN)
+RETURNS TEXT[] AS $fn$
+DECLARE
+    v_node   JSONB;
+    v_op     JSONB;
+    v_ops    JSONB[] := ARRAY[]::JSONB[];
+    v_anchor JSONB;
+    v_out    TEXT[] := ARRAY[]::TEXT[];
+BEGIN
+    FOR v_node IN SELECT a FROM jsonb_array_elements(p_args) a LOOP
+        v_op := rollup_filter_operand(v_node, p_rel, p_alias);
+        v_ops := v_ops || v_op;
+        IF v_anchor IS NULL AND (v_op ->> 'is_var')::boolean THEN
+            v_anchor := v_op;
+        END IF;
+    END LOOP;
+    FOREACH v_op IN ARRAY v_ops LOOP
+        IF (v_op ->> 'is_var')::boolean THEN
+            v_out := v_out || (v_op ->> 'sql');
+        ELSE
+            IF jsonb_typeof(v_op -> 'literal') = 'null' AND NOT p_allow_null THEN
+                PERFORM rollup_filter_problem('null can only be compared with == or !=');
+            END IF;
+            v_out := v_out || rollup_filter_literal(v_op -> 'literal', v_anchor ->> 'type', v_anchor ->> 'kind');
+        END IF;
+    END LOOP;
+    RETURN v_out;
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN) IS
+'Compiles the operands of one rollup filter comparison to SQL, casting every literal to the type of the first column among them.';
+
+-- A condition. Recursive for and, or, ! and !!.
+CREATE OR REPLACE FUNCTION rollup_filter_cond(p_node JSONB, p_rel TEXT, p_alias TEXT)
+RETURNS TEXT AS $fn$
+DECLARE
+    v_op    TEXT;
+    v_args  JSONB;
+    v_n     INTEGER;
+    v_parts TEXT[];
+    v_item  JSONB;
+    v_col   JSONB;
+BEGIN
+    IF jsonb_typeof(p_node) = 'boolean' THEN
+        RETURN CASE WHEN (p_node #>> '{}') = 'true' THEN 'TRUE' ELSE 'FALSE' END;
+    END IF;
+    IF jsonb_typeof(p_node) <> 'object' THEN
+        PERFORM rollup_filter_problem('a condition must be a comparison, and, or, !, a boolean column or a boolean');
+    END IF;
+    IF p_node = '{}'::jsonb THEN
+        RETURN 'TRUE';
+    END IF;
+    -- One key, always: a second key would be silently dropped by a compiler
+    -- that read the first, and silently is the one way this must not fail.
+    IF (SELECT count(*) FROM jsonb_object_keys(p_node)) <> 1 THEN
+        PERFORM rollup_filter_problem('an operator object has exactly one key');
+    END IF;
+    SELECT k INTO v_op FROM jsonb_object_keys(p_node) k;
+    v_args := p_node -> v_op;
+    -- JsonLogic lets a single argument stand alone: {"!": x} is {"!": [x]}.
+    IF jsonb_typeof(v_args) <> 'array' THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+    v_n := jsonb_array_length(v_args);
+
+    CASE v_op
+        WHEN 'and', 'or' THEN
+            IF v_n < 1 THEN
+                PERFORM rollup_filter_problem(format('%s needs at least one condition', v_op));
+            END IF;
+            SELECT array_agg(rollup_filter_cond(a, p_rel, p_alias) ORDER BY i) INTO v_parts
+              FROM jsonb_array_elements(v_args) WITH ORDINALITY AS t(a, i);
+            RETURN '(' || array_to_string(v_parts, CASE v_op WHEN 'and' THEN ' AND ' ELSE ' OR ' END) || ')';
+        WHEN '!', '!!' THEN
+            IF v_n <> 1 THEN
+                PERFORM rollup_filter_problem(format('%s takes exactly one condition', v_op));
+            END IF;
+            RETURN CASE v_op WHEN '!' THEN 'NOT (' ELSE '(' END || rollup_filter_cond(v_args -> 0, p_rel, p_alias) || ')';
+        WHEN '==', '===', '!=', '!==' THEN
+            IF v_n <> 2 THEN
+                PERFORM rollup_filter_problem(format('%s takes exactly two operands', v_op));
+            END IF;
+            v_parts := rollup_filter_operands(v_args, p_rel, p_alias, TRUE);
+            RETURN format('(%s IS %sDISTINCT FROM %s)',
+                          v_parts[1], CASE WHEN v_op IN ('==', '===') THEN 'NOT ' ELSE '' END, v_parts[2]);
+        WHEN '<', '<=', '>', '>=' THEN
+            IF v_n = 3 AND v_op IN ('<', '<=') THEN
+                v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE);
+                RETURN format('(%s %s %s AND %s %s %s)', v_parts[1], v_op, v_parts[2], v_parts[2], v_op, v_parts[3]);
+            END IF;
+            IF v_n <> 2 THEN
+                PERFORM rollup_filter_problem(format('%s takes two operands (three for < and <=)', v_op));
+            END IF;
+            v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE);
+            RETURN format('(%s %s %s)', v_parts[1], v_op, v_parts[2]);
+        WHEN 'in' THEN
+            IF v_n <> 2 OR jsonb_typeof(v_args -> 1) <> 'array' THEN
+                PERFORM rollup_filter_problem('in takes a value and a list of literals');
+            END IF;
+            IF jsonb_array_length(v_args -> 1) = 0 THEN
+                PERFORM rollup_filter_problem('the list of in is empty');
+            END IF;
+            FOR v_item IN SELECT a FROM jsonb_array_elements(v_args -> 1) a LOOP
+                IF jsonb_typeof(v_item) NOT IN ('string', 'number', 'boolean') THEN
+                    PERFORM rollup_filter_problem('the list of in holds literals only');
+                END IF;
+            END LOOP;
+            -- The value comes first, so it anchors the cast of every list entry.
+            v_parts := rollup_filter_operands(jsonb_build_array(v_args -> 0) || (v_args -> 1), p_rel, p_alias, FALSE);
+            RETURN format('(%s IN (%s))', v_parts[1], array_to_string(v_parts[2:], ', '));
+        WHEN 'var' THEN
+            v_col := rollup_filter_operand(p_node, p_rel, p_alias);
+            IF v_col ->> 'kind' <> 'bool' THEN
+                PERFORM rollup_filter_problem(format('column %s is not boolean; compare it with == or similar', p_node ->> 'var'));
+            END IF;
+            RETURN v_col ->> 'sql';
+        ELSE
+            PERFORM rollup_filter_problem(format('operator %s is not supported in a rollup filter', v_op));
+    END CASE;
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT) IS
+'Compiles one JsonLogic condition of the rollup subset to a parenthesized SQL boolean expression over the child alias, or raises 90265.';
+
+CREATE OR REPLACE FUNCTION rollup_filter_sql(p_filter JSONB, p_rel TEXT, p_alias TEXT)
+RETURNS TEXT AS $fn$
+BEGIN
+    IF p_filter IS NULL OR p_filter = '{}'::jsonb THEN
+        RETURN 'TRUE';
+    END IF;
+    RETURN rollup_filter_cond(p_filter, p_rel, p_alias);
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT) IS
+'Compiles a rollup filter (the JsonLogic subset and, or, !, !!, comparisons, in and var) to a SQL boolean over the given child relation and alias. Identifiers through %I after a catalog lookup, literals through %L cast to the column''s catalog type, every other operator refused with 90265. An empty filter is TRUE.';
+
+REVOKE EXECUTE ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- The definition, resolved and validated
+-- =====================================================
+-- The one place that knows the rules of a rollup definition. The BEFORE
+-- trigger on fields calls it to refuse a bad definition, and the builders call
+-- it to generate from a good one, so the two cannot disagree. Returns NULL for
+-- a field without a definition and a JSON record otherwise:
+--   table, column            the rollup field
+--   child_table, child_rel   the child entity and its physical relation
+--   child_managed, child_exists, parent_rel, parent_key, parent_managed,
+--   parent_exists, column_exists
+--                            what the builders need to decide whether anything
+--                            can be generated yet
+--   link_column              the child's reference or parent column
+--   function, value_column   what to aggregate
+--   result_ddl_type          the field's type as field_data_type gives it
+--   result_cast_type         the parent column's catalog type when the column
+--                            exists, else result_ddl_type: the aggregate is
+--                            cast to the column, never to fields.precision, or
+--                            a scale mismatch would move the value on every
+--                            write
+--   empty_value              dd_column_default's zero value for the format, or
+--                            NULL for a nullable format
+--   precision                the precision the field takes (copied from a
+--                            number value field)
+--   filter_sql               the compiled filter, NULL while the child table
+--                            does not exist yet
+--   hidden                   whether the child is more restricted than the parent
+CREATE OR REPLACE FUNCTION rollup_definition(p_field fields)
+RETURNS JSONB AS $fn$
+DECLARE
+    c_numeric  CONSTANT TEXT[] := ARRAY['number', 'integer', 'int32', 'int64', 'float', 'double', 'rating'];
+    v_def        JSONB := p_field.rollup;
+    v_ctx        JSONB := jsonb_build_object('table', p_field.table_name, 'field_name', p_field.field_name);
+    v_bad        TEXT;
+    v_link       TEXT;
+    v_function   TEXT;
+    v_value      TEXT;
+    v_filter     JSONB;
+    v_lf         fields%ROWTYPE;
+    v_vf         fields%ROWTYPE;
+    v_child      entities%ROWTYPE;
+    v_parent     entities%ROWTYPE;
+    v_child_rel  TEXT;
+    v_parent_rel TEXT;
+    v_precision  SMALLINT;
+    v_expected   TEXT;
+    v_ok         BOOLEAN;
+    v_ddl_type   TEXT;
+    v_col_type   TEXT;
+    v_cast_type  TEXT;
+    v_empty      TEXT;
+    v_filter_sql TEXT;
+    v_hidden     BOOLEAN;
+    v_hint       TEXT;
+    v_chain      TEXT;
+    v_cur_table  TEXT;
+    v_cur_field  TEXT;
+    v_next       fields%ROWTYPE;
+    v_steps      INTEGER := 0;
+BEGIN
+    -- A definition that is not an object is left to the rollup_is_object CHECK,
+    -- which runs after the BEFORE triggers that call this.
+    IF v_def IS NULL OR jsonb_typeof(v_def) <> 'object' OR v_def = '{}'::jsonb THEN
+        RETURN NULL;
+    END IF;
+
+    -- Shape. Every key is known, every value has its type, and the field is
+    -- one a rollup can live on.
+    SELECT string_agg(k, ', ' ORDER BY k) INTO v_bad
+      FROM jsonb_object_keys(v_def) k
+     WHERE k NOT IN ('link_field', 'function', 'value_field', 'filter', 'include_hidden_rows');
+    IF v_bad IS NOT NULL THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'unknown key ' || v_bad));
+    END IF;
+    IF jsonb_typeof(v_def -> 'link_field') IS DISTINCT FROM 'string' THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'link_field must be a string <entity>.<field>'));
+    END IF;
+    IF jsonb_typeof(v_def -> 'function') IS DISTINCT FROM 'string' THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'function must be a string'));
+    END IF;
+    IF v_def ? 'value_field' AND jsonb_typeof(v_def -> 'value_field') <> 'string' THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'value_field must be a string'));
+    END IF;
+    IF v_def ? 'filter' AND jsonb_typeof(v_def -> 'filter') NOT IN ('object', 'boolean') THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'filter must be a JsonLogic object or a boolean'));
+    END IF;
+    IF v_def ? 'include_hidden_rows' AND jsonb_typeof(v_def -> 'include_hidden_rows') <> 'boolean' THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'include_hidden_rows must be a boolean'));
+    END IF;
+    IF p_field.is_pk THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'the key of an entity cannot be a rollup'));
+    END IF;
+    IF dd_ctype_is_core(p_field.ctype) THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'a core field (ctype ' || p_field.ctype || ') cannot be a rollup'));
+    END IF;
+    -- One derivation per field: a computed rule would run after the guard and
+    -- overwrite the aggregate (the other direction is 90907).
+    IF p_field.ctype = 'computed' THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'a computed field cannot be a rollup'));
+    END IF;
+    IF dd_is_fk_format(p_field.format) THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+                              v_ctx || jsonb_build_object('problem', 'a reference or parent field cannot be a rollup'));
+    END IF;
+
+    v_link     := v_def ->> 'link_field';
+    v_function := v_def ->> 'function';
+    v_value    := COALESCE(v_def ->> 'value_field', '');
+    v_filter   := v_def -> 'filter';
+
+    -- The link: a reference or parent field of another entity that points here.
+    IF v_link ~ '^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$' THEN
+        SELECT * INTO v_lf FROM fields
+         WHERE table_name = split_part(v_link, '.', 1) AND field_name = split_part(v_link, '.', 2);
+    END IF;
+    IF v_lf.field_name IS NULL OR NOT dd_is_fk_format(v_lf.format) OR v_lf.reference_table <> p_field.table_name THEN
+        PERFORM rollup_refuse('90262',
+            'Rollup ${field_name} on ${table}: link_field ${link_field} must name a reference or parent field of another entity that points at ${table}',
+            v_ctx || jsonb_build_object('link_field', v_link));
+    END IF;
+    SELECT * INTO v_child FROM entities WHERE table_name = v_lf.table_name;
+    SELECT * INTO v_parent FROM entities WHERE table_name = p_field.table_name;
+    -- An is_a or has_a entity is a view over several tables, and a record of
+    -- one is written to several tables: neither side of a rollup can be one.
+    IF v_child.id_type IN ('is_a', 'has_a') THEN
+        PERFORM rollup_refuse('90249', '${feature} is not available for ${id_type} entity ${table}',
+            jsonb_build_object('feature', 'rollup', 'id_type', v_child.id_type, 'table', v_child.table_name));
+    END IF;
+    IF v_parent.id_type IN ('is_a', 'has_a') THEN
+        PERFORM rollup_refuse('90249', '${feature} is not available for ${id_type} entity ${table}',
+            jsonb_build_object('feature', 'rollup', 'id_type', v_parent.id_type, 'table', v_parent.table_name));
+    END IF;
+    v_child_rel  := dd_relation(v_child.table_name, v_child.id_type);
+    v_parent_rel := dd_relation(v_parent.table_name, v_parent.id_type);
+
+    IF v_function NOT IN ('sum', 'min', 'max', 'avg', 'count') THEN
+        PERFORM rollup_refuse('90263', 'Rollup ${field_name} on ${table}: function ${function} is not one of sum, min, max, avg, count',
+            v_ctx || jsonb_build_object('function', v_function));
+    END IF;
+
+    -- The value: a field of the child that the function can aggregate. sum and
+    -- avg need a number; min and max also order text, dates and timestamps.
+    -- Keys, booleans, times, durations, UUIDs, binaries and JSON are refused:
+    -- nothing a rollup column could hold comes out of them.
+    IF v_function = 'count' THEN
+        IF v_value <> '' THEN
+            PERFORM rollup_refuse('90264',
+                'Rollup ${field_name} on ${table}: value_field ${value_field} must name a field of ${link_table} that ${function} can aggregate',
+                v_ctx || jsonb_build_object('value_field', v_value, 'link_table', v_lf.table_name, 'function', v_function,
+                                            'problem', 'count takes no value_field'));
+        END IF;
+    ELSE
+        IF v_value <> '' THEN
+            SELECT * INTO v_vf FROM fields WHERE table_name = v_lf.table_name AND field_name = v_value;
+            -- A field that sums itself (a tree's subtree total) names a value
+            -- field that is not in fields yet while it is being inserted: it is
+            -- this field, and the cycle rule below is the one to answer.
+            IF NOT FOUND AND v_lf.table_name = p_field.table_name AND v_value = p_field.field_name THEN
+                v_vf := p_field;
+            END IF;
+        END IF;
+        v_ok := v_vf.field_name IS NOT NULL
+                AND (v_vf.format = ANY (c_numeric)
+                     OR (v_function IN ('min', 'max')
+                         AND (format_to_data_type(v_vf.format) = 'TEXT' OR v_vf.format IN ('date', 'date-time'))));
+        IF NOT v_ok THEN
+            PERFORM rollup_refuse('90264',
+                'Rollup ${field_name} on ${table}: value_field ${value_field} must name a field of ${link_table} that ${function} can aggregate',
+                v_ctx || jsonb_build_object('value_field', v_value, 'link_table', v_lf.table_name, 'function', v_function,
+                                            'problem', CASE WHEN v_value = '' THEN 'value_field is required'
+                                                            WHEN v_vf.field_name IS NULL THEN 'no such field'
+                                                            ELSE v_function || ' cannot aggregate a ' || v_vf.format || ' field' END));
+        END IF;
+    END IF;
+
+    -- Decimal places follow the value field: a sum of amounts with three
+    -- decimals has three decimals. An avg over integers keeps the field's own.
+    v_precision := CASE WHEN v_function <> 'count' AND v_vf.format = 'number' THEN v_vf."precision"
+                        ELSE p_field."precision" END;
+
+    -- The result type is the field's format, which has to fit: count is an
+    -- integer whatever the base, sum stays numeric, avg is fractional, and min
+    -- or max take the value's own type (compared as column types, so email over
+    -- text passes while date over date-time does not).
+    CASE v_function
+        WHEN 'count' THEN
+            v_ok := p_field.format IN ('int32', 'int64', 'integer', 'number');
+            v_expected := 'int64';
+        WHEN 'sum' THEN
+            v_ok := p_field.format = ANY (c_numeric);
+            v_expected := 'number';
+        WHEN 'avg' THEN
+            v_ok := p_field.format IN ('number', 'float', 'double');
+            v_expected := 'number';
+        ELSE
+            v_ok := field_data_type(p_field.format, v_precision, '') = field_data_type(v_vf.format, v_vf."precision", '');
+            v_expected := v_vf.format;
+    END CASE;
+    IF NOT v_ok THEN
+        PERFORM rollup_refuse('90268',
+            'Rollup ${field_name} on ${table}: format ${format} does not fit ${function}; use ${expected_format}',
+            v_ctx || jsonb_build_object('format', p_field.format, 'function', v_function,
+                                        'expected_format', v_expected, 'value_field', v_value));
+    END IF;
+
+    -- A value that is itself a rollup is fine (a total of totals); a value whose
+    -- chain of rollups comes back to this field would recompute forever.
+    IF v_function <> 'count' THEN
+        v_cur_table := v_lf.table_name;
+        v_cur_field := v_value;
+        v_chain     := p_field.table_name || '.' || p_field.field_name;
+        LOOP
+            IF (v_cur_table, v_cur_field) = (p_field.table_name, p_field.field_name) OR v_steps > 32 THEN
+                PERFORM rollup_refuse('90267', 'Rollup ${field_name} on ${table} depends on itself through ${chain}',
+                    v_ctx || jsonb_build_object('chain', v_chain || ' -> ' || v_cur_table || '.' || v_cur_field));
+            END IF;
+            SELECT * INTO v_next FROM fields
+             WHERE table_name = v_cur_table AND field_name = v_cur_field AND rollup <> '{}'::jsonb;
+            EXIT WHEN NOT FOUND OR (v_next.rollup ->> 'function') = 'count';
+            v_chain     := v_chain || ' -> ' || v_cur_table || '.' || v_cur_field;
+            v_steps     := v_steps + 1;
+            v_cur_table := split_part(v_next.rollup ->> 'link_field', '.', 1);
+            v_cur_field := COALESCE(v_next.rollup ->> 'value_field', '');
+        END LOOP;
+    END IF;
+
+    -- The aggregate is computed as the owner over every child record and shown
+    -- to every reader of the parent. When the child is more restricted than the
+    -- parent (its own select_rule, or another view permission, which may be
+    -- narrower) that shows readers an aggregate over records their row
+    -- security hides, a capability the access-checked set_record never had, so
+    -- it takes the administrator's explicit yes in the definition.
+    v_hidden := v_child.select_rule <> '{}'::jsonb OR v_child.view_permission <> v_parent.view_permission;
+    IF v_hidden AND COALESCE((v_def ->> 'include_hidden_rows')::boolean, FALSE) IS NOT TRUE THEN
+        PERFORM rollup_refuse('90269',
+            'Rollup ${field_name} on ${table} aggregates rows of ${link_table} that readers of ${table} may not see; set include_hidden_rows to accept that',
+            v_ctx || jsonb_build_object('link_table', v_child.table_name));
+    END IF;
+
+    -- The column may not exist yet: this runs from the BEFORE trigger that
+    -- validates a new field, and from the AFTER trigger of one row of a
+    -- multi-row INSERT while the later rows' columns are still to come. The
+    -- builders leave such a rollup out until its own row's trigger fires.
+    v_ddl_type := field_data_type(p_field.format, v_precision, '');
+    SELECT pg_catalog.format_type(a.atttypid, a.atttypmod) INTO v_col_type
+      FROM pg_catalog.pg_attribute a
+     WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', v_parent_rel))
+       AND a.attname = p_field.field_name
+       AND a.attnum > 0
+       AND NOT a.attisdropped;
+    v_cast_type := COALESCE(v_col_type, v_ddl_type);
+    v_empty := dd_column_default(p_field.format, '', p_field.input_type, p_field.enum_values, v_ddl_type);
+
+    -- The filter can only be compiled against a table that exists.
+    IF v_child.managed AND pg_catalog.to_regclass(format('public.%I', v_child_rel)) IS NOT NULL THEN
+        BEGIN
+            v_filter_sql := rollup_filter_sql(v_filter, v_child_rel, 'c');
+        EXCEPTION
+            WHEN SQLSTATE '90265' THEN
+                GET STACKED DIAGNOSTICS v_hint = PG_EXCEPTION_HINT;
+                PERFORM rollup_refuse('90265',
+                    'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
+                    jl_error_hint(v_hint, v_ctx)::jsonb);
+        END;
+    END IF;
+
+    RETURN jsonb_build_object(
+        'table',            p_field.table_name,
+        'column',           p_field.field_name,
+        'child_table',      v_child.table_name,
+        'child_rel',        v_child_rel,
+        'child_managed',    v_child.managed,
+        'child_exists',     pg_catalog.to_regclass(format('public.%I', v_child_rel)) IS NOT NULL,
+        'link_column',      v_lf.field_name,
+        'parent_rel',       v_parent_rel,
+        'parent_key',       v_parent.id_column,
+        'parent_managed',   v_parent.managed,
+        'parent_exists',    pg_catalog.to_regclass(format('public.%I', v_parent_rel)) IS NOT NULL,
+        'column_exists',    v_col_type IS NOT NULL,
+        'function',         v_function,
+        'value_column',     NULLIF(v_value, ''),
+        'result_ddl_type',  v_ddl_type,
+        'result_cast_type', v_cast_type,
+        'empty_value',      v_empty,
+        'precision',        v_precision,
+        'filter_sql',       v_filter_sql,
+        'hidden',           v_hidden);
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_definition(fields) IS
+'Validates a field''s rollup definition (90261-90269, 90249) and resolves it: child and parent relations, link and value columns, function, result type, empty value, copied precision and the compiled filter. NULL for a field without a definition. The one authority for both the fields trigger and the builders.';
+
+REVOKE EXECUTE ON FUNCTION rollup_definition(fields) FROM PUBLIC;
+
+-- The builders run after validation, and during a cascade that is deleting
+-- the child or its fields a definition may no longer resolve. That is not an
+-- error to raise from a rebuild: the rollup is on its way out or being
+-- re-validated elsewhere, so the builders leave it out.
+CREATE OR REPLACE FUNCTION rollup_definition_or_null(p_field fields)
+RETURNS JSONB AS $fn$
+BEGIN
+    RETURN rollup_definition(p_field);
+EXCEPTION
+    WHEN SQLSTATE '90000' THEN
+        RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_definition_or_null(fields) IS
+'rollup_definition for the builders: NULL instead of a rollup error, for a definition that no longer resolves while a cascade removes what it names.';
+
+REVOKE EXECUTE ON FUNCTION rollup_definition_or_null(fields) FROM PUBLIC;
+
+-- =====================================================
+-- The aggregate expression
+-- =====================================================
+-- One expression for the three places that compute a value: the maintenance
+-- function, the guard and the backfill. p_key_expr is the SQL that yields the
+-- parent key (k.key, NEW.id, p2.id).
+CREATE OR REPLACE FUNCTION rollup_value_sql(p_def JSONB, p_key_expr TEXT)
+RETURNS TEXT AS $fn$
+DECLARE
+    v_value TEXT;
+    v_agg   TEXT;
+    v_inner TEXT;
+BEGIN
+    IF p_def ->> 'function' = 'count' THEN
+        v_agg := 'count(*)';
+    ELSE
+        -- sum and avg are computed in numeric whatever the value column is, so
+        -- an integer sum cannot overflow and a float sum is exact before it is
+        -- cast to the column.
+        v_value := format('c.%I', p_def ->> 'value_column');
+        IF p_def ->> 'function' IN ('sum', 'avg') THEN
+            v_value := v_value || '::numeric';
+        END IF;
+        v_agg := format('%s(%s)', p_def ->> 'function', v_value);
+    END IF;
+    v_inner := format('(SELECT %s FROM public.%I c WHERE c.%I = %s AND (%s))',
+                      v_agg, p_def ->> 'child_rel', p_def ->> 'link_column', p_key_expr,
+                      COALESCE(p_def ->> 'filter_sql', 'TRUE'));
+    IF p_def ->> 'empty_value' IS NOT NULL THEN
+        v_inner := format('COALESCE(%s, %s)', v_inner, p_def ->> 'empty_value');
+    END IF;
+    RETURN format('(%s)::%s', v_inner, p_def ->> 'result_cast_type');
+END;
+$fn$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_value_sql(JSONB, TEXT) IS
+'The SQL expression that computes a rollup''s value for the parent key p_key_expr yields: the aggregate over the child records with the compiled filter, the empty value for no records, cast to the parent column''s type.';
+
+REVOKE EXECUTE ON FUNCTION rollup_value_sql(JSONB, TEXT) FROM PUBLIC;
+
+-- The body goes through dd_dollar_quote (0210_computed_validation.sql), like
+-- every generated body: a filter literal cannot end it early inside the
+-- EXECUTE that creates the function.
+CREATE OR REPLACE FUNCTION rollup_create_function(p_name TEXT, p_body TEXT)
+RETURNS VOID AS $fn$
+BEGIN
+    EXECUTE format('CREATE FUNCTION common.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS %s',
+                   p_name, dd_dollar_quote(p_body));
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', p_name);
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_create_function(TEXT, TEXT) IS
+'Creates a generated SECURITY DEFINER trigger function in common from its PL/pgSQL body, wrapped by dd_dollar_quote so no literal in it can end the body early.';
+
+REVOKE EXECUTE ON FUNCTION rollup_create_function(TEXT, TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- The maintenance function and its triggers on the child
+-- =====================================================
+-- One function per (child table, link field), handling every rollup column
+-- that aggregates through that link, so a child statement writes each parent
+-- once. Statement level with transition tables: a bulk insert of a thousand
+-- lines of one order recomputes the order once, and a statement that moved no
+-- aggregate writes nothing (IS DISTINCT FROM over the row of rollup columns).
+-- One function behind four triggers, each with its own REFERENCING clause,
+-- because a trigger with transition tables is defined for one event only
+-- (queue_build_record_json, 0340_queue.sql, has the same shape). Only the
+-- branch for the firing event is ever planned, so the DELETE branch never
+-- names new_rows and the INSERT branch never names old_rows.
+CREATE OR REPLACE FUNCTION rollup_build_link(p_child TEXT, p_link TEXT)
+RETURNS VOID AS $fn$
+DECLARE
+    v_fn      TEXT := rollup_object_name(p_child, p_link);
+    v_f       fields%ROWTYPE;
+    v_def     JSONB;
+    v_defs    JSONB[] := ARRAY[]::JSONB[];
+    v_rel     TEXT;
+    v_parent  TEXT;
+    v_key     TEXT;
+    v_sets    TEXT;
+    v_sels    TEXT;
+    v_cols    TEXT;
+    v_tuple_p TEXT;
+    v_tuple_s TEXT;
+    v_head    TEXT;
+    v_tail    TEXT;
+    v_ins     TEXT;
+    v_del     TEXT;
+    v_all     TEXT;
+BEGIN
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', v_fn);
+
+    FOR v_f IN
+        SELECT f.* FROM fields f
+         WHERE f.rollup <> '{}'::jsonb
+           AND f.rollup ->> 'link_field' = p_child || '.' || p_link
+         ORDER BY f.field_order, f.field_name
+    LOOP
+        v_def := rollup_definition_or_null(v_f);
+        CONTINUE WHEN v_def IS NULL
+                   OR NOT (v_def ->> 'child_managed')::boolean  OR NOT (v_def ->> 'child_exists')::boolean
+                   OR NOT (v_def ->> 'parent_managed')::boolean OR NOT (v_def ->> 'parent_exists')::boolean
+                   OR NOT (v_def ->> 'column_exists')::boolean;
+        v_defs := v_defs || v_def;
+    END LOOP;
+    IF cardinality(v_defs) = 0 THEN
+        RETURN;
+    END IF;
+
+    v_rel    := v_defs[1] ->> 'child_rel';
+    v_parent := v_defs[1] ->> 'parent_rel';
+    v_key    := v_defs[1] ->> 'parent_key';
+    SELECT string_agg(format('%I = s.%I', d ->> 'column', d ->> 'column'), ', ' ORDER BY i),
+           string_agg(format('%s AS %I', rollup_value_sql(d, 'k.key'), d ->> 'column'), ', ' ORDER BY i),
+           string_agg(d ->> 'column', ', ' ORDER BY i),
+           '(' || string_agg(format('p.%I', d ->> 'column'), ', ' ORDER BY i) || ')',
+           '(' || string_agg(format('s.%I', d ->> 'column'), ', ' ORDER BY i) || ')'
+      INTO v_sets, v_sels, v_cols, v_tuple_p, v_tuple_s
+      FROM unnest(v_defs) WITH ORDINALITY AS t(d, i);
+
+    -- The statement is assembled by concatenation, not through a second
+    -- format(): the compiled filter may hold a % in a literal.
+    v_head := format('UPDATE public.%I p SET %s FROM (SELECT k.key, %s FROM (', v_parent, v_sets, v_sels);
+    v_tail := format(') k(key)) s WHERE p.%I = s.key AND %s IS DISTINCT FROM %s', v_key, v_tuple_p, v_tuple_s);
+    v_ins  := format('SELECT DISTINCT n.%I FROM new_rows n WHERE n.%I IS NOT NULL', p_link, p_link);
+    v_del  := format('SELECT DISTINCT o.%I FROM old_rows o WHERE o.%I IS NOT NULL', p_link, p_link);
+    v_all  := format('SELECT p2.%I FROM public.%I p2', v_key, v_parent);
+
+    -- A statement trigger fires for a statement that touched no rows, and the
+    -- parent UPDATE below is itself such a statement when no value moved; on a
+    -- self-referencing table (a tree) it fires this very function. An empty
+    -- transition table therefore returns at once: that is what ends the climb
+    -- at the root, and what keeps a no-op from running forever.
+    PERFORM rollup_create_function(v_fn, format($B$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NOT EXISTS (SELECT 1 FROM new_rows) THEN RETURN NULL; END IF;
+        %s;
+    ELSIF TG_OP = 'UPDATE' THEN
+        IF NOT EXISTS (SELECT 1 FROM new_rows) THEN RETURN NULL; END IF;
+        %s;
+    ELSIF TG_OP = 'DELETE' THEN
+        IF NOT EXISTS (SELECT 1 FROM old_rows) THEN RETURN NULL; END IF;
+        %s;
+    ELSE
+        %s;
+    END IF;
+    RETURN NULL;
+END;
+$B$, v_head || v_ins || v_tail,
+     v_head || v_ins || ' UNION ' || v_del || v_tail,
+     v_head || v_del || v_tail,
+     v_head || v_all || v_tail));
+
+    EXECUTE format('COMMENT ON FUNCTION common.%I() IS %L', v_fn,
+        format('Statement-level trigger function on %s: recomputes the rollup columns %s of %s that aggregate over %s.%s for the parent records a statement touched (every parent after TRUNCATE). Generated by rollup_build_link.',
+               v_rel, v_cols, v_parent, p_child, p_link));
+    EXECUTE format('CREATE TRIGGER %I AFTER INSERT ON public.%I REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION common.%I()',
+                   v_fn || '_ins', v_rel, v_fn);
+    EXECUTE format('CREATE TRIGGER %I AFTER UPDATE ON public.%I REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION common.%I()',
+                   v_fn || '_upd', v_rel, v_fn);
+    EXECUTE format('CREATE TRIGGER %I AFTER DELETE ON public.%I REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION common.%I()',
+                   v_fn || '_del', v_rel, v_fn);
+    EXECUTE format('CREATE TRIGGER %I AFTER TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION common.%I()',
+                   v_fn || '_trc', v_rel, v_fn);
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_build_link(TEXT, TEXT) IS
+'Drops and, when any rollup still aggregates through the link field p_child.p_link between managed tables, regenerates common.rollup_<child>_<link>() and its four statement-level triggers on the child table.';
+
+REVOKE EXECUTE ON FUNCTION rollup_build_link(TEXT, TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- The guard and the side effects on the parent
+-- =====================================================
+-- The guard makes the stored value trustworthy: whoever writes the parent row,
+-- a rollup column holds the aggregate. It is SECURITY DEFINER because it reads
+-- the child table; as the writing user it would see only the child rows that
+-- user's row security allows and store a partial sum. BEFORE INSERT the
+-- column is the empty aggregate (no child can reference a key that does not
+-- exist yet, and NEW.<key> is not read, so the key may still be unassigned);
+-- BEFORE UPDATE a changed value is recomputed, which costs the maintenance
+-- function a second computation when a value moves and costs a hand-written
+-- value its effect. a_rollup_guard sorts before compute_validate_trigger, so
+-- computed fields see the true value.
+--
+-- The same function keeps the parent's updated_at and audit triggers in step:
+-- both take the rollup columns as ignored columns (dd_audit_ignored_columns),
+-- so a child write that only moves a total neither bumps updated_at nor logs
+-- an audit row, and when the last rollup goes both return to their plain form.
+-- With arguments, update_updated_at_column also stops bumping on a write that
+-- changed nothing, which is the behavior its comment describes for tables that
+-- opt in.
+CREATE OR REPLACE FUNCTION rollup_build_guard(p_parent TEXT)
+RETURNS VOID AS $fn$
+DECLARE
+    v_fn    TEXT := rollup_guard_name(p_parent);
+    v_e     entities%ROWTYPE;
+    v_rel   TEXT;
+    v_f     fields%ROWTYPE;
+    v_def   JSONB;
+    v_defs  JSONB[] := ARRAY[]::JSONB[];
+    v_ins   TEXT;
+    v_upd   TEXT;
+    v_cols  TEXT;
+    v_args  TEXT;
+BEGIN
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', v_fn);
+
+    SELECT * INTO v_e FROM entities WHERE table_name = p_parent;
+    IF NOT FOUND OR NOT v_e.managed THEN
+        RETURN;
+    END IF;
+    v_rel := dd_relation(v_e.table_name, v_e.id_type);
+    IF pg_catalog.to_regclass(format('public.%I', v_rel)) IS NULL THEN
+        RETURN;
+    END IF;
+
+    FOR v_f IN
+        SELECT f.* FROM fields f
+         WHERE f.table_name = p_parent AND f.rollup <> '{}'::jsonb
+         ORDER BY f.field_order, f.field_name
+    LOOP
+        v_def := rollup_definition_or_null(v_f);
+        CONTINUE WHEN v_def IS NULL
+                   OR NOT (v_def ->> 'child_managed')::boolean OR NOT (v_def ->> 'child_exists')::boolean
+                   OR NOT (v_def ->> 'column_exists')::boolean;
+        v_defs := v_defs || v_def;
+    END LOOP;
+
+    IF cardinality(v_defs) > 0 THEN
+        SELECT string_agg(format('        NEW.%I := %s;', d ->> 'column', COALESCE(d ->> 'empty_value', 'NULL')), E'\n' ORDER BY i),
+               string_agg(format('        IF NEW.%1$I IS DISTINCT FROM OLD.%1$I THEN NEW.%1$I := %2$s; END IF;',
+                                 d ->> 'column', rollup_value_sql(d, format('NEW.%I', v_e.id_column))), E'\n' ORDER BY i),
+               string_agg(d ->> 'column', ', ' ORDER BY i)
+          INTO v_ins, v_upd, v_cols
+          FROM unnest(v_defs) WITH ORDINALITY AS t(d, i);
+
+        PERFORM rollup_create_function(v_fn, format($B$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+%s
+    ELSE
+%s
+    END IF;
+    RETURN NEW;
+END;
+$B$, v_ins, v_upd));
+        EXECUTE format('COMMENT ON FUNCTION common.%I() IS %L', v_fn,
+            format('BEFORE INSERT OR UPDATE row trigger function on %s: keeps the rollup columns %s at their computed value, whoever writes the row. Generated by rollup_build_guard.', v_rel, v_cols));
+        EXECUTE format('CREATE TRIGGER a_rollup_guard BEFORE INSERT OR UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION common.%I()',
+                       v_rel, v_fn);
+    END IF;
+
+    SELECT string_agg(quote_literal(c), ', ') INTO v_args FROM unnest(dd_audit_ignored_columns(p_parent)) AS c;
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', 'update_' || v_rel || '_updated_at', v_rel);
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION common.update_updated_at_column(%s)',
+                   'update_' || v_rel || '_updated_at', v_rel, COALESCE(v_args, ''));
+    IF v_e.audit_log THEN
+        -- enable_tracking creates only the triggers that are missing, so
+        -- dropping the UPDATE trigger first replaces exactly that one.
+        EXECUTE format('DROP TRIGGER IF EXISTS audit_i_u_d ON public.%I', v_rel);
+        PERFORM audit.enable_tracking(format('public.%I', v_rel)::regclass, dd_audit_ignored_columns(p_parent));
+    END IF;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_build_guard(TEXT) IS
+'Drops and, when the managed entity has rollup columns over existing child tables, regenerates common.rollup_guard_<parent>() with its a_rollup_guard trigger; in every case re-creates the entity''s updated_at trigger and audit UPDATE trigger with the rollup columns as ignored columns.';
+
+REVOKE EXECUTE ON FUNCTION rollup_build_guard(TEXT) FROM PUBLIC;
+
+-- =====================================================
+-- Backfill
+-- =====================================================
+-- One pass over the parent table when a rollup is created or its definition
+-- changes. Row locks on the rows whose value changes only, no table rewrite;
+-- the guard recomputes each changed row once more.
+CREATE OR REPLACE FUNCTION rollup_backfill(p_table TEXT, p_field TEXT)
+RETURNS VOID AS $fn$
+DECLARE
+    v_f   fields%ROWTYPE;
+    v_def JSONB;
+BEGIN
+    SELECT * INTO v_f FROM fields WHERE table_name = p_table AND field_name = p_field;
+    IF NOT FOUND THEN
+        RETURN;
+    END IF;
+    v_def := rollup_definition_or_null(v_f);
+    IF v_def IS NULL
+       OR NOT (v_def ->> 'child_managed')::boolean  OR NOT (v_def ->> 'child_exists')::boolean
+       OR NOT (v_def ->> 'parent_managed')::boolean OR NOT (v_def ->> 'parent_exists')::boolean
+       OR NOT (v_def ->> 'column_exists')::boolean THEN
+        RETURN;
+    END IF;
+    EXECUTE format('UPDATE public.%1$I p SET %2$I = s.v FROM (SELECT p2.%3$I AS k, %4$s AS v FROM public.%1$I p2) s WHERE p.%3$I = s.k AND p.%2$I IS DISTINCT FROM s.v',
+                   v_def ->> 'parent_rel', p_field, v_def ->> 'parent_key',
+                   rollup_value_sql(v_def, format('p2.%I', v_def ->> 'parent_key')));
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_backfill(TEXT, TEXT) IS
+'Recomputes one rollup column for every parent record whose stored value differs from the aggregate. Run when a rollup is created or its definition changes.';
+
+REVOKE EXECUTE ON FUNCTION rollup_backfill(TEXT, TEXT) FROM PUBLIC;
+
+-- Everything a rollup field needs after a change of its own row.
+CREATE OR REPLACE FUNCTION rollup_sync_field(p_field fields, p_backfill BOOLEAN)
+RETURNS VOID AS $fn$
+DECLARE
+    v_def JSONB := rollup_definition(p_field);
+BEGIN
+    IF v_def IS NULL THEN
+        RETURN;
+    END IF;
+    PERFORM rollup_build_link(v_def ->> 'child_table', v_def ->> 'link_column');
+    PERFORM rollup_build_guard(p_field.table_name);
+    IF p_backfill THEN
+        PERFORM rollup_backfill(p_field.table_name, p_field.field_name);
+    END IF;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_sync_field(fields, BOOLEAN) IS
+'Rebuilds the maintenance function of a rollup field''s link and the guard of its entity, and backfills the column when asked.';
+
+REVOKE EXECUTE ON FUNCTION rollup_sync_field(fields, BOOLEAN) FROM PUBLIC;
+
+-- The renamed field p_table.p_old is named by other rollups: as their link
+-- field, as their value field, or as a var in their filter. The definitions
+-- are rewritten, which rebuilds them through zz_rollup_field_change; the
+-- maintenance function named after the old link field is dropped first, as
+-- the rebuild creates it under the new name. The filter is rewritten by text
+-- the way rename_dd_jsonlogic_refs rewrites set_record names: jsonb prints a
+-- var as "var": "<name>", which is the one form a plain column reference has.
+CREATE OR REPLACE FUNCTION rollup_rename_field_refs(p_table TEXT, p_old TEXT, p_new TEXT)
+RETURNS VOID AS $fn$
+DECLARE
+    v_old_var TEXT := format('"var": %s', to_jsonb(p_old)::text);
+    v_new_var TEXT := format('"var": %s', to_jsonb(p_new)::text);
+BEGIN
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', rollup_object_name(p_table, p_old));
+    UPDATE fields
+       SET rollup = jsonb_set(rollup, '{link_field}', to_jsonb(p_table || '.' || p_new))
+     WHERE rollup ->> 'link_field' = p_table || '.' || p_old;
+    UPDATE fields
+       SET rollup = jsonb_set(rollup, '{value_field}', to_jsonb(p_new))
+     WHERE rollup <> '{}'::jsonb
+       AND split_part(rollup ->> 'link_field', '.', 1) = p_table
+       AND rollup ->> 'value_field' = p_old;
+    UPDATE fields
+       SET rollup = jsonb_set(rollup, '{filter}', replace((rollup -> 'filter')::text, v_old_var, v_new_var)::jsonb)
+     WHERE rollup <> '{}'::jsonb
+       AND split_part(rollup ->> 'link_field', '.', 1) = p_table
+       AND (rollup -> 'filter')::text LIKE '%' || v_old_var || '%';
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_rename_field_refs(TEXT, TEXT, TEXT) IS
+'After a field rename, rewrites every rollup definition that names the field as link_field, value_field or a filter var, which rebuilds those rollups.';
+
+REVOKE EXECUTE ON FUNCTION rollup_rename_field_refs(TEXT, TEXT, TEXT) FROM PUBLIC;
+
+-- A change to a builder in this file replaces the builder, not what it
+-- generated. The .once. file such a change ships with (RELEASE.md) calls this.
+CREATE OR REPLACE FUNCTION rollup_rebuild_all()
+RETURNS VOID AS $fn$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT DISTINCT split_part(rollup ->> 'link_field', '.', 1) AS child,
+                        split_part(rollup ->> 'link_field', '.', 2) AS link
+          FROM fields WHERE rollup <> '{}'::jsonb
+    LOOP
+        PERFORM rollup_build_link(r.child, r.link);
+    END LOOP;
+    FOR r IN SELECT DISTINCT table_name FROM fields WHERE rollup <> '{}'::jsonb LOOP
+        PERFORM rollup_build_guard(r.table_name);
+    END LOOP;
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION rollup_rebuild_all() IS
+'Regenerates every rollup maintenance function and guard from the current fields rows. For the .once. file that accompanies a change to the builders in 0440_rollup.sql.';
+
+REVOKE EXECUTE ON FUNCTION rollup_rebuild_all() FROM PUBLIC;
+
+-- =====================================================
+-- Lifecycle: fields
+-- =====================================================
+-- BEFORE INSERT OR UPDATE. The zz_ name puts it after every other BEFORE
+-- trigger on fields: after fields_ctype_lock, which forces ctype to '' for a
+-- caller that is not the dictionary and refuses any change a caller sends, so
+-- the marker derived here never passes back through the lock and a client
+-- never sends it; and after validate_field_rename_and_format_trigger, which
+-- has renamed the column by then.
+CREATE OR REPLACE FUNCTION zz_validate_rollup_field()
+RETURNS TRIGGER AS $fn$
+DECLARE
+    v_def JSONB;
+    v_err TEXT;
+BEGIN
+    -- A table rename cascades to fields.table_name while the link field's
+    -- reference_table still carries the old name; zz_rollup_entity_change
+    -- validates and rebuilds once the rename is complete.
+    IF TG_OP = 'UPDATE'
+       AND current_setting('dd.table_rename', TRUE) IS NOT DISTINCT FROM OLD.table_name || ':' || NEW.table_name THEN
+        RETURN NEW;
+    END IF;
+
+    -- Not a rollup (any more): the derived marker goes with the definition. A
+    -- definition that is not an object is left to the rollup_is_object CHECK.
+    IF jsonb_typeof(NEW.rollup) <> 'object' OR NEW.rollup = '{}'::jsonb THEN
+        IF NEW.ctype = 'rollup' THEN
+            NEW.ctype := '';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE'
+       AND OLD.rollup = NEW.rollup AND OLD.format = NEW.format AND OLD."precision" = NEW."precision"
+       AND OLD.field_name = NEW.field_name AND OLD.ctype = NEW.ctype AND OLD.input_type = NEW.input_type
+       AND OLD.searchable = NEW.searchable AND OLD.unique_value = NEW.unique_value AND OLD.is_pk = NEW.is_pk THEN
+        RETURN NEW;
+    END IF;
+
+    v_def := rollup_definition(NEW);
+
+    IF NEW.input_type = 'required' THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+            jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                               'problem', 'a rollup field cannot be required: its value is computed'));
+    END IF;
+    -- The generated search vector would move with every total and defeat the
+    -- audit exclusion (the audit gate compares the row with search_vector in it).
+    IF NEW.searchable THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+            jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                               'problem', 'a rollup field cannot be searchable'));
+    END IF;
+    -- Two parents reaching the same total would fail the maintenance UPDATE.
+    IF NEW.unique_value THEN
+        PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',
+            jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                               'problem', 'a rollup field cannot be unique'));
+    END IF;
+
+    NEW.ctype := 'rollup';
+    NEW."precision" := (v_def ->> 'precision')::smallint;
+    -- The guard makes user input meaningless, and a form must not even submit
+    -- the value: disabled, not readonly, because an HTML readonly input is still
+    -- part of the submission while a disabled one is not. hidden stays as set.
+    IF NEW.input_type IN ('default', 'readonly') THEN
+        NEW.input_type := 'disabled';
+    END IF;
+
+    -- A cast the compiler cannot judge ('abc' against a numeric column) is
+    -- caught by the planner here, at save time, not at the first child write.
+    IF v_def ->> 'filter_sql' IS NOT NULL THEN
+        BEGIN
+            EXECUTE format('EXPLAIN SELECT 1 FROM public.%I c WHERE %s', v_def ->> 'child_rel', v_def ->> 'filter_sql');
+        EXCEPTION
+            WHEN OTHERS THEN
+                GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+                PERFORM rollup_refuse('90265', 'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
+                    jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name, 'problem', v_err));
+        END;
+    END IF;
+    RETURN NEW;
+END;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_validate_rollup_field() IS
+'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, coerces input_type default and readonly to disabled, refuses required, searchable and unique rollups, and probes the compiled filter with EXPLAIN.';
+
+CREATE OR REPLACE TRIGGER zz_validate_rollup_field
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_validate_rollup_field();
+
+-- BEFORE DELETE. A field another entity's rollup aggregates through or over
+-- cannot go: the rollup would name nothing. Mirrors 90260 in delete_dd_table:
+-- the joins on entities and modules leave out a dependent whose entity or
+-- module row is already gone, which is the module-delete cascade taking both
+-- sides along, in whatever order it reaches them.
+CREATE OR REPLACE FUNCTION a_rollup_field_delete_guard()
+RETURNS TRIGGER AS $fn$
+DECLARE
+    v_deps TEXT;
+BEGIN
+    SELECT string_agg(f.table_name || '.' || f.field_name, ', ' ORDER BY f.table_name, f.field_name)
+      INTO v_deps
+      FROM fields f
+      JOIN entities d ON d.table_name = f.table_name
+      JOIN modules m ON m.id = d.module_id
+     WHERE f.rollup <> '{}'::jsonb
+       AND NOT (f.table_name = OLD.table_name AND f.field_name = OLD.field_name)
+       AND (f.rollup ->> 'link_field' = OLD.table_name || '.' || OLD.field_name
+            OR (split_part(f.rollup ->> 'link_field', '.', 1) = OLD.table_name
+                AND f.rollup ->> 'value_field' = OLD.field_name));
+    IF v_deps IS NOT NULL THEN
+        PERFORM rollup_refuse('90266', 'Field ${field_name} on ${table} cannot be deleted while rollups ${rollups} depend on it',
+            jsonb_build_object('table', OLD.table_name, 'field_name', OLD.field_name, 'rollups', v_deps));
+    END IF;
+    RETURN OLD;
+END;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION a_rollup_field_delete_guard() IS
+'BEFORE DELETE trigger function on fields: refuses (90266) deleting a field that a rollup of another entity names as its link or value field, unless that entity or its module is already being deleted.';
+
+CREATE OR REPLACE TRIGGER a_rollup_field_delete_guard
+    BEFORE DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION a_rollup_field_delete_guard();
+
+-- AFTER INSERT OR UPDATE OR DELETE. The zz_ name puts it after add_field_trigger
+-- and update_field_trigger, so the column exists under its current name when
+-- the generated functions are built.
+CREATE OR REPLACE FUNCTION zz_rollup_field_change()
+RETURNS TRIGGER AS $fn$
+DECLARE
+    v_old_link TEXT;
+    v_new_link TEXT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.rollup <> '{}'::jsonb THEN
+            PERFORM rollup_sync_field(NEW, TRUE);
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.rollup <> '{}'::jsonb THEN
+            -- The row is gone: the link is rebuilt without it (dropped when it
+            -- was the last), and so is the guard, which also returns the
+            -- parent's updated_at and audit triggers to their plain form.
+            PERFORM rollup_build_link(split_part(OLD.rollup ->> 'link_field', '.', 1),
+                                      split_part(OLD.rollup ->> 'link_field', '.', 2));
+            PERFORM rollup_build_guard(OLD.table_name);
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    -- UPDATE. Inside a table rename cascade zz_rollup_entity_change does the work.
+    IF current_setting('dd.table_rename', TRUE) IS NOT DISTINCT FROM OLD.table_name || ':' || NEW.table_name THEN
+        RETURN NULL;
+    END IF;
+
+    v_old_link := CASE WHEN OLD.rollup <> '{}'::jsonb THEN OLD.rollup ->> 'link_field' END;
+    v_new_link := CASE WHEN NEW.rollup <> '{}'::jsonb THEN NEW.rollup ->> 'link_field' END;
+    IF (v_old_link IS NOT NULL OR v_new_link IS NOT NULL)
+       AND (OLD.rollup IS DISTINCT FROM NEW.rollup OR OLD.format <> NEW.format
+            OR OLD."precision" <> NEW."precision" OR OLD.field_name <> NEW.field_name) THEN
+        IF v_old_link IS NOT NULL AND v_old_link IS DISTINCT FROM v_new_link THEN
+            PERFORM rollup_build_link(split_part(v_old_link, '.', 1), split_part(v_old_link, '.', 2));
+        END IF;
+        IF v_new_link IS NOT NULL THEN
+            -- A rename alone needs no backfill; a changed definition or type does.
+            PERFORM rollup_sync_field(NEW, OLD.rollup IS DISTINCT FROM NEW.rollup OR OLD.format <> NEW.format);
+        ELSE
+            PERFORM rollup_build_guard(NEW.table_name);
+        END IF;
+    END IF;
+
+    -- A renamed field that other rollups name as their link or value field, or in a filter.
+    IF OLD.field_name <> NEW.field_name THEN
+        PERFORM rollup_rename_field_refs(NEW.table_name, OLD.field_name, NEW.field_name);
+    END IF;
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_rollup_field_change() IS
+'AFTER INSERT OR UPDATE OR DELETE trigger function on fields: builds, rebuilds, backfills or drops the generated objects of a rollup field, and rewrites the rollups that name a renamed field.';
+
+CREATE OR REPLACE TRIGGER zz_rollup_field_change
+    AFTER INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_rollup_field_change();
+
+-- =====================================================
+-- Lifecycle: entities
+-- =====================================================
+-- BEFORE DELETE, sorting before delete_table_trigger: the refusal comes before
+-- any DDL rather than from the fields cascade after DROP TABLE already ran.
+CREATE OR REPLACE FUNCTION a_rollup_entity_delete_guard()
+RETURNS TRIGGER AS $fn$
+DECLARE
+    v_deps  TEXT;
+    v_field TEXT;
+BEGIN
+    SELECT string_agg(f.table_name || '.' || f.field_name, ', ' ORDER BY f.table_name, f.field_name),
+           min(split_part(f.rollup ->> 'link_field', '.', 2))
+      INTO v_deps, v_field
+      FROM fields f
+      JOIN entities d ON d.table_name = f.table_name
+      JOIN modules m ON m.id = d.module_id
+     WHERE f.rollup <> '{}'::jsonb
+       AND f.table_name <> OLD.table_name
+       AND split_part(f.rollup ->> 'link_field', '.', 1) = OLD.table_name;
+    IF v_deps IS NOT NULL THEN
+        PERFORM rollup_refuse('90266', 'Field ${field_name} on ${table} cannot be deleted while rollups ${rollups} depend on it',
+            jsonb_build_object('table', OLD.table_name, 'field_name', v_field, 'rollups', v_deps));
+    END IF;
+    RETURN OLD;
+END;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION a_rollup_entity_delete_guard() IS
+'BEFORE DELETE trigger function on entities: refuses (90266) deleting an entity whose fields another entity''s rollups aggregate through or over, unless that entity or its module is already being deleted.';
+
+CREATE OR REPLACE TRIGGER a_rollup_entity_delete_guard
+    BEFORE DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION a_rollup_entity_delete_guard();
+
+-- AFTER UPDATE, after the RI cascade has moved the fields rows to a new
+-- table_name and rename_reference_tables_trigger has rewritten reference_table.
+CREATE OR REPLACE FUNCTION zz_rollup_entity_change()
+RETURNS TRIGGER AS $fn$
+DECLARE
+    r   RECORD;
+    v_f fields%ROWTYPE;
+BEGIN
+    IF OLD.table_name <> NEW.table_name THEN
+        -- The objects named after the old name go first; the rebuilds below
+        -- create them under the new one.
+        FOR r IN
+            SELECT DISTINCT split_part(rollup ->> 'link_field', '.', 2) AS link
+              FROM fields
+             WHERE rollup <> '{}'::jsonb AND split_part(rollup ->> 'link_field', '.', 1) = OLD.table_name
+        LOOP
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', rollup_object_name(OLD.table_name, r.link));
+        END LOOP;
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', rollup_guard_name(OLD.table_name));
+        -- The rollups that aggregate over this entity: the definitions name it,
+        -- and the rewrite rebuilds them (zz_rollup_field_change).
+        UPDATE fields
+           SET rollup = jsonb_set(rollup, '{link_field}',
+                                  to_jsonb(NEW.table_name || '.' || split_part(rollup ->> 'link_field', '.', 2)))
+         WHERE rollup <> '{}'::jsonb AND split_part(rollup ->> 'link_field', '.', 1) = OLD.table_name;
+        -- The rollups of this entity: their generated bodies name the parent.
+        FOR v_f IN SELECT * FROM fields WHERE table_name = NEW.table_name AND rollup <> '{}'::jsonb LOOP
+            PERFORM rollup_sync_field(v_f, FALSE);
+        END LOOP;
+    END IF;
+
+    IF OLD.managed <> NEW.managed THEN
+        -- Managed: the tables exist now (enable_table_trigger ran before this),
+        -- so everything involving the entity is built and backfilled. Unmanaged:
+        -- the builders find nothing to generate and drop what there was.
+        FOR v_f IN
+            SELECT * FROM fields
+             WHERE rollup <> '{}'::jsonb
+               AND (table_name = NEW.table_name OR split_part(rollup ->> 'link_field', '.', 1) = NEW.table_name)
+        LOOP
+            PERFORM rollup_sync_field(v_f, NEW.managed);
+        END LOOP;
+    END IF;
+
+    -- A child that becomes more restricted than its parent turns an existing
+    -- rollup into a leak: re-validated, so the change is refused (90269) until
+    -- the rollup opts in or goes.
+    IF OLD.select_rule IS DISTINCT FROM NEW.select_rule OR OLD.view_permission <> NEW.view_permission THEN
+        FOR v_f IN
+            SELECT * FROM fields
+             WHERE rollup <> '{}'::jsonb
+               AND (table_name = NEW.table_name OR split_part(rollup ->> 'link_field', '.', 1) = NEW.table_name)
+        LOOP
+            PERFORM rollup_definition(v_f);
+        END LOOP;
+    END IF;
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_rollup_entity_change() IS
+'AFTER UPDATE trigger function on entities: on a rename rewrites the rollups that name the entity and regenerates their objects, on a managed change builds or drops them, and on a select_rule or view_permission change re-validates the rollups that involve the entity.';
+
+CREATE OR REPLACE TRIGGER zz_rollup_entity_change
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_rollup_entity_change();
+
+-- AFTER DELETE. DROP TABLE CASCADE took the triggers and the fields cascade
+-- rebuilt or dropped the maintenance functions; the guard function of a plain
+-- entity survives its table (precedent: is_a_dispatch_<t> in delete_dd_table).
+CREATE OR REPLACE FUNCTION zz_rollup_entity_delete()
+RETURNS TRIGGER AS $fn$
+BEGIN
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', rollup_guard_name(OLD.table_name));
+    RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_rollup_entity_delete() IS
+'AFTER DELETE trigger function on entities: drops the guard function the deleted entity''s table left behind.';
+
+CREATE OR REPLACE TRIGGER zz_rollup_entity_delete
+    AFTER DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_rollup_entity_delete();
+
+REVOKE EXECUTE ON FUNCTION zz_validate_rollup_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION a_rollup_field_delete_guard() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION zz_rollup_field_change() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION a_rollup_entity_delete_guard() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION zz_rollup_entity_change() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
+$pgsem__core_0440_rollup_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0440_rollup.sql', '8392ab6da4347c46dafc26bedef8c5006304940441ca5cf37e0a7efe8575b78c')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0440_rollup.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0440_rollup.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
   -- _core.9900_owner_hardening.sql
   PERFORM pg_catalog.set_config('search_path', 'public', true);
   PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
@@ -22848,7 +24557,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"ed9217d585d504f41ec2bcfb5c32180b489994824a2daa9c38e96a6ba8ab436d","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"01a89b77aa2595d9581eb6f5570a63565a84ba4bf9a34b70e046978c9276a827","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"8392ab6da4347c46dafc26bedef8c5006304940441ca5cf37e0a7efe8575b78c","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -22910,9 +24619,9 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.9900_owner_hardening.sql'];
+  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"43b489b18aa140340b521b2aa1b841582e6c596763748042695e2e1ad2f4a70a","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"fbf46e51e9a32d45e680bd2c1ec4f6015c987ac43d8388bce627cba0cb846c27","_core.0160_dd_functions.sql":"ed9217d585d504f41ec2bcfb5c32180b489994824a2daa9c38e96a6ba8ab436d","_core.0170_dd_rename.sql":"b302890fbf47a147e1cabf383a863fcfec8cda2cac30c6a89d5719250258d64d","_core.0180_managed_enable.sql":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"667a0d97a3ddfc05a4d6cc83ec0e1d0ee5c02d4d25f949b6cb362d9a54aeaac7","_core.0210_computed_validation.sql":"27812c9c755efd9ed2d3422b48341cb653bcf59f43c7c302c3d39417ca7e7557","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"cd6f4356d738b255bd9d118fb42493540ab836402ec84f1e682f25d817790cd9","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"aecdc3658563a78566ef50c2b63d062754d574054c13d0ece9cb7eed5b410170","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"91572cf3917e55294f8e3f121dd2c25acf398bffdaf0a359a40db7a242cee39f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","_core.0160_dd_functions.sql":"8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61","_core.0170_dd_rename.sql":"95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516","_core.0180_managed_enable.sql":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"01a89b77aa2595d9581eb6f5570a63565a84ba4bf9a34b70e046978c9276a827","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"8392ab6da4347c46dafc26bedef8c5006304940441ca5cf37e0a7efe8575b78c","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

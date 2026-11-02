@@ -305,6 +305,13 @@ DECLARE
     v_idx       INTEGER;
     v_batch     JSONB;
     v_batch_n   INTEGER;
+    v_batch_table TEXT;
+    v_order     JSONB;
+    v_deferred  JSONB;
+    v_exists    BOOLEAN;
+    v_last      BOOLEAN;
+    v_b         JSONB;
+    v_cur_ctype TEXT;
     v_role_id   BIGINT;
     v_label     TEXT;
     v_n         BIGINT;
@@ -682,67 +689,100 @@ BEGIN
     --    inserted by one statement, as a hand-written migration would, so
     --    the dictionary's statement-level work (the search_vector rebuild)
     --    runs once for them and the physical column order is array order.
+    --
+    --    A rollup field (a non-empty "rollup" in the document) is applied
+    --    after every other field of every entity, whether it is new or
+    --    changed: its definition names a reference field of another entity,
+    --    which may come later in the file, and its validation needs that
+    --    field to exist. Its column therefore lands after the entity's other
+    --    columns. This step stays before step 5, whose computed_fields may
+    --    name a rollup column.
     -- ---------------------------------------------------------------
+    v_order := '[]'::jsonb;
+    v_deferred := '[]'::jsonb;
     FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
         v_entity := v_entry -> 'entity';
         CONTINUE WHEN NOT (v_entity ? 'fields');
         v_table := v_entity ->> 'table_name';
-        v_batch := '[]'::jsonb;
-
-        FOR v_field, v_idx IN
-            SELECT f, i FROM jsonb_array_elements(v_entity -> 'fields') WITH ORDINALITY AS t(f, i)
-        LOOP
-            v_row := v_field - c_field_ignored;
-            IF EXISTS (SELECT 1 FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name') THEN
-                -- Flush the pending inserts first, to keep array order.
-                IF jsonb_array_length(v_batch) > 0 THEN
-                    PERFORM ensure_entities_insert_rows('fields', v_batch);
-                    PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
-                    FOR v_item IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
-                        RAISE NOTICE 'ensure_entities: created field %.%', v_table, v_item ->> 'field_name';
-                    END LOOP;
-                    v_summary := jsonb_set(v_summary, ARRAY['fields', 'created'],
-                        (v_summary #> ARRAY['fields', 'created'])
-                        || (SELECT jsonb_agg(to_jsonb(v_table || '.' || (b ->> 'field_name')))
-                              FROM jsonb_array_elements(v_batch) b));
-                    v_batch := '[]'::jsonb;
-                END IF;
-                IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM
-                   (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name') THEN
-                    RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
-                        v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
-                END IF;
-                v_status := ensure_entities_row('fields',
-                    jsonb_build_object('table_name', v_table, 'field_name', v_field -> 'field_name'),
-                    v_row || jsonb_build_object('table_name', v_table),
-                    c_field_create_only, format('field %s.%s', v_table, v_field ->> 'field_name'));
-                IF v_status = 'updated' THEN
-                    v_summary := jsonb_insert(v_summary, ARRAY['fields', 'updated', '-1'],
-                        to_jsonb(v_table || '.' || (v_field ->> 'field_name')), true);
-                END IF;
+        FOR v_field IN SELECT f FROM jsonb_array_elements(v_entity -> 'fields') f LOOP
+            v_item := jsonb_build_object('table_name', v_table, 'field', v_field);
+            IF coalesce(v_field -> 'rollup', '{}'::jsonb) <> '{}'::jsonb THEN
+                v_deferred := v_deferred || jsonb_build_array(v_item);
             ELSE
-                v_batch := v_batch || jsonb_build_array(v_row || jsonb_build_object('table_name', v_table));
+                v_order := v_order || jsonb_build_array(v_item);
             END IF;
         END LOOP;
-        IF jsonb_array_length(v_batch) > 0 THEN
+    END LOOP;
+    v_order := v_order || v_deferred;
+
+    -- A trailing JSON null ends the loop with one more pass, so the pending
+    -- inserts are flushed from the same place as everywhere else.
+    v_batch := '[]'::jsonb;
+    v_batch_table := NULL;
+    FOR v_item IN SELECT o FROM jsonb_array_elements(v_order || 'null'::jsonb) o LOOP
+        v_last := jsonb_typeof(v_item) = 'null';
+        IF NOT v_last THEN
+            v_table := v_item ->> 'table_name';
+            v_field := v_item -> 'field';
+            v_row := v_field - c_field_ignored;
+            v_exists := EXISTS (SELECT 1 FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name');
+        END IF;
+
+        -- One statement per run of new fields of one entity: flushed before a
+        -- field of another entity, before an existing field (to keep array
+        -- order) and at the end.
+        IF jsonb_array_length(v_batch) > 0 AND (v_last OR v_exists OR v_batch_table <> v_table) THEN
             PERFORM ensure_entities_insert_rows('fields', v_batch);
             PERFORM set_config('client_min_messages', current_setting('semantius.notice_level'), true);
-            FOR v_item IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
-                RAISE NOTICE 'ensure_entities: created field %.%', v_table, v_item ->> 'field_name';
+            FOR v_b IN SELECT b FROM jsonb_array_elements(v_batch) b LOOP
+                RAISE NOTICE 'ensure_entities: created field %.%', v_batch_table, v_b ->> 'field_name';
             END LOOP;
             v_summary := jsonb_set(v_summary, ARRAY['fields', 'created'],
                 (v_summary #> ARRAY['fields', 'created'])
-                || (SELECT jsonb_agg(to_jsonb(v_table || '.' || (b ->> 'field_name')))
+                || (SELECT jsonb_agg(to_jsonb(v_batch_table || '.' || (b ->> 'field_name')))
                       FROM jsonb_array_elements(v_batch) b));
+            v_batch := '[]'::jsonb;
         END IF;
+        EXIT WHEN v_last;
 
-        -- Reported, never deleted.
+        IF v_exists THEN
+            -- ctype is set when a field is created. The empty value and the
+            -- derived rollup marker count as the same here: the dictionary
+            -- writes 'rollup' itself when a definition is added, so a document
+            -- that adds one to an existing field, or an export applied again,
+            -- is not asking for a change.
+            v_cur_ctype := (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name');
+            IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM v_cur_ctype
+               AND (dd_ctype_is_core(v_row ->> 'ctype') OR dd_ctype_is_core(v_cur_ctype)) THEN
+                RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
+                    v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
+            END IF;
+            v_status := ensure_entities_row('fields',
+                jsonb_build_object('table_name', v_table, 'field_name', v_field -> 'field_name'),
+                v_row || jsonb_build_object('table_name', v_table),
+                c_field_create_only, format('field %s.%s', v_table, v_field ->> 'field_name'));
+            IF v_status = 'updated' THEN
+                v_summary := jsonb_insert(v_summary, ARRAY['fields', 'updated', '-1'],
+                    to_jsonb(v_table || '.' || (v_field ->> 'field_name')), true);
+            END IF;
+        ELSE
+            v_batch := v_batch || jsonb_build_array(v_row || jsonb_build_object('table_name', v_table));
+            v_batch_table := v_table;
+        END IF;
+    END LOOP;
+
+    -- Reported, never deleted. A rollup field is the administrator's like any
+    -- other (dd_ctype_is_core), so one missing from the document is reported.
+    FOR v_entry IN SELECT e FROM jsonb_array_elements(v_entries) e LOOP
+        v_entity := v_entry -> 'entity';
+        CONTINUE WHEN NOT (v_entity ? 'fields');
+        v_table := v_entity ->> 'table_name';
         v_summary := jsonb_set(v_summary, ARRAY['fields_not_in_definition'],
             (v_summary -> 'fields_not_in_definition')
             || coalesce((SELECT jsonb_agg(to_jsonb(f.id) ORDER BY f.field_order, f.field_name)
                            FROM fields f
                           WHERE f.table_name = v_table
-                            AND coalesce(f.ctype, '') = ''
+                            AND NOT dd_ctype_is_core(f.ctype)
                             AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_entity -> 'fields') d
                                              WHERE d ->> 'field_name' = f.field_name)), '[]'::jsonb));
     END LOOP;

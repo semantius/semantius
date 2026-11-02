@@ -399,3 +399,41 @@ interpreter and the obvious SQL mapping. Named operators exist precisely so that
 neither side has to reverse-engineer the other: an operator is defined once and
 both implementations derive from that definition, instead of two independently
 written predicates having to be proven equal on cases nobody chose.
+
+### 5. The one exception: the rollup filter subset
+
+A rollup field (`docs/rollup-fields.md`, `0440_rollup.sql`) aggregates child
+records inside a generated SQL aggregate that runs as the dictionary owner on
+every child write. Its optional filter is JsonLogic, and it is **compiled**, by
+`rollup_filter_sql`, not interpreted. This is a different consumer from the
+rules above and is held to a different standard, which is what makes it
+acceptable next to §4:
+
+- **It is a closed subset, not a translator.** `and`, `or`, `!`, `!!`, `==`,
+  `===`, `!=`, `!==`, `<`, `<=`, `>`, `>=` (the last two also with three
+  operands), `in` with a list of literals, and `var` naming a plain column of
+  the child record. Every other operator, every request variable (`$user_id`,
+  `$now`, `$today`, ...), every path and every default is refused with 90265
+  naming what was refused. Nothing is approximated.
+- **Its semantics are SQL's, stated as such.** `==` and `!=` compile to
+  `IS [NOT] DISTINCT FROM`, so `null` compares as JsonLogic expects; an ordering
+  comparison against a NULL column excludes the row where
+  `evaluate_json_logic` would have read NULL as 0; a string meets a number only
+  through an explicit cast to the column's type. The same rule text can
+  therefore mean something slightly different in a validation rule and in a
+  rollup filter, and the documentation of rollups says so instead of promising
+  parity.
+- **The §2 and §3 rules hold.** A `var` is resolved against `pg_attribute` of
+  the child relation, never against `format`; the column type must be in an
+  explicit allow-list; and the fields lifecycle rebuilds or drops the generated
+  objects from AFTER triggers on `fields` and `entities`.
+- **Nothing admin-written reaches the SQL text unquoted.** Identifiers through
+  `%I` after the catalog lookup, literals through `%L` with a cast to a type
+  name taken from `format_type`, the compiled text probed with `EXPLAIN` when
+  the definition is saved, and the generated body wrapped in a dollar tag
+  derived from the body itself.
+
+The subset must not grow into coercion-dependent operators (arithmetic, `cat`,
+`substr`, `if`, the custom operators) without the equivalence proof §4 demands
+for a native emission. A rollup that needs more belongs to a named operator
+defined for both implementations, or to a computed field on the child.

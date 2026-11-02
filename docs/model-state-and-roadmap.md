@@ -67,7 +67,8 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
 | 1:1 role extensions (has_a) | ✓ | ~ person accounts only | ✗ | ~ one-to-one through a unique reference | ✗ |
 | Row-level permissions | ✓ RLS in the database, cannot be bypassed | ✓ application level | ✓ application level | ✓ application level | ~ |
 | Field-level permissions | ✗ | ✓ | ✓ | ✓ | ~ |
-| Roll-up fields, rules across several records | ✗ | ✓ roll-up summary | ~ business rules | ~ flows | ✓ |
+| Roll-up fields | ✓ sum, min, max, avg, count over a reference or parent, with a filter, maintained by the database | ✓ roll-up summary | ~ business rules | ~ flows | ✓ |
+| Rules across several records | ~ a parent's validation rule may test its rollups | ✓ | ~ business rules | ~ flows | ✓ |
 | References to any table | ~ within one is_a tree only | ~ standard fields only (WhoId, WhatId) | ✓ document ID | ✓ many-to-any | ✗ |
 | Per-subtype overrides of inherited fields | ✗ | – | ✓ dictionary overrides | – | – |
 | Human-readable numbers (INC0010001) | ✗ TypeID only | ✓ auto number | ✓ | ✗ | ✓ |
@@ -101,9 +102,10 @@ In the order in which to close the gaps:
 1. **Field-level permissions.** Applications built on Salesforce and ServiceNow rely
    heavily on hiding or protecting individual fields. Today Semantius grants access per
    entity and per row only.
-2. **Roll-up fields and rules across several records.** Examples: header totals summed
-   from line items, or a journal entry whose lines must balance. Today, computed fields
-   and validation rules see one record at a time.
+2. **Rules across several records.** Example: a journal entry whose lines must balance.
+   Rollup fields cover the header total summed from line items, and a validation rule
+   of the parent may test a rollup (the total against a credit limit), but computed
+   fields and validation rules still see one record at a time.
 3. **References to any entity.** A reference whose target can be a record of several
    unrelated entities, as with ServiceNow's document ID or Directus' many-to-any. Used
    for "regarding" links and document flow. With `is_a` this works only inside one

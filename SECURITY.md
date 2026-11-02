@@ -146,7 +146,19 @@ is wrong, say so, but they will not be treated as vulnerabilities.
 - **JsonLogic rules have no recursion or size limit.** A select rule or
   validation rule can be made arbitrarily expensive by the administrator who
   writes it. This is accepted as a residual denial of service by a trusted
-  role.
+  role. A rollup filter (`docs/rollup-fields.md`) inherits the same residual:
+  its compiler is recursive without a depth bound, and the `EXPLAIN` probe at
+  save time plans whatever the administrator wrote, so an absurd filter costs
+  at save time and on every child write.
+- **A rollup with `include_hidden_rows` shows an aggregate over rows the
+  reader may not see.** A rollup aggregates child records as the owner and
+  stores the result on the parent, where every holder of the parent's view
+  permission reads it. When the child entity is more restricted than the parent
+  (its own select rule, or another view permission) the dictionary refuses the
+  rollup (90269) unless its definition carries `"include_hidden_rows": true`;
+  with the flag, the administrator has decided that readers of the parent may
+  learn the sum, count, minimum or maximum over child rows their row security
+  hides. The flag is in the definition, so the decision is on record.
 - **Anything requiring superuser, the schema owner, or the database's
   environment.** That is the trust boundary of any extension. Whoever holds
   it already holds what the extension protects.

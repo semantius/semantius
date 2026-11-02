@@ -1421,6 +1421,33 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
     EXECUTE FUNCTION update_dd_table_comment();
 
 -- =====================================================
+-- ctype PREDICATE: which ctype values make a core column
+-- =====================================================
+-- A non-empty ctype marks a column the dictionary manages, and the structural
+-- protection (no delete, no format or default change, no rename but the label
+-- column's: update_dd_field, delete_dd_field, validate_field_rename_and_format,
+-- and is_core in get_schema) keys on this predicate rather than on ctype <> ''.
+-- 'rollup' (0440_rollup.sql) and 'computed' (0210_computed_validation.sql) are
+-- the two managed markers that are not core: the dictionary derives them from
+-- a rollup definition or from the entity's computed_fields and maintains the
+-- column's values, but the field itself stays the administrator's to rename,
+-- retype within its column type and delete, so they answer FALSE here. One
+-- predicate rather than a condition repeated at every site, so the two
+-- directions cannot drift apart: a site that forgot a derived marker would lock
+-- that field, a site that forgot the core markers would unlock a key column.
+CREATE OR REPLACE FUNCTION dd_ctype_is_core(p_ctype TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE
+SET search_path = public
+AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
+
+COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
+'TRUE when a ctype marks a core column (id, label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
+
+REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
+
+-- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
 -- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
@@ -1775,9 +1802,9 @@ BEGIN
         RAISE EXCEPTION 'Cannot change primary key status of existing field' USING ERRCODE = '90222';
     END IF;
 
-    -- Prevent changing structural attributes of core fields (a non-empty ctype marks a
+    -- Prevent changing structural attributes of core fields (dd_ctype_is_core marks a
     -- DD-managed core column); ctype itself is immutable + privilege-locked (fields_ctype_lock).
-    IF coalesce(OLD.ctype, '') <> '' THEN
+    IF dd_ctype_is_core(OLD.ctype) THEN
         IF OLD.format <> NEW.format THEN
             RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
                 USING ERRCODE = '90219',
@@ -2081,9 +2108,9 @@ BEGIN
         RETURN OLD;
     END IF;
     
-    -- Prevent deletion of core fields (a non-empty ctype marks a DD-managed core column)
+    -- Prevent deletion of core fields (dd_ctype_is_core marks a DD-managed core column)
     -- for standalone field deletions.
-    IF coalesce(OLD.ctype, '') <> '' THEN
+    IF dd_ctype_is_core(OLD.ctype) THEN
         RAISE EXCEPTION 'Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.'
             USING ERRCODE = '90217',
                   HINT = jsonb_build_object('field_name', OLD.field_name)::text;

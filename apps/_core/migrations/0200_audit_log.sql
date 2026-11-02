@@ -758,8 +758,30 @@ COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
 --   C) Rename: audit triggers follow automatically (trigger names are stable:
 --      audit_i, audit_i_u_d, audit_d, audit_t)
 
--- The ignored columns are decided table by table, here and in the STEP 10 loop,
--- or a re-toggle would rebuild audit_i_u_d with none and audit the heartbeat again.
+-- The columns the audit UPDATE trigger leaves out of its comparison, decided
+-- table by table: users.last_seen is a heartbeat, and a rollup column
+-- (0440_rollup.sql) is maintained by the database from the entity's child
+-- records, so a child write that only moves a total is not an edit of the
+-- parent record. One function for every installer of audit_i_u_d
+-- (manage_audit_log here, rollup_build_guard in 0440), or a re-toggle of
+-- audit_log would rebuild the trigger with a different list. The same list
+-- is what rollup_build_guard hands the parent's updated_at trigger, for the
+-- same reason.
+CREATE OR REPLACE FUNCTION dd_audit_ignored_columns(p_table_name TEXT)
+RETURNS TEXT[] AS $$
+    SELECT CASE WHEN p_table_name = 'users' THEN ARRAY['last_seen'] ELSE ARRAY[]::TEXT[] END
+           || COALESCE((SELECT array_agg(f.field_name ORDER BY f.field_name)
+                          FROM fields f
+                         WHERE f.table_name = p_table_name
+                           AND f.rollup <> '{}'::jsonb),
+                       ARRAY[]::TEXT[]);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_audit_ignored_columns(TEXT) IS
+'The columns audit_i_u_d ignores on an entity''s table: users.last_seen, and every rollup column of the entity. Shared by manage_audit_log and the rollup builder so the two never install different lists.';
+
+REVOKE EXECUTE ON FUNCTION dd_audit_ignored_columns(TEXT) FROM PUBLIC;
+
 -- The triggers go on the entity's physical relation. An is_a or has_a
 -- entity's own part lives in <entity>_ext, so that is the table its audit_log
 -- flag audits; the parts in its bases' tables are logged by their own
@@ -767,7 +789,7 @@ COMMENT ON TRIGGER assert_audit_entity_stays_unmanaged_trigger ON entities IS
 CREATE OR REPLACE FUNCTION manage_audit_log()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_ignored_columns TEXT[] := CASE WHEN NEW.table_name = 'users' THEN ARRAY['last_seen'] ELSE '{}'::TEXT[] END;
+    v_ignored_columns TEXT[] := dd_audit_ignored_columns(NEW.table_name);
     v_rel TEXT := dd_relation(NEW.table_name, NEW.id_type);
 BEGIN
     IF TG_OP = 'INSERT' THEN

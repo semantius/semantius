@@ -4,8 +4,9 @@
 -- Integrity of the loaded Northwind dataset: row counts, known rows
 -- (ALFKI / VINET / order 10248), the reports_to tree, order status vs
 -- shipped_date, sequences caught up after the load, categories.sort_order
--- auto-assignment, composed labels, non-ASCII data, and the CURRENT_DATE
--- defaults on hire_date / order_date. Sequences are inspected as the owner
+-- auto-assignment, composed labels, non-ASCII data, the CURRENT_DATE
+-- defaults on hire_date / order_date, the computed order line amount, and the
+-- order subtotal and total derived from it. Sequences are inspected as the owner
 -- (before authenticate_as); everything else is read as user2 (Northwind
 -- Sales), i.e. through nwind:view RLS. All writes roll back.
 -- Requires: deno task migrate --apps _core,nwind,test
@@ -13,7 +14,7 @@
 
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(53);
 
 -- =====================================================
 -- SEQUENCES (owner): caught up with the explicit ids of the load
@@ -284,6 +285,146 @@ SELECT is(
     (SELECT hire_date FROM employees WHERE last_name = 'Date Default'),
     CURRENT_DATE,
     'employees.hire_date should default to CURRENT_DATE'
+);
+
+-- =====================================================
+-- ORDER LINE AMOUNT (computed), the writes as user2
+-- =====================================================
+
+-- Test 38: 12 × 14.00, no discount
+SELECT is(
+    (SELECT amount FROM order_details WHERE order_id = 10248 AND product_id = 11),
+    168.00,
+    'order_details.amount should be quantity × unit_price on an undiscounted line'
+);
+
+-- Test 39: 35 × 42.40 less 15%
+SELECT is(
+    (SELECT amount FROM order_details WHERE order_id = 10250 AND product_id = 51),
+    1261.40,
+    'order_details.amount should take the discount off as a rate'
+);
+
+-- Test 40: 25 × 7.70 less 15% is 163.625, which the column's two decimals round
+SELECT is(
+    (SELECT amount FROM order_details WHERE order_id = 10264 AND product_id = 41),
+    163.63,
+    'order_details.amount should round to two decimals'
+);
+
+-- Test 41: the import writes no amount, so this proves the load computed all of them
+SELECT is(
+    (SELECT COUNT(*)::integer FROM order_details
+      WHERE amount IS DISTINCT FROM round(quantity * unit_price * (1 - discount), 2)),
+    0,
+    'Every loaded order line should carry its computed amount'
+);
+
+UPDATE order_details SET quantity = 10 WHERE order_id = 10248 AND product_id = 11;
+
+-- Test 42
+SELECT is(
+    (SELECT amount FROM order_details WHERE order_id = 10248 AND product_id = 11),
+    140.00,
+    'order_details.amount should follow a change of quantity'
+);
+
+UPDATE order_details SET amount = 1 WHERE order_id = 10248 AND product_id = 42;
+
+-- Test 43: 10 × 9.80
+SELECT is(
+    (SELECT amount FROM order_details WHERE order_id = 10248 AND product_id = 42),
+    98.00,
+    'A written order_details.amount should be replaced by the computed value'
+);
+
+-- =====================================================
+-- ORDER SUBTOTAL (rollup) AND TOTAL (computed), the writes as user2
+-- =====================================================
+
+-- Test 44: 77.00 + 1261.40 + 214.20
+SELECT is(
+    (SELECT subtotal FROM orders WHERE id = 10250),
+    1552.60,
+    'orders.subtotal should be the sum of the order line amounts'
+);
+
+-- Test 45: 1552.60 + 65.83
+SELECT is(
+    (SELECT total FROM orders WHERE id = 10250),
+    1618.43,
+    'orders.total should be subtotal plus freight'
+);
+
+-- Test 46: the import writes neither, so this proves the load computed all of
+-- them. An order without lines (the insert above) holds the empty aggregate.
+SELECT is(
+    (SELECT COUNT(*)::integer FROM orders o
+      WHERE o.subtotal IS DISTINCT FROM (SELECT COALESCE(SUM(od.amount), 0) FROM order_details od WHERE od.order_id = o.id)
+         OR o.total IS DISTINCT FROM o.subtotal + o.freight),
+    0,
+    'Every order should carry its computed subtotal and total'
+);
+
+-- Test 47: the line writes of the amount tests above, 140.00 + 98.00 + 174.00
+SELECT is(
+    (SELECT subtotal FROM orders WHERE id = 10248),
+    412.00,
+    'orders.subtotal should follow a change of a line'
+);
+
+-- Test 48: 412.00 + 32.38
+SELECT is(
+    (SELECT total FROM orders WHERE id = 10248),
+    444.38,
+    'orders.total should follow a change of a line'
+);
+
+UPDATE orders SET freight = 100 WHERE id = 10250;
+
+-- Test 49
+SELECT is(
+    (SELECT subtotal || ' ' || total FROM orders WHERE id = 10250),
+    '1552.60 1652.60',
+    'A change of freight should move orders.total and leave orders.subtotal alone'
+);
+
+UPDATE orders SET subtotal = 1, total = 1 WHERE id = 10250;
+
+-- Test 50
+SELECT is(
+    (SELECT subtotal || ' ' || total FROM orders WHERE id = 10250),
+    '1552.60 1652.60',
+    'A written orders.subtotal and orders.total should be replaced by the derived values'
+);
+
+INSERT INTO orders (ship_name, customer_id, freight)
+VALUES ('Rollup Order', (SELECT id FROM customers WHERE customer_id = 'ALFKI'), 12.50);
+
+-- Test 51
+SELECT is(
+    (SELECT subtotal || ' ' || total FROM orders WHERE ship_name = 'Rollup Order'),
+    '0.00 12.50',
+    'An order without lines should have a zero subtotal and freight as its total'
+);
+
+INSERT INTO order_details (order_id, product_id, unit_price, quantity)
+SELECT id, 11, 10.00, 2 FROM orders WHERE ship_name = 'Rollup Order';
+
+-- Test 52
+SELECT is(
+    (SELECT subtotal || ' ' || total FROM orders WHERE ship_name = 'Rollup Order'),
+    '20.00 32.50',
+    'A new line should move orders.subtotal and orders.total'
+);
+
+DELETE FROM order_details WHERE order_id = (SELECT id FROM orders WHERE ship_name = 'Rollup Order');
+
+-- Test 53
+SELECT is(
+    (SELECT subtotal || ' ' || total FROM orders WHERE ship_name = 'Rollup Order'),
+    '0.00 12.50',
+    'Deleting the last line should return orders.subtotal and orders.total to the empty order'
 );
 
 SELECT * FROM finish();

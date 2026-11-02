@@ -14,7 +14,7 @@
 -- emitted as proper literals.
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(49);
 
 -- =====================================================
 -- GROUP 1: quote_default_value never returns caller text bare
@@ -130,6 +130,37 @@ SELECT throws_ok($$INSERT INTO dv_probe (label, note) VALUES ('r3', 'bad')$$,
 SELECT throws_like($$INSERT INTO dv_probe (label, note) VALUES ('r4', 'bad')$$,
     '%50\% off isn''t allowed%',
     'the rule message survives as the exception text');
+
+-- A dollar tag in rule text is text. The generated bodies are dollar-quoted,
+-- and a fixed tag ($RULES$, $SEL$) inside a message or a rule would have ended
+-- the body early and handed the rest of the text to EXECUTE as SQL run by the
+-- owner; dd_dollar_quote derives the tag from the body instead.
+UPDATE entities
+   SET validation_rules = $$[{"code": "99402",
+                              "message": "$RULES$ LANGUAGE plpgsql; DROP TABLE dv_probe; CREATE FUNCTION x() RETURNS void AS $RULES$ BEGIN END",
+                              "jsonlogic": {"!=": [{"var": "note"}, "$TRIG$"]}}]$$::jsonb,
+       computed_fields  = $$[{"name": "it's computed", "jsonlogic": {"cat": ["$RULES$", {"var": "note"}]}}]$$::jsonb,
+       select_rule      = $$ {"!=": [{"var": "label"}, "$SEL$ LANGUAGE sql; DROP TABLE dv_probe; CREATE FUNCTION y() RETURNS void AS $SEL$ BEGIN END"]} $$::jsonb
+ WHERE table_name = 'dv_probe';
+
+SELECT has_table('public', 'dv_probe',
+    'a dollar tag in a rule, a message and a select rule ends no generated body: the table they name survives');
+SELECT ok((SELECT prosrc LIKE '%$RULES$ LANGUAGE plpgsql; DROP TABLE%' FROM pg_proc WHERE proname = 'record_rules_dv_probe'),
+    'the tag sits inside the generated rule function as text');
+SELECT ok((SELECT prosrc LIKE '%$SEL$ LANGUAGE sql; DROP TABLE%' FROM pg_proc WHERE proname = 'select_rule_dv_probe' AND pronargs = 2),
+    'and inside the generated select rule function');
+SELECT throws_ok($$INSERT INTO dv_probe (label, note) VALUES ('r6', '$TRIG$')$$,
+    '99402', NULL,
+    'a rule whose literal is a dollar tag compares it as text');
+SELECT lives_ok($$INSERT INTO dv_probe (label, note) VALUES ('r7', 'fine')$$,
+    'and passes other values');
+
+-- Back to the rules of the first part of this group for what follows.
+UPDATE entities
+   SET validation_rules = $$[{"code":"99401","message":"50% off isn't allowed","jsonlogic":{"!=":[{"var":"note"},"bad"]}}]$$::jsonb,
+       computed_fields  = $$[{"name":"it's computed","jsonlogic":{"var":"note"}}]$$::jsonb,
+       select_rule      = '{}'::jsonb
+ WHERE table_name = 'dv_probe';
 
 -- =====================================================
 -- GROUP 5: changing and clearing a default

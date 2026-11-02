@@ -454,8 +454,8 @@ BEGIN
     -- A) Handle field_name rename
     -- --------------------------------------------------
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
-        -- Core fields (ctype <> '') cannot be renamed, except the label column
-        IF coalesce(OLD.ctype, '') <> '' THEN
+        -- Core fields (dd_ctype_is_core) cannot be renamed, except the label column
+        IF dd_ctype_is_core(OLD.ctype) THEN
             IF OLD.ctype = 'label' THEN
                 -- Label column rename is allowed; update entities.label_column
                 -- to match. family_label_column_trigger (0160_dd_functions.sql)
@@ -565,8 +565,8 @@ BEGIN
     -- both are TEXT, but email → json is not because TEXT ≠ JSONB).
     -- Unmanaged tables have no physical columns, so any format change is allowed.
     IF OLD.format IS DISTINCT FROM NEW.format AND v_is_managed THEN
-        -- Core field formats cannot be changed (ctype <> '' marks a core column; enforced here too)
-        IF coalesce(OLD.ctype, '') <> '' THEN
+        -- Core field formats cannot be changed (dd_ctype_is_core marks a core column; enforced here too)
+        IF dd_ctype_is_core(OLD.ctype) THEN
             RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
                 USING ERRCODE = '90219',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;

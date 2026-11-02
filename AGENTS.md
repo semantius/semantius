@@ -128,8 +128,11 @@ once, `9900_*` runs last.
   `select_rule_<t>`, `compute_validate_<t>`, `common.record_rules_<t>`,
   `<t>_<f>_fkey/_assert/_check/_unique`, `idx_<t>_<f>`, and for an is_a or has_a entity
   its view `<t>`, its table `<t>_ext`, `common.record_write_<t>`,
-  `common.view_write_<t>` and the root's `common.is_a_dispatch_<root>`): express
-  it through metadata, and extend the dictionary when metadata cannot say it.
+  `common.view_write_<t>` and the root's `common.is_a_dispatch_<root>`, and for a
+  rollup field `common.rollup_<child>_<link>` with its `<name>_ins/_upd/_del/_trc`
+  triggers on the child table, `common.rollup_guard_<t>` and `a_rollup_guard` on
+  the parent): express it through metadata, and extend the dictionary when
+  metadata cannot say it.
 - **After a release, forward only and additive only**: never edit a released
   `.once.` file, never rename or remove a released file, never rename, drop or
   retype a table or column (add, move the data, deprecate).

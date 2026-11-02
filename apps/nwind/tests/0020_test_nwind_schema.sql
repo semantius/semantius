@@ -8,14 +8,16 @@
 -- units_on_order),
 -- FK delete rules, unique and FK indexes, audit triggers, composed-label
 -- functions, the physical categories.sort_order order column, the
--- order-insert queue trigger and full-text search on customers.
+-- order-insert queue trigger, full-text search on customers, the entity
+-- type of every entity and the metadata of order_details.amount, orders.subtotal
+-- and orders.total.
 -- Catalog reads run as user3 (Administrator). Nothing is written.
 -- Requires: deno task migrate --apps _core,nwind,test
 -- =====================================================
 
 BEGIN;
 
-SELECT plan(61);
+SELECT plan(65);
 
 SELECT authenticate_as('user3');
 
@@ -108,7 +110,7 @@ SELECT set_eq(
     $$SELECT field_name FROM fields WHERE table_name = 'orders'$$,
     ARRAY['id', 'label', 'created_at', 'updated_at', 'ship_name', 'status', 'ship_address', 'ship_city',
           'ship_region', 'ship_postal_code', 'ship_country', 'freight', 'order_date', 'required_date',
-          'shipped_date', 'customer_id', 'employee_id', 'ship_via'],
+          'shipped_date', 'customer_id', 'employee_id', 'ship_via', 'subtotal', 'total'],
     'orders should have the expected field set'
 );
 
@@ -129,7 +131,7 @@ SELECT set_eq(
 -- Test 23
 SELECT set_eq(
     $$SELECT field_name FROM fields WHERE table_name = 'order_details'$$,
-    ARRAY['id', 'label', 'created_at', 'updated_at', 'order_id', 'product_id', 'unit_price', 'quantity', 'discount'],
+    ARRAY['id', 'label', 'created_at', 'updated_at', 'order_id', 'product_id', 'unit_price', 'quantity', 'discount', 'amount'],
     'order_details should have the expected field set'
 );
 
@@ -445,6 +447,51 @@ SELECT set_eq(
     $$SELECT field_name FROM fields WHERE table_name = 'customers' AND searchable$$,
     ARRAY['company_name', 'customer_id', 'contact_name', 'city', 'country'],
     'customers searchable fields should be company_name, customer_id, contact_name, city, country'
+);
+
+-- =====================================================
+-- ENTITY TYPES AND THE ORDER LINE AMOUNT
+-- =====================================================
+
+-- Test 62: orders and their lines are the operational entities; everything an
+-- order points at is catalog
+SELECT set_eq(
+    $$SELECT table_name || ':' || entity_type FROM entities
+      WHERE module_id = (SELECT id FROM modules WHERE module_slug = 'nwind')$$,
+    ARRAY['categories:catalog', 'customers:catalog', 'employees:catalog',
+          'suppliers:catalog', 'products:catalog', 'regions:catalog',
+          'shippers:catalog', 'territories:catalog',
+          'orders:operational_workflow', 'order_details:operational_record',
+          'employee_territories:junction'],
+    'Every Northwind entity should have the expected entity_type'
+);
+
+-- Test 63: amount is derived, so the form must not offer it, let alone submit
+-- it (disabled, not readonly: an HTML readonly input is still submitted), and
+-- it sums in a cube
+SELECT is(
+    (SELECT format || ':' || input_type || ':' || cube_type FROM fields
+      WHERE table_name = 'order_details' AND field_name = 'amount'),
+    'number:disabled:measure',
+    'order_details.amount should be a disabled number and a cube measure'
+);
+
+-- Test 64: subtotal is the rollup of the line amounts. The definition is compared
+-- as a whole, so a filter or include_hidden_rows added to it does not pass
+SELECT is(
+    (SELECT jsonb_build_array(format, ctype, input_type, cube_type, "precision", rollup) FROM fields
+      WHERE table_name = 'orders' AND field_name = 'subtotal'),
+    '["number", "rollup", "disabled", "measure", 2,
+      {"link_field": "order_details.order_id", "function": "sum", "value_field": "amount"}]'::jsonb,
+    'orders.subtotal should be a disabled rollup of order_details.amount and a cube measure'
+);
+
+-- Test 65: total is computed, not a rollup: it has a rule and no definition
+SELECT is(
+    (SELECT format || ':' || ctype || ':' || input_type || ':' || cube_type || ':' || rollup::text FROM fields
+      WHERE table_name = 'orders' AND field_name = 'total'),
+    'number:computed:disabled:measure:{}',
+    'orders.total should be a disabled computed number and a cube measure'
 );
 
 SELECT * FROM finish();

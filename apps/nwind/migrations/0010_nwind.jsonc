@@ -69,7 +69,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "company_name",
-        "entity_type": "operational_record",
+        "entity_type": "catalog",
         // DML audit logging
         "audit_log": true,
         // company_name is created as the label column
@@ -100,7 +100,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "last_name",
-        "entity_type": "operational_record",
+        "entity_type": "catalog",
         "fields": [
           {"field_name": "first_name", "title": "First Name", "format": "text", "field_order": 20, "input_type": "required", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "title", "title": "Title", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "Job title", "default_value": "", "searchable": false, "ctype": ""},
@@ -143,7 +143,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "company_name",
-        "entity_type": "operational_record",
+        "entity_type": "catalog",
         // company_name is created as the label column
         "fields": [
           {"field_name": "contact_name", "title": "Contact Name", "format": "text", "field_order": 20, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
@@ -219,7 +219,7 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "company_name",
-        "entity_type": "operational_record",
+        "entity_type": "catalog",
         // company_name is created as the label column
         "fields": [
           {"field_name": "phone", "title": "Phone", "format": "text", "field_order": 30, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""}
@@ -243,7 +243,12 @@
         // composed label: an order is labeled by its customer and its number,
         // "Vins et alcools Chevalier › 10248"; the local label is the order id
         "label_parent": "customer_id",
-        "computed_fields": [{"name": "label", "jsonlogic": {"cat": [{"var": "id"}]}}],
+        // total reads the subtotal rollup; the rollup guard runs before this
+        // rule, so a line write that moves the subtotal moves the total with it
+        "computed_fields": [
+          {"name": "label", "jsonlogic": {"cat": [{"var": "id"}]}},
+          {"name": "total", "jsonlogic": {"+": [{"var": "subtotal"}, {"var": "freight"}]}}
+        ],
         "fields": [
           {"field_name": "ship_name", "title": "Ship Name", "format": "text", "field_order": 45, "input_type": "default", "width": "default", "description": "Name of the recipient the order ships to", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "ship_address", "title": "Ship Address", "format": "text", "field_order": 50, "input_type": "default", "width": "w", "description": "", "default_value": "", "searchable": false, "ctype": ""},
@@ -256,8 +261,10 @@
           // existing field ends a batch of new fields, and ensure_entities
           // rebuilds search_vector after each batch, so this entry places
           // search_vector between the fields above and those below in the
-          // physical column order.
-          {"field_name": "label", "input_type": "readonly"},
+          // physical column order. The label is computed (computed_fields
+          // above), so the form must not submit it: disabled, not readonly,
+          // because an HTML readonly input is still part of the submission.
+          {"field_name": "label", "input_type": "disabled"},
           // not nullable, with defaults
           {"field_name": "order_date", "title": "Order Date", "format": "date", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
           {"field_name": "required_date", "title": "Required Date", "format": "date", "field_order": 120, "input_type": "default", "width": "default", "description": "", "default_value": "CURRENT_DATE", "searchable": false, "ctype": ""},
@@ -268,7 +275,15 @@
           // references, not parent: orders is not a junction or child table
           {"field_name": "customer_id", "title": "Customer", "format": "reference", "field_order": 30, "input_type": "required", "width": "default", "description": "", "reference_table": "customers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "places"},
           {"field_name": "employee_id", "title": "Employee", "format": "reference", "field_order": 34, "input_type": "default", "width": "default", "description": "", "reference_table": "employees", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "handles"},
-          {"field_name": "ship_via", "title": "Shipper", "format": "reference", "field_order": 38, "input_type": "default", "width": "default", "description": "", "reference_table": "shippers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ships"}
+          {"field_name": "ship_via", "title": "Shipper", "format": "reference", "field_order": 38, "input_type": "default", "width": "default", "description": "", "reference_table": "shippers", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ships"},
+          // subtotal and total are derived, so the form must not submit them:
+          // disabled, not readonly, because an HTML readonly input is still
+          // part of the submission. Their field_order frames freight, so a form
+          // reads subtotal, freight, total. They stay last in this array because
+          // a column a later migrate adds lands last, and a fresh install must
+          // end up with the same column order as an upgraded database.
+          {"field_name": "total", "title": "Total", "format": "number", "field_order": 105, "input_type": "disabled", "width": "default", "description": "Order total: subtotal plus freight. Currency: US$", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "measure"},
+          {"field_name": "subtotal", "title": "Subtotal", "format": "number", "field_order": 95, "input_type": "disabled", "width": "default", "description": "Sum of the amounts of the order's lines. Currency: US$", "default_value": "0.0", "searchable": false, "cube_type": "measure", "rollup": {"link_field": "order_details.order_id", "function": "sum", "value_field": "amount"}}
         ]
       }
     },
@@ -337,20 +352,32 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "label",
+        // operational though it has no lifecycle of its own: a line is a
+        // transaction like its order, and it carries payload, so it is neither
+        // catalog nor junction
         "entity_type": "operational_record",
         // composed label: an order line is labeled by its order and what it
         // orders, "Vins et alcools Chevalier › 10248 › 12 × Queso Cabrales";
         // the local label is quantity × product name, set when the line is
         // written
         "label_parent": "order_id",
-        "computed_fields": [{"name": "label", "jsonlogic": {"set_record": ["p", "products", {"var": "product_id"}, {"cat": [{"var": "quantity"}, " × ", {"var": "p.product_name"}]}]}}],
+        // amount is the line total after discount; discount is a rate (0.15 is
+        // 15%), not percentage points, so it is subtracted from 1
+        "computed_fields": [
+          {"name": "label", "jsonlogic": {"set_record": ["p", "products", {"var": "product_id"}, {"cat": [{"var": "quantity"}, " × ", {"var": "p.product_name"}]}]}},
+          {"name": "amount", "jsonlogic": {"*": [{"var": "quantity"}, {"var": "unit_price"}, {"-": [1, {"var": "discount"}]}]}}
+        ],
         "fields": [
           {"field_name": "order_id", "title": "Order", "format": "parent", "field_order": 10, "input_type": "required", "width": "default", "description": "", "reference_table": "orders", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "contains"},
           {"field_name": "product_id", "title": "Product", "format": "reference", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "products", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ordered in"},
           {"field_name": "unit_price", "title": "Unit Price", "format": "number", "field_order": 30, "input_type": "default", "width": "default", "description": "Actual price per unit charged on this order", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
           {"field_name": "quantity", "title": "Quantity", "format": "int32", "field_order": 40, "input_type": "default", "width": "default", "description": "Number of units ordered", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
           {"field_name": "discount", "title": "Discount", "format": "number", "field_order": 50, "input_type": "default", "width": "default", "description": "Discount rate applied to this line item", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
-          {"field_name": "label", "input_type": "readonly"}
+          // amount and the label are computed (computed_fields above), so the
+          // form must not submit them: disabled, not readonly, because an HTML
+          // readonly input is still part of the submission.
+          {"field_name": "amount", "title": "Amount", "format": "number", "field_order": 60, "input_type": "disabled", "width": "default", "description": "Line total after discount: quantity × unit price × (1 - discount)", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "measure"},
+          {"field_name": "label", "input_type": "disabled"}
         ]
       }
     }

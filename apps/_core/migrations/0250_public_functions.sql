@@ -259,6 +259,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
             -- first time an entity changes its key.
             field_json_type(f.format, f.reference_table) AS json_type,
+            f.rollup,
             ent.id_column AS entity_id_column,
             ent.id_type AS entity_id_type
         FROM dd_family_fields(p_table_name) WITH ORDINALITY AS f
@@ -284,8 +285,9 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             THEN jsonb_build_object('ctype', ctype)
             ELSE '{}'::jsonb
         END ||
-        -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
-        jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+        -- Add is_core field — derived from ctype (is_core column was dropped; core =
+        -- dd_ctype_is_core, which leaves the derived rollup marker out)
+        jsonb_build_object('is_core', dd_ctype_is_core(ctype)) ||
         -- Add searchable field
         jsonb_build_object('searchable', searchable) ||
         -- Add cube_type field
@@ -305,6 +307,13 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             ELSE '{}'::jsonb
         END ||
         jsonb_build_object('format', format) ||
+        -- A rollup field carries its definition (0440_rollup.sql), so a client
+        -- can show what the value is computed from.
+        CASE
+            WHEN rollup <> '{}'::jsonb
+            THEN jsonb_build_object('rollup', rollup)
+            ELSE '{}'::jsonb
+        END ||
         -- A field of an is_a or has_a entity's record that one of its bases
         -- owns: it is written through this entity like its own fields, and
         -- changed in the dictionary through the entity that owns it.

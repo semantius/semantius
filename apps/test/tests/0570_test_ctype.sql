@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. ctype coverage for the record-versioning timestamps
 --   2. ctype lock and core-column protection
+--   3. the derived marker of a computed field
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(19);
 
 -- =====================================================
 -- PART 1: ctype coverage for the record-versioning timestamps
@@ -32,11 +33,14 @@ SELECT is(
     0,
     'every created_at/updated_at field row has ctype = audit');
 
--- The ctype enum enumerates the b7 marker set.
+-- The ctype enum enumerates the b7 marker set, plus the two derived markers:
+-- rollup for a field the database aggregates (0440_rollup.sql) and computed for
+-- a field one of the entity's computed_fields writes (0210); both derived, and
+-- the two managed markers dd_ctype_is_core does not count as core.
 SELECT is(
     (SELECT enum_value_list(enum_values) FROM fields WHERE table_name = 'fields' AND field_name = 'ctype'),
-    '["", "id", "label", "audit", "core"]'::jsonb,
-    'fields.ctype enum_values are the b7 marker set');
+    '["", "id", "label", "audit", "core", "rollup", "computed"]'::jsonb,
+    'fields.ctype enum_values are the b7 marker set plus rollup and computed');
 
 -- A freshly created managed table's auto-inserted timestamps carry ctype='audit'.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
@@ -153,6 +157,69 @@ SELECT is(
 SELECT lives_ok(
     $$DELETE FROM fields WHERE table_name = 'lk_probe' AND field_name = 'sneaky'$$,
     'a normal field (empty ctype) is deletable — protection is scoped to core columns');
+
+-- =====================================================
+-- PART 3: the derived marker of a computed field
+-- =====================================================
+-- A field one of its entity's computed_fields names carries ctype 'computed'
+-- (zz_derive_computed_ctype, 0210_computed_validation.sql): derived when the
+-- field is created after the rule and when the rule is added after the field,
+-- dropped when the rule goes or the field is renamed away from it, never set by
+-- hand, not core, and the label column keeps 'label'. A computed value is not
+-- the form's to submit, so input_type default and readonly become disabled.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, computed_fields)
+VALUES ('cc_probe', 'cc_probe', 'CC Probe', 'CC Probes', 'computed ctype probe',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "label", "jsonlogic": {"cat": ["L", {"var": "qty"}]}},
+      {"name": "total", "jsonlogic": {"*": [{"var": "qty"}, 2]}}]'::jsonb);
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type)
+VALUES ('cc_probe', 'qty', 'Qty', 'int32', 10, 'default'),
+       ('cc_probe', 'total', 'Total', 'int32', 20, 'readonly');
+
+SELECT is(
+    (SELECT string_agg(field_name || ':' || ctype || ':' || input_type, ', ' ORDER BY field_name)
+       FROM fields WHERE table_name = 'cc_probe' AND field_name IN ('label', 'qty', 'total')),
+    'label:label:required, qty::default, total:computed:disabled',
+    'a field created after its rule is marked computed and disabled; the label column keeps label; an unnamed field stays plain');
+
+UPDATE entities
+   SET computed_fields = computed_fields || '[{"name": "qty", "jsonlogic": {"+": [{"var": "qty"}, 0]}}]'::jsonb
+ WHERE table_name = 'cc_probe';
+SELECT is(
+    (SELECT ctype || ':' || input_type FROM fields WHERE table_name = 'cc_probe' AND field_name = 'qty'),
+    'computed:disabled',
+    'a rule added after the field marks it');
+
+UPDATE entities
+   SET computed_fields = '[{"name": "label", "jsonlogic": {"cat": ["L", {"var": "qty"}]}}]'::jsonb
+ WHERE table_name = 'cc_probe';
+SELECT is(
+    (SELECT string_agg(ctype, ',' ORDER BY field_order) FROM fields WHERE table_name = 'cc_probe' AND field_name IN ('qty', 'total')),
+    ',',
+    'removing the rules clears the markers (the input mode stays as it is)');
+
+UPDATE entities
+   SET computed_fields = computed_fields || '[{"name": "total", "jsonlogic": {"*": [{"var": "qty"}, 2]}}]'::jsonb
+ WHERE table_name = 'cc_probe';
+UPDATE fields SET field_name = 'sum_total' WHERE table_name = 'cc_probe' AND field_name = 'total';
+SELECT is(
+    (SELECT ctype FROM fields WHERE table_name = 'cc_probe' AND field_name = 'sum_total'),
+    '',
+    'a field renamed away from its rule loses the marker (nothing rewrites computed_fields on a rename)');
+
+SELECT throws_ok(
+    $$UPDATE fields SET ctype = 'computed' WHERE table_name = 'cc_probe' AND field_name = 'qty'$$,
+    '90214', NULL,
+    'the marker cannot be set by hand');
+SELECT is(
+    (public.get_schema('cc_probe')::jsonb -> 'properties' -> 'sum_total' ->> 'is_core'),
+    'false',
+    'a computed field is not core in get_schema');
 
 SELECT * FROM finish();
 ROLLBACK;

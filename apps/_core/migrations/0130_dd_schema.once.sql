@@ -187,6 +187,10 @@ CREATE TABLE IF NOT EXISTS fields (
     -- Catalog/blueprint provenance (v0.1.2): stable design-time field identity (blueprint field name);
     -- the field-rename join key. Empty = created outside the deploy pipeline.
     catalog_field_code TEXT NOT NULL DEFAULT '',
+    -- A rollup definition (0440_rollup.sql): the field's value is an aggregate
+    -- over the records of a child entity, maintained by the database. Empty
+    -- for an ordinary field; the field's ctype is derived as 'rollup' from it.
+    rollup JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -209,7 +213,11 @@ CREATE TABLE IF NOT EXISTS fields (
     -- Ensure format is 'reference' or 'parent' when reference_table is set
     CONSTRAINT reference_table_requires_reference_format CHECK (
         (reference_table != '' AND format IN ('reference', 'parent')) OR (reference_table = '')
-    )
+    ),
+
+    -- Shape only, like select_rule_is_object; the keys of a rollup definition
+    -- are validated by zz_validate_rollup_field (0440_rollup.sql).
+    CONSTRAINT rollup_is_object CHECK (jsonb_typeof(rollup) = 'object')
 );
 
 -- Add this partial unique index:

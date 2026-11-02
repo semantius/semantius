@@ -63,6 +63,37 @@ COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 
 -- =====================================================
+-- Dollar-quoting a generated function body
+-- =====================================================
+-- A generated body is handed to EXECUTE as the owner, and text an
+-- administrator wrote (a rule, a validation message, a computed field's name,
+-- a filter literal) lands inside it through quote_literal. quote_literal
+-- protects the single-quote context only: a dollar-quoted body ends at the
+-- first occurrence of its tag wherever that is, a quoted literal included, so
+-- a fixed tag such as $RULES$ written into a message would end the body early
+-- and hand the rest of the text to EXECUTE as SQL run by the owner. The tag is
+-- therefore derived from the body itself: no literal inside the body can hold
+-- a hash of the whole body, and the check makes sure of it. Deterministic, so
+-- a regenerated body is byte-identical to the one before.
+CREATE OR REPLACE FUNCTION dd_dollar_quote(p_body TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_tag TEXT := '$dd_' || md5(p_body) || '$';
+BEGIN
+    IF position(v_tag IN p_body) > 0 THEN
+        RAISE EXCEPTION 'generated function body contains its own delimiter'
+            USING ERRCODE = '22023';
+    END IF;
+    RETURN v_tag || p_body || v_tag;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
+'Wraps a generated function body in a dollar tag derived from the body, so no quoted literal inside it can end the body early when the CREATE FUNCTION is executed. Used by every dictionary generator.';
+
+REVOKE EXECUTE ON FUNCTION dd_dollar_quote(TEXT) FROM PUBLIC;
+
+-- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
 
@@ -184,14 +215,24 @@ BEGIN
                 USING ERRCODE = '90901',
                       HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
         END IF;
+        -- A rollup column takes its value from other records, and a rule
+        -- writing it would run after the rollup guard and overwrite the
+        -- aggregate: one derivation per field (the other direction is 90261).
+        IF EXISTS (SELECT 1 FROM fields f
+                    WHERE f.table_name = p_table_name AND f.field_name = v_name AND f.rollup <> '{}'::jsonb) THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} names the rollup field ${field_name}'
+                USING ERRCODE = '90907',
+                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'field_name', v_name)::text;
+        END IF;
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
         SELECT 'ARRAY[' || string_agg(quote_literal(part), ',') || ']::text[]'
           INTO v_path_sql
           FROM unnest(string_to_array(v_name, '.')) AS part;
 
         -- The field name is admin-supplied text that lands inside the generated
-        -- function body: it is emitted as a quoted literal so quotes or dollar
-        -- signs in it cannot break out of the string. It is a value handed to
+        -- function body: it is emitted as a quoted literal, so a quote cannot
+        -- break out of the string, and the body is wrapped by dd_dollar_quote,
+        -- so a dollar tag in it cannot end the body. It is a value handed to
         -- jsonb_build_object, never a RAISE format string, so nothing in it
         -- needs escaping.
         --
@@ -278,7 +319,8 @@ $BLOCK$,
 
         -- code, message and hint are admin-supplied text that lands inside the
         -- generated function body, all three emitted as quoted literals so a
-        -- quote or a dollar sign cannot break out of the string. None of them
+        -- quote cannot break out of the string, inside a body wrapped by
+        -- dd_dollar_quote so a dollar tag in them cannot end it. None of them
         -- is a RAISE format string: the message is passed as the argument of a
         -- '%' format instead, which is what lets a rule author write a percent
         -- sign without escaping it.
@@ -333,7 +375,8 @@ $BLOCK$,
     -- has_a entities, which run as the caller, call it. It lives in common,
     -- which PostgREST does not expose, so it is no RPC.
     v_body := format($FUNC$
-CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS $RULES$
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_rules_name, dd_dollar_quote(format($RULES$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -357,8 +400,7 @@ BEGIN
 %s
     RETURN v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
 END;
-$RULES$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_rules_name, v_extra_ctx, v_rules_block);
+$RULES$, v_extra_ctx, v_rules_block)));
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
@@ -401,7 +443,8 @@ $WB$;
     -- On DELETE there is no NEW row; the rules evaluate against the row being
     -- removed (OLD), which is also $old.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS $TRIG$
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, dd_dollar_quote(format($TRIG$
 DECLARE
     v_data jsonb;
 BEGIN
@@ -415,12 +458,11 @@ BEGIN
     END IF;
 %s    RETURN NEW;
 END;
-$TRIG$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rules_name,
+$TRIG$, v_rules_name,
         CASE WHEN v_needs_old
              THEN $OLD$CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN to_jsonb(OLD) END$OLD$
              ELSE 'NULL' END,
-        v_writeback);
+        v_writeback)));
 
     EXECUTE v_body;
 
@@ -469,6 +511,21 @@ BEGIN
            OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
             PERFORM build_record_logic_trigger(NEW.table_name);
         END IF;
+        -- The ctype marker and the input mode of the fields the rules name
+        -- follow the rules. A write that changes nothing of its own runs
+        -- zz_derive_computed_ctype on the row, the one place that derives
+        -- them; only the rows whose derived state would change are written,
+        -- since every fields write costs a label-function rebuild.
+        IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields THEN
+            UPDATE fields f
+               SET ctype = f.ctype
+             WHERE f.table_name = NEW.table_name
+               AND coalesce(f.ctype, '') IN ('', 'computed')
+               AND ((f.ctype = 'computed') IS DISTINCT FROM
+                        EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)
+                    OR (f.input_type IN ('default', 'readonly')
+                        AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)));
+        END IF;
         RETURN NEW;
     END IF;
 
@@ -496,6 +553,61 @@ CREATE OR REPLACE TRIGGER manage_record_logic_trigger
     EXECUTE FUNCTION manage_record_logic_trigger();
 
 REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
+
+-- =====================================================
+-- STEP 2b: the derived ctype of a computed field
+-- =====================================================
+-- A field that one of its entity's computed_fields names carries ctype
+-- 'computed', as a rollup field carries 'rollup': derived from the rule, never
+-- sent by a client (fields_ctype_lock runs first and refuses a ctype a caller
+-- sends, so the marker never passes through it), and not a core marker
+-- (dd_ctype_is_core), so the field stays the administrator's to rename and
+-- delete. The label column is the exception: it keeps 'label', whose
+-- protection must not be lost, so a client that wants the computed labels too
+-- reads the entity's computed_fields. A computed value is not the form's to
+-- submit, so input_type default and readonly become disabled (an HTML readonly
+-- input is still part of the submission, a disabled one is not); hidden stays.
+--
+-- BEFORE INSERT OR UPDATE, so a field created after its rule is marked, a
+-- renamed field the rule no longer names loses the marker, and the no-op write
+-- manage_record_logic_trigger issues when the rules change re-derives it. The
+-- zz_ name puts it after fields_ctype_lock and before zz_validate_rollup_field,
+-- which refuses a rollup on a computed field.
+CREATE OR REPLACE FUNCTION zz_derive_computed_ctype()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_named BOOLEAN;
+BEGIN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed') THEN
+        RETURN NEW;
+    END IF;
+    SELECT EXISTS (
+        SELECT 1
+          FROM entities e, jsonb_array_elements(e.computed_fields) c
+         WHERE e.table_name = NEW.table_name
+           AND c ->> 'name' = NEW.field_name)
+      INTO v_named;
+    IF v_named THEN
+        NEW.ctype := 'computed';
+        IF NEW.input_type IN ('default', 'readonly') THEN
+            NEW.input_type := 'disabled';
+        END IF;
+    ELSIF NEW.ctype = 'computed' THEN
+        NEW.ctype := '';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION zz_derive_computed_ctype() IS
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed (and input_type disabled) on a field that one of its entity''s computed_fields names, and clears the marker when no rule names it. The label column keeps ctype label.';
+
+REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER zz_derive_computed_ctype
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION zz_derive_computed_ctype();
 
 -- =====================================================
 -- STEP 3: Per-row SELECT policy generator (select_rule)
@@ -650,8 +762,15 @@ BEGIN
     -- for callers outside a policy, get_record_by_id in 0160_dd_functions.sql
     -- among them. It carries the authentication gate for those callers, which is
     -- why it must not be reduced to a convenience wrapper that skips it.
+    -- Both bodies are wrapped by dd_dollar_quote: the rule is a quoted literal
+    -- inside the first, and a fixed body tag would be ended by the same tag
+    -- written into the rule.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS $SEL$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+$FUNC$, v_fn_name, v_rel,
+        dd_dollar_quote(format($SEL$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -666,12 +785,11 @@ BEGIN
 
     RETURN jl_truthy(v_result);
 END;
-$SEL$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
-
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS $SEL$
+$SEL$, v_row_data, v_logic_lit)),
+        v_fn_name, v_rel,
+        dd_dollar_quote(format($SEL$
     SELECT public.%I(p_row, public.jl_request_context());
-$SEL$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
-$FUNC$, v_fn_name, v_rel, v_row_data, v_logic_lit, v_fn_name, v_rel, v_fn_name);
+$SEL$, v_fn_name)));
 
     EXECUTE v_body;
 
