@@ -100,10 +100,10 @@ not be allowed to edit):
 
 - `common.rollup_<child>_<link>()`, one per child table and link field, with
   four statement-level triggers on the child table (`<name>_ins`, `_upd`,
-  `_del`, `_trc`). It recomputes every rollup column that aggregates through
-  that link for the parents a statement touched, one UPDATE per statement,
-  and writes a parent only when a value moved. After `TRUNCATE` it recomputes
-  every parent.
+  `_del`, `_trc`). It locks the parents a statement touched, then recomputes
+  every rollup column that aggregates through that link for them, one UPDATE per
+  statement, and writes a parent only when a value moved. After `TRUNCATE` it
+  recomputes every parent.
 - `common.rollup_guard_<parent>()` behind the row trigger `a_rollup_guard` on
   the parent table. A rollup column cannot be written by hand: on INSERT it is
   the empty aggregate, on UPDATE a changed value is recomputed. The guard
@@ -206,9 +206,35 @@ dollar tag derived from the body itself, so no literal can end it early.
 
 A statement that touches children of N parents runs N aggregate queries per
 rollup column through that link; the link field's index keeps each one to the
-siblings. Concurrent writes to children of one parent serialize on the parent
-row, and a statement touching children of several parents locks those rows in
-scan order, so two such statements can deadlock the way any two multi-row
-updates can; PostgreSQL aborts one. The filter compiler has no depth bound and
-the save-time probe plans whatever was written, the same trusted-administrator
-residual `SECURITY.md` accepts for rules.
+siblings. It first locks those parents in key order, with `FOR NO KEY UPDATE`, so
+concurrent writes to children of one parent wait for each other until commit, even
+when no total moves. A foreign key check takes a weaker lock and does not wait.
+
+Key order makes two statements through one link over the same parents queue rather
+than deadlock. It cannot order locks taken in separate steps, so these can still
+deadlock:
+
+- **Two links to one parent table.** A child locks through each link in turn, so a
+  transfer from A to B and one from B to A can cross.
+- **A tree.** A statement with children under both a node and its parent locks the
+  two in key order, usually parent first, while a write under the node alone locks
+  the node and then climbs to the parent.
+- **A parent, then its child.** A transaction that writes a parent and then a child
+  can cross a write to that child, which holds the child row while it waits for the
+  parent, even when that write moves no total.
+
+PostgreSQL aborts one transaction with `40P01`. It changes nothing, so the totals
+stay right, and its writer has to retry it.
+
+The lock comes before the aggregate because the aggregate has to see the writer
+ahead. An UPDATE that waits for a row lock keeps the value it computed from its
+snapshot, which could not see the other writer's children, and rechecks
+`IS DISTINCT FROM` against the row that writer committed. Two inserts under a
+`count`, or two that add the same amount, compute the same value, so the second
+skips the row and its children are never counted. Nor can the lock be skipped when
+a total looks unchanged: a writer inserting 3 under a `max` of 10 sees no change
+while another deletes the 10 without seeing the 3. The pgTAP suite runs in one
+session and cannot show any of this; `pgdocker/pg-rollup-race.sh` does.
+
+The filter compiler has no depth bound and the save-time probe plans whatever was
+written, the same trusted-administrator residual `SECURITY.md` accepts for rules.

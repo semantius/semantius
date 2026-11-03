@@ -441,6 +441,12 @@ the entity it points at being deleted cannot both succeed, which needs two sessi
 whichever arrives second waits for the first to commit and is then refused. It runs on
 the database a migrate left on the plain CLI container, and removes what it creates.
 
+`pg-rollup-race.sh` (no `.cmd` variant) proves that overlapping child writes all reach a
+rollup, which needs two sessions: two inserts under one parent both count, even when they
+add the same amount, and a lower value inserted while the maximum is deleted becomes the
+maximum. It runs on the database a migrate left on the plain CLI container, and removes
+what it creates.
+
 ### Just deploy a module (no reset, no tests)
 
 To load one or more app modules onto an **already-running** container without

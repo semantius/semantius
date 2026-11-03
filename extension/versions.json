@@ -47,7 +47,7 @@
         "_core/0410_user_bookmarks.jsonc": "87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524",
         "_core/0420_module_version.sql": "ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581",
         "_core/0430_required_field_description.once.sql": "78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0",
-        "_core/0440_rollup.sql": "eb1aaacf5bdf3d1e50aba83061f38521f314c74551b2e2720bd2d8b90b21274d",
+        "_core/0440_rollup.sql": "ae8eaab16816e3f04942900c211225ffcdaaf6e34b39e42a8310c9f99d7c5902",
         "_core/9900_owner_hardening.sql": "39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"
       }
     }
