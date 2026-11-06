@@ -706,8 +706,10 @@ BEGIN
                 THEN jsonb_build_object('ctype', ctype)
                 ELSE '{}'::jsonb
             END ||
-            -- Add is_core field — derived from ctype (is_core column was dropped; core = ctype<>'')
-            jsonb_build_object('is_core', (coalesce(ctype, '') <> '')) ||
+            -- Add is_core field — derived from ctype (is_core column was dropped). Core = any
+            -- ctype except '', 'rollup' and 'computed' (same rule as dd_ctype_is_core, inlined
+            -- because that function does not exist on pre-merge tenants).
+            jsonb_build_object('is_core', (coalesce(ctype, '') NOT IN ('', 'rollup', 'computed'))) ||
             -- Add searchable field
             jsonb_build_object('searchable', searchable) ||
             -- Add cube_type field

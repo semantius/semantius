@@ -23,8 +23,8 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 -- =====================================================
 -- user:manage implies user:read
 
-INSERT INTO permission_hierarchy (including_permission_name, included_permission_name) VALUES
-    ('user:manage', 'user:read');
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
+    ('user:manage', 'user:read', 'system');
 
 -- =====================================================
 -- SEED ROLES

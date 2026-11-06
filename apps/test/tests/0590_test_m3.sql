@@ -3,7 +3,7 @@
 -- the in-test hierarchy edges are added under user:manage (no persisted edge from there).
 BEGIN;
 
-SELECT plan(56);
+SELECT plan(57);
 
 SELECT authenticate_as('user3');
 
@@ -184,9 +184,21 @@ SELECT throws_ok(
 SELECT has_column('public', 'permission_hierarchy', 'origin',
     'permission_hierarchy.origin column exists');
 
--- Test default value
+-- The seeded entry is a platform built-in
 SELECT is(
-    (SELECT DISTINCT origin FROM permission_hierarchy LIMIT 1),
+    (SELECT origin FROM permission_hierarchy
+     WHERE including_permission_name = 'user:manage' AND included_permission_name = 'user:read'),
+    'system',
+    'seeded permission_hierarchy entry has origin system'
+);
+
+-- Test default value
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name)
+VALUES ('public:read', 'user:read');
+
+SELECT is(
+    (SELECT origin FROM permission_hierarchy
+     WHERE including_permission_name = 'public:read' AND included_permission_name = 'user:read'),
     'user',
     'permission_hierarchy.origin defaults to user'
 );

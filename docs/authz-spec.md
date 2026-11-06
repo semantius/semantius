@@ -162,7 +162,8 @@ core of the remediation — today it is not):
 - **I5 · No privilege escalation** — cannot self-grant by writing `user_roles`/
   `role_permissions`/`user_permissions`/`permissions`/`permission_hierarchy`/`raci_assignments`
   without the governing permission. (Bootstrap first-user→admin is a characterized exception.)
-- **I6 · DD integrity** — core fields (identified by `ctype <> ''`) cannot be deleted or
+- **I6 · DD integrity** — core fields (identified by `dd_ctype_is_core(ctype)`, i.e. `ctype` not in
+  `''`, `'rollup'`, `'computed'`; originally `ctype <> ''`) cannot be deleted or
   structurally altered (format/default/pk) by any non-migration subject, via any op/shape/role;
   they cannot be renamed EXCEPT the label column (`ctype='label'`), whose rename is
   *intentionally allowed* and cascades to `entities.label_column` (pinned by
