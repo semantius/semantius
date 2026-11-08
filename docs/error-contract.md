@@ -397,6 +397,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90007` | `90007` | `external_id cannot be null or empty` | - | - | An argument guard, not a refusal, so it answers 400. |
 | `90008` | `90008` | `Failed to create or find user: external_id = ${external_id}` | - | `external_id` | `get_userinfo` upserted the user and got nothing back. |
 | `90009` | `42501` | `Authentication required: Microsoft Entra ID token is missing the tid or oid claim` | - | - | The token's `iss` is an Entra issuer, whose user is identified by `entra.<tid>.<oid>`, and one of the two is absent. Falling back to `sub` would create a second identity for the same person. |
+| `90011` | `90011` | `Database ${database} must run in UTC with ISO 8601 durations, but this session has time zone ${time_zone} and interval style ${interval_style}. Run ALTER DATABASE ${database} SET timezone = 'UTC' and ALTER DATABASE ${database} SET intervalstyle = 'iso_8601', then reconnect.` | - | `database`, `time_zone`, `interval_style` | `get_userinfo` refuses a session without the database's UTC and ISO 8601 defaults, which a plain logical restore drops. Connections opened before the statements run keep the old values until they reconnect. |
 | `90010` | `90010` | `Unexpected error: unable to build user info JSON for user_id = ${user_id}` | - | `user_id` | As 90008, at the end of `get_userinfo`. |
 
 ### 901xx - permissions, roles and lockout guards

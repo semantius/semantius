@@ -57,6 +57,21 @@ BEGIN
     -- Get current user from JWT
     v_external_id := rbac.uid();
 
+    -- A date-time sent with no offset is read in the session's zone before any of
+    -- our code runs, and the API's durations follow the session's interval style.
+    -- Only the database defaults set in 0020_settings.once.sql make those right, and
+    -- a plain logical restore drops them without an error. So a session without them
+    -- is refused here, at the start of a login, instead of storing the wrong instant
+    -- unnoticed. The live values are read rather than the stored defaults because
+    -- they are what this connection actually uses.
+    IF current_setting('TimeZone') <> 'UTC' OR current_setting('IntervalStyle') <> 'iso_8601' THEN
+        RAISE EXCEPTION 'Database ${database} must run in UTC with ISO 8601 durations, but this session has time zone ${time_zone} and interval style ${interval_style}. Run ALTER DATABASE ${database} SET timezone = ''UTC'' and ALTER DATABASE ${database} SET intervalstyle = ''iso_8601'', then reconnect.'
+            USING ERRCODE = '90011',
+                  HINT = jsonb_build_object('database', current_database(),
+                                            'time_zone', current_setting('TimeZone'),
+                                            'interval_style', current_setting('IntervalStyle'))::text;
+    END IF;
+
     -- Get claims from JWT
     v_email := current_setting('request.jwt.claim.email', true);
     v_display_name := current_setting('request.jwt.claim.name', true);

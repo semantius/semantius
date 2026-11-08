@@ -56,6 +56,12 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   `pg_restore --no-owner` additionally loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
   would run as the restorer. Restore as the same superuser name, without
   `--no-owner`.
+- **A plain logical restore loses the database's UTC settings.** `timezone` and
+  `intervalstyle` are set with `ALTER DATABASE`, and `pg_dump` and `pg_restore`
+  carry those only with `--create`. Without them a date-time sent with no offset
+  is read in the server's zone. `get_userinfo()` refuses such a session with
+  90011, whose message gives the two statements to run. Connections opened
+  before they run keep the old values until they reconnect.
 - **A function you create by hand in any of the extension's schemas is
   PUBLIC-executable.** PostgreSQL grants EXECUTE to PUBLIC on every new
   function, and the `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS

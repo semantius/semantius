@@ -43,7 +43,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA common
 --
 -- For a role that does not own the database this raises, on purpose: an install
 -- that cannot guarantee UTC must not look like one that succeeded. The settings
--- apply to connections opened afterward.
+-- apply to connections opened afterward. A plain logical restore does not carry
+-- them; get_userinfo() refuses a session that lacks them (90011).
 DO $$
 BEGIN
     EXECUTE format('ALTER DATABASE %I SET timezone = %L', current_database(), 'UTC');

@@ -7,7 +7,7 @@
 -- each kind to exist; the presence check keeps it from passing over nothing.
 BEGIN;
 
-SELECT plan(4);
+SELECT plan(8);
 
 SELECT ok(
     EXISTS (SELECT 1
@@ -28,6 +28,24 @@ SELECT ok(
                AND s.setrole = 0
                AND lower(c) = 'intervalstyle=iso_8601'),
     'the database renders durations in ISO 8601');
+
+SELECT authenticate_as('user1');
+
+SELECT lives_ok($$SELECT public.get_userinfo()$$, 'a session in UTC and ISO 8601 can start');
+
+SET LOCAL timezone = 'Asia/Tokyo';
+SELECT throws_ok($$SELECT public.get_userinfo()$$, '90011', NULL,
+    'a session in another time zone is refused, as it would misread a date-time with no offset');
+SELECT is(
+    catch_error_hint($$SELECT public.get_userinfo()$$),
+    jsonb_build_object('database', current_database(), 'time_zone', 'Asia/Tokyo', 'interval_style', 'iso_8601'),
+    'and the error says what the session has');
+SET LOCAL timezone = 'UTC';
+
+SET LOCAL intervalstyle = 'postgres';
+SELECT throws_ok($$SELECT public.get_userinfo()$$, '90011', NULL,
+    'a session in another interval style is refused, as a lost default would be');
+SET LOCAL intervalstyle = 'iso_8601';
 
 SELECT authenticate_as('user3');
 

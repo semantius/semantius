@@ -209,5 +209,6 @@ completion is deferred, because deploying needs a commit.
 
 - Every API reader of a `duration` field gets ISO 8601 (`P3DT4H`) instead of
   `3 days 04:00:00`.
-- A dump restored without `--create` loses the database defaults. Rule functions
-  stay UTC, but `CURRENT_DATE` column defaults would follow the session.
+- A dump restored without `--create` loses the database defaults. `get_userinfo`
+  then refuses the session with 90011 and names the two statements to run, which
+  `SECURITY.md` records.
