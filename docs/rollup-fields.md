@@ -157,10 +157,22 @@ next to the one interpreter:
 | `{"var": "column"}` | the child's column: a plain name, present in the catalog, of type text, boolean, integer, numeric, float, date, timestamp, uuid or TypeID |
 | a string, number or boolean | a literal cast to the type of the column it is compared with |
 | a bare `{"var": "flag"}` | a boolean column as a condition |
+| `date_add`, `date_diff`, `date_part`, `date_trunc`, `to_date`, `date_format` as a value | a call of the interpreter's own `jl_date_*` function, so the filter and a validation rule cannot disagree |
+
+A date operator takes a date or date-time column, an ISO 8601 literal or another
+date operator as its date. Its unit, part or pattern is a literal, and its amount
+is a literal or an integer column. A duration column is accepted only as the
+duration of `date_add` on a date-time, because on a date column a value with a
+time of day would fail an otherwise valid child write. Everything the operator
+would refuse is refused when the definition is saved, and so is a blank date or
+amount, whose value could only ever be null.
+
+A date literal compared with a date or date-time column has to be ISO 8601 and is
+read in UTC.
 
 Everything else is refused when the definition is saved (90265) and the error
 names what was refused: any other operator (`if`, arithmetic, `cat`,
-`substr`, `merge`, `missing`, `some`, the custom operators), a request
+`substr`, `merge`, `missing`, `some`, the other custom operators), a request
 variable (`$user_id`, `$now`, `$today`: a rollup can only be kept correct by
 triggers if it depends on the child row alone), a path, a `var` with a
 default, an operator object with two keys, a literal the column cannot be cast

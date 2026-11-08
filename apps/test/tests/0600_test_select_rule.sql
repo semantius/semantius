@@ -9,7 +9,7 @@
 --      whole-record skip, a derived select_rule over the whole record
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(23);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -227,6 +227,42 @@ SELECT is(
     (SELECT count(*)::int FROM sel_now_rule WHERE label = 'future'),
     1,
     '$now: the future row is not over-filtered (rule is not hiding everything)');
+
+-- =====================================================
+-- $today is the UTC date whatever the session's zone
+-- =====================================================
+-- The two zones are on different calendar days at every instant, so at least one
+-- of them differs from UTC.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+VALUES (
+    'sel_utc_rule',
+    'sel_utc_rule_item',
+    'Sel Utc Rule Item',
+    'Sel Utc Rule Items',
+    'select_rule comparing with the UTC date',
+    '{"==":[{"var":"valid_on"},{"var":"$today"}]}'::jsonb,
+    1
+);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('sel_utc_rule', 'valid_on', 'Valid On', 'date', 10);
+
+INSERT INTO sel_utc_rule (label, valid_on)
+VALUES ('today', (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date);
+
+SET LOCAL timezone = 'Pacific/Kiritimati';
+SELECT is(
+    (SELECT count(*)::int FROM sel_utc_rule),
+    1,
+    '$today at UTC+14 is the UTC date inside a select_rule');
+
+SET LOCAL timezone = 'Pacific/Pago_Pago';
+SELECT is(
+    (SELECT count(*)::int FROM sel_utc_rule),
+    1,
+    '$today at UTC-11 is the UTC date inside a select_rule');
+
+SET LOCAL timezone = 'UTC';
 
 -- =====================================================
 -- PART 3: is_a records under row security

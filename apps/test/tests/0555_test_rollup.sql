@@ -14,7 +14,7 @@
 --   8. A definition removed while the field stays
 BEGIN;
 
-SELECT plan(123);
+SELECT plan(179);
 
 SELECT authenticate_as('user3');
 
@@ -182,6 +182,190 @@ SELECT is((SELECT picky FROM ru_parent WHERE label = 'P1'), 1::bigint,
 UPDATE ru_child SET ship_date = NULL WHERE label = 'c1';
 SELECT is((SELECT picky FROM ru_parent WHERE label = 'P1'), 0::bigint,
     '!= null is null-safe: a child whose date became NULL drops out');
+
+-- Date operators as filter values, through a real rollup first.
+SELECT authenticate_as('user3');
+
+INSERT INTO ru_parent (label) VALUES ('PD');
+INSERT INTO ru_child (label, parent_id, amount, qty, status, note, ship_date)
+SELECT v.l, (SELECT id FROM ru_parent WHERE label = 'PD'), 1, 1, 'open', v.l, v.d::date
+  FROM (VALUES ('d1', '2026-12-31'), ('d2', '2026-01-31')) AS v(l, d);
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('ru_parent', 'q4_lines', 'Q4 lines', 'int64', 85,
+        '{"link_field": "ru_child.parent_id", "function": "count",
+          "filter": {"==": [{"date_part": [{"var": "ship_date"}, "quarter"]}, 4]}}');
+SELECT is((SELECT q4_lines FROM ru_parent WHERE label = 'PD'), 1::bigint,
+    'date operators: a filter on date_part counts the matching children when the rollup is added');
+UPDATE ru_child SET ship_date = '2026-10-01' WHERE label = 'd2';
+SELECT is((SELECT q4_lines FROM ru_parent WHERE label = 'PD'), 2::bigint,
+    'date operators: and follows a child write');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('ru_parent', 'odd_lines', 'Odd lines', 'int64', 86,
+        '{"link_field": "ru_child.parent_id", "function": "count",
+          "filter": {"==": [{"date_format": [{"var": "ship_date"}, "YYYY"]}, "$$; DROP TABLE ru_parent; --"]}}');
+UPDATE ru_child SET note = 'still writable' WHERE label = 'd1';
+SELECT is((SELECT odd_lines FROM ru_parent WHERE label = 'PD'), 0::bigint,
+    'a hostile literal in a saved date filter is only a literal: the generated trigger still runs');
+
+DELETE FROM fields WHERE table_name = 'ru_parent' AND field_name = 'odd_lines';
+DELETE FROM fields WHERE table_name = 'ru_parent' AND field_name = 'q4_lines';
+DELETE FROM ru_child WHERE label IN ('d1', 'd2');
+DELETE FROM ru_parent WHERE label = 'PD';
+
+-- The compiled filter and the interpreter over the same rows. Each answer is the
+-- pair of counts, so an agreement on nothing cannot pass.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE TABLE public.ru_date_rows (
+    id   SERIAL PRIMARY KEY,
+    d    DATE,
+    ts   TIMESTAMPTZ,
+    n    INTEGER NOT NULL DEFAULT 0,
+    g    INTERVAL NOT NULL DEFAULT 'PT0S',
+    note TEXT NOT NULL DEFAULT ''
+);
+INSERT INTO public.ru_date_rows (d, ts, n, g) VALUES
+    ('2026-01-31', '2026-01-31T23:30:00Z',  1, 'P1D'),
+    ('2026-02-28', '2026-02-28T00:00:00Z',  2, 'PT1H'),
+    ('2026-12-31', '2026-12-31T12:00:00Z', -1, 'P1M'),
+    (NULL,         NULL,                    0, 'PT0S');
+
+CREATE FUNCTION pg_temp.ru_compiled(p_rule JSONB) RETURNS INTEGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_count INTEGER;
+BEGIN
+    EXECUTE format('SELECT count(*)::int FROM public.ru_date_rows c WHERE %s', rollup_filter_sql(p_rule, 'ru_date_rows', 'c')) INTO v_count;
+    RETURN v_count;
+END;
+$$;
+
+CREATE FUNCTION pg_temp.ru_both(p_rule JSONB) RETURNS INTEGER[] LANGUAGE sql AS $$
+    SELECT ARRAY[pg_temp.ru_compiled(p_rule),
+                 (SELECT count(*)::int FROM public.ru_date_rows r WHERE jl_truthy(evaluate_json_logic(p_rule, to_jsonb(r))))];
+$$;
+
+SELECT is(pg_temp.ru_both('{"==": [{"date_part": [{"var": "d"}, "quarter"]}, 4]}'), ARRAY[1, 1], 'equivalence: date_part');
+SELECT is(pg_temp.ru_both('{"in": [{"date_part": [{"var": "d"}, "month"]}, [1, 2]]}'), ARRAY[2, 2], 'equivalence: date_part in a list');
+SELECT is(pg_temp.ru_both('{"==": [{"date_add": [{"var": "d"}, 1, "month"]}, "2026-02-28"]}'), ARRAY[1, 1], 'equivalence: date_add clamps a month end');
+SELECT is(pg_temp.ru_both('{"==": [{"date_add": [{"var": "d"}, {"var": "n"}, "day"]}, "2026-02-01"]}'), ARRAY[1, 1], 'equivalence: date_add with an amount column');
+SELECT is(pg_temp.ru_both('{">": [{"date_diff": ["2026-12-31", {"var": "d"}, "day"]}, 300]}'), ARRAY[2, 2], 'equivalence: date_diff from a literal');
+SELECT is(pg_temp.ru_both('{"==": [{"date_trunc": [{"var": "d"}, "quarter"]}, "2026-01-01"]}'), ARRAY[2, 2], 'equivalence: date_trunc');
+SELECT is(pg_temp.ru_both('{"==": [{"to_date": [{"var": "ts"}]}, "2026-02-28"]}'), ARRAY[1, 1], 'equivalence: to_date');
+SELECT is(pg_temp.ru_both('{"==": [{"date_format": [{"var": "d"}, "Mon YYYY"]}, "Dec 2026"]}'), ARRAY[1, 1], 'equivalence: date_format');
+SELECT is(pg_temp.ru_both('{"==": [{"date_part": [{"var": "ts"}, "hour"]}, 23]}'), ARRAY[1, 1], 'equivalence: a part of a date-time');
+SELECT is(pg_temp.ru_both('{"==": [{"date_part": [{"date_add": [{"var": "d"}, 1, "month"]}, "month"]}, 3]}'), ARRAY[1, 1], 'equivalence: nested date operators');
+SELECT is(pg_temp.ru_both('{"==": [{"date_add": [{"var": "ts"}, {"var": "g"}]}, "2026-02-01T23:30:00+00:00"]}'), ARRAY[1, 1], 'equivalence: date_add with a duration column');
+SELECT is(pg_temp.ru_both('{"==": [{"date_add": [{"var": "d"}, "P1M"]}, "2026-02-28"]}'), ARRAY[1, 1], 'equivalence: date_add with a literal duration');
+SELECT is(pg_temp.ru_both('{"==": [{"date_part": [{"var": "d"}, "year"]}, null]}'), ARRAY[1, 1], 'equivalence: a null date gives null');
+
+SET LOCAL timezone = 'Pacific/Kiritimati';
+SELECT is(pg_temp.ru_both('{"==": [{"date_part": [{"var": "ts"}, "hour"]}, 23]}'), ARRAY[1, 1], 'equivalence at UTC+14: a part of a date-time is UTC');
+SELECT is(pg_temp.ru_both('{"==": [{"to_date": [{"var": "ts"}]}, "2026-02-28"]}'), ARRAY[1, 1], 'equivalence at UTC+14: to_date is UTC');
+SELECT is(pg_temp.ru_compiled('{"==": [{"var": "ts"}, "2026-02-28T00:00:00"]}'), 1,
+    'a date-time literal with no offset is UTC, not the session''s zone');
+SELECT is(pg_temp.ru_compiled('{"==": [{"var": "ts"}, "2026-02-28"]}'), 1,
+    'a date-only literal against a date-time column is midnight UTC');
+
+SET LOCAL timezone = 'Pacific/Pago_Pago';
+SELECT is(pg_temp.ru_both('{"==": [{"date_part": [{"var": "ts"}, "hour"]}, 23]}'), ARRAY[1, 1], 'equivalence at UTC-11: a part of a date-time is UTC');
+SELECT is(pg_temp.ru_both('{"==": [{"to_date": [{"var": "ts"}]}, "2026-02-28"]}'), ARRAY[1, 1], 'equivalence at UTC-11: to_date is UTC');
+SELECT is(pg_temp.ru_compiled('{"==": [{"var": "ts"}, "2026-02-28T00:00:00"]}'), 1,
+    'at UTC-11 a date-time literal with no offset is still UTC');
+SELECT is(pg_temp.ru_compiled('{"==": [{"var": "ts"}, "2026-02-28"]}'), 1,
+    'at UTC-11 a date-only literal against a date-time column is still midnight UTC');
+SET LOCAL timezone = 'UTC';
+
+SET LOCAL intervalstyle = 'postgres';
+SELECT is(pg_temp.ru_compiled('{"==": [{"date_add": [{"var": "ts"}, {"var": "g"}]}, "2026-02-01T23:30:00+00:00"]}'), 1,
+    'a duration column works whatever the session''s interval style');
+SET LOCAL intervalstyle = 'iso_8601';
+
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_trunc": [{"var": "d"}, "fortnight"]}, "2026-01-01"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: an unknown unit is refused when saved');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_part": [{"var": "d"}, "hour"]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: a sub-day part on a date column is refused when saved');
+SELECT is(catch_error_hint($$SELECT rollup_filter_sql('{"==": [{"date_part": [{"var": "d"}, "hour"]}, 1]}', 'ru_date_rows', 'c')$$) ->> 'problem',
+    'date_part cannot take the arguments [{"var": "d"}, "hour"]', 'date operators: the hint names the operator and its arguments');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_part": [{"var": "d"}, {"var": "note"}]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: a unit that is not a literal is refused');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_diff": [{"var": "$today"}, {"var": "d"}, "day"]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: $today stays refused, or the rollup would go stale');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_part": [{"var": "note"}, "year"]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: a text column is not a date, or a bad value would fail a child write');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_format": [{"var": "d"}, "TMMon"]}, "x"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: a pattern outside the token list is refused');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_add": [{"var": "d"}, {"-": [0, {"var": "n"}]}, "day"]}, "2026-01-01"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: arithmetic stays out, even as an argument');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"date_part": [{"var": "d"}, "year"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: a date operator alone is not a condition');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_part": [{"var": "d"}]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: the wrong number of arguments is refused');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_add": [{"var": "d"}, {"var": "g"}]}, "2026-01-01"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'date operators: a duration column on a date column is refused, as it could fail on a later child write');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"var": "g"}, "P1D"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'a duration column still cannot be compared');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"var": "d"}, "today"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'a date column refuses a literal that would change meaning with the day');
+
+-- The interpreter answers null for a blank date or amount before it looks at the
+-- other arguments, so a blank must not be able to carry unchecked ones past the save.
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_part": ["", "anything"]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'a blank date is refused, with an unknown part after it');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_add": [{"var": "d"}, "", "anything"]}, "2026-01-01"]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'a blank amount is refused, with an unknown unit after it');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"==": [{"date_part": [{"date_trunc": ["", "x"]}, "year"]}, 1]}', 'ru_date_rows', 'c')$$,
+    '90265', NULL, 'a blank date inside a nested date operator is refused');
+
+-- Hostile text in every argument position. The test is that each value is refused
+-- with 90265: an answer other than a refusal lists the value, and any other error
+-- fails the test by itself.
+CREATE FUNCTION pg_temp.ru_hostile() RETURNS TEXT[] LANGUAGE sql AS $f$
+    SELECT ARRAY[
+        'x''; DROP TABLE public.ru_date_rows; --',
+        '$$; DROP TABLE public.ru_date_rows; $$',
+        '%s %L %I',
+        'back\slash''',
+        '"); DROP TABLE public.ru_date_rows; --'
+    ]
+$f$;
+
+CREATE FUNCTION pg_temp.ru_not_refused(p_template TEXT) RETURNS TEXT[] LANGUAGE plpgsql AS $f$
+DECLARE
+    v_value TEXT;
+    v_out   TEXT[] := ARRAY[]::TEXT[];
+BEGIN
+    FOREACH v_value IN ARRAY pg_temp.ru_hostile() LOOP
+        BEGIN
+            PERFORM rollup_filter_sql(replace(p_template, '"@"', to_jsonb(v_value)::text)::jsonb, 'ru_date_rows', 'c');
+            v_out := v_out || v_value;
+        EXCEPTION WHEN SQLSTATE '90265' THEN
+            NULL;
+        END;
+    END LOOP;
+    RETURN v_out;
+END;
+$f$;
+
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_part": ["@", "year"]}, 1]}'), ARRAY[]::TEXT[], 'hostile text as a date literal is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_trunc": [{"var": "d"}, "@"]}, "2026-01-01"]}'), ARRAY[]::TEXT[], 'hostile text as a unit is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_part": [{"var": "d"}, "@"]}, 1]}'), ARRAY[]::TEXT[], 'hostile text as a part is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_format": [{"var": "d"}, "@"]}, "x"]}'), ARRAY[]::TEXT[], 'hostile text as a pattern is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_add": [{"var": "d"}, "@", "day"]}, "2026-01-01"]}'), ARRAY[]::TEXT[], 'hostile text as an amount is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_add": [{"var": "ts"}, "@"]}, "2026-01-01"]}'), ARRAY[]::TEXT[], 'hostile text as a duration is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"date_part": [{"var": "@"}, "year"]}, 1]}'), ARRAY[]::TEXT[], 'hostile text as a column name is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"var": "d"}, "@"]}'), ARRAY[]::TEXT[], 'hostile text compared with a date column is refused');
+SELECT is(pg_temp.ru_not_refused('{"==": [{"var": "ts"}, "@"]}'), ARRAY[]::TEXT[], 'hostile text compared with a date-time column is refused');
+
+-- Compared with the text date_format produces, any text is a valid literal, so
+-- this one is compiled and has to be inert.
+SELECT is((SELECT sum(pg_temp.ru_compiled(('{"==": [{"date_format": [{"var": "d"}, "YYYY"]}, ' || to_jsonb(v)::text || ']}')::jsonb))::int
+             FROM unnest(pg_temp.ru_hostile()) AS v), 0,
+    'hostile text compared with a formatted date runs as a literal and matches nothing');
+SELECT is((SELECT count(*)::int FROM public.ru_date_rows), 4, 'and the table and its rows are still there');
+
+SELECT authenticate_as('user3');
 
 -- =====================================================
 -- PART 3: Backfill, the guard, and the parent's updated_at and audit
@@ -423,6 +607,13 @@ SELECT throws_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function"
     '90265', NULL, '90265: null in an ordering comparison');
 SELECT throws_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"var": "note"}}', 'int64'),
     '90265', NULL, '90265: a bare column that is not boolean');
+SELECT throws_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"date_part": [{"var": "ship_date"}, "hour"]}, 1]}}', 'int64'),
+    '90265', NULL, '90265: a date operator the field cannot use, refused when the field is saved');
+SELECT is(
+    (SELECT (h ->> 'table') || '.' || (h ->> 'field_name') || ': ' || (h ->> 'problem')
+       FROM catch_error_hint(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"date_part": [{"var": "ship_date"}, "hour"]}, 1]}}', 'int64')) AS h),
+    'ru_parent.probe: date_part cannot take the arguments [{"var": "ship_date"}, "hour"]',
+    'and the error names the table, the field and what was refused');
 
 -- A TypeID key as a filter column: the literal is checked at compile time.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
@@ -529,6 +720,21 @@ SELECT is((SELECT rollup ->> 'value_field' FROM fields WHERE table_name = 'ru_or
 UPDATE fields SET field_name = 'state' WHERE table_name = 'ru_lines' AND field_name = 'status';
 SELECT is((SELECT rollup -> 'filter' FROM fields WHERE table_name = 'ru_orders' AND field_name = 'open_total'),
     '{"==": [{"var": "state"}, "open"]}'::jsonb, 'a filtered column rename rewrites the filter');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('ru_orders', 'q4_lines', 'Q4 lines', 'int64', 900,
+        '{"link_field": "ru_lines.order_id", "function": "count",
+          "filter": {"==": [{"date_part": [{"var": "ship_date"}, "quarter"]}, 4]}}');
+UPDATE fields SET field_name = 'sent_on' WHERE table_name = 'ru_lines' AND field_name = 'ship_date';
+SELECT is((SELECT rollup -> 'filter' FROM fields WHERE table_name = 'ru_orders' AND field_name = 'q4_lines'),
+    '{"==": [{"date_part": [{"var": "sent_on"}, "quarter"]}, 4]}'::jsonb,
+    'a rename reaches a column named inside a date operator');
+UPDATE ru_lines SET sent_on = '2026-11-01' WHERE label = 'c8';
+SELECT is((SELECT q4_lines FROM ru_orders WHERE label = 'P1'), 1::bigint,
+    'and the rebuilt filter reads the renamed column');
+UPDATE ru_lines SET sent_on = NULL WHERE label = 'c8';
+DELETE FROM fields WHERE table_name = 'ru_orders' AND field_name = 'q4_lines';
+UPDATE fields SET field_name = 'ship_date' WHERE table_name = 'ru_lines' AND field_name = 'sent_on';
 
 UPDATE fields SET field_name = 'grand_total' WHERE table_name = 'ru_orders' AND field_name = 'total';
 UPDATE ru_lines SET amt = 12.000 WHERE label = 'c8';

@@ -3601,7 +3601,7 @@ BEGIN
     v_body := format($BODY$
 CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
 RETURNS %2$s
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
 AS $RW$
 #variable_conflict use_variable
 DECLARE

@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(92);
+SELECT plan(139);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1014,6 +1014,185 @@ SELECT is(
     '"Flag: false done"'::jsonb,
     'concat: false should concatenate (not be treated as empty)'
 );
+
+-- =====================================================
+-- Date operators: what only the server can answer
+-- =====================================================
+-- The answers every evaluator must agree on are in 0100_test_jsonlogic.json. These
+-- are the refusals, which the browser swallows, the epoch forms, which it cannot
+-- compute, and the independence from the session's settings.
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["today",1,"day"]}'::jsonb, '{}'::jsonb)$$,
+    '90915', '${operator} needs an ISO 8601 date or date-time, not ${value}',
+    'dates: today is refused, or a stored value would depend on the day the rule ran');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["infinity",1,"day"]}'::jsonb, '{}'::jsonb)$$,
+    '90915', '${operator} needs an ISO 8601 date or date-time, not ${value}',
+    'dates: infinity is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_part":["J2461406","year"]}'::jsonb, '{}'::jsonb)$$,
+    '90915', '${operator} needs an ISO 8601 date or date-time, not ${value}',
+    'dates: a Julian date is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"to_date":["01/02/2026"]}'::jsonb, '{}'::jsonb)$$,
+    '90915', '${operator} needs an ISO 8601 date or date-time, not ${value}',
+    'dates: a locale format is refused, because its meaning follows DateStyle');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":[5,1,"day"]}'::jsonb, '{}'::jsonb)$$,
+    '90915', '${operator} needs an ISO 8601 date or date-time, not ${value}',
+    'dates: a number is a date only to to_date');
+SELECT is(
+    catch_error_hint($$SELECT evaluate_json_logic('{"date_add":["today",1,"day"]}'::jsonb, '{}'::jsonb)$$),
+    '{"operator":"date_add","value":"today"}'::jsonb,
+    'dates: 90915 carries the operator and the value');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-02-30",1,"day"]}'::jsonb, '{}'::jsonb)$$,
+    '22008', NULL,
+    'dates: a well-formed impossible date raises PostgreSQL''s own error');
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01",1,"fortnight"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: an unknown unit is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01",30]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: a number with no unit is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01",1,"hour"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: date_add refuses a sub-day unit on a date-only value');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","PT1H"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: date_add refuses a duration with a time part on a date-only value');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_trunc":["2026-01-01","minute"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: date_trunc refuses a sub-day unit on a date-only value');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_part":["2026-01-01","hour"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: date_part refuses a sub-day part on a date-only value');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_part":["2026-01-01","century"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: an unknown part is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_diff":["2026-01-02","2026-01-01","fortnight"]}'::jsonb, '{}'::jsonb)$$,
+    '90916', '${operator} cannot use ${unit} on this value',
+    'dates: date_diff refuses an unknown unit');
+SELECT is(
+    catch_error_hint($$SELECT evaluate_json_logic('{"date_add":["2026-01-01",1,"fortnight"]}'::jsonb, '{}'::jsonb)$$),
+    '{"operator":"date_add","unit":"fortnight"}'::jsonb,
+    'dates: 90916 carries the operator and the unit');
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_format":["2026-01-01","TMMon"]}'::jsonb, '{}'::jsonb)$$,
+    '90917', '${operator} cannot use the pattern ${pattern}',
+    'dates: a locale-dependent pattern is refused, or a stored label would follow lc_time');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_format":["2026-01-01","YYYY foo"]}'::jsonb, '{}'::jsonb)$$,
+    '90917', '${operator} cannot use the pattern ${pattern}',
+    'dates: text outside the token list is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_format":["2026-01-01","HH24:MI"]}'::jsonb, '{}'::jsonb)$$,
+    '90917', '${operator} cannot use the pattern ${pattern}',
+    'dates: a time-of-day token is refused on a date-only value');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_format":["2026-01-01",null]}'::jsonb, '{}'::jsonb)$$,
+    '90917', '${operator} cannot use the pattern ${pattern}',
+    'dates: a null pattern is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_format":["2026-01-01",""]}'::jsonb, '{}'::jsonb)$$,
+    '90917', '${operator} cannot use the pattern ${pattern}',
+    'dates: an empty pattern is refused');
+SELECT is(
+    catch_error_hint($$SELECT evaluate_json_logic('{"date_format":["2026-01-01","TMMon"]}'::jsonb, '{}'::jsonb)$$),
+    '{"operator":"date_format","pattern":"TMMon"}'::jsonb,
+    'dates: 90917 carries the operator and the pattern');
+
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01",1.5,"day"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a fractional amount is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","abc","day"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a non-numeric amount is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","P"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a duration with no fields is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","PT"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a duration with an empty time part is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","P1DT"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a duration ending in T is refused');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","1 day"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: PostgreSQL interval text is refused, so the browser need parse only one grammar');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","-P1D"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a leading minus is refused; PostgreSQL signs each field');
+SELECT throws_ok(
+    $$SELECT evaluate_json_logic('{"date_add":["2026-01-01","P1.5D"]}'::jsonb, '{}'::jsonb)$$,
+    '90918', '${operator} needs a whole number or an ISO 8601 duration, not ${value}',
+    'dates: a fraction outside the seconds field is refused');
+SELECT is(
+    catch_error_hint($$SELECT evaluate_json_logic('{"date_add":["2026-01-01",1.5,"day"]}'::jsonb, '{}'::jsonb)$$),
+    '{"operator":"date_add","value":1.5}'::jsonb,
+    'dates: 90918 carries the operator and the value');
+
+-- Arithmetic on a date yields epoch seconds on the server, NaN in the browser.
+SELECT is(
+    evaluate_json_logic('{"to_date":[{"-":[{"var":"term_end"},{"*":[30,86400]}]}]}'::jsonb, '{"term_end":"2026-12-31"}'::jsonb),
+    '"2026-12-01"'::jsonb,
+    'dates: to_date turns the epoch integer of date arithmetic back into a date');
+SELECT is(
+    evaluate_json_logic('{"to_date":[{"max":["2026-01-05","2026-03-01"]}]}'::jsonb, '{}'::jsonb),
+    '"2026-03-01"'::jsonb,
+    'dates: to_date turns the epoch integer of max back into a date');
+
+-- At any instant one of these two zones is on a different calendar day from UTC.
+SET LOCAL timezone = 'Pacific/Kiritimati';
+SET LOCAL intervalstyle = 'postgres';
+SELECT is(evaluate_json_logic('{"date_add":["2026-01-31T23:30:00Z",1,"month"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28T23:30:00+00:00"'::jsonb, 'dates at UTC+14: date_add is UTC');
+SELECT is(evaluate_json_logic('{"date_add":["2026-11-18T23:30:00Z","P1D"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-19T23:30:00+00:00"'::jsonb, 'dates at UTC+14: date_add with a duration is UTC');
+SELECT is(evaluate_json_logic('{"date_diff":["2026-11-19T00:30:00Z","2026-11-18T23:30:00Z","hour"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb, 'dates at UTC+14: date_diff is UTC');
+SELECT is(evaluate_json_logic('{"date_part":["2026-11-18T13:00:00","hour"]}'::jsonb, '{}'::jsonb),
+    '13'::jsonb, 'dates at UTC+14: a date-time with no offset is read as UTC');
+SELECT is(evaluate_json_logic('{"date_trunc":["2026-11-18T23:30:00Z","day"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18T00:00:00+00:00"'::jsonb, 'dates at UTC+14: date_trunc is UTC');
+SELECT is(evaluate_json_logic('{"to_date":["2026-11-18T23:30:00Z"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18"'::jsonb, 'dates at UTC+14: to_date is UTC');
+SELECT is(evaluate_json_logic('{"date_format":["2026-11-18T23:30:00Z","DD HH24"]}'::jsonb, '{}'::jsonb),
+    '"18 23"'::jsonb, 'dates at UTC+14: date_format is UTC');
+
+SET LOCAL timezone = 'Pacific/Pago_Pago';
+SELECT is(evaluate_json_logic('{"date_add":["2026-01-31T23:30:00Z",1,"month"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28T23:30:00+00:00"'::jsonb, 'dates at UTC-11: date_add is UTC');
+SELECT is(evaluate_json_logic('{"date_add":["2026-11-18T23:30:00Z","P1D"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-19T23:30:00+00:00"'::jsonb, 'dates at UTC-11: date_add with a duration is UTC');
+SELECT is(evaluate_json_logic('{"date_diff":["2026-11-19T00:30:00Z","2026-11-18T23:30:00Z","hour"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb, 'dates at UTC-11: date_diff is UTC');
+SELECT is(evaluate_json_logic('{"date_part":["2026-11-18T13:00:00","hour"]}'::jsonb, '{}'::jsonb),
+    '13'::jsonb, 'dates at UTC-11: a date-time with no offset is read as UTC');
+SELECT is(evaluate_json_logic('{"date_trunc":["2026-11-18T23:30:00Z","day"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18T00:00:00+00:00"'::jsonb, 'dates at UTC-11: date_trunc is UTC');
+SELECT is(evaluate_json_logic('{"to_date":["2026-11-18T23:30:00Z"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18"'::jsonb, 'dates at UTC-11: to_date is UTC');
+SELECT is(evaluate_json_logic('{"date_format":["2026-11-18T23:30:00Z","DD HH24"]}'::jsonb, '{}'::jsonb),
+    '"18 23"'::jsonb, 'dates at UTC-11: date_format is UTC');
 
 SELECT * FROM finish();
 ROLLBACK;

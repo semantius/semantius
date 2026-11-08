@@ -5,7 +5,7 @@
 -- record inside its write routine.
 BEGIN;
 
-SELECT plan(47);
+SELECT plan(56);
 
 SELECT authenticate_as('user3');
 
@@ -251,13 +251,13 @@ INSERT INTO cv_reserved_test (label) VALUES ('probe');
 
 SELECT is(
     (SELECT today_iso FROM cv_reserved_test WHERE label = 'probe'),
-    CURRENT_DATE::text,
-    '$today reserved variable resolves to server date');
+    (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date::text,
+    '$today reserved variable resolves to the UTC date');
 
 SELECT ok(
     (SELECT now_iso FROM cv_reserved_test WHERE label = 'probe') LIKE
-        to_char(CURRENT_DATE, 'YYYY-MM-DD') || '%',
-    '$now reserved variable resolves to server timestamp (same date)');
+        to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD') || '%',
+    '$now reserved variable resolves to the UTC timestamp (same date)');
 
 SELECT is(
     (SELECT writer_id FROM cv_reserved_test WHERE label = 'probe'),
@@ -501,6 +501,83 @@ SELECT ok(
                 WHERE pronamespace = 'public'::regnamespace
                   AND proname = 'compute_validate_cv_features_test'),
     'Trigger function dropped after entity deletion');
+
+-- =====================================================
+-- A computed date, stored as a date
+-- =====================================================
+-- Why the date operators exist: a deadline derived from the row's own fields
+-- cannot go stale, and as a real date it can be filtered and sorted.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('cv_renewal_test', 'cv_renewal', 'Renewal', 'Renewals', 'Computed date probe',
+    1, 'public:read', 'admin', 'id', 'label');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES
+    ('cv_renewal_test', 'term_end',        'Term End',        'date',      10),
+    ('cv_renewal_test', 'notice_days',     'Notice Days',     'int32',     20),
+    ('cv_renewal_test', 'notice_deadline', 'Notice Deadline', 'date',      30),
+    ('cv_renewal_test', 'reviewed_at',     'Reviewed At',     'date-time', 40),
+    ('cv_renewal_test', 'review_due',      'Review Due',      'date-time', 50),
+    ('cv_renewal_test', 'grace_end',       'Grace End',       'date',      70);
+
+INSERT INTO fields (table_name, field_name, title, format, default_value, field_order)
+VALUES ('cv_renewal_test', 'grace', 'Grace', 'duration', 'PT0S', 60);
+
+INSERT INTO cv_renewal_test (label, term_end, notice_days) VALUES ('before the rule', '2026-12-31', 30);
+
+UPDATE entities
+   SET computed_fields = '[
+        {"name": "notice_deadline", "jsonlogic": {"date_add": [{"var": "term_end"}, {"-": [0, {"var": "notice_days"}]}, "day"]}},
+        {"name": "review_due",      "jsonlogic": {"date_add": [{"var": "reviewed_at"}, 1, "month"]}},
+        {"name": "grace_end",       "jsonlogic": {"date_add": [{"var": "term_end"}, {"var": "grace"}]}}
+    ]'::jsonb
+ WHERE table_name = 'cv_renewal_test';
+
+SELECT is((SELECT notice_deadline FROM cv_renewal_test WHERE label = 'before the rule'), '2026-12-01'::date,
+    'computed date: adding the rule fills the records that already exist');
+
+INSERT INTO cv_renewal_test (label, term_end, notice_days) VALUES ('written', '2027-01-31', 31);
+SELECT is((SELECT notice_deadline FROM cv_renewal_test WHERE label = 'written'), '2026-12-31'::date,
+    'computed date: date_add stores into a date column');
+
+INSERT INTO cv_renewal_test (label, notice_days) VALUES ('no term', 30);
+SELECT ok((SELECT notice_deadline IS NULL FROM cv_renewal_test WHERE label = 'no term'),
+    'computed date: a record with no source date saves, with no deadline');
+
+SELECT is((SELECT count(*)::int FROM cv_renewal_test WHERE notice_deadline <= '2026-12-15'), 1,
+    'computed date: the stored value filters as a date');
+
+-- The two zones are on different calendar days from each other at every instant,
+-- so at least one of them differs from UTC.
+SET LOCAL timezone = 'Pacific/Kiritimati';
+INSERT INTO cv_renewal_test (label, reviewed_at) VALUES ('east', '2026-01-31T23:30:00Z');
+INSERT INTO cv_reserved_test (label) VALUES ('east');
+SET LOCAL timezone = 'Pacific/Pago_Pago';
+INSERT INTO cv_renewal_test (label, reviewed_at) VALUES ('west', '2026-01-31T23:30:00Z');
+INSERT INTO cv_reserved_test (label) VALUES ('west');
+SET LOCAL timezone = 'UTC';
+
+SELECT is((SELECT review_due FROM cv_renewal_test WHERE label = 'east'), '2026-02-28T23:30:00Z'::timestamptz,
+    'computed date-time at UTC+14: the month is added in UTC');
+SELECT is((SELECT review_due FROM cv_renewal_test WHERE label = 'west'), '2026-02-28T23:30:00Z'::timestamptz,
+    'computed date-time at UTC-11: the month is added in UTC');
+SELECT is((SELECT today_iso FROM cv_reserved_test WHERE label = 'east'), (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date::text,
+    '$today at UTC+14 is the UTC date');
+SELECT is((SELECT today_iso FROM cv_reserved_test WHERE label = 'west'), (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')::date::text,
+    '$today at UTC-11 is the UTC date');
+
+-- The rule reads the column through to_jsonb, which follows IntervalStyle.
+SET LOCAL intervalstyle = 'postgres';
+INSERT INTO cv_renewal_test (label, term_end, grace) VALUES ('grace', '2026-01-31', '1 mon 1 day');
+SET LOCAL intervalstyle = 'iso_8601';
+SELECT is((SELECT grace_end FROM cv_renewal_test WHERE label = 'grace'), '2026-03-01'::date,
+    'computed date: a duration column works whatever the session''s interval style');
 
 -- =====================================================
 -- Rules of an is_a entity: over the whole record

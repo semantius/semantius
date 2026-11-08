@@ -122,6 +122,314 @@ END;
 -- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
+-- =====================================================
+-- Date operators
+-- =====================================================
+-- Every value becomes a UTC timestamp WITHOUT a time zone before any arithmetic.
+-- Interval addition, date_trunc, extract, age and to_char all follow the session's
+-- time zone when handed a timestamptz, and evaluate_json_logic runs in whatever
+-- zone its caller has, so a timestamptz here would make a stored result depend on
+-- who wrote the row. On a plain timestamp none of those functions consults the
+-- session at all, which holds without a SET clause on any of these helpers.
+
+-- Null and the empty string both mean "no date": a nullable date column reads as
+-- null and a cleared form control sends "". Neither may fail a write, or a record
+-- that has no date yet could not be saved.
+CREATE OR REPLACE FUNCTION jl_date_is_blank(p_value jsonb) RETURNS boolean AS $$
+BEGIN
+    RETURN p_value IS NULL OR jsonb_typeof(p_value) = 'null' OR p_value = '""'::jsonb;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_date_is_date_only(p_value jsonb) RETURNS boolean AS $$
+BEGIN
+    RETURN jsonb_typeof(p_value) = 'string'
+       AND (p_value #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- The regular expressions are what keep this strict. The casts alone also accept
+-- 'today', 'infinity', 'J2461406' and, depending on DateStyle, '01/02/2026', and a
+-- stored value must not depend on the day a rule ran or on a session setting.
+--
+-- There is no EXCEPTION block: it would cost a subtransaction per value on every
+-- row a select_rule reads. A value of the right shape that is no real date, such
+-- as 2026-02-30, therefore travels out as PostgreSQL's own 22008.
+--
+-- Fractions of a second are dropped on the way in rather than on the way out, so
+-- date_diff cannot disagree with what the same two values render as, and so the
+-- browser evaluator, whose clock stops at milliseconds, reaches the same answer.
+CREATE OR REPLACE FUNCTION jl_date_utc(p_op text, p_value jsonb) RETURNS timestamp AS $$
+DECLARE
+    v_moment CONSTANT text := '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?';
+    v_text text;
+BEGIN
+    IF jsonb_typeof(p_value) = 'string' THEN
+        v_text := p_value #>> '{}';
+        IF jl_date_is_date_only(p_value) THEN
+            RETURN v_text::date::timestamp;
+        END IF;
+        -- No offset means UTC, so the session's zone must not be applied to it.
+        IF v_text ~ (v_moment || '$') THEN
+            RETURN date_trunc('second', v_text::timestamp);
+        END IF;
+        IF v_text ~ (v_moment || '(Z|[+-][0-9]{2}(:?[0-9]{2})?)$') THEN
+            RETURN date_trunc('second', v_text::timestamptz AT TIME ZONE 'UTC');
+        END IF;
+    END IF;
+    RAISE EXCEPTION '${operator} needs an ISO 8601 date or date-time, not ${value}'
+        USING ERRCODE = '90915',
+              HINT = jsonb_build_object('operator', p_op, 'value', p_value)::text;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- The offset is written out rather than left to to_jsonb, which would render the
+-- session's zone, and the seconds carry no fraction, as jl_date_utc promises.
+CREATE OR REPLACE FUNCTION jl_date_render(p_moment timestamp, p_date_only boolean) RETURNS jsonb AS $$
+BEGIN
+    IF p_date_only THEN
+        RETURN to_jsonb(p_moment::date);
+    END IF;
+    RETURN to_jsonb(to_char(p_moment, 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"'));
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_date_bad_unit(p_op text, p_unit jsonb) RETURNS void AS $$
+BEGIN
+    RAISE EXCEPTION '${operator} cannot use ${unit} on this value'
+        USING ERRCODE = '90916',
+              HINT = jsonb_build_object('operator', p_op, 'unit', p_unit)::text;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- A date-only value has no time of day to move or read, and answering as though
+-- it were midnight would silently invent one.
+--
+-- v_units is compared against the list in sem-schema's operators.ts by that
+-- package's backend sync test, which finds it by this declaration.
+CREATE OR REPLACE FUNCTION jl_date_unit(p_op text, p_unit jsonb, p_date_only boolean) RETURNS text AS $$
+DECLARE
+    v_units CONSTANT text[] := ARRAY['year','quarter','month','week','day','hour','minute','second'];
+    v_unit text;
+BEGIN
+    IF jsonb_typeof(p_unit) = 'string' THEN
+        v_unit := p_unit #>> '{}';
+    END IF;
+    IF v_unit IS NULL OR NOT (v_unit = ANY(v_units))
+       OR (p_date_only AND v_unit IN ('hour', 'minute', 'second')) THEN
+        PERFORM jl_date_bad_unit(p_op, p_unit);
+    END IF;
+    RETURN v_unit;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_add":[date, amount, unit]} or {"date_add":[date, duration]}.
+--
+-- A duration is limited to the canonical ISO 8601 order plus the per-field minus
+-- signs PostgreSQL's iso_8601 style emits, which is what a duration column holds
+-- in rule data. The interval cast alone would also take '1 day' and '@ 1 ago',
+-- which the browser evaluator would have to parse identically.
+CREATE OR REPLACE FUNCTION jl_date_add(p_date jsonb, p_amount jsonb, p_unit jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_date_only boolean := jl_date_is_date_only(p_date);
+    v_moment timestamp;
+    v_span interval;
+    v_text text;
+    v_number numeric;
+    v_count int;
+BEGIN
+    IF jl_date_is_blank(p_date) OR jl_date_is_blank(p_amount) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_add', p_date);
+    v_text := p_amount #>> '{}';
+
+    IF p_unit IS NULL THEN
+        IF jsonb_typeof(p_amount) = 'number' THEN
+            PERFORM jl_date_bad_unit('date_add', 'null'::jsonb);
+        END IF;
+        IF jsonb_typeof(p_amount) <> 'string'
+           OR v_text !~ '^P(-?[0-9]+Y)?(-?[0-9]+M)?(-?[0-9]+W)?(-?[0-9]+D)?(T(-?[0-9]+H)?(-?[0-9]+M)?(-?[0-9]+(\.[0-9]+)?S)?)?$'
+           OR v_text ~ '^PT?$' OR v_text ~ 'T$' THEN
+            RAISE EXCEPTION '${operator} needs a whole number or an ISO 8601 duration, not ${value}'
+                USING ERRCODE = '90918',
+                      HINT = jsonb_build_object('operator', 'date_add', 'value', p_amount)::text;
+        END IF;
+        v_span := v_text::interval;
+        IF v_date_only AND date_trunc('day', v_span) <> v_span THEN
+            PERFORM jl_date_bad_unit('date_add', p_amount);
+        END IF;
+        RETURN jl_date_render(v_moment + v_span, v_date_only);
+    END IF;
+
+    v_text := jl_date_unit('date_add', p_unit, v_date_only);
+    IF jsonb_typeof(p_amount) = 'number'
+       OR (jsonb_typeof(p_amount) = 'string' AND (p_amount #>> '{}') ~ '^-?[0-9]+(\.0+)?$') THEN
+        v_number := (p_amount #>> '{}')::numeric;
+    END IF;
+    IF v_number IS NULL OR v_number <> trunc(v_number) THEN
+        RAISE EXCEPTION '${operator} needs a whole number or an ISO 8601 duration, not ${value}'
+            USING ERRCODE = '90918',
+                  HINT = jsonb_build_object('operator', 'date_add', 'value', p_amount)::text;
+    END IF;
+    v_count := v_number::int;
+
+    v_span := CASE v_text
+        WHEN 'year'    THEN make_interval(years  => v_count)
+        WHEN 'quarter' THEN make_interval(months => v_count * 3)
+        WHEN 'month'   THEN make_interval(months => v_count)
+        WHEN 'week'    THEN make_interval(weeks  => v_count)
+        WHEN 'day'     THEN make_interval(days   => v_count)
+        WHEN 'hour'    THEN make_interval(hours  => v_count)
+        WHEN 'minute'  THEN make_interval(mins   => v_count)
+        ELSE                make_interval(secs   => v_count)
+    END;
+    RETURN jl_date_render(v_moment + v_span, v_date_only);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_diff":[end, start, unit]}: whole elapsed units, truncated toward zero, in
+-- the argument order of "-". Calendar units go through age(), so a month has
+-- elapsed only when the day of the month has been reached again: Jan 31 to Feb 28
+-- is 0 months even though adding a month to Jan 31 lands on Feb 28.
+CREATE OR REPLACE FUNCTION jl_date_diff(p_end jsonb, p_start jsonb, p_unit jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_unit text;
+    v_end timestamp;
+    v_start timestamp;
+    v_age interval;
+BEGIN
+    IF jl_date_is_blank(p_end) OR jl_date_is_blank(p_start) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_unit := jl_date_unit('date_diff', p_unit, false);
+    v_end := jl_date_utc('date_diff', p_end);
+    v_start := jl_date_utc('date_diff', p_start);
+
+    IF v_unit IN ('year', 'quarter', 'month') THEN
+        v_age := age(v_end, v_start);
+        RETURN to_jsonb(trunc(
+            (extract(year FROM v_age)::numeric * 12 + extract(month FROM v_age)::numeric)
+            / CASE v_unit WHEN 'year' THEN 12 WHEN 'quarter' THEN 3 ELSE 1 END
+        )::bigint);
+    END IF;
+    RETURN to_jsonb(trunc(
+        extract(epoch FROM v_end - v_start)::numeric
+        / CASE v_unit WHEN 'week' THEN 604800 WHEN 'day' THEN 86400
+                      WHEN 'hour' THEN 3600 WHEN 'minute' THEN 60 ELSE 1 END
+    )::bigint);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_part":[date, part]}. v_parts is checked by the same sync test as v_units.
+CREATE OR REPLACE FUNCTION jl_date_part(p_date jsonb, p_part jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_parts CONSTANT text[] := ARRAY['year','iso_year','quarter','month','week','day','weekday','day_of_year','hour','minute','second','epoch'];
+    v_part text;
+    v_moment timestamp;
+BEGIN
+    IF jl_date_is_blank(p_date) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_part', p_date);
+    IF jsonb_typeof(p_part) = 'string' THEN
+        v_part := p_part #>> '{}';
+    END IF;
+    IF v_part IS NULL OR NOT (v_part = ANY(v_parts))
+       OR (jl_date_is_date_only(p_date) AND v_part IN ('hour', 'minute', 'second')) THEN
+        PERFORM jl_date_bad_unit('date_part', p_part);
+    END IF;
+    RETURN to_jsonb((CASE v_part
+        WHEN 'year'        THEN extract(year    FROM v_moment)
+        WHEN 'iso_year'    THEN extract(isoyear FROM v_moment)
+        WHEN 'quarter'     THEN extract(quarter FROM v_moment)
+        WHEN 'month'       THEN extract(month   FROM v_moment)
+        WHEN 'week'        THEN extract(week    FROM v_moment)
+        WHEN 'day'         THEN extract(day     FROM v_moment)
+        WHEN 'weekday'     THEN extract(isodow  FROM v_moment)
+        WHEN 'day_of_year' THEN extract(doy     FROM v_moment)
+        WHEN 'hour'        THEN extract(hour    FROM v_moment)
+        WHEN 'minute'      THEN extract(minute  FROM v_moment)
+        WHEN 'second'      THEN extract(second  FROM v_moment)
+        ELSE                    extract(epoch   FROM v_moment)
+    END)::bigint);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_trunc":[date, unit]}: the start of the period; a week starts on Monday.
+CREATE OR REPLACE FUNCTION jl_date_trunc(p_date jsonb, p_unit jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_date_only boolean := jl_date_is_date_only(p_date);
+    v_moment timestamp;
+BEGIN
+    IF jl_date_is_blank(p_date) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_trunc', p_date);
+    RETURN jl_date_render(date_trunc(jl_date_unit('date_trunc', p_unit, v_date_only), v_moment), v_date_only);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"to_date":[value]}. A number is read as UTC because that exactly reverses the
+-- epoch conversion in jl_try_number, which is what lets the epoch integers that
+-- date arithmetic, max and min produce become dates again.
+CREATE OR REPLACE FUNCTION jl_to_date(p_value jsonb) RETURNS jsonb AS $$
+BEGIN
+    IF jl_date_is_blank(p_value) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    IF jsonb_typeof(p_value) = 'number' THEN
+        RETURN to_jsonb((to_timestamp((p_value #>> '{}')::double precision) AT TIME ZONE 'UTC')::date);
+    END IF;
+    RETURN to_jsonb(jl_date_utc('to_date', p_value)::date);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_format":[date, pattern]}.
+--
+-- A fixed token list rather than to_char's own patterns, because the browser
+-- evaluator has no to_char and has to produce the same text. TM-prefixed patterns
+-- would also make a stored label follow lc_time.
+--
+-- Tokens are rendered one at a time. Handing the whole pattern to to_char would
+-- misread adjacent tokens: DD followed by Dy is DDDy to to_char, which reads DDD,
+-- the day of the year. FM removes the blank padding to_char adds to Month and Day.
+--
+-- The list is longest-first so that a token is never read as a shorter one, and
+-- v_tokens is checked by the same sync test as v_units.
+CREATE OR REPLACE FUNCTION jl_date_format(p_date jsonb, p_pattern jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_tokens CONSTANT text[] := ARRAY['YYYY','Month','HH24','Mon','Day','YY','MM','DD','Dy','MI','SS','Q'];
+    v_token_re CONSTANT text := array_to_string(v_tokens, '|') || '|[ /.:,-]';
+    v_moment timestamp;
+    v_pattern text;
+    v_match text[];
+    v_out text := '';
+BEGIN
+    IF jl_date_is_blank(p_date) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_format', p_date);
+    IF jsonb_typeof(p_pattern) = 'string' THEN
+        v_pattern := p_pattern #>> '{}';
+    END IF;
+    IF v_pattern IS NULL OR v_pattern !~ ('^(' || v_token_re || ')+$')
+       OR (jl_date_is_date_only(p_date) AND v_pattern ~ '(HH24|MI|SS)') THEN
+        RAISE EXCEPTION '${operator} cannot use the pattern ${pattern}'
+            USING ERRCODE = '90917',
+                  HINT = jsonb_build_object('operator', 'date_format', 'pattern', p_pattern)::text;
+    END IF;
+    FOR v_match IN SELECT regexp_matches(v_pattern, '(' || v_token_re || ')', 'g') LOOP
+        v_out := v_out || CASE
+            WHEN v_match[1] IN ('Month', 'Day') THEN to_char(v_moment, 'FM' || v_match[1])
+            WHEN v_match[1] = ANY(v_tokens)     THEN to_char(v_moment, v_match[1])
+            ELSE v_match[1]
+        END;
+    END LOOP;
+    RETURN to_jsonb(v_out);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
 -- is_raci_actor and has_consultation call functions defined in 0370_raci.sql; no rule
 -- evaluated during install uses those operators.
 CREATE OR REPLACE FUNCTION evaluate_json_logic(rule jsonb, data jsonb)
@@ -891,6 +1199,17 @@ BEGIN
         END IF;
     END IF;
 
+    -- ===================== date operators =====================
+    -- The work is in the jl_date_* helpers. Each operator keeps a comparison of
+    -- its own here, because the operator table in sem-schema is checked against
+    -- this function by searching for that exact form.
+    IF op = 'date_add' THEN RETURN jl_date_add(a, b, c); END IF;
+    IF op = 'date_diff' THEN RETURN jl_date_diff(a, b, c); END IF;
+    IF op = 'date_part' THEN RETURN jl_date_part(a, b); END IF;
+    IF op = 'date_trunc' THEN RETURN jl_date_trunc(a, b); END IF;
+    IF op = 'to_date' THEN RETURN jl_to_date(a); END IF;
+    IF op = 'date_format' THEN RETURN jl_date_format(a, b); END IF;
+
     -- Unknown operator
     RAISE EXCEPTION 'Unrecognized operation: ${op}'
         USING ERRCODE = '90910',
@@ -908,6 +1227,30 @@ COMMENT ON FUNCTION jl_to_text(jsonb) IS
 'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
 COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
 'JsonLogic loose equality (==): compares two JSONB values with JavaScript-style type coercion.';
+COMMENT ON FUNCTION jl_date_is_blank(jsonb) IS
+'True when a JSONB value means no date: SQL NULL, JSON null or the empty string.';
+COMMENT ON FUNCTION jl_date_is_date_only(jsonb) IS
+'True when a JSONB value is a date with no time of day (YYYY-MM-DD).';
+COMMENT ON FUNCTION jl_date_utc(text, jsonb) IS
+'The UTC timestamp, in whole seconds, of an ISO 8601 date or date-time. Raises 90915 for anything else.';
+COMMENT ON FUNCTION jl_date_render(timestamp, boolean) IS
+'Renders a UTC timestamp as a JSON date, or as a date-time with an explicit +00:00 offset.';
+COMMENT ON FUNCTION jl_date_bad_unit(text, jsonb) IS
+'Raises 90916 for a date unit or part an operator cannot use on its value.';
+COMMENT ON FUNCTION jl_date_unit(text, jsonb, boolean) IS
+'Returns a date unit as text after checking it is known and usable on the value. Raises 90916 otherwise.';
+COMMENT ON FUNCTION jl_date_add(jsonb, jsonb, jsonb) IS
+'JsonLogic date_add: adds a whole amount of a unit, or an ISO 8601 duration, to a date in UTC.';
+COMMENT ON FUNCTION jl_date_diff(jsonb, jsonb, jsonb) IS
+'JsonLogic date_diff: whole elapsed units between two dates in UTC, truncated toward zero.';
+COMMENT ON FUNCTION jl_date_part(jsonb, jsonb) IS
+'JsonLogic date_part: one integer field of a date in UTC.';
+COMMENT ON FUNCTION jl_date_trunc(jsonb, jsonb) IS
+'JsonLogic date_trunc: the start of the period containing a date in UTC.';
+COMMENT ON FUNCTION jl_to_date(jsonb) IS
+'JsonLogic to_date: the UTC date of a date, date-time or epoch number.';
+COMMENT ON FUNCTION jl_date_format(jsonb, jsonb) IS
+'JsonLogic date_format: renders a date in UTC through a fixed token list. Raises 90917 for any other pattern.';
 COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
 
@@ -917,6 +1260,18 @@ REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_is_blank(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_is_date_only(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_utc(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_render(timestamp, boolean) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_bad_unit(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_unit(text, jsonb, boolean) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_add(jsonb, jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_diff(jsonb, jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_part(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_to_date(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
@@ -926,4 +1281,16 @@ GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_is_blank(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_is_date_only(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_utc(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_render(timestamp, boolean) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_bad_unit(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_unit(text, jsonb, boolean) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_add(jsonb, jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_diff(jsonb, jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_part(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_to_date(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;

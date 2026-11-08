@@ -32,6 +32,26 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA common
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 -- =====================================================
+-- DATABASE DEFAULTS: UTC and ISO 8601 durations
+-- =====================================================
+-- Dates are stored in UTC. PostgreSQL reads a date-time sent with no offset in
+-- the session's time zone before any trigger or rule runs, so nothing later in
+-- the write path can correct it and only the database default can make it UTC.
+--
+-- The duration format is declared as ISO 8601, and PostgreSQL's default interval
+-- style renders '3 days 04:00:00' instead.
+--
+-- For a role that does not own the database this raises, on purpose: an install
+-- that cannot guarantee UTC must not look like one that succeeded. The settings
+-- apply to connections opened afterward.
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET timezone = %L', current_database(), 'UTC');
+    EXECUTE format('ALTER DATABASE %I SET intervalstyle = %L', current_database(), 'iso_8601');
+END;
+$$;
+
+-- =====================================================
 -- _SETTINGS TABLE
 -- =====================================================
 -- Stores system-level configuration key/value pairs.

@@ -2,7 +2,7 @@
 -- DO NOT EDIT - modify 0100_test_jsonlogic.json and run deno task testgen_jsonlogic
 BEGIN;
 
-SELECT plan(327);
+SELECT plan(431);
 
 -- # Non-rules get passed through
 SELECT is(
@@ -1668,6 +1668,535 @@ SELECT is(
     evaluate_json_logic('{">":[{"var":"a"},{"var":"b"}]}'::jsonb, '{"a":"10","b":"9"}'::jsonb),
     'false'::jsonb,
     'test 327'
+);
+-- # Date operators. Every evaluator must give these answers: the browser's test suite reads this file too.
+-- # date_add: amount and unit
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-12-31",-30,"day"]}'::jsonb, '{}'::jsonb),
+    '"2026-12-01"'::jsonb,
+    'test 328'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":[{"var":"term_end"},{"-":[0,{"var":"notice"}]},"day"]}'::jsonb, '{"term_end":"2026-12-31","notice":30}'::jsonb),
+    '"2026-12-01"'::jsonb,
+    'test 329'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-31",1,"month"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28"'::jsonb,
+    'test 330'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2028-01-31",1,"month"]}'::jsonb, '{}'::jsonb),
+    '"2028-02-29"'::jsonb,
+    'test 331'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-03-31",-1,"month"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28"'::jsonb,
+    'test 332'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2028-02-29",1,"year"]}'::jsonb, '{}'::jsonb),
+    '"2029-02-28"'::jsonb,
+    'test 333'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-11-30",1,"quarter"]}'::jsonb, '{}'::jsonb),
+    '"2027-02-28"'::jsonb,
+    'test 334'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-12-28",1,"week"]}'::jsonb, '{}'::jsonb),
+    '"2027-01-04"'::jsonb,
+    'test 335'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-12-31","30","day"]}'::jsonb, '{}'::jsonb),
+    '"2027-01-30"'::jsonb,
+    'test 336'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-12-31",0,"day"]}'::jsonb, '{}'::jsonb),
+    '"2026-12-31"'::jsonb,
+    'test 337'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-12-31T23:30:00+00:00",1,"hour"]}'::jsonb, '{}'::jsonb),
+    '"2027-01-01T00:30:00+00:00"'::jsonb,
+    'test 338'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-12-31T23:59:30Z",45,"second"]}'::jsonb, '{}'::jsonb),
+    '"2027-01-01T00:00:15+00:00"'::jsonb,
+    'test 339'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01T00:00:00Z",90,"minute"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-01T01:30:00+00:00"'::jsonb,
+    'test 340'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-31T10:00:00Z",1,"month"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28T10:00:00+00:00"'::jsonb,
+    'test 341'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-05T01:00:00+02:00",0,"day"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-04T23:00:00+00:00"'::jsonb,
+    'test 342'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-05T01:00:00",1,"hour"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-05T02:00:00+00:00"'::jsonb,
+    'test 343'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-05T01:00:00.750Z",0,"second"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-05T01:00:00+00:00"'::jsonb,
+    'test 344'
+);
+-- # date_add: duration
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-31","P1M"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28"'::jsonb,
+    'test 345'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-31","P1M1D"]}'::jsonb, '{}'::jsonb),
+    '"2026-03-01"'::jsonb,
+    'test 346'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01","P1Y2M3D"]}'::jsonb, '{}'::jsonb),
+    '"2027-03-04"'::jsonb,
+    'test 347'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01","P2W"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-15"'::jsonb,
+    'test 348'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-03-01","P-1D"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28"'::jsonb,
+    'test 349'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-31","P1MT0S"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28"'::jsonb,
+    'test 350'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01","PT0S"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-01"'::jsonb,
+    'test 351'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01T00:00:00Z","P1DT2H30M"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-02T02:30:00+00:00"'::jsonb,
+    'test 352'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01T00:00:00Z","PT1.5S"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-01T00:00:01+00:00"'::jsonb,
+    'test 353'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01T00:00:00Z","PT-1.5S"]}'::jsonb, '{}'::jsonb),
+    '"2025-12-31T23:59:58+00:00"'::jsonb,
+    'test 354'
+);
+-- # date_add: no date, no answer
+SELECT is(
+    evaluate_json_logic('{"date_add":[null,1,"day"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 355'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["",1,"day"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 356'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01",null,"day"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 357'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":["2026-01-01",""]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 358'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":[{"var":"none"},1,"day"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 359'
+);
+-- # date_diff
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-12-31","2026-12-01","day"]}'::jsonb, '{}'::jsonb),
+    '30'::jsonb,
+    'test 360'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-12-01","2026-12-31","day"]}'::jsonb, '{}'::jsonb),
+    '-30'::jsonb,
+    'test 361'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-03-01","2026-02-01","week"]}'::jsonb, '{}'::jsonb),
+    '4'::jsonb,
+    'test 362'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-02-28","2026-01-31","month"]}'::jsonb, '{}'::jsonb),
+    '0'::jsonb,
+    'test 363'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-03-31","2026-02-28","month"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb,
+    'test 364'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-01","2026-03-15","month"]}'::jsonb, '{}'::jsonb),
+    '-2'::jsonb,
+    'test 365'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2028-02-28","2026-02-28","year"]}'::jsonb, '{}'::jsonb),
+    '2'::jsonb,
+    'test 366'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2029-02-28","2028-02-29","year"]}'::jsonb, '{}'::jsonb),
+    '0'::jsonb,
+    'test 367'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-12-31","2026-01-01","quarter"]}'::jsonb, '{}'::jsonb),
+    '3'::jsonb,
+    'test 368'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-02T12:00:00Z","2026-01-01","hour"]}'::jsonb, '{}'::jsonb),
+    '36'::jsonb,
+    'test 369'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-02","2026-01-01","hour"]}'::jsonb, '{}'::jsonb),
+    '24'::jsonb,
+    'test 370'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-01T01:30:00Z","2026-01-01T00:00:00Z","minute"]}'::jsonb, '{}'::jsonb),
+    '90'::jsonb,
+    'test 371'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-05T01:00:00+02:00","2026-01-05T00:00:00+00:00","second"]}'::jsonb, '{}'::jsonb),
+    '-3600'::jsonb,
+    'test 372'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-01T00:00:01.9Z","2026-01-01T00:00:00.2Z","second"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb,
+    'test 373'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-02T12:00:00Z","2026-01-01T00:00:00Z","day"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb,
+    'test 374'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-01T00:00:00Z","2026-01-02T12:00:00Z","day"]}'::jsonb, '{}'::jsonb),
+    '-1'::jsonb,
+    'test 375'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":[null,"2026-01-01","day"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 376'
+);
+SELECT is(
+    evaluate_json_logic('{"date_diff":["2026-01-01","","day"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 377'
+);
+-- # date_part
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","year"]}'::jsonb, '{}'::jsonb),
+    '2026'::jsonb,
+    'test 378'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","quarter"]}'::jsonb, '{}'::jsonb),
+    '4'::jsonb,
+    'test 379'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","month"]}'::jsonb, '{}'::jsonb),
+    '12'::jsonb,
+    'test 380'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","day"]}'::jsonb, '{}'::jsonb),
+    '31'::jsonb,
+    'test 381'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","weekday"]}'::jsonb, '{}'::jsonb),
+    '4'::jsonb,
+    'test 382'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","day_of_year"]}'::jsonb, '{}'::jsonb),
+    '365'::jsonb,
+    'test 383'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","week"]}'::jsonb, '{}'::jsonb),
+    '53'::jsonb,
+    'test 384'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31","iso_year"]}'::jsonb, '{}'::jsonb),
+    '2026'::jsonb,
+    'test 385'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2027-01-01","year"]}'::jsonb, '{}'::jsonb),
+    '2027'::jsonb,
+    'test 386'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2027-01-01","iso_year"]}'::jsonb, '{}'::jsonb),
+    '2026'::jsonb,
+    'test 387'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2027-01-01","week"]}'::jsonb, '{}'::jsonb),
+    '53'::jsonb,
+    'test 388'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2027-01-01","weekday"]}'::jsonb, '{}'::jsonb),
+    '5'::jsonb,
+    'test 389'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-01-04","weekday"]}'::jsonb, '{}'::jsonb),
+    '7'::jsonb,
+    'test 390'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-01-04","week"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb,
+    'test 391'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31T23:59:58.9+00:00","hour"]}'::jsonb, '{}'::jsonb),
+    '23'::jsonb,
+    'test 392'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31T23:59:58.9+00:00","minute"]}'::jsonb, '{}'::jsonb),
+    '59'::jsonb,
+    'test 393'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31T23:59:58.9+00:00","second"]}'::jsonb, '{}'::jsonb),
+    '58'::jsonb,
+    'test 394'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31T23:30:00-02:00","year"]}'::jsonb, '{}'::jsonb),
+    '2027'::jsonb,
+    'test 395'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-12-31T23:30:00-02:00","hour"]}'::jsonb, '{}'::jsonb),
+    '1'::jsonb,
+    'test 396'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-01-01","epoch"]}'::jsonb, '{}'::jsonb),
+    '1767225600'::jsonb,
+    'test 397'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":["2026-01-01T00:00:01.9Z","epoch"]}'::jsonb, '{}'::jsonb),
+    '1767225601'::jsonb,
+    'test 398'
+);
+SELECT is(
+    evaluate_json_logic('{"date_part":[null,"year"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 399'
+);
+-- # date_trunc
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18","year"]}'::jsonb, '{}'::jsonb),
+    '"2026-01-01"'::jsonb,
+    'test 400'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18","quarter"]}'::jsonb, '{}'::jsonb),
+    '"2026-10-01"'::jsonb,
+    'test 401'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18","month"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-01"'::jsonb,
+    'test 402'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18","week"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-16"'::jsonb,
+    'test 403'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18","day"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18"'::jsonb,
+    'test 404'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18T13:45:10Z","week"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-16T00:00:00+00:00"'::jsonb,
+    'test 405'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18T13:45:10Z","day"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18T00:00:00+00:00"'::jsonb,
+    'test 406'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18T13:45:10Z","hour"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18T13:00:00+00:00"'::jsonb,
+    'test 407'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18T13:45:10Z","minute"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18T13:45:00+00:00"'::jsonb,
+    'test 408'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":["2026-11-18T13:45:10.5Z","second"]}'::jsonb, '{}'::jsonb),
+    '"2026-11-18T13:45:10+00:00"'::jsonb,
+    'test 409'
+);
+SELECT is(
+    evaluate_json_logic('{"date_add":[{"date_add":[{"date_trunc":["2026-02-10","month"]},1,"month"]},-1,"day"]}'::jsonb, '{}'::jsonb),
+    '"2026-02-28"'::jsonb,
+    'test 410'
+);
+SELECT is(
+    evaluate_json_logic('{"date_trunc":[null,"month"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 411'
+);
+-- # to_date
+SELECT is(
+    evaluate_json_logic('{"to_date":"2026-12-31"}'::jsonb, '{}'::jsonb),
+    '"2026-12-31"'::jsonb,
+    'test 412'
+);
+SELECT is(
+    evaluate_json_logic('{"to_date":["2026-12-31T23:30:00-02:00"]}'::jsonb, '{}'::jsonb),
+    '"2027-01-01"'::jsonb,
+    'test 413'
+);
+SELECT is(
+    evaluate_json_logic('{"to_date":[1767225600]}'::jsonb, '{}'::jsonb),
+    '"2026-01-01"'::jsonb,
+    'test 414'
+);
+SELECT is(
+    evaluate_json_logic('{"to_date":[1767229200]}'::jsonb, '{}'::jsonb),
+    '"2026-01-01"'::jsonb,
+    'test 415'
+);
+SELECT is(
+    evaluate_json_logic('{"to_date":[-1]}'::jsonb, '{}'::jsonb),
+    '"1969-12-31"'::jsonb,
+    'test 416'
+);
+SELECT is(
+    evaluate_json_logic('{"to_date":[null]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 417'
+);
+SELECT is(
+    evaluate_json_logic('{"to_date":[""]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 418'
+);
+-- # date_format
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","YYYY-MM-DD"]}'::jsonb, '{}'::jsonb),
+    '"2026-12-31"'::jsonb,
+    'test 419'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","DD.MM.YYYY"]}'::jsonb, '{}'::jsonb),
+    '"31.12.2026"'::jsonb,
+    'test 420'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","Mon YYYY"]}'::jsonb, '{}'::jsonb),
+    '"Dec 2026"'::jsonb,
+    'test 421'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","Month YY"]}'::jsonb, '{}'::jsonb),
+    '"December 26"'::jsonb,
+    'test 422'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","Dy, DD Mon"]}'::jsonb, '{}'::jsonb),
+    '"Thu, 31 Dec"'::jsonb,
+    'test 423'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","Day"]}'::jsonb, '{}'::jsonb),
+    '"Thursday"'::jsonb,
+    'test 424'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","YYYY/Q"]}'::jsonb, '{}'::jsonb),
+    '"2026/4"'::jsonb,
+    'test 425'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","YYYYMMDD"]}'::jsonb, '{}'::jsonb),
+    '"20261231"'::jsonb,
+    'test 426'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31","DDDy"]}'::jsonb, '{}'::jsonb),
+    '"31Thu"'::jsonb,
+    'test 427'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-05-04","Month, Day"]}'::jsonb, '{}'::jsonb),
+    '"May, Monday"'::jsonb,
+    'test 428'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31T23:59:58.9Z","YYYY-MM-DD HH24:MI:SS"]}'::jsonb, '{}'::jsonb),
+    '"2026-12-31 23:59:58"'::jsonb,
+    'test 429'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":["2026-12-31T23:30:00-02:00","YYYY-MM-DD HH24:MI"]}'::jsonb, '{}'::jsonb),
+    '"2027-01-01 01:30"'::jsonb,
+    'test 430'
+);
+SELECT is(
+    evaluate_json_logic('{"date_format":[null,"YYYY"]}'::jsonb, '{}'::jsonb),
+    'null'::jsonb,
+    'test 431'
 );
 -- EOF
 

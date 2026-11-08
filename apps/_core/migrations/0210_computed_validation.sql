@@ -13,8 +13,8 @@
 -- (0160_dd_functions.sql) calls it over the whole record.
 --
 -- Reserved variables injected into the JsonLogic data:
---   $today    -> server date
---   $now      -> server timestamp
+--   $today    -> current date in UTC
+--   $now      -> current timestamp in UTC
 --   $user_id  -> internal user_id from JWT context, null when no context
 --   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
 --   $mode     -> the operation: 'insert' | 'update' | 'delete'
@@ -374,8 +374,15 @@ $BLOCK$,
     -- Granted to the request role because the write routines of is_a and
     -- has_a entities, which run as the caller, call it. It lives in common,
     -- which PostgREST does not expose, so it is no RPC.
+    --
+    -- The timezone and intervalstyle settings are part of what the rules mean.
+    -- $today and $now come from CURRENT_DATE and CURRENT_TIMESTAMP, and a record
+    -- reaches the rules through to_jsonb, so all of them render in the session's
+    -- zone and style. A client can change both, and what a rule stores or
+    -- compares must not depend on who wrote the row. The same two settings are on
+    -- every other function that turns a row into rule data.
     v_body := format($FUNC$
-CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_rules_name, dd_dollar_quote(format($RULES$
 DECLARE
     v_data jsonb;
@@ -443,7 +450,7 @@ $WB$;
     -- On DELETE there is no NEW row; the rules evaluate against the row being
     -- removed (OLD), which is also $old.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, dd_dollar_quote(format($TRIG$
 DECLARE
     v_data jsonb;
@@ -812,7 +819,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION computed_backfill(TEXT) IS
 'Applies an entity''s computed_fields to its existing records, writing only those whose value moves, without touching updated_at, the audit log, queues or RACI events. A record that cannot take its new value refuses the change (90908).';
@@ -888,7 +895,7 @@ BEGIN
         '$user_id', to_jsonb(v_uid)
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION public.jl_request_context() IS
 'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
@@ -998,9 +1005,9 @@ BEGIN
     -- inside the first, and a fixed body tag would be ended by the same tag
     -- written into the rule.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, v_rel,
         dd_dollar_quote(format($SEL$
 DECLARE

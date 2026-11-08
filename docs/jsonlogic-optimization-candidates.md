@@ -411,8 +411,9 @@ acceptable next to §4:
 
 - **It is a closed subset, not a translator.** `and`, `or`, `!`, `!!`, `==`,
   `===`, `!=`, `!==`, `<`, `<=`, `>`, `>=` (the last two also with three
-  operands), `in` with a list of literals, and `var` naming a plain column of
-  the child record. Every other operator, every request variable (`$user_id`,
+  operands), `in` with a list of literals, `var` naming a plain column of the
+  child record, and the date operators as values. Every other operator, every
+  request variable (`$user_id`,
   `$now`, `$today`, ...), every path and every default is refused with 90265
   naming what was refused. Nothing is approximated.
 - **Its semantics are SQL's, stated as such.** `==` and `!=` compile to
@@ -434,6 +435,13 @@ acceptable next to §4:
   derived from the body itself.
 
 The subset must not grow into coercion-dependent operators (arithmetic, `cat`,
-`substr`, `if`, the custom operators) without the equivalence proof §4 demands
-for a native emission. A rollup that needs more belongs to a named operator
-defined for both implementations, or to a computed field on the child.
+`substr`, `if`, the other custom operators) without the equivalence proof §4
+demands for a native emission. A rollup that needs more belongs to a named
+operator defined for both implementations, or to a computed field on the child.
+
+The date operators are in the subset because they need no such proof: they
+compile to calls of the same `jl_date_*` functions the interpreter runs, so there
+is no native emission to compare. `0555_test_rollup.sql` still runs each of them
+both ways over the same rows. Their arguments are limited to columns of a date,
+date-time, integer or duration type, literals and other date operators, so nothing
+that could fail at run time on valid data gets past the save.

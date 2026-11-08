@@ -406,6 +406,26 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA common
     REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 
 -- =====================================================
+-- DATABASE DEFAULTS: UTC and ISO 8601 durations
+-- =====================================================
+-- Dates are stored in UTC. PostgreSQL reads a date-time sent with no offset in
+-- the session's time zone before any trigger or rule runs, so nothing later in
+-- the write path can correct it and only the database default can make it UTC.
+--
+-- The duration format is declared as ISO 8601, and PostgreSQL's default interval
+-- style renders '3 days 04:00:00' instead.
+--
+-- For a role that does not own the database this raises, on purpose: an install
+-- that cannot guarantee UTC must not look like one that succeeded. The settings
+-- apply to connections opened afterward.
+DO $$
+BEGIN
+    EXECUTE format('ALTER DATABASE %I SET timezone = %L', current_database(), 'UTC');
+    EXECUTE format('ALTER DATABASE %I SET intervalstyle = %L', current_database(), 'iso_8601');
+END;
+$$;
+
+-- =====================================================
 -- _SETTINGS TABLE
 -- =====================================================
 -- Stores system-level configuration key/value pairs.
@@ -430,7 +450,7 @@ CREATE POLICY settings_deny_all ON _settings
 $pgsem__core_0020_settings_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0020_settings.once.sql', '1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a')
+        VALUES ('_core.0020_settings.once.sql', '902257ce64535c14cfdd51b6de0bc44b2b8f5be84cc9f8b86265c7a4a591d7a4')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -1346,7 +1366,7 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -1471,6 +1491,314 @@ BEGIN
     RETURN a = b;
 END;
 -- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- =====================================================
+-- Date operators
+-- =====================================================
+-- Every value becomes a UTC timestamp WITHOUT a time zone before any arithmetic.
+-- Interval addition, date_trunc, extract, age and to_char all follow the session's
+-- time zone when handed a timestamptz, and evaluate_json_logic runs in whatever
+-- zone its caller has, so a timestamptz here would make a stored result depend on
+-- who wrote the row. On a plain timestamp none of those functions consults the
+-- session at all, which holds without a SET clause on any of these helpers.
+
+-- Null and the empty string both mean "no date": a nullable date column reads as
+-- null and a cleared form control sends "". Neither may fail a write, or a record
+-- that has no date yet could not be saved.
+CREATE OR REPLACE FUNCTION jl_date_is_blank(p_value jsonb) RETURNS boolean AS $$
+BEGIN
+    RETURN p_value IS NULL OR jsonb_typeof(p_value) = 'null' OR p_value = '""'::jsonb;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_date_is_date_only(p_value jsonb) RETURNS boolean AS $$
+BEGIN
+    RETURN jsonb_typeof(p_value) = 'string'
+       AND (p_value #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- The regular expressions are what keep this strict. The casts alone also accept
+-- 'today', 'infinity', 'J2461406' and, depending on DateStyle, '01/02/2026', and a
+-- stored value must not depend on the day a rule ran or on a session setting.
+--
+-- There is no EXCEPTION block: it would cost a subtransaction per value on every
+-- row a select_rule reads. A value of the right shape that is no real date, such
+-- as 2026-02-30, therefore travels out as PostgreSQL's own 22008.
+--
+-- Fractions of a second are dropped on the way in rather than on the way out, so
+-- date_diff cannot disagree with what the same two values render as, and so the
+-- browser evaluator, whose clock stops at milliseconds, reaches the same answer.
+CREATE OR REPLACE FUNCTION jl_date_utc(p_op text, p_value jsonb) RETURNS timestamp AS $$
+DECLARE
+    v_moment CONSTANT text := '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?';
+    v_text text;
+BEGIN
+    IF jsonb_typeof(p_value) = 'string' THEN
+        v_text := p_value #>> '{}';
+        IF jl_date_is_date_only(p_value) THEN
+            RETURN v_text::date::timestamp;
+        END IF;
+        -- No offset means UTC, so the session's zone must not be applied to it.
+        IF v_text ~ (v_moment || '$') THEN
+            RETURN date_trunc('second', v_text::timestamp);
+        END IF;
+        IF v_text ~ (v_moment || '(Z|[+-][0-9]{2}(:?[0-9]{2})?)$') THEN
+            RETURN date_trunc('second', v_text::timestamptz AT TIME ZONE 'UTC');
+        END IF;
+    END IF;
+    RAISE EXCEPTION '${operator} needs an ISO 8601 date or date-time, not ${value}'
+        USING ERRCODE = '90915',
+              HINT = jsonb_build_object('operator', p_op, 'value', p_value)::text;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- The offset is written out rather than left to to_jsonb, which would render the
+-- session's zone, and the seconds carry no fraction, as jl_date_utc promises.
+CREATE OR REPLACE FUNCTION jl_date_render(p_moment timestamp, p_date_only boolean) RETURNS jsonb AS $$
+BEGIN
+    IF p_date_only THEN
+        RETURN to_jsonb(p_moment::date);
+    END IF;
+    RETURN to_jsonb(to_char(p_moment, 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"'));
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_date_bad_unit(p_op text, p_unit jsonb) RETURNS void AS $$
+BEGIN
+    RAISE EXCEPTION '${operator} cannot use ${unit} on this value'
+        USING ERRCODE = '90916',
+              HINT = jsonb_build_object('operator', p_op, 'unit', p_unit)::text;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- A date-only value has no time of day to move or read, and answering as though
+-- it were midnight would silently invent one.
+--
+-- v_units is compared against the list in sem-schema's operators.ts by that
+-- package's backend sync test, which finds it by this declaration.
+CREATE OR REPLACE FUNCTION jl_date_unit(p_op text, p_unit jsonb, p_date_only boolean) RETURNS text AS $$
+DECLARE
+    v_units CONSTANT text[] := ARRAY['year','quarter','month','week','day','hour','minute','second'];
+    v_unit text;
+BEGIN
+    IF jsonb_typeof(p_unit) = 'string' THEN
+        v_unit := p_unit #>> '{}';
+    END IF;
+    IF v_unit IS NULL OR NOT (v_unit = ANY(v_units))
+       OR (p_date_only AND v_unit IN ('hour', 'minute', 'second')) THEN
+        PERFORM jl_date_bad_unit(p_op, p_unit);
+    END IF;
+    RETURN v_unit;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_add":[date, amount, unit]} or {"date_add":[date, duration]}.
+--
+-- A duration is limited to the canonical ISO 8601 order plus the per-field minus
+-- signs PostgreSQL's iso_8601 style emits, which is what a duration column holds
+-- in rule data. The interval cast alone would also take '1 day' and '@ 1 ago',
+-- which the browser evaluator would have to parse identically.
+CREATE OR REPLACE FUNCTION jl_date_add(p_date jsonb, p_amount jsonb, p_unit jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_date_only boolean := jl_date_is_date_only(p_date);
+    v_moment timestamp;
+    v_span interval;
+    v_text text;
+    v_number numeric;
+    v_count int;
+BEGIN
+    IF jl_date_is_blank(p_date) OR jl_date_is_blank(p_amount) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_add', p_date);
+    v_text := p_amount #>> '{}';
+
+    IF p_unit IS NULL THEN
+        IF jsonb_typeof(p_amount) = 'number' THEN
+            PERFORM jl_date_bad_unit('date_add', 'null'::jsonb);
+        END IF;
+        IF jsonb_typeof(p_amount) <> 'string'
+           OR v_text !~ '^P(-?[0-9]+Y)?(-?[0-9]+M)?(-?[0-9]+W)?(-?[0-9]+D)?(T(-?[0-9]+H)?(-?[0-9]+M)?(-?[0-9]+(\.[0-9]+)?S)?)?$'
+           OR v_text ~ '^PT?$' OR v_text ~ 'T$' THEN
+            RAISE EXCEPTION '${operator} needs a whole number or an ISO 8601 duration, not ${value}'
+                USING ERRCODE = '90918',
+                      HINT = jsonb_build_object('operator', 'date_add', 'value', p_amount)::text;
+        END IF;
+        v_span := v_text::interval;
+        IF v_date_only AND date_trunc('day', v_span) <> v_span THEN
+            PERFORM jl_date_bad_unit('date_add', p_amount);
+        END IF;
+        RETURN jl_date_render(v_moment + v_span, v_date_only);
+    END IF;
+
+    v_text := jl_date_unit('date_add', p_unit, v_date_only);
+    IF jsonb_typeof(p_amount) = 'number'
+       OR (jsonb_typeof(p_amount) = 'string' AND (p_amount #>> '{}') ~ '^-?[0-9]+(\.0+)?$') THEN
+        v_number := (p_amount #>> '{}')::numeric;
+    END IF;
+    IF v_number IS NULL OR v_number <> trunc(v_number) THEN
+        RAISE EXCEPTION '${operator} needs a whole number or an ISO 8601 duration, not ${value}'
+            USING ERRCODE = '90918',
+                  HINT = jsonb_build_object('operator', 'date_add', 'value', p_amount)::text;
+    END IF;
+    v_count := v_number::int;
+
+    v_span := CASE v_text
+        WHEN 'year'    THEN make_interval(years  => v_count)
+        WHEN 'quarter' THEN make_interval(months => v_count * 3)
+        WHEN 'month'   THEN make_interval(months => v_count)
+        WHEN 'week'    THEN make_interval(weeks  => v_count)
+        WHEN 'day'     THEN make_interval(days   => v_count)
+        WHEN 'hour'    THEN make_interval(hours  => v_count)
+        WHEN 'minute'  THEN make_interval(mins   => v_count)
+        ELSE                make_interval(secs   => v_count)
+    END;
+    RETURN jl_date_render(v_moment + v_span, v_date_only);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_diff":[end, start, unit]}: whole elapsed units, truncated toward zero, in
+-- the argument order of "-". Calendar units go through age(), so a month has
+-- elapsed only when the day of the month has been reached again: Jan 31 to Feb 28
+-- is 0 months even though adding a month to Jan 31 lands on Feb 28.
+CREATE OR REPLACE FUNCTION jl_date_diff(p_end jsonb, p_start jsonb, p_unit jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_unit text;
+    v_end timestamp;
+    v_start timestamp;
+    v_age interval;
+BEGIN
+    IF jl_date_is_blank(p_end) OR jl_date_is_blank(p_start) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_unit := jl_date_unit('date_diff', p_unit, false);
+    v_end := jl_date_utc('date_diff', p_end);
+    v_start := jl_date_utc('date_diff', p_start);
+
+    IF v_unit IN ('year', 'quarter', 'month') THEN
+        v_age := age(v_end, v_start);
+        RETURN to_jsonb(trunc(
+            (extract(year FROM v_age)::numeric * 12 + extract(month FROM v_age)::numeric)
+            / CASE v_unit WHEN 'year' THEN 12 WHEN 'quarter' THEN 3 ELSE 1 END
+        )::bigint);
+    END IF;
+    RETURN to_jsonb(trunc(
+        extract(epoch FROM v_end - v_start)::numeric
+        / CASE v_unit WHEN 'week' THEN 604800 WHEN 'day' THEN 86400
+                      WHEN 'hour' THEN 3600 WHEN 'minute' THEN 60 ELSE 1 END
+    )::bigint);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_part":[date, part]}. v_parts is checked by the same sync test as v_units.
+CREATE OR REPLACE FUNCTION jl_date_part(p_date jsonb, p_part jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_parts CONSTANT text[] := ARRAY['year','iso_year','quarter','month','week','day','weekday','day_of_year','hour','minute','second','epoch'];
+    v_part text;
+    v_moment timestamp;
+BEGIN
+    IF jl_date_is_blank(p_date) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_part', p_date);
+    IF jsonb_typeof(p_part) = 'string' THEN
+        v_part := p_part #>> '{}';
+    END IF;
+    IF v_part IS NULL OR NOT (v_part = ANY(v_parts))
+       OR (jl_date_is_date_only(p_date) AND v_part IN ('hour', 'minute', 'second')) THEN
+        PERFORM jl_date_bad_unit('date_part', p_part);
+    END IF;
+    RETURN to_jsonb((CASE v_part
+        WHEN 'year'        THEN extract(year    FROM v_moment)
+        WHEN 'iso_year'    THEN extract(isoyear FROM v_moment)
+        WHEN 'quarter'     THEN extract(quarter FROM v_moment)
+        WHEN 'month'       THEN extract(month   FROM v_moment)
+        WHEN 'week'        THEN extract(week    FROM v_moment)
+        WHEN 'day'         THEN extract(day     FROM v_moment)
+        WHEN 'weekday'     THEN extract(isodow  FROM v_moment)
+        WHEN 'day_of_year' THEN extract(doy     FROM v_moment)
+        WHEN 'hour'        THEN extract(hour    FROM v_moment)
+        WHEN 'minute'      THEN extract(minute  FROM v_moment)
+        WHEN 'second'      THEN extract(second  FROM v_moment)
+        ELSE                    extract(epoch   FROM v_moment)
+    END)::bigint);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_trunc":[date, unit]}: the start of the period; a week starts on Monday.
+CREATE OR REPLACE FUNCTION jl_date_trunc(p_date jsonb, p_unit jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_date_only boolean := jl_date_is_date_only(p_date);
+    v_moment timestamp;
+BEGIN
+    IF jl_date_is_blank(p_date) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_trunc', p_date);
+    RETURN jl_date_render(date_trunc(jl_date_unit('date_trunc', p_unit, v_date_only), v_moment), v_date_only);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"to_date":[value]}. A number is read as UTC because that exactly reverses the
+-- epoch conversion in jl_try_number, which is what lets the epoch integers that
+-- date arithmetic, max and min produce become dates again.
+CREATE OR REPLACE FUNCTION jl_to_date(p_value jsonb) RETURNS jsonb AS $$
+BEGIN
+    IF jl_date_is_blank(p_value) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    IF jsonb_typeof(p_value) = 'number' THEN
+        RETURN to_jsonb((to_timestamp((p_value #>> '{}')::double precision) AT TIME ZONE 'UTC')::date);
+    END IF;
+    RETURN to_jsonb(jl_date_utc('to_date', p_value)::date);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- {"date_format":[date, pattern]}.
+--
+-- A fixed token list rather than to_char's own patterns, because the browser
+-- evaluator has no to_char and has to produce the same text. TM-prefixed patterns
+-- would also make a stored label follow lc_time.
+--
+-- Tokens are rendered one at a time. Handing the whole pattern to to_char would
+-- misread adjacent tokens: DD followed by Dy is DDDy to to_char, which reads DDD,
+-- the day of the year. FM removes the blank padding to_char adds to Month and Day.
+--
+-- The list is longest-first so that a token is never read as a shorter one, and
+-- v_tokens is checked by the same sync test as v_units.
+CREATE OR REPLACE FUNCTION jl_date_format(p_date jsonb, p_pattern jsonb) RETURNS jsonb AS $$
+DECLARE
+    v_tokens CONSTANT text[] := ARRAY['YYYY','Month','HH24','Mon','Day','YY','MM','DD','Dy','MI','SS','Q'];
+    v_token_re CONSTANT text := array_to_string(v_tokens, '|') || '|[ /.:,-]';
+    v_moment timestamp;
+    v_pattern text;
+    v_match text[];
+    v_out text := '';
+BEGIN
+    IF jl_date_is_blank(p_date) THEN
+        RETURN 'null'::jsonb;
+    END IF;
+    v_moment := jl_date_utc('date_format', p_date);
+    IF jsonb_typeof(p_pattern) = 'string' THEN
+        v_pattern := p_pattern #>> '{}';
+    END IF;
+    IF v_pattern IS NULL OR v_pattern !~ ('^(' || v_token_re || ')+$')
+       OR (jl_date_is_date_only(p_date) AND v_pattern ~ '(HH24|MI|SS)') THEN
+        RAISE EXCEPTION '${operator} cannot use the pattern ${pattern}'
+            USING ERRCODE = '90917',
+                  HINT = jsonb_build_object('operator', 'date_format', 'pattern', p_pattern)::text;
+    END IF;
+    FOR v_match IN SELECT regexp_matches(v_pattern, '(' || v_token_re || ')', 'g') LOOP
+        v_out := v_out || CASE
+            WHEN v_match[1] IN ('Month', 'Day') THEN to_char(v_moment, 'FM' || v_match[1])
+            WHEN v_match[1] = ANY(v_tokens)     THEN to_char(v_moment, v_match[1])
+            ELSE v_match[1]
+        END;
+    END LOOP;
+    RETURN to_jsonb(v_out);
+END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
 -- is_raci_actor and has_consultation call functions defined in 0370_raci.sql; no rule
@@ -2242,6 +2570,17 @@ BEGIN
         END IF;
     END IF;
 
+    -- ===================== date operators =====================
+    -- The work is in the jl_date_* helpers. Each operator keeps a comparison of
+    -- its own here, because the operator table in sem-schema is checked against
+    -- this function by searching for that exact form.
+    IF op = 'date_add' THEN RETURN jl_date_add(a, b, c); END IF;
+    IF op = 'date_diff' THEN RETURN jl_date_diff(a, b, c); END IF;
+    IF op = 'date_part' THEN RETURN jl_date_part(a, b); END IF;
+    IF op = 'date_trunc' THEN RETURN jl_date_trunc(a, b); END IF;
+    IF op = 'to_date' THEN RETURN jl_to_date(a); END IF;
+    IF op = 'date_format' THEN RETURN jl_date_format(a, b); END IF;
+
     -- Unknown operator
     RAISE EXCEPTION 'Unrecognized operation: ${op}'
         USING ERRCODE = '90910',
@@ -2259,6 +2598,30 @@ COMMENT ON FUNCTION jl_to_text(jsonb) IS
 'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
 COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
 'JsonLogic loose equality (==): compares two JSONB values with JavaScript-style type coercion.';
+COMMENT ON FUNCTION jl_date_is_blank(jsonb) IS
+'True when a JSONB value means no date: SQL NULL, JSON null or the empty string.';
+COMMENT ON FUNCTION jl_date_is_date_only(jsonb) IS
+'True when a JSONB value is a date with no time of day (YYYY-MM-DD).';
+COMMENT ON FUNCTION jl_date_utc(text, jsonb) IS
+'The UTC timestamp, in whole seconds, of an ISO 8601 date or date-time. Raises 90915 for anything else.';
+COMMENT ON FUNCTION jl_date_render(timestamp, boolean) IS
+'Renders a UTC timestamp as a JSON date, or as a date-time with an explicit +00:00 offset.';
+COMMENT ON FUNCTION jl_date_bad_unit(text, jsonb) IS
+'Raises 90916 for a date unit or part an operator cannot use on its value.';
+COMMENT ON FUNCTION jl_date_unit(text, jsonb, boolean) IS
+'Returns a date unit as text after checking it is known and usable on the value. Raises 90916 otherwise.';
+COMMENT ON FUNCTION jl_date_add(jsonb, jsonb, jsonb) IS
+'JsonLogic date_add: adds a whole amount of a unit, or an ISO 8601 duration, to a date in UTC.';
+COMMENT ON FUNCTION jl_date_diff(jsonb, jsonb, jsonb) IS
+'JsonLogic date_diff: whole elapsed units between two dates in UTC, truncated toward zero.';
+COMMENT ON FUNCTION jl_date_part(jsonb, jsonb) IS
+'JsonLogic date_part: one integer field of a date in UTC.';
+COMMENT ON FUNCTION jl_date_trunc(jsonb, jsonb) IS
+'JsonLogic date_trunc: the start of the period containing a date in UTC.';
+COMMENT ON FUNCTION jl_to_date(jsonb) IS
+'JsonLogic to_date: the UTC date of a date, date-time or epoch number.';
+COMMENT ON FUNCTION jl_date_format(jsonb, jsonb) IS
+'JsonLogic date_format: renders a date in UTC through a fixed token list. Raises 90917 for any other pattern.';
 COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
 
@@ -2268,6 +2631,18 @@ REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_is_blank(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_is_date_only(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_utc(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_render(timestamp, boolean) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_bad_unit(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_unit(text, jsonb, boolean) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_add(jsonb, jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_diff(jsonb, jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_part(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_to_date(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
@@ -2277,11 +2652,23 @@ GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_is_blank(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_is_date_only(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_utc(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_render(timestamp, boolean) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_bad_unit(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_unit(text, jsonb, boolean) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_add(jsonb, jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_diff(jsonb, jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_part(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_to_date(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', '207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6')
+        VALUES ('_core.0050_jsonlogic.sql', 'fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -4367,8 +4754,8 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 -- =====================================================
 -- user:manage implies user:read
 
-INSERT INTO permission_hierarchy (including_permission_name, included_permission_name) VALUES
-    ('user:manage', 'user:read');
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
+    ('user:manage', 'user:read', 'system');
 
 -- =====================================================
 -- SEED ROLES
@@ -4444,7 +4831,7 @@ ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
 $pgsem__core_0090_rbac_seed_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0090_rbac_seed.once.sql', '458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a')
+        VALUES ('_core.0090_rbac_seed.once.sql', '9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6119,7 +6506,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '471ddd514dd19f930173c7bf105db632731a08a156422324bacd42f7a80754b1') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -9725,7 +10112,7 @@ BEGIN
     v_body := format($BODY$
 CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
 RETURNS %2$s
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
 AS $RW$
 #variable_conflict use_variable
 DECLARE
@@ -10698,7 +11085,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61')
+        VALUES ('_core.0160_dd_functions.sql', '471ddd514dd19f930173c7bf105db632731a08a156422324bacd42f7a80754b1')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13751,7 +14138,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9a25cdcb4989f69429fad63a15911900453bd5282e0d838f108322cb101e3d3a') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '961827bab45e2c8b610f832bc957590cc3db0524685142faad13eeb1338e7eb0') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -13769,8 +14156,8 @@ $pgsem__core_0200_audit_log_sql$;
 -- (0160_dd_functions.sql) calls it over the whole record.
 --
 -- Reserved variables injected into the JsonLogic data:
---   $today    -> server date
---   $now      -> server timestamp
+--   $today    -> current date in UTC
+--   $now      -> current timestamp in UTC
 --   $user_id  -> internal user_id from JWT context, null when no context
 --   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
 --   $mode     -> the operation: 'insert' | 'update' | 'delete'
@@ -14130,8 +14517,15 @@ $BLOCK$,
     -- Granted to the request role because the write routines of is_a and
     -- has_a entities, which run as the caller, call it. It lives in common,
     -- which PostgREST does not expose, so it is no RPC.
+    --
+    -- The timezone and intervalstyle settings are part of what the rules mean.
+    -- $today and $now come from CURRENT_DATE and CURRENT_TIMESTAMP, and a record
+    -- reaches the rules through to_jsonb, so all of them render in the session's
+    -- zone and style. A client can change both, and what a rule stores or
+    -- compares must not depend on who wrote the row. The same two settings are on
+    -- every other function that turns a row into rule data.
     v_body := format($FUNC$
-CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_rules_name, dd_dollar_quote(format($RULES$
 DECLARE
     v_data jsonb;
@@ -14199,7 +14593,7 @@ $WB$;
     -- On DELETE there is no NEW row; the rules evaluate against the row being
     -- removed (OLD), which is also $old.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, dd_dollar_quote(format($TRIG$
 DECLARE
     v_data jsonb;
@@ -14568,7 +14962,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION computed_backfill(TEXT) IS
 'Applies an entity''s computed_fields to its existing records, writing only those whose value moves, without touching updated_at, the audit log, queues or RACI events. A record that cannot take its new value refuses the change (90908).';
@@ -14644,7 +15038,7 @@ BEGIN
         '$user_id', to_jsonb(v_uid)
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION public.jl_request_context() IS
 'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
@@ -14754,9 +15148,9 @@ BEGIN
     -- inside the first, and a fixed body tag would be ended by the same tag
     -- written into the rule.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, v_rel,
         dd_dollar_quote(format($SEL$
 DECLARE
@@ -14884,7 +15278,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '9a25cdcb4989f69429fad63a15911900453bd5282e0d838f108322cb101e3d3a')
+        VALUES ('_core.0210_computed_validation.sql', '961827bab45e2c8b610f832bc957590cc3db0524685142faad13eeb1338e7eb0')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -22959,7 +23353,7 @@ $pgsem__core_0430_required_field_description_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ae8eaab16816e3f04942900c211225ffcdaaf6e34b39e42a8310c9f99d7c5902') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '65def025344b366c7a7d601826a39e7fe30d05e4703617a73e10ceb72702da6a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
       EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
@@ -23065,7 +23459,9 @@ REVOKE EXECUTE ON FUNCTION rollup_guard_name(TEXT) FROM PUBLIC;
 --     natural type when both sides are literals);
 --   * operators are and, or, !, !!, ==, ===, !=, !==, <, <=, >, >= (the last
 --     two forms also take three operands), in with a list of literals, and a
---     bare boolean column.
+--     bare boolean column;
+--   * a value may also be one of the date operators, compiled to a call of the
+--     interpreter's own function for it (see rollup_filter_date_op).
 -- Anything else is refused with 90265 naming what was refused, never
 -- approximated. The semantics are SQL's, not the interpreter's coercion: ==
 -- and != are IS [NOT] DISTINCT FROM, so null compares as JsonLogic expects,
@@ -23124,7 +23520,7 @@ BEGIN
     -- to TEXT for what it does not know, and a wrong type here would surface as
     -- a planner error inside a fields trigger.
     IF v_oid <> ALL (ARRAY['text', 'bool', 'int2', 'int4', 'int8', 'numeric', 'float4', 'float8',
-                           'date', 'timestamptz', 'time', 'uuid']::regtype[])
+                           'date', 'timestamptz', 'time', 'uuid', 'interval']::regtype[])
        AND v_oid <> 'common.typeid'::regtype THEN
         PERFORM rollup_filter_problem(format('column %s has type %s, which a rollup filter cannot compare', p_name, v_type));
     END IF;
@@ -23133,6 +23529,7 @@ BEGIN
         'type',   v_type,
         'kind',   CASE WHEN v_oid = 'bool'::regtype THEN 'bool'
                        WHEN v_oid = 'common.typeid'::regtype THEN 'typeid'
+                       WHEN v_oid = 'interval'::regtype THEN 'interval'
                        ELSE 'other' END,
         'is_var', TRUE);
 END;
@@ -23145,10 +23542,16 @@ COMMENT ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) IS
 -- comes from format_type, so it is safe to splice; the value goes through %L.
 -- A TypeID literal is checked here because the domain's CHECK is not folded
 -- at plan time and would slip past the EXPLAIN probe.
+--
+-- A date literal is resolved to UTC here and written out with an explicit
+-- offset. Left as the admin wrote it, a value with no offset would be read in the
+-- zone of whichever session writes the child, so the same filter could count
+-- different records, and 'today' would change meaning with the day.
 CREATE OR REPLACE FUNCTION rollup_filter_literal(p_node JSONB, p_type TEXT, p_kind TEXT)
 RETURNS TEXT AS $fn$
 DECLARE
-    v_text TEXT := p_node #>> '{}';
+    v_text   TEXT := p_node #>> '{}';
+    v_moment TIMESTAMP;
 BEGIN
     CASE jsonb_typeof(p_node)
         WHEN 'string' THEN
@@ -23157,6 +23560,16 @@ BEGIN
             END IF;
             IF p_kind = 'typeid' AND NOT common.typeid_check_text(v_text) THEN
                 PERFORM rollup_filter_problem(format('%s is not a well-formed TypeID', v_text));
+            END IF;
+            IF p_type IN ('date', 'timestamp with time zone') THEN
+                BEGIN
+                    v_moment := jl_date_utc('rollup filter', p_node);
+                EXCEPTION WHEN SQLSTATE '90915' OR data_exception THEN
+                    PERFORM rollup_filter_problem(format('%s is not an ISO 8601 date or date-time', v_text));
+                END;
+                RETURN format('%L::%s',
+                              to_char(v_moment, CASE p_type WHEN 'date' THEN 'YYYY-MM-DD' ELSE 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"' END),
+                              p_type);
             END IF;
             RETURN format('%L::%s', v_text, COALESCE(p_type, 'text'));
         WHEN 'number' THEN
@@ -23181,8 +23594,164 @@ $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 COMMENT ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) IS
 'Emits a scalar JSON literal of a rollup filter as a quoted SQL literal cast to the given catalog type (its natural type when none), or raises 90265.';
 
--- An operand of a comparison: a var or a literal. Any other operator object is
--- refused here, which is what keeps arithmetic and the custom operators out.
+-- A duration column in ISO 8601 whatever the session's interval style, because
+-- that is the only spelling jl_date_add accepts. The generated rollup triggers run
+-- in the style of whichever session writes the child.
+CREATE OR REPLACE FUNCTION rollup_interval_iso(p_value INTERVAL)
+RETURNS JSONB AS $fn$
+BEGIN
+    RETURN to_jsonb(p_value);
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public SET intervalstyle = 'iso_8601';
+
+COMMENT ON FUNCTION rollup_interval_iso(INTERVAL) IS
+'An interval as a JSON string in ISO 8601, whatever the session''s interval style. Used by compiled rollup filters.';
+
+-- The date argument of a date operator: a date or date-time column, a literal, or
+-- another date operator. Returns its SQL as jsonb and a value of the same kind for
+-- rollup_filter_date_op to check the operator with.
+CREATE OR REPLACE FUNCTION rollup_filter_date_arg(p_node JSONB, p_rel TEXT, p_alias TEXT)
+RETURNS JSONB AS $fn$
+DECLARE
+    v_arg JSONB;
+BEGIN
+    IF jsonb_typeof(p_node) = 'string' THEN
+        RETURN jsonb_build_object('json_sql', format('%L::jsonb', p_node::text), 'sample', p_node);
+    END IF;
+    IF jsonb_typeof(p_node) <> 'object' THEN
+        PERFORM rollup_filter_problem('a date operator takes a date column, a date literal or another date operator');
+    END IF;
+    v_arg := rollup_filter_operand(p_node, p_rel, p_alias);
+    IF v_arg ->> 'type' NOT IN ('date', 'timestamp with time zone') THEN
+        PERFORM rollup_filter_problem(format('%s is not a date', p_node));
+    END IF;
+    IF v_arg ? 'json_sql' THEN
+        RETURN v_arg;
+    END IF;
+    RETURN jsonb_build_object(
+        'json_sql', format('to_jsonb(%s)', v_arg ->> 'sql'),
+        'sample',   CASE v_arg ->> 'type' WHEN 'date' THEN '"2000-01-31"'::jsonb
+                                          ELSE '"2000-01-31T00:00:00+00:00"'::jsonb END);
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT) IS
+'Compiles the date argument of a date operator in a rollup filter to SQL yielding jsonb, or raises 90265.';
+
+-- A date operator used as a value.
+--
+-- It compiles to a call of the interpreter's own jl_date_* function, not to a
+-- native expression, which is what lets a date operator be in this subset at all:
+-- a filter and a validation rule cannot disagree about it, because there is no
+-- second implementation to keep equivalent. The price is a function call per child
+-- of the one parent being recomputed.
+--
+-- The operator name reaches the SQL only after rollup_filter_operand has matched
+-- it against a fixed list, and every literal goes through %L as jsonb.
+--
+-- The arguments are checked by running the interpreter once, with a value of the
+-- right kind in place of each column. That applies its own lists of units, parts
+-- and tokens and its refusal of a time of day on a date-only value, so a filter
+-- that could never work is refused when it is saved and not at the first child
+-- write. A date column cannot fail at run time: it can only hold a real date.
+--
+-- A duration column against a date column is refused here for that reason. It may
+-- hold a time of day in some rows and not others, so it would fail on a child write
+-- that has nothing wrong with it.
+CREATE OR REPLACE FUNCTION rollup_filter_date_op(p_op TEXT, p_args JSONB, p_rel TEXT, p_alias TEXT)
+RETURNS JSONB AS $fn$
+DECLARE
+    v_args    JSONB := CASE WHEN jsonb_typeof(p_args) = 'array' THEN p_args ELSE jsonb_build_array(p_args) END;
+    v_n       INTEGER := jsonb_array_length(CASE WHEN jsonb_typeof(p_args) = 'array' THEN p_args ELSE jsonb_build_array(p_args) END);
+    v_sql     TEXT[] := ARRAY[]::TEXT[];
+    v_samples JSONB := '[]'::jsonb;
+    v_arg     JSONB;
+    v_col     JSONB;
+    v_result  JSONB;
+    v_type    TEXT;
+    v_json    TEXT;
+BEGIN
+    IF NOT ((p_op = 'date_add' AND v_n IN (2, 3))
+         OR (p_op = 'date_diff' AND v_n = 3)
+         OR (p_op IN ('date_part', 'date_trunc', 'date_format') AND v_n = 2)
+         OR (p_op = 'to_date' AND v_n = 1)) THEN
+        PERFORM rollup_filter_problem(format('%s has the wrong number of arguments', p_op));
+    END IF;
+
+    FOR v_i IN 0 .. v_n - 1 LOOP
+        v_arg := v_args -> v_i;
+        IF v_i = 0 OR (p_op = 'date_diff' AND v_i = 1) THEN
+            v_col := rollup_filter_date_arg(v_arg, p_rel, p_alias);
+            v_sql := v_sql || (v_col ->> 'json_sql');
+            v_samples := v_samples || jsonb_build_array(v_col -> 'sample');
+        ELSIF p_op = 'date_add' AND v_i = 1 AND jsonb_typeof(v_arg) = 'object' THEN
+            v_col := rollup_filter_operand(v_arg, p_rel, p_alias);
+            IF v_n = 2 THEN
+                IF v_col ->> 'kind' IS DISTINCT FROM 'interval' THEN
+                    PERFORM rollup_filter_problem(format('%s is not a duration', v_arg));
+                END IF;
+                IF jl_date_is_date_only(v_samples -> 0) THEN
+                    PERFORM rollup_filter_problem('a duration column may hold a time of day, which a date cannot take');
+                END IF;
+                v_sql := v_sql || format('rollup_interval_iso(%s)', v_col ->> 'sql');
+                v_samples := v_samples || '["PT0S"]'::jsonb;
+            ELSE
+                IF v_col ->> 'type' NOT IN ('smallint', 'integer', 'bigint') THEN
+                    PERFORM rollup_filter_problem(format('%s is not a whole number', v_arg));
+                END IF;
+                v_sql := v_sql || COALESCE(v_col ->> 'json_sql', format('to_jsonb(%s)', v_col ->> 'sql'));
+                v_samples := v_samples || jsonb_build_array(COALESCE(v_col -> 'sample', '1'::jsonb));
+            END IF;
+        ELSIF jsonb_typeof(v_arg) = 'string' OR (p_op = 'date_add' AND v_i = 1 AND jsonb_typeof(v_arg) = 'number') THEN
+            v_sql := v_sql || format('%L::jsonb', v_arg::text);
+            v_samples := v_samples || jsonb_build_array(v_arg);
+        ELSE
+            PERFORM rollup_filter_problem(format('%s takes its unit, part, pattern or amount as a literal', p_op));
+        END IF;
+    END LOOP;
+
+    BEGIN
+        v_result := evaluate_json_logic(jsonb_build_object(p_op, v_samples), '{}'::jsonb);
+    EXCEPTION
+        WHEN SQLSTATE '90915' OR SQLSTATE '90916' OR SQLSTATE '90917' OR SQLSTATE '90918' OR data_exception THEN
+            PERFORM rollup_filter_problem(format('%s cannot take the arguments %s', p_op, v_args));
+    END;
+    -- Columns are checked with values that are never null, so a null here means a
+    -- blank literal: the interpreter answers null for one before it looks at the
+    -- other arguments, which would leave them unchecked, in a filter whose value
+    -- could never be anything but null.
+    IF v_result IS NULL OR jsonb_typeof(v_result) = 'null' THEN
+        PERFORM rollup_filter_problem(format('%s cannot take a blank date or amount: %s', p_op, v_args));
+    END IF;
+
+    IF p_op = 'date_add' AND v_n = 2 THEN
+        v_sql := v_sql || 'NULL::jsonb'::text;
+    END IF;
+    v_type := CASE p_op
+        WHEN 'date_diff'   THEN 'bigint'
+        WHEN 'date_part'   THEN 'bigint'
+        WHEN 'date_format' THEN 'text'
+        WHEN 'to_date'     THEN 'date'
+        ELSE CASE WHEN jl_date_is_date_only(v_result) THEN 'date' ELSE 'timestamp with time zone' END
+    END;
+    v_json := format('%s(%s)', CASE p_op WHEN 'to_date' THEN 'jl_to_date' ELSE 'jl_' || p_op END,
+                     array_to_string(v_sql, ', '));
+    RETURN jsonb_build_object(
+        'json_sql', v_json,
+        'sql',      format('(%s #>> ''{}'')::%s', v_json, v_type),
+        'type',     v_type,
+        'kind',     'other',
+        'is_var',   TRUE,
+        'sample',   v_result);
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT) IS
+'Compiles a date operator used as a value in a rollup filter to a typed call of the interpreter''s jl_date_* function, or raises 90265.';
+
+-- An operand of a comparison: a var, a literal or a date operator. Any other
+-- operator object is refused here, which is what keeps arithmetic and the other
+-- custom operators out.
 CREATE OR REPLACE FUNCTION rollup_filter_operand(p_node JSONB, p_rel TEXT, p_alias TEXT)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -23193,6 +23762,9 @@ BEGIN
             PERFORM rollup_filter_problem('an operator object has exactly one key');
         END IF;
         SELECT k INTO v_op FROM jsonb_object_keys(p_node) k;
+        IF v_op = ANY (ARRAY['date_add', 'date_diff', 'date_part', 'date_trunc', 'to_date', 'date_format']) THEN
+            RETURN rollup_filter_date_op(v_op, p_node -> v_op, p_rel, p_alias);
+        END IF;
         IF v_op <> 'var' THEN
             PERFORM rollup_filter_problem(format('operator %s cannot be used as a value in a rollup filter', v_op));
         END IF;
@@ -23225,6 +23797,10 @@ DECLARE
 BEGIN
     FOR v_node IN SELECT a FROM jsonb_array_elements(p_args) a LOOP
         v_op := rollup_filter_operand(v_node, p_rel, p_alias);
+        -- A duration column exists here only to be an argument of date_add.
+        IF v_op ->> 'kind' = 'interval' THEN
+            PERFORM rollup_filter_problem(format('column %s has type interval, which a rollup filter cannot compare', v_node ->> 'var'));
+        END IF;
         v_ops := v_ops || v_op;
         IF v_anchor IS NULL AND (v_op ->> 'is_var')::boolean THEN
             v_anchor := v_op;
@@ -23356,6 +23932,9 @@ COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT) IS
 
 REVOKE EXECUTE ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_interval_iso(INTERVAL) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT) FROM PUBLIC;
@@ -24443,7 +25022,7 @@ REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
 $pgsem__core_0440_rollup_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0440_rollup.sql', 'ae8eaab16816e3f04942900c211225ffcdaaf6e34b39e42a8310c9f99d7c5902')
+        VALUES ('_core.0440_rollup.sql', '65def025344b366c7a7d601826a39e7fe30d05e4703617a73e10ceb72702da6a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24831,7 +25410,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"9a25cdcb4989f69429fad63a15911900453bd5282e0d838f108322cb101e3d3a","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"ae8eaab16816e3f04942900c211225ffcdaaf6e34b39e42a8310c9f99d7c5902","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"902257ce64535c14cfdd51b6de0bc44b2b8f5be84cc9f8b86265c7a4a591d7a4","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"471ddd514dd19f930173c7bf105db632731a08a156422324bacd42f7a80754b1","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"961827bab45e2c8b610f832bc957590cc3db0524685142faad13eeb1338e7eb0","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"65def025344b366c7a7d601826a39e7fe30d05e4703617a73e10ceb72702da6a","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -24895,7 +25474,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"1f525003f94babbaefa5d13963db48c313349219a180f06654f0f53a0631d05a","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"207b8487f8c0e71f4954aa159d7e89f851ec5dfc7da1354d964029b32e0e1eb6","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"458fb7e9f84499fb07c0140b542b2a8a236d2421b168cd531355fb47e3dd706a","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","_core.0160_dd_functions.sql":"8e026c3197435d4224ddf6761d8096336145b386e3b12fd230bd558aa4211a61","_core.0170_dd_rename.sql":"95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516","_core.0180_managed_enable.sql":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"9a25cdcb4989f69429fad63a15911900453bd5282e0d838f108322cb101e3d3a","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"ae8eaab16816e3f04942900c211225ffcdaaf6e34b39e42a8310c9f99d7c5902","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"902257ce64535c14cfdd51b6de0bc44b2b8f5be84cc9f8b86265c7a4a591d7a4","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"9fea4a0414af9049515636cef8190e288116f196fcf5541e9d5b356861690eab","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"d60e5acccff45eddf08bf2801902fbf96dc50819299e41c8678541e960325cc8","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","_core.0160_dd_functions.sql":"471ddd514dd19f930173c7bf105db632731a08a156422324bacd42f7a80754b1","_core.0170_dd_rename.sql":"95dbc4491a772b3ea36b16a006f47da42224fc9ca0540f6a49613f241e3b5516","_core.0180_managed_enable.sql":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"961827bab45e2c8b610f832bc957590cc3db0524685142faad13eeb1338e7eb0","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"69478e04b46bdb8d62926e65e5c54dfde5060e46822476298dcb67421b2ea519","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"6bfa09cef76e4d885f8defb9e8e81931f26949c736a09897a0429e1dc5539c2d","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"550e469d9b068a048cad5ed0701e5e8bd0778929d694d1d88c7eb54b19cec3d8","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"65def025344b366c7a7d601826a39e7fe30d05e4703617a73e10ceb72702da6a","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
