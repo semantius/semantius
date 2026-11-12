@@ -170,6 +170,11 @@ amount, whose value could only ever be null.
 A date literal compared with a date or date-time column has to be ISO 8601 and is
 read in UTC.
 
+One insert of several fields may create a child's fields and the rollups over
+them together: a definition may name, as its `link_field`, its `value_field` or
+in its filter, a field whose row comes earlier in the same statement. A field
+whose row comes later is refused as if it did not exist.
+
 Everything else is refused when the definition is saved (90265) and the error
 names what was refused: any other operator (`if`, arithmetic, `cat`,
 `substr`, `merge`, `missing`, `some`, the other custom operators), a request

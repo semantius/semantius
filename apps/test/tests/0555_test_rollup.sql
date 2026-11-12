@@ -12,9 +12,10 @@
 --   7. Lifecycle: nested rollups, a tree, truncate, deletes, a module delete,
 --      and ensure_entities ordering
 --   8. A definition removed while the field stays
+--   9. One statement: rollups over fields created earlier in it
 BEGIN;
 
-SELECT plan(179);
+SELECT plan(190);
 
 SELECT authenticate_as('user3');
 
@@ -901,6 +902,102 @@ UPDATE rr_child SET qty = 9;
 SELECT is((SELECT agg FROM rr_parent), 3, 'a child write no longer moves the value');
 UPDATE rr_parent SET agg = 99;
 SELECT is((SELECT agg FROM rr_parent), 99, 'and it is ordinary data a write can change');
+
+-- =====================================================
+-- PART 9: One statement: rollups over fields created earlier in it
+-- =====================================================
+-- A client sends a child's fields and the rollups over them in one INSERT.
+-- Every row's BEFORE triggers run before any row's column exists, so a new
+-- field's filter is compiled in its row's AFTER trigger, when the columns of
+-- the earlier rows exist and those of the later rows do not.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('rs_parent', 'rs_parent', 'RS Parent', 'RS Parents', 'one-statement parent', 1, 'public:read', 'admin', 'id', 'label'),
+       ('rs_child', 'rs_child', 'RS Child', 'RS Children', 'one-statement child', 1, 'public:read', 'admin', 'id', 'label'),
+       ('rs_node', 'rs_node', 'RS Node', 'RS Nodes', 'one-statement tree', 1, 'public:read', 'admin', 'id', 'label');
+
+SELECT lives_ok($$
+    INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode, enum_values, rollup) VALUES
+        ('rs_child',  'parent_id',    'Parent',       'parent',  10, 'rs_parent', 'restrict', DEFAULT, DEFAULT),
+        ('rs_child',  'stage',        'Stage',        'enum',    20, DEFAULT, DEFAULT, '["open", "hired"]', DEFAULT),
+        ('rs_child',  'amount',       'Amount',       'number',  30, DEFAULT, DEFAULT, DEFAULT, DEFAULT),
+        ('rs_child',  'urgent',       'Urgent',       'boolean', 40, DEFAULT, DEFAULT, DEFAULT, DEFAULT),
+        ('rs_parent', 'hired_count',  'Hired',        'int64',   10, DEFAULT, DEFAULT, DEFAULT,
+         '{"link_field": "rs_child.parent_id", "function": "count", "filter": {"==": [{"var": "stage"}, "hired"]}}'),
+        ('rs_parent', 'urgent_total', 'Urgent total', 'number',  20, DEFAULT, DEFAULT, DEFAULT,
+         '{"link_field": "rs_child.parent_id", "function": "sum", "value_field": "amount", "filter": {"var": "urgent"}}')
+$$, 'one statement: the link field, the value field and the filtered columns of the child, then the rollups over them');
+
+INSERT INTO rs_parent (label) VALUES ('P');
+INSERT INTO rs_child (label, parent_id, stage, amount, urgent)
+SELECT v.label, p.id, v.stage, v.amount, v.urgent
+  FROM rs_parent p,
+       (VALUES ('c1', 'hired', 10, TRUE), ('c2', 'hired', 20, FALSE), ('c3', 'open', 40, TRUE)) AS v(label, stage, amount, urgent);
+SELECT is((SELECT ARRAY[hired_count::numeric, urgent_total] FROM rs_parent), ARRAY[2, 50]::numeric[],
+    'and both apply their filters: 2 of 3 children hired, the urgent amounts 10 and 40 of 70');
+
+-- One INSERT of a child field probe_col of the given format and a count whose
+-- filter is p_filter, the rollup's row first when asked.
+CREATE FUNCTION pg_temp.rs_call(p_format TEXT, p_filter TEXT, p_rollup_first BOOLEAN DEFAULT FALSE) RETURNS TEXT LANGUAGE sql AS $$
+    SELECT format($q$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup) VALUES %s, %s$q$,
+                  CASE WHEN p_rollup_first THEN r ELSE c END,
+                  CASE WHEN p_rollup_first THEN c ELSE r END)
+      FROM (SELECT format($r$('rs_child', 'probe_col', 'Probe column', %L, 900, '{}')$r$, p_format) AS c,
+                   format($r$('rs_parent', 'probe', 'Probe', 'int64', 900, %L)$r$,
+                          jsonb_build_object('link_field', 'rs_child.parent_id', 'function', 'count',
+                                             'filter', p_filter::jsonb)) AS r) s
+$$;
+
+SELECT throws_ok(pg_temp.rs_call('boolean', '{"var": "probe_col"}', TRUE),
+    '90265', NULL, 'one statement: a filter naming a field whose row comes later is refused');
+SELECT is(catch_error_hint(pg_temp.rs_call('boolean', '{"var": "probe_col"}', TRUE)) ->> 'problem',
+    'column probe_col does not exist on rs_child',
+    'as a column that does not exist, the rule a later link or value field follows');
+SELECT throws_ok(pg_temp.rs_call('json', '{"==": [{"var": "probe_col"}, 1]}'),
+    '90265', NULL, 'one statement: a new column of a type the filter cannot compare is refused');
+SELECT throws_ok(pg_temp.rs_call('int32', '{"==": [{"var": "probe_col"}, "abc"]}'),
+    '90265', NULL, 'one statement: a literal the new column cannot be cast from is refused by the probe, not by the backfill');
+SELECT throws_ok(
+    $$UPDATE fields SET rollup = jsonb_set(rollup, '{filter}', '{"==": [{"var": "amount"}, "abc"]}')
+       WHERE table_name = 'rs_parent' AND field_name = 'hired_count'$$,
+    '90265', NULL, 'a filter changed to a literal its column cannot be cast from is refused by the probe');
+
+-- A tree: the link, the filtered column and the rollup are all fields of the
+-- one entity, so its own column and the filtered one are both new.
+SELECT lives_ok($$
+    INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode, rollup) VALUES
+        ('rs_node', 'parent_ref',  'Parent',          'reference', 10, 'rs_node', 'clear', DEFAULT),
+        ('rs_node', 'active',      'Active',          'boolean',   20, DEFAULT,   DEFAULT, DEFAULT),
+        ('rs_node', 'active_kids', 'Active children', 'int64',     30, DEFAULT,   DEFAULT,
+         '{"link_field": "rs_node.parent_ref", "function": "count", "filter": {"var": "active"}}')
+$$, 'one statement: a tree''s link, a filtered column and the rollup over its own records');
+INSERT INTO rs_node (label, active) VALUES ('root', TRUE);
+INSERT INTO rs_node (label, parent_ref, active)
+SELECT v.label, r.id, v.active
+  FROM rs_node r, (VALUES ('on', TRUE), ('off', FALSE)) AS v(label, active)
+ WHERE r.label = 'root';
+SELECT is((SELECT jsonb_object_agg(label, active_kids) FROM rs_node), '{"root": 1, "on": 0, "off": 0}'::jsonb,
+    'and the root counts its one active child');
+
+-- The two trigger orders on fields that the compile depends on. A rename that
+-- breaks one fails the tests above as well; these name the cause.
+SELECT is(
+    (SELECT tgname::text FROM pg_trigger
+      WHERE tgrelid = 'public.fields'::regclass AND NOT tgisinternal AND (tgtype & 7) = 7
+      ORDER BY tgname::text COLLATE "C" DESC LIMIT 1),
+    'zz_validate_rollup_field',
+    'zz_validate_rollup_field is the last BEFORE INSERT row trigger on fields, after the ctype lock and the computed marker');
+SELECT ok(
+    (SELECT array_position(a, 'add_field_trigger') < array_position(a, 'zz_rollup_field_change')
+       FROM (SELECT array_agg(tgname::text ORDER BY tgname::text COLLATE "C") AS a
+               FROM pg_trigger
+              WHERE tgrelid = 'public.fields'::regclass AND NOT tgisinternal
+                AND (tgtype & 7) = 5 AND (tgtype & 64) = 0) s),
+    'add_field_trigger fires before zz_rollup_field_change, so a new rollup''s own column exists when its filter is compiled');
 
 SELECT * FROM finish();
 ROLLBACK;

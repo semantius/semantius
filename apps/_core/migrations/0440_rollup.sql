@@ -112,10 +112,11 @@ REVOKE EXECUTE ON FUNCTION rollup_guard_name(TEXT) FROM PUBLIC;
 -- only through an explicit cast. docs/jsonlogic-optimization-candidates.md
 -- records why no larger translation is attempted.
 --
--- The compiled text is probed with EXPLAIN when the definition is saved
--- (zz_validate_rollup_field), so a cast that cannot succeed fails there and
--- not at the first child write. There is no depth limit: an absurd filter is
--- the same trusted-administrator cost SECURITY.md accepts for an absurd rule.
+-- The compiled text is probed with EXPLAIN when the definition is saved, before
+-- anything is generated from it (rollup_sync_field), so a cast that cannot
+-- succeed fails there and not at the first child write. There is no depth
+-- limit: an absurd filter is the same trusted-administrator cost SECURITY.md
+-- accepts for an absurd rule.
 
 CREATE OR REPLACE FUNCTION rollup_filter_problem(p_problem TEXT)
 RETURNS VOID AS $fn$
@@ -608,7 +609,7 @@ REVOKE EXECUTE ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT) FROM PUBLIC;
 --   precision                the precision the field takes (copied from a
 --                            number value field)
 --   filter_sql               the compiled filter, NULL while the child table
---                            does not exist yet
+--                            or the field's own column does not exist yet
 --   hidden                   whether the child is more restricted than the parent
 CREATE OR REPLACE FUNCTION rollup_definition(p_field fields)
 RETURNS JSONB AS $fn$
@@ -845,8 +846,21 @@ BEGIN
     v_cast_type := COALESCE(v_col_type, v_ddl_type);
     v_empty := dd_column_default(p_field.format, '', p_field.input_type, p_field.enum_values, v_ddl_type);
 
-    -- The filter can only be compiled against a table that exists.
-    IF v_child.managed AND pg_catalog.to_regclass(format('public.%I', v_child_rel)) IS NOT NULL THEN
+    -- The filter is compiled against the child's columns as they stand, so only
+    -- once the field's own column exists. In a multi-row INSERT of fields every
+    -- row's BEFORE triggers run first; the AFTER triggers then fire row by row,
+    -- each row's in name order. The own column therefore exists exactly when
+    -- this row's add_field_trigger has run, and then every earlier row's column
+    -- exists and no later row's does: a filter may name a field created earlier
+    -- in the same statement, as link_field and value_field may, and is refused
+    -- for one created later. zz_rollup_field_change compiles it at that point,
+    -- through rollup_sync_field, which is why its name must keep sorting after
+    -- add_field_trigger. Until then filter_sql is NULL while column_exists is
+    -- false, and the builders leave the rollup out, so no aggregate is ever
+    -- built without its filter. An unmanaged parent never gets its column from
+    -- the dictionary, so its filter is compiled when the field is saved.
+    IF v_child.managed AND pg_catalog.to_regclass(format('public.%I', v_child_rel)) IS NOT NULL
+       AND (v_col_type IS NOT NULL OR NOT v_parent.managed) THEN
         BEGIN
             v_filter_sql := rollup_filter_sql(v_filter, v_child_rel, 'c');
         EXCEPTION
@@ -1257,13 +1271,32 @@ COMMENT ON FUNCTION rollup_backfill(TEXT, TEXT) IS
 REVOKE EXECUTE ON FUNCTION rollup_backfill(TEXT, TEXT) FROM PUBLIC;
 
 -- Everything a rollup field needs after a change of its own row.
+--
+-- A cast the compiler cannot judge ('abc' against a numeric column) is caught
+-- by the planner first, before anything is generated or backfilled, so it is
+-- refused as 90265 and not at the first child write, or as the cast's own error
+-- from the backfill. The probe sits here, the one path every saved definition
+-- takes once its filter is compiled: the fields trigger compiles the filter of
+-- a new field only after its own column exists (rollup_definition), and
+-- rollup_definition is STABLE, where PL/pgSQL refuses EXPLAIN.
 CREATE OR REPLACE FUNCTION rollup_sync_field(p_field fields, p_backfill BOOLEAN)
 RETURNS VOID AS $fn$
 DECLARE
     v_def JSONB := rollup_definition(p_field);
+    v_err TEXT;
 BEGIN
     IF v_def IS NULL THEN
         RETURN;
+    END IF;
+    IF v_def ->> 'filter_sql' IS NOT NULL THEN
+        BEGIN
+            EXECUTE format('EXPLAIN SELECT 1 FROM public.%I c WHERE %s', v_def ->> 'child_rel', v_def ->> 'filter_sql');
+        EXCEPTION
+            WHEN OTHERS THEN
+                GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
+                PERFORM rollup_refuse('90265', 'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
+                    jsonb_build_object('table', p_field.table_name, 'field_name', p_field.field_name, 'problem', v_err));
+        END;
     END IF;
     PERFORM rollup_build_link(v_def ->> 'child_table', v_def ->> 'link_column');
     PERFORM rollup_build_guard(p_field.table_name);
@@ -1274,7 +1307,7 @@ END;
 $fn$ LANGUAGE plpgsql SET search_path = public;
 
 COMMENT ON FUNCTION rollup_sync_field(fields, BOOLEAN) IS
-'Rebuilds the maintenance function of a rollup field''s link and the guard of its entity, and backfills the column when asked.';
+'Probes the compiled filter of a rollup field with EXPLAIN (90265), then rebuilds the maintenance function of its link and the guard of its entity, and backfills the column when asked.';
 
 REVOKE EXECUTE ON FUNCTION rollup_sync_field(fields, BOOLEAN) FROM PUBLIC;
 
@@ -1351,7 +1384,6 @@ CREATE OR REPLACE FUNCTION zz_validate_rollup_field()
 RETURNS TRIGGER AS $fn$
 DECLARE
     v_def JSONB;
-    v_err TEXT;
 BEGIN
     -- A table rename cascades to fields.table_name while the link field's
     -- reference_table still carries the old name; zz_rollup_entity_change
@@ -1406,25 +1438,12 @@ BEGIN
     IF NEW.input_type IN ('default', 'readonly') THEN
         NEW.input_type := 'disabled';
     END IF;
-
-    -- A cast the compiler cannot judge ('abc' against a numeric column) is
-    -- caught by the planner here, at save time, not at the first child write.
-    IF v_def ->> 'filter_sql' IS NOT NULL THEN
-        BEGIN
-            EXECUTE format('EXPLAIN SELECT 1 FROM public.%I c WHERE %s', v_def ->> 'child_rel', v_def ->> 'filter_sql');
-        EXCEPTION
-            WHEN OTHERS THEN
-                GET STACKED DIAGNOSTICS v_err = MESSAGE_TEXT;
-                PERFORM rollup_refuse('90265', 'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
-                    jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name, 'problem', v_err));
-        END;
-    END IF;
     RETURN NEW;
 END;
 $fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION zz_validate_rollup_field() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, coerces input_type default and readonly to disabled, refuses required, searchable and unique rollups, and probes the compiled filter with EXPLAIN.';
+'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, coerces input_type default and readonly to disabled, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
 
 CREATE OR REPLACE TRIGGER zz_validate_rollup_field
     BEFORE INSERT OR UPDATE ON fields
@@ -1469,7 +1488,9 @@ CREATE OR REPLACE TRIGGER a_rollup_field_delete_guard
 
 -- AFTER INSERT OR UPDATE OR DELETE. The zz_ name puts it after add_field_trigger
 -- and update_field_trigger, so the column exists under its current name when
--- the generated functions are built.
+-- the generated functions are built, and when the filter of a new field is
+-- compiled and probed: in a multi-row INSERT that is the point where every
+-- earlier row's column exists and no later row's (rollup_definition).
 CREATE OR REPLACE FUNCTION zz_rollup_field_change()
 RETURNS TRIGGER AS $fn$
 DECLARE
