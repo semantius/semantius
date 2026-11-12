@@ -417,8 +417,8 @@ SELECT has_column('public', 'categories', 'sort_order', 'categories should have 
 SELECT col_type_is('public', 'categories', 'sort_order', 'integer', 'categories.sort_order should be an integer column');
 
 -- Test 56
-SELECT has_trigger('public', 'categories', 'zz_auto_order_categories',
-    'categories should have the zz_auto_order_categories auto-assign trigger');
+SELECT has_trigger('public', 'categories', 'a_auto_order_categories',
+    'categories should have the a_auto_order_categories auto-assign trigger');
 
 -- Test 57: the order column is not a declared field
 SELECT is(

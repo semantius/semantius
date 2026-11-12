@@ -25,6 +25,8 @@ DECLARE
     v_old_rel   TEXT := dd_relation(OLD.table_name, OLD.id_type);
     v_new_rel   TEXT := dd_relation(NEW.table_name, NEW.id_type);
     v_derived   BOOLEAN := NEW.id_type IN ('is_a', 'has_a');
+    v_trg_old   NAME;
+    v_trg_new   NAME;
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
         -- Mark that a cascade rename is in progress (transaction-local)
@@ -55,41 +57,25 @@ BEGIN
                 EXECUTE format('ALTER VIEW %I RENAME TO %I', OLD.table_name, NEW.table_name);
             END IF;
 
-            -- Rename updated_at trigger (name pattern: update_<table>_updated_at)
-            IF EXISTS (
-                SELECT 1 FROM pg_trigger t
-                JOIN pg_class c ON t.tgrelid = c.oid
-                WHERE c.relname = v_new_rel
-                  AND c.relnamespace = 'public'::regnamespace
-                  AND t.tgname = 'update_' || v_old_rel || '_updated_at'
-            ) THEN
-                EXECUTE format(
-                    'ALTER TRIGGER %I ON %I RENAME TO %I',
-                    'update_' || v_old_rel || '_updated_at',
-                    v_new_rel,
-                    'update_' || v_new_rel || '_updated_at'
-                );
-            END IF;
-
-            -- The order column's auto-assign trigger (zz_auto_order_<table>,
-            -- 0230_entity_order_column.sql). A later order_column change
-            -- finds it by the entity's name; left under the old one, it would
-            -- stay behind, still assigning the dropped column, and fail every
-            -- insert.
-            IF EXISTS (
-                SELECT 1 FROM pg_trigger t
-                JOIN pg_class c ON t.tgrelid = c.oid
-                WHERE c.relname = v_new_rel
-                  AND c.relnamespace = 'public'::regnamespace
-                  AND t.tgname = 'zz_auto_order_' || v_old_rel
-            ) THEN
-                EXECUTE format(
-                    'ALTER TRIGGER %I ON %I RENAME TO %I',
-                    'zz_auto_order_' || v_old_rel,
-                    v_new_rel,
-                    'zz_auto_order_' || v_new_rel
-                );
-            END IF;
+            -- The triggers named after the table: update_<table>_updated_at and
+            -- the order column's a_auto_order_<table> (0230_entity_order_column.sql).
+            -- A later order_column change finds the latter by the entity's name;
+            -- left under the old one, it would stay behind, still assigning the
+            -- dropped column, and fail every insert. The names are compared as
+            -- type name, which truncates them to 63 bytes as CREATE TRIGGER did,
+            -- so a long table name still finds its trigger. The RACI triggers
+            -- follow a rename by their own trigger (raci_entity_renamed,
+            -- 0370_raci.sql).
+            FOR v_trg_old, v_trg_new IN
+                SELECT t.tgname, x.new_name
+                  FROM (VALUES (('update_' || v_old_rel || '_updated_at')::name, ('update_' || v_new_rel || '_updated_at')::name),
+                               (('a_auto_order_' || v_old_rel)::name, ('a_auto_order_' || v_new_rel)::name)) AS x(old_name, new_name)
+                  JOIN pg_trigger t ON t.tgname = x.old_name
+                                   AND t.tgrelid = to_regclass(format('public.%I', v_new_rel))
+                 WHERE x.old_name <> x.new_name
+            LOOP
+                EXECUTE format('ALTER TRIGGER %I ON %I RENAME TO %I', v_trg_old, v_new_rel, v_trg_new);
+            END LOOP;
 
             -- Rename RLS policies (name patterns: <table>_select/insert/update/delete_policy)
             FOREACH v_suffix IN ARRAY ARRAY['select_policy', 'insert_policy', 'update_policy', 'delete_policy']

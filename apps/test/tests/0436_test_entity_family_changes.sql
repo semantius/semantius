@@ -304,7 +304,7 @@ $fn$;
 --   3. a write through each level is read back
 --   4. a root field written through the root and through the middle level on
 --      the bank record reaches the bank's computed tag: the dispatch ran
---   5. typeid_assign, pk_immutable and a_has_a_guard carry the arguments the
+--   5. a_typeid_assign, pk_immutable and a_has_a_guard carry the arguments the
 --      dictionary describes
 --   6. no generated routine names p_old, the name a rename gave up
 --   7. every relation of the family can be read
@@ -431,7 +431,7 @@ BEGIN
 
     -- 5
     v_out := '';
-    v_have := pg_temp.fc_args(p_root, 'typeid_assign');
+    v_have := pg_temp.fc_args(p_root, 'a_typeid_assign');
     SELECT v_key || ',' || e.id_prefix || ','
            || coalesce((SELECT string_agg(s.id_prefix || ',', '' ORDER BY s.id_prefix)
                           FROM dd_descendants(p_root) d
@@ -441,7 +441,7 @@ BEGIN
       FROM entities e
      WHERE e.table_name = p_root;
     IF v_have IS DISTINCT FROM v_want THEN
-        v_out := v_out || format(' typeid_assign(%s) wants (%s)', coalesce(v_have, 'missing'), v_want);
+        v_out := v_out || format(' a_typeid_assign(%s) wants (%s)', coalesce(v_have, 'missing'), v_want);
     END IF;
     FOREACH v_name IN ARRAY ARRAY[p_root, p_org || '_ext', p_bank || '_ext', p_person || '_ext', p_vendor || '_ext'] LOOP
         v_have := pg_temp.fc_args(v_name, 'pk_immutable');
@@ -457,7 +457,7 @@ BEGIN
         v_out := v_out || format(' a_has_a_guard(%s) wants (%s)', coalesce(v_have, 'missing'), coalesce(v_want, 'none'));
     END IF;
     RETURN NEXT is(v_out, '',
-        p_step || ': typeid_assign, pk_immutable and a_has_a_guard carry the key, the prefixes and the extensions');
+        p_step || ': a_typeid_assign, pk_immutable and a_has_a_guard carry the key, the prefixes and the extensions');
 
     -- 6
     v_have := '';
@@ -1046,8 +1046,8 @@ VALUES ('fcc_insurers', 'policy', 'Policy', 'text', 30),
 UPDATE entities SET computed_fields = '[{"name": "itag", "jsonlogic": {"cat": ["I:", {"var": "city"}]}}]'::jsonb
  WHERE table_name = 'fcc_insurers';
 
-SELECT ok(pg_temp.fc_args('fcc_parties', 'typeid_assign') LIKE '%,fccins,%',
-    'new subtype under a middle level: the root''s typeid_assign accepts its prefix');
+SELECT ok(pg_temp.fc_args('fcc_parties', 'a_typeid_assign') LIKE '%,fccins,%',
+    'new subtype under a middle level: the root''s a_typeid_assign accepts its prefix');
 
 SELECT lives_ok($$INSERT INTO fcc_insurers (label, city, vat, policy) VALUES ('I1', 'Ivrea', 'IT9', 'POL1')$$,
     'new subtype under a middle level: records are created through it');
@@ -1899,7 +1899,7 @@ SELECT lives_ok($$DELETE FROM entities WHERE table_name = 'fcc_branches'$$,
 
 SELECT ok(
     to_regclass('public.fcc_branches') IS NULL AND to_regclass('public.fcc_branches_ext') IS NULL
-    AND pg_temp.fc_args('fcc_people', 'typeid_assign') NOT LIKE '%fccbnk%',
+    AND pg_temp.fc_args('fcc_people', 'a_typeid_assign') NOT LIKE '%fccbnk%',
     'the deleted grandchild''s relations are gone and the root no longer accepts its prefix');
 
 -- The middle level, the last subtype, the root.
@@ -1916,8 +1916,8 @@ DELETE FROM fcc_companies WHERE label = 'O2';
 SELECT lives_ok($$DELETE FROM entities WHERE table_name = 'fcc_companies'$$,
     'the middle level, with no child and no records, is deleted');
 
-SELECT is(pg_temp.fc_args('fcc_people', 'typeid_assign'), 'id,fccptynew,fccper,',
-    'the root''s typeid_assign keeps the prefix of the remaining subtype only');
+SELECT is(pg_temp.fc_args('fcc_people', 'a_typeid_assign'), 'id,fccptynew,fccper,',
+    'the root''s a_typeid_assign keeps the prefix of the remaining subtype only');
 
 SELECT lives_ok($$DELETE FROM entities WHERE table_name = 'fcc_persons'$$,
     'the last subtype is deleted');

@@ -406,24 +406,32 @@ COMMENT ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) IS
 'Raises 90235 when an existing table''s key column does not match the entity''s id_type (or is missing). auto_increment accepts a BIGINT identity or bigserial.';
 
 -- The key's triggers on an entity's physical relation:
---   pk_immutable  BEFORE UPDATE OF <key>: common.reject_pk_change, for every
---                 key type - keys are set once
---   typeid_assign BEFORE INSERT: common.typeid_assign with the current prefix
---                 and the prefixes of the entity's is_a subtypes, for typeid
---                 keys only (an is_a or has_a entity takes its ids from the
---                 root)
+--   pk_immutable    BEFORE UPDATE OF <key>: common.reject_pk_change, for every
+--                   key type - keys are set once
+--   a_typeid_assign BEFORE INSERT: common.typeid_assign with the current
+--                   prefix and the prefixes of the entity's is_a subtypes, for
+--                   typeid keys only (an is_a or has_a entity takes its ids
+--                   from the root)
+-- A typeid key has no column default, so until a_typeid_assign has run the
+-- row has no id; the name sorts before the entity's rules, so they see the id
+-- it generates (the firing order is listed in build_record_logic_trigger,
+-- 0210_computed_validation.sql).
 -- Neither name embeds the table name, so rename_dd_table has nothing to
 -- rename, and both are dropped with the table. The prefixes are trigger
--- arguments, quoted with %L. This is the one installer of typeid_assign, and
--- it computes the subtype list itself, so every path that installs the trigger
--- - create_dd_table, enable_dd_table, dd_sync_typeid_prefix on a prefix change
--- and the family refresh when a subtype comes or goes - installs the same one.
--- A trigger with the root's prefix alone would refuse every subtype insert.
+-- arguments, quoted with %L. This is the one installer of a_typeid_assign, and
+-- it computes the subtype list itself (dd_typeid_trigger_args), so every path
+-- that installs the trigger - create_dd_table, enable_dd_table,
+-- dd_sync_typeid_prefix on a prefix change and the family refresh when a
+-- subtype comes or goes - installs the same one. A trigger with the root's
+-- prefix alone would refuse every subtype insert.
+--
+-- Only tables the dictionary builds the key of get these triggers; the
+-- bootstrap tables are set up by hand, some on purpose with none
+-- (0070_rbac_schema.sql).
 CREATE OR REPLACE FUNCTION dd_install_id_triggers(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_id_prefix TEXT)
 RETURNS VOID AS $$
 DECLARE
-    v_rel     TEXT := dd_relation(p_table_name, p_id_type);
-    v_subtype TEXT;
+    v_rel TEXT := dd_relation(p_table_name, p_id_type);
 BEGIN
     EXECUTE format(
         'CREATE OR REPLACE TRIGGER pk_immutable BEFORE UPDATE OF %I ON public.%I
@@ -431,16 +439,13 @@ BEGIN
         p_id_column, v_rel, p_id_column);
 
     IF p_id_type = 'typeid' THEN
-        SELECT string_agg(format(', %L', e.id_prefix), '' ORDER BY e.id_prefix)
-          INTO v_subtype
-          FROM dd_descendants(p_table_name) d
-          JOIN entities e ON e.table_name = d.table_name
-         WHERE e.id_type = 'is_a';
         EXECUTE format(
-            'CREATE OR REPLACE TRIGGER typeid_assign BEFORE INSERT ON public.%I
-                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%L, %L%s)',
-            v_rel, p_id_column, p_id_prefix, coalesce(v_subtype, ''));
+            'CREATE OR REPLACE TRIGGER a_typeid_assign BEFORE INSERT ON public.%I
+                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%s)',
+            v_rel, dd_typeid_trigger_args(p_table_name, p_id_column, p_id_prefix));
     END IF;
+
+    PERFORM dd_install_key_rule_checks(p_table_name, p_id_column, p_id_type, p_id_prefix);
 END;
 -- SECURITY INVOKER: its callers (create_dd_table, enable_dd_table,
 -- dd_sync_typeid_prefix, dd_refresh_family) are SECURITY DEFINER and already
@@ -448,7 +453,101 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
 
 COMMENT ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) IS
-'Creates the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid keys, the typeid_assign insert trigger carrying the current prefix and the prefixes of the entity''s is_a subtypes.';
+'Creates the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid keys, the a_typeid_assign insert trigger carrying the current prefix and the prefixes of the entity''s is_a subtypes, then brings the late key checks up to date (dd_install_key_rule_checks). a_typeid_assign sorts before compute_validate_trigger, so computed fields and validation rules see the generated id. For tables whose key the dictionary builds only.';
+
+-- The arguments of a typeid table's a_typeid_assign, ready to go between the
+-- parentheses of EXECUTE FUNCTION: the key column, the current prefix, then
+-- the prefixes of the entity's is_a subtypes, each quoted with %L.
+CREATE OR REPLACE FUNCTION dd_typeid_trigger_args(p_table_name TEXT, p_id_column TEXT, p_id_prefix TEXT)
+RETURNS TEXT AS $$
+    SELECT format('%L, %L', p_id_column, p_id_prefix)
+           || coalesce(string_agg(format(', %L', e.id_prefix), '' ORDER BY e.id_prefix), '')
+      FROM dd_descendants(p_table_name) d
+      JOIN entities e ON e.table_name = d.table_name
+     WHERE e.id_type = 'is_a';
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) IS
+'The quoted argument list of a typeid table''s a_typeid_assign trigger: key column, current prefix, then the prefixes of the entity''s is_a subtypes.';
+
+-- A computed field may name the key column and write the key itself. Neither
+-- key trigger sees what it wrote: a_typeid_assign runs before the rules, and
+-- pk_immutable, though it sorts after them, is an UPDATE OF trigger, which
+-- PostgreSQL fires only for a column the statement's SET list names, never
+-- for one a trigger changes. So a rule could store a typeid without the
+-- entity's prefix (or with a subtype's, a root row without its parts) and
+-- move the key of a stored record. Such a table gets the checks it has again
+-- behind the rules, with the same functions and arguments:
+--   zz_key_check_insert BEFORE INSERT: common.typeid_assign, where the table
+--                       has a_typeid_assign
+--   zz_key_check_update BEFORE UPDATE: common.reject_pk_change, where the
+--                       table has pk_immutable
+-- Repeating only the triggers the table has keeps the tables with no key
+-- trigger (0070_rbac_schema.sql) as they are. Only a table with such a
+-- rule: on every table zz_key_check_update would turn two rows into jsonb on
+-- every update, for a rule hardly any model has. A rule may still compute the
+-- key of a new record. Called by dd_install_id_triggers and, whenever the
+-- rules change, by build_record_logic_trigger. An is_a or has_a entity's
+-- rules run in its write routine, which checks the key after them itself.
+-- Neither name embeds the table name, so rename_dd_table has nothing to
+-- rename.
+CREATE OR REPLACE FUNCTION dd_install_key_rule_checks(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_id_prefix TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_rel     TEXT := dd_relation(p_table_name, p_id_type);
+    v_relid   REGCLASS;
+    v_rule    BOOLEAN;
+    v_insert  BOOLEAN;
+    v_update  BOOLEAN;
+    v_trigger NAME;
+BEGIN
+    v_relid := pg_catalog.to_regclass(format('public.%I', v_rel));
+    IF v_relid IS NULL OR p_id_type IN ('is_a', 'has_a') THEN
+        RETURN;
+    END IF;
+
+    v_rule := EXISTS (
+        SELECT 1
+          FROM entities e
+         CROSS JOIN LATERAL jsonb_array_elements(
+                CASE WHEN jsonb_typeof(e.computed_fields) = 'array' THEN e.computed_fields ELSE '[]'::jsonb END) c
+         WHERE e.table_name = p_table_name
+           AND c ->> 'name' = p_id_column);
+    v_insert := v_rule AND EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+                                    WHERE t.tgrelid = v_relid AND t.tgname = 'a_typeid_assign');
+    v_update := v_rule AND EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+                                    WHERE t.tgrelid = v_relid AND t.tgname = 'pk_immutable');
+
+    IF v_insert THEN
+        EXECUTE format(
+            'CREATE OR REPLACE TRIGGER zz_key_check_insert BEFORE INSERT ON public.%I
+                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%s)',
+            v_rel, dd_typeid_trigger_args(p_table_name, p_id_column, p_id_prefix));
+    END IF;
+    IF v_update THEN
+        EXECUTE format(
+            'CREATE OR REPLACE TRIGGER zz_key_check_update BEFORE UPDATE ON public.%I
+                FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change(%L)',
+            v_rel, p_id_column);
+    END IF;
+
+    -- Dropped by name only when present, so the common case raises no NOTICE.
+    FOR v_trigger IN
+        SELECT t.tgname
+          FROM pg_catalog.pg_trigger t
+         WHERE t.tgrelid = v_relid
+           AND ((t.tgname = 'zz_key_check_insert' AND NOT v_insert)
+             OR (t.tgname = 'zz_key_check_update' AND NOT v_update))
+    LOOP
+        EXECUTE format('DROP TRIGGER %I ON public.%I', v_trigger, v_rel);
+    END LOOP;
+END;
+-- SECURITY INVOKER: its callers (dd_install_id_triggers and
+-- build_record_logic_trigger) already run as the owner.
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+
+COMMENT ON FUNCTION dd_install_key_rule_checks(TEXT, TEXT, TEXT, TEXT) IS
+'When a computed field of a plain or root entity names the key column, creates zz_key_check_insert (where the table has a_typeid_assign) and zz_key_check_update (where it has pk_immutable), which repeat those key checks after the rules; otherwise drops them.';
 
 -- =====================================================
 -- HELPER FUNCTION: FIELD TO COLUMN DATA TYPE
@@ -2356,7 +2455,7 @@ COMMENT ON TRIGGER update_entity_policies_trigger ON entities IS
 -- TRIGGER FUNCTION: typeid prefix change
 -- =====================================================
 -- A typeid entity's prefix lives in two places: entities.id_prefix and the
--- argument of its table's typeid_assign trigger, which is what generates and
+-- argument of its table's a_typeid_assign trigger, which is what generates and
 -- checks ids. Recreating the trigger takes a brief lock on the table and scans
 -- nothing: existing rows keep the ids they were given, because a key never
 -- changes, and there is no CHECK over the prefix that would have to be
@@ -2383,7 +2482,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION dd_sync_typeid_prefix() IS
-'AFTER UPDATE OF id_prefix trigger on entities: recreates the typeid_assign trigger of a managed typeid entity''s table with the new prefix (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix.';
+'AFTER UPDATE OF id_prefix trigger on entities: recreates the a_typeid_assign trigger of a managed typeid entity''s table with the new prefix (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix.';
 
 CREATE OR REPLACE TRIGGER sync_typeid_prefix_trigger
     AFTER UPDATE OF id_prefix ON entities
@@ -3307,6 +3406,40 @@ $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
 COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 'Creates the security_invoker view of an is_a/has_a entity over its <entity>_ext table and the relations of its bases, with the column defaults and comments of the physical columns, its comment and the request-role grant. Called by dd_refresh_family.';
 
+-- The key checks dd_build_record_write emits into a write routine, built here
+-- so each code keeps one message however many places check it. Both test
+-- v_new, the record being written, and run only when p_when (a condition of
+-- the routine, e.g. v_attach) holds:
+--   dd_key_kept_sql   90236 when v_new's key differs from p_was's (a record
+--                     variable of the routine: p_old, v_base)
+--   dd_key_prefix_sql 90237 when v_new's key does not carry p_prefix
+-- p_table is the entity the error names.
+CREATE OR REPLACE FUNCTION dd_key_kept_sql(p_key TEXT, p_was TEXT, p_table TEXT, p_when TEXT DEFAULT '')
+RETURNS TEXT AS $$
+    SELECT format(E'\n        IF %4$sv_new.%1$I IS DISTINCT FROM %2$s.%1$I THEN'
+                  || E'\n            RAISE EXCEPTION ''The key ${column} of ${table} cannot be changed'''
+                  || E'\n                USING ERRCODE = ''90236'','
+                  || E'\n                      HINT = jsonb_build_object(''column'', %1$L, ''table'', %3$L)::text;'
+                  || E'\n        END IF;',
+                  p_key, p_was, p_table, CASE WHEN p_when = '' THEN '' ELSE p_when || ' AND ' END);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) IS
+'PL/pgSQL text for a generated write routine: raises 90236 when the key of v_new differs from that of the named record variable, optionally only under a condition.';
+
+CREATE OR REPLACE FUNCTION dd_key_prefix_sql(p_key TEXT, p_prefix TEXT, p_table TEXT, p_when TEXT DEFAULT '')
+RETURNS TEXT AS $$
+    SELECT format(E'\n        IF %4$scommon.typeid_prefix(v_new.%1$I) IS DISTINCT FROM %2$L THEN'
+                  || E'\n            RAISE EXCEPTION ''Id ${id} does not carry the prefix ${prefix} of ${table}'''
+                  || E'\n                USING ERRCODE = ''90237'','
+                  || E'\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %2$L, ''table'', %3$L)::text;'
+                  || E'\n        END IF;',
+                  p_key, p_prefix, p_table, CASE WHEN p_when = '' THEN '' ELSE p_when || ' AND ' END);
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) IS
+'PL/pgSQL text for a generated write routine: raises 90237 when the key of v_new does not carry the given TypeID prefix, optionally only under a condition.';
+
 -- The write routine of a derived entity t: common.record_write_t(op, old,
 -- new, from_root) writes one record whose own type is t, and every entry point
 -- - t's view, the view of a supertype, the root table - calls it for such a
@@ -3319,15 +3452,26 @@ COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 --           id that exists fails with 23505: the type is fixed at creation.
 --           has_a: no id, or one no visible base row has, inserts the base row
 --           too, with an id minted here with the base's prefix (a supplied one
---           must carry it, 90237 - the root's typeid_assign would accept a
+--           must carry it, 90237 - the root's a_typeid_assign would accept a
 --           subtype prefix from here and create a subtype root row without its
---           parts). Minting it here rather than in typeid_assign spares the
+--           parts). Minting it here rather than in a_typeid_assign spares the
 --           INSERT a RETURNING, which would need the caller to be able to read
---           the base row back. The id of a
+--           the base row back. The rules run after the id is settled, so they
+--           see it, and a computed field may write it; the key they leave is
+--           checked again, since the root's a_typeid_assign would accept a
+--           subtype prefix from a rule just as from a caller: a changed key of
+--           an attaching record raises 90236, a key without the base's prefix
+--           90237. is_a checks the prefix after the rules only. The id of a
 --           visible base row attaches: only t_ext is inserted, and a base
 --           value that differs from the stored one raises 90246, unless it is
 --           the column default an insert through the view fills in.
---   update  writes the levels from the highest one whose columns changed down
+--   update  first holds the root's gated state columns while the record has
+--           an unacted blocking consultation (common.raci_held_state,
+--           0370_raci.sql): the derived rules run here, before the write
+--           reaches the root table and its gate triggers, and must see the
+--           state that will be stored. Those triggers still run on the root
+--           row and hold a state a rule wrote.
+--           It writes the levels from the highest one whose columns changed down
 --           to t, and always t; the levels above are untouched. The rules of
 --           the derived levels at and below the change run, inherited first,
 --           and since a computed field may set any column, the changed levels
@@ -3613,15 +3757,17 @@ DECLARE
     v_top2   integer;
     v_base   public.%3$I;
     v_attach boolean := false;
-    v_routed boolean := false;%14$s
+    v_routed boolean := false;
+    v_held   jsonb;%14$s
 BEGIN
     IF p_op = 'insert' THEN
 %4$s
-    ELSIF p_op = 'update' THEN
-        IF v_new.%5$I IS DISTINCT FROM p_old.%5$I THEN
-            RAISE EXCEPTION 'The key ${column} of ${table} cannot be changed'
-                USING ERRCODE = '90236',
-                      HINT = jsonb_build_object('column', %5$L, 'table', %6$L)::text;
+    ELSIF p_op = 'update' THEN%16$s
+        -- The root's gates hold its state columns before the rules run, as
+        -- its a_raci_gate_on_ trigger does for a write to the root table.
+        v_held := common.raci_held_state(%3$L, to_jsonb(v_new), v_old);
+        IF v_held <> '{}'::jsonb THEN
+            v_new := jsonb_populate_record(v_new, v_held);
         END IF;
         v_top := %7$s;%8$s
         -- Lock every level that will be written, top-down, before writing any.%9$s%15$s
@@ -3649,13 +3795,17 @@ $BODY$,
         CASE WHEN v_is_a THEN
             format(E'        IF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%2$L);\n        END IF;', v_k, v_entity.id_prefix)
             || CASE WHEN v_any_rules THEN E'\n        v_data := to_jsonb(v_new);' || v_rules_ins || E'\n        v_new := jsonb_populate_record(v_new, v_data);' ELSE '' END
-            || format(E'\n        IF common.typeid_prefix(v_new.%1$I) IS DISTINCT FROM %2$L THEN\n            RAISE EXCEPTION ''Id ${id} does not carry the prefix ${prefix} of ${table}''\n                USING ERRCODE = ''90237'',\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %2$L, ''table'', %3$L)::text;\n        END IF;',
-                      v_k, v_entity.id_prefix, p_table_name)
+            || dd_key_prefix_sql(v_k, v_entity.id_prefix, p_table_name)
             || v_ins
         ELSE
-            format(E'        IF v_new.%1$I IS NOT NULL THEN\n            SELECT * INTO v_base FROM public.%2$I AS t WHERE t.%1$I = v_new.%1$I;\n            v_attach := FOUND;\n        END IF;\n        IF v_attach THEN%3$s\n        ELSIF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%4$L);\n        ELSIF common.typeid_prefix(v_new.%1$I) IS DISTINCT FROM %4$L THEN\n            RAISE EXCEPTION ''Id ${id} does not carry the prefix ${prefix} of ${table}''\n                USING ERRCODE = ''90237'',\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %4$L, ''table'', %5$L)::text;\n        END IF;',
-                   v_k, v_base.table_name, v_attach_in, v_base.id_prefix, v_base.table_name)
+            format(E'        IF v_new.%1$I IS NOT NULL THEN\n            SELECT * INTO v_base FROM public.%2$I AS t WHERE t.%1$I = v_new.%1$I;\n            v_attach := FOUND;\n        END IF;\n        IF v_attach THEN%3$s\n        ELSIF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%4$L);\n        END IF;',
+                   v_k, v_base.table_name, v_attach_in, v_base.id_prefix)
+            -- A supplied id that names no visible base record, checked before
+            -- the rules and again after them: the rules may write the key.
+            || dd_key_prefix_sql(v_k, v_base.id_prefix, v_base.table_name, 'NOT v_attach')
             || CASE WHEN v_any_rules THEN E'\n        v_data := to_jsonb(v_new);' || v_rules_ins || E'\n        v_new := jsonb_populate_record(v_new, v_data);'
+                         || dd_key_kept_sql(v_k, 'v_base', p_table_name, 'v_attach')
+                         || dd_key_prefix_sql(v_k, v_base.id_prefix, v_base.table_name, 'NOT v_attach')
                          || CASE WHEN v_attach_out = '' THEN '' ELSE E'\n        IF v_attach THEN' || v_attach_out || E'\n        END IF;' END
                     ELSE '' END
             || v_ins
@@ -3676,8 +3826,7 @@ $BODY$,
             || E'\n            v_new := jsonb_populate_record(v_new, v_data);'
             || format(E'\n            v_top := LEAST(v_top2, %s);', v_top_expr)
             || E'\n        END IF;'
-            || format(E'\n        IF v_new.%1$I IS DISTINCT FROM p_old.%1$I THEN\n            RAISE EXCEPTION ''The key ${column} of ${table} cannot be changed''\n                USING ERRCODE = ''90236'',\n                      HINT = jsonb_build_object(''column'', %1$L, ''table'', %2$L)::text;\n        END IF;',
-                      v_k, p_table_name)
+            || dd_key_kept_sql(v_k, 'p_old', p_table_name)
         ELSE '' END,
         v_lock,
         v_upd,
@@ -3685,7 +3834,9 @@ $BODY$,
         v_rules_del,
         v_del,
         v_route_decls,
-        v_route);
+        v_route,
+        -- 16: the key of a stored record never changes
+        dd_key_kept_sql(v_k, 'p_old', p_table_name));
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
@@ -4125,7 +4276,7 @@ COMMENT ON FUNCTION dd_check_family_dependents(TEXT[]) IS
 'Raises 90256 when objects the dictionary did not generate depend on a view of a family containing any of the given entities, before a change drops those views. Returns at once for entities outside every family.';
 
 -- Rebuilds every family that contains one of the given entities: the views,
--- the write routines and view triggers, the root's typeid_assign (with the
+-- the write routines and view triggers, the root's a_typeid_assign (with the
 -- subtype prefixes) and dispatch trigger, the has_a delete guard, and the
 -- label functions. It runs at the end of every statement on fields (from
 -- apply_field_searchable_change, after all row-level DDL), and after a change
@@ -4237,7 +4388,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
 
 COMMENT ON FUNCTION dd_refresh_family(TEXT[]) IS
-'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s typeid_assign and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
+'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s a_typeid_assign and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
 
 -- A family member renamed or deleted: the rest of its family is rebuilt under
 -- the new name, or without it. After the rename triggers of 0170_dd_rename.sql
@@ -4492,6 +4643,10 @@ GRANT EXECUTE ON FUNCTION common.is_a_part_missing(TEXT, TEXT) TO semantius_user
 REVOKE EXECUTE ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_install_key_rule_checks(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_sync_typeid_prefix() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_data_type(TEXT, SMALLINT, TEXT) FROM PUBLIC;

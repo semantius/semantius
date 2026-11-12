@@ -107,8 +107,13 @@ CREATE OR REPLACE TRIGGER update_users_updated_at
 -- dictionary puts on every table it creates (dd_install_id_triggers in
 -- 0160_dd_functions.sql); common.reject_pk_change is in 0045_typeid.sql.
 -- entities and permissions have none: their natural keys are renamable and
--- cascade. Neither do the junction tables, whose generated keys follow the
--- pair they are generated from.
+-- cascade. Neither do fields and the junction tables, whose generated keys
+-- follow the pair they are generated from. A pk_immutable on a generated key
+-- would refuse every update of the table besides: a BEFORE UPDATE row trigger
+-- makes PostgreSQL recompute every generated column, which fires UPDATE OF on
+-- it, while NEW does not hold the value yet. The dictionary leaves all of
+-- these alone (dd_install_id_triggers and dd_install_key_rule_checks in
+-- 0160_dd_functions.sql).
 
 CREATE OR REPLACE TRIGGER pk_immutable
     BEFORE UPDATE OF id ON modules

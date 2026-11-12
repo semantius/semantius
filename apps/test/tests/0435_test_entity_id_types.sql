@@ -3,7 +3,7 @@
 -- Every entity declares the type of its key (dd_id_column_ddl in
 -- 0160_dd_functions.sql): auto_increment (a BIGINT identity, the default),
 -- bigint and text (supplied by the caller), uuid (UUIDv7 default) and typeid
--- (a prefixed TypeID filled by the typeid_assign trigger). computed only labels
+-- (a prefixed TypeID filled by the a_typeid_assign trigger). computed only labels
 -- system tables. Pinned here:
 --   PART 1  the helpers of 0045_typeid.sql: UUIDv7, base32, TypeID check
 --   PART 2  the column, default and id field each id_type produces
@@ -178,8 +178,8 @@ SELECT ok(
 SELECT ok(
     (SELECT array_agg(c.relname::text ORDER BY c.relname) = ARRAY['idt_tid']
        FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-      WHERE c.relname LIKE 'idt\_%' AND t.tgname = 'typeid_assign'),
-    'only the typeid entity gets the typeid_assign trigger');
+      WHERE c.relname LIKE 'idt\_%' AND t.tgname = 'a_typeid_assign'),
+    'only the typeid entity gets the a_typeid_assign trigger');
 
 -- =====================================================
 -- PART 3: inserting
@@ -729,9 +729,9 @@ SELECT ok(
 
 SELECT is(
     (SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
-      WHERE t.tgrelid = 'public.fam_activities'::regclass AND t.tgname = 'typeid_assign'),
-    'CREATE TRIGGER typeid_assign BEFORE INSERT ON public.fam_activities FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(''id'', ''famact'', ''famcle'', ''fameml'', ''famtsk'')',
-    'is_a: the root''s typeid_assign carries the subtype prefixes');
+      WHERE t.tgrelid = 'public.fam_activities'::regclass AND t.tgname = 'a_typeid_assign'),
+    'CREATE TRIGGER a_typeid_assign BEFORE INSERT ON public.fam_activities FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(''id'', ''famact'', ''famcle'', ''fameml'', ''famtsk'')',
+    'is_a: the root''s a_typeid_assign carries the subtype prefixes');
 
 SELECT is(
     (SELECT id_column || '/' || label_column || '/' || label_parent FROM entities WHERE table_name = 'fam_emails'),
@@ -874,7 +874,7 @@ SELECT ok(
     AND to_regprocedure('common.view_write_fam_tasks()') IS NULL
     AND NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname IN ('record_write_fam_tasks', 'record_rules_fam_tasks'))
     AND (SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
-          WHERE t.tgrelid = 'public.fam_activities'::regclass AND t.tgname = 'typeid_assign') NOT LIKE '%famtsk%',
+          WHERE t.tgrelid = 'public.fam_activities'::regclass AND t.tgname = 'a_typeid_assign') NOT LIKE '%famtsk%',
     'is_a: deleting an empty subtype drops its view, part and routines, and the root forgets its prefix');
 
 -- A rename moves the view, the part and every generated name.

@@ -340,68 +340,83 @@ COMMENT ON FUNCTION raci_blocking_consultation_pending IS
 REVOKE EXECUTE ON FUNCTION raci_blocking_consultation_pending(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION raci_blocking_consultation_pending(TEXT, TEXT) FROM semantius_user;
 
+-- The state columns a blocking consultation holds on a record of p_entity
+-- that p_new would change: an object mapping each of them to its stored value
+-- in p_old, '{}' when nothing is held. A gate holds every state column it
+-- names while the record has an unacted blocking consultation; every other
+-- column the write sets is left as the writer set it.
+--
+-- One implementation for both callers: the gate triggers on a governed table
+-- (raci_gate_trigger_fn) and the generated write routine of an is_a or has_a
+-- entity (common.record_write_<entity>, 0160_dd_functions.sql), which runs
+-- the subtype's rules before its write reaches the root table and so has to
+-- hold the root's state columns itself first. The write routine runs as the
+-- caller, which is why this is SECURITY DEFINER and granted to the request
+-- role: it reads raci_events and process_gates, which the caller may not.
+-- That makes it an answer to "does this record have an unacted blocking
+-- consultation" on a session that can run SQL as the request role, the
+-- question raci_blocking_consultation_pending is revoked to keep away. It
+-- lives in common, which PostgREST does not expose, as
+-- common.is_a_part_missing does (SECURITY.md).
+CREATE OR REPLACE FUNCTION common.raci_held_state(p_entity TEXT, p_new JSONB, p_old JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+    v_id_col TEXT;
+    v_held   JSONB;
+BEGIN
+    SELECT e.id_column INTO v_id_col FROM entities e WHERE e.table_name = p_entity;
+
+    -- Asked once rather than once per gate: the answer is a property of the
+    -- record, and the common answer is no, which leaves a write that changes
+    -- no state costing one indexed EXISTS.
+    IF NOT raci_blocking_consultation_pending(p_entity, COALESCE(p_new ->> COALESCE(v_id_col, 'id'), '')) THEN
+        RETURN '{}'::jsonb;
+    END IF;
+
+    SELECT COALESCE(jsonb_object_agg(g.state_column, p_old -> g.state_column), '{}'::jsonb)
+      INTO v_held
+      FROM (SELECT DISTINCT pg.state_column
+              FROM process_gates pg
+             WHERE pg.entity = p_entity AND pg.to_state <> '' AND pg.state_column <> '') g
+     WHERE (p_new -> g.state_column) IS DISTINCT FROM (p_old -> g.state_column);
+    RETURN v_held;
+END;
+$$;
+
+COMMENT ON FUNCTION common.raci_held_state(TEXT, JSONB, JSONB) IS
+'The state columns a blocking consultation holds on a record of the entity that the new row would change, mapped to their stored values; {} when the record has no unacted blocking consultation or the write changes no gated state. Shared by the gate triggers and the generated write routines of is_a and has_a entities.';
+
+REVOKE EXECUTE ON FUNCTION common.raci_held_state(TEXT, JSONB, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION common.raci_held_state(TEXT, JSONB, JSONB) TO semantius_user;
+
 -- BEFORE UPDATE, because holding a transition means rewriting NEW - an AFTER
 -- trigger could only raise, which is the refusal this is here to avoid. UPDATE
 -- only: a row being inserted has no state to be held at, and no consultation of
--- its own can be pending before it exists.
---
--- It sorts after compute_validate_trigger, so computed fields and validation
--- rules have already run against the state the writer asked for. That is the
--- right way round: validation judges the request, and the gate then decides
--- whether the process may carry it out.
+-- its own can be pending before it exists. Where it runs relative to the
+-- entity's rules: raci_install_or_drop_gate_trigger.
 CREATE OR REPLACE FUNCTION raci_gate_trigger_fn()
 RETURNS TRIGGER
 SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
 DECLARE
-    v_gate      RECORD;
-    v_new_jsonb JSONB;
-    v_old_jsonb JSONB;
-    v_new_state TEXT;
-    v_old_state TEXT;
-    v_id_col    TEXT;
-    v_record_id TEXT;
+    v_held JSONB;
 BEGIN
-    v_new_jsonb := to_jsonb(NEW);
-    v_old_jsonb := to_jsonb(OLD);
-
-    SELECT COALESCE(id_column, 'id') INTO v_id_col
-    FROM   entities WHERE table_name = TG_TABLE_NAME;
-    v_id_col    := COALESCE(v_id_col, 'id');
-    v_record_id := COALESCE(v_new_jsonb ->> v_id_col, '');
-
-    -- Asked once rather than once per gate: the answer is a property of the
-    -- record, and the common answer is no, which leaves this trigger costing one
-    -- indexed EXISTS on a write that changes no state at all.
-    IF NOT raci_blocking_consultation_pending(TG_TABLE_NAME, v_record_id) THEN
-        RETURN NEW;
+    v_held := common.raci_held_state(TG_TABLE_NAME, to_jsonb(NEW), to_jsonb(OLD));
+    IF v_held <> '{}'::jsonb THEN
+        NEW := jsonb_populate_record(NEW, v_held);
     END IF;
-
-    FOR v_gate IN
-        SELECT DISTINCT pg.state_column
-        FROM   process_gates pg
-        WHERE  pg.entity        = TG_TABLE_NAME
-          AND  pg.to_state     != ''
-          AND  pg.state_column != ''
-    LOOP
-        v_new_state := v_new_jsonb ->> v_gate.state_column;
-        v_old_state := v_old_jsonb ->> v_gate.state_column;
-
-        -- Put the stored value back. Every other column the statement wrote is
-        -- left exactly as the writer set it.
-        IF v_new_state IS DISTINCT FROM v_old_state THEN
-            NEW := jsonb_populate_record(
-                NEW, jsonb_build_object(v_gate.state_column, v_old_state));
-        END IF;
-    END LOOP;
-
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION raci_gate_trigger_fn IS
-'Per-row BEFORE UPDATE trigger function on a governed table: while a blocking consultation on the record is unacted, any state column a process gate governs is written back to its stored value. Other columns are untouched and the statement succeeds.';
+'Per-row BEFORE UPDATE trigger function on a governed table: while a blocking consultation on the record is unacted, any state column a process gate governs is written back to its stored value (common.raci_held_state). Other columns are untouched and the statement succeeds.';
 
 REVOKE EXECUTE ON FUNCTION raci_gate_trigger_fn() FROM PUBLIC;
 
@@ -410,45 +425,40 @@ REVOKE EXECUTE ON FUNCTION raci_gate_trigger_fn() FROM PUBLIC;
 -- setting is. The blocking test is made at write time, so a consult_mode edit
 -- needs no reinstall - which is why this hangs off process_gates alone and not
 -- off raci_assignments too.
+--
+-- The gate is installed twice, around the entity's computed fields and
+-- validation rules, because either position alone is wrong (the firing order
+-- is listed in build_record_logic_trigger, 0210_computed_validation.sql):
+--   a_raci_gate_on_<entity> sorts before the rules, so they judge the state
+--                           that will be stored: a computed field derived from
+--                           it follows the held state, and a validation rule
+--                           refuses only what would really be stored. Behind
+--                           them only, a computed field would keep the value
+--                           of the transition the gate then puts back.
+--   raci_gate_on_<entity>   sorts after the rules, so a computed field that
+--                           writes the state column is held like a writer. In
+--                           front of them only, a rule could move a governed
+--                           state past an unacted blocking consultation.
+-- A computed field derived from a state another rule wrote, where the later
+-- gate then puts the state back, keeps the value of the held one. The second
+-- run costs one more indexed EXISTS per update of a governed table.
 CREATE OR REPLACE FUNCTION raci_install_or_drop_gate_trigger(p_entity TEXT)
 RETURNS VOID
 SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
-DECLARE
-    v_trigger_name TEXT;
-    v_needs        BOOLEAN;
 BEGIN
-    v_trigger_name := 'raci_gate_on_' || p_entity;
-
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE  table_schema = 'public' AND table_name = p_entity
-    ) THEN
-        RETURN;
-    END IF;
-
-    v_needs := EXISTS (
-        SELECT 1 FROM process_gates
-        WHERE  entity = p_entity AND to_state != '' AND state_column != ''
-    );
-
-    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, p_entity);
-
-    IF v_needs THEN
-        EXECUTE format(
-            'CREATE TRIGGER %I
-                BEFORE UPDATE ON %I
-                FOR EACH ROW
-                EXECUTE FUNCTION raci_gate_trigger_fn()',
-            v_trigger_name, p_entity
-        );
-    END IF;
+    PERFORM raci_sync_triggers(
+        p_entity,
+        ARRAY[('a_raci_gate_on_' || p_entity)::name, ('raci_gate_on_' || p_entity)::name],
+        EXISTS (SELECT 1 FROM process_gates
+                 WHERE entity = p_entity AND to_state != '' AND state_column != ''),
+        'gate');
 END;
 $$;
 
 COMMENT ON FUNCTION raci_install_or_drop_gate_trigger IS
-'Installs or drops the raci_gate_on_<entity> trigger depending on whether any process_gates row for that entity names a state column and a to_state.';
+'Installs or drops the a_raci_gate_on_<entity> and raci_gate_on_<entity> triggers, which run the gate before and after the entity''s computed fields and validation rules, depending on whether any process_gates row for that entity names a state column and a to_state.';
 
 REVOKE EXECUTE ON FUNCTION raci_install_or_drop_gate_trigger(TEXT) FROM PUBLIC;
 
@@ -506,45 +516,65 @@ RETURNS VOID
 SECURITY DEFINER
 SET search_path = public
 LANGUAGE plpgsql AS $$
-DECLARE
-    v_trigger_name TEXT;
-    v_needs        BOOLEAN;
-    v_table_exists BOOLEAN;
 BEGIN
-    v_trigger_name := 'raci_emit_on_' || p_entity;
+    PERFORM raci_sync_triggers(
+        p_entity,
+        ARRAY[('raci_emit_on_' || p_entity)::name],
+        EXISTS (SELECT 1 FROM process_gates WHERE entity = p_entity AND emits_events = TRUE),
+        'emit');
+END;
+$$;
 
-    -- Check if any process_gates row for this entity needs the trigger
-    v_needs := EXISTS (
-        SELECT 1 FROM process_gates
-        WHERE  entity = p_entity AND emits_events = TRUE
-    );
-
-    -- Check whether the physical table exists (skip for unregistered tables)
-    v_table_exists := EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE  table_schema = 'public'
-          AND  table_name   = p_entity
-    );
-
-    IF NOT v_table_exists THEN
+-- The one place the RACI triggers of an entity's table are dropped and
+-- created: drops each of p_names that is there, then, when p_needs, creates
+-- each as a trigger of p_kind, one of a fixed set ('gate', 'emit') rather
+-- than DDL text, so nothing a caller passes reaches EXECUTE unquoted.
+-- Only on a table: the entity of a gate may be unregistered, unmanaged or,
+-- for a name that has since become an is_a or has_a view, a view, and
+-- PostgreSQL has no row trigger of this kind on a view. Dropping only what is
+-- there keeps a first install free of NOTICEs. The names are of type name,
+-- which truncates them to 63 bytes as CREATE TRIGGER does, so a long entity
+-- name still finds its trigger.
+CREATE OR REPLACE FUNCTION raci_sync_triggers(p_entity TEXT, p_names NAME[], p_needs BOOLEAN, p_kind TEXT)
+RETURNS VOID
+SET search_path = public
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_rel     REGCLASS := pg_catalog.to_regclass(format('public.%I', p_entity));
+    v_trigger NAME;
+BEGIN
+    IF v_rel IS NULL OR (SELECT c.relkind FROM pg_catalog.pg_class c WHERE c.oid = v_rel) <> 'r' THEN
         RETURN;
     END IF;
 
-    IF v_needs THEN
-        -- Install (idempotent: drop first, then recreate)
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, p_entity);
-        EXECUTE format(
-            'CREATE TRIGGER %I
-                AFTER INSERT OR UPDATE ON %I
-                FOR EACH ROW
-                EXECUTE FUNCTION raci_emit_trigger_fn()',
-            v_trigger_name, p_entity
-        );
-    ELSE
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, p_entity);
+    FOR v_trigger IN
+        SELECT t.tgname FROM pg_catalog.pg_trigger t
+         WHERE t.tgrelid = v_rel AND t.tgname = ANY (p_names)
+    LOOP
+        EXECUTE format('DROP TRIGGER %I ON public.%I', v_trigger, p_entity);
+    END LOOP;
+
+    IF p_needs THEN
+        FOREACH v_trigger IN ARRAY p_names LOOP
+            CASE p_kind
+                WHEN 'gate' THEN
+                    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE ON public.%I
+                                        FOR EACH ROW EXECUTE FUNCTION raci_gate_trigger_fn()',
+                                   v_trigger, p_entity);
+                WHEN 'emit' THEN
+                    EXECUTE format('CREATE TRIGGER %I AFTER INSERT OR UPDATE ON public.%I
+                                        FOR EACH ROW EXECUTE FUNCTION raci_emit_trigger_fn()',
+                                   v_trigger, p_entity);
+            END CASE;
+        END LOOP;
     END IF;
 END;
 $$;
+
+COMMENT ON FUNCTION raci_sync_triggers(TEXT, NAME[], BOOLEAN, TEXT) IS
+'Drops the named RACI triggers present on the entity''s table and, when needed, creates each of them as a gate or an emit trigger. Does nothing unless the entity is a table. Shared by raci_install_or_drop_emit_trigger, raci_install_or_drop_gate_trigger and raci_entity_renamed.';
+
+REVOKE EXECUTE ON FUNCTION raci_sync_triggers(TEXT, NAME[], BOOLEAN, TEXT) FROM PUBLIC;
 
 COMMENT ON FUNCTION raci_install_or_drop_emit_trigger IS
 'Installs or drops the raci_emit_on_<entity> trigger depending on whether any process_gates row for that entity has emits_events=TRUE.';
@@ -552,10 +582,50 @@ COMMENT ON FUNCTION raci_install_or_drop_emit_trigger IS
 REVOKE EXECUTE ON FUNCTION raci_install_or_drop_emit_trigger(TEXT) FROM PUBLIC;
 
 COMMENT ON FUNCTION raci_gates_manage_emit_trigger() IS
-'Trigger function on process_gates that (re)runs raci_install_or_drop_emit_trigger and raci_install_or_drop_gate_trigger for the affected entity/entities, so the raci_emit_on_<entity> and raci_gate_on_<entity> triggers follow the gates as they change.';
+'Trigger function on process_gates that (re)runs raci_install_or_drop_emit_trigger and raci_install_or_drop_gate_trigger for the affected entity/entities, so the raci_emit_on_<entity>, a_raci_gate_on_<entity> and raci_gate_on_<entity> triggers follow the gates as they change.';
 
 -- Wire the installer to process_gates
 CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
     AFTER INSERT OR UPDATE OR DELETE ON process_gates
     FOR EACH ROW
     EXECUTE FUNCTION raci_gates_manage_emit_trigger();
+
+-- A governed entity's name lives on in three places besides entities: the
+-- process_gates and raci_events rows that name it, and the names of its
+-- raci_emit_on_, a_raci_gate_on_ and raci_gate_on_ triggers. The trigger
+-- functions find the gates and consultations of a write by TG_TABLE_NAME, so
+-- a rename that left any of them behind would stop the gate holding and the
+-- emit trigger emitting, without an error, and leave triggers under the old
+-- name that nothing removes. The triggers under the old name are dropped
+-- here; moving the gates to the new name then installs them again under the
+-- new one (raci_gates_manage_emit_trigger). AFTER the rename, so the table
+-- already carries the new name (rename_dd_table, 0170_dd_rename.sql).
+CREATE OR REPLACE FUNCTION raci_entity_renamed()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM raci_sync_triggers(
+        NEW.table_name,
+        ARRAY[('raci_emit_on_' || OLD.table_name)::name,
+              ('a_raci_gate_on_' || OLD.table_name)::name,
+              ('raci_gate_on_' || OLD.table_name)::name],
+        FALSE,
+        NULL);
+    UPDATE raci_events   SET entity = NEW.table_name WHERE entity = OLD.table_name;
+    UPDATE process_gates SET entity = NEW.table_name WHERE entity = OLD.table_name;
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION raci_entity_renamed() IS
+'AFTER UPDATE OF table_name trigger function on entities: drops the RACI triggers carrying the old name and moves the process_gates and raci_events rows to the new name, which installs the triggers again under it.';
+
+REVOKE EXECUTE ON FUNCTION raci_entity_renamed() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER raci_entity_renamed_trigger
+    AFTER UPDATE OF table_name ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION raci_entity_renamed();

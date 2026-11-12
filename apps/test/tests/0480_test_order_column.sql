@@ -55,7 +55,7 @@ SELECT ok(
     EXISTS (
         SELECT 1 FROM pg_trigger
         WHERE tgrelid = 'public.order_test'::regclass
-          AND tgname = 'zz_auto_order_order_test'
+          AND tgname = 'a_auto_order_order_test'
           AND NOT tgisinternal
     ),
     'auto-assign trigger should be installed on order_test'
@@ -112,7 +112,7 @@ SELECT ok(
     NOT EXISTS (
         SELECT 1 FROM pg_trigger
         WHERE tgrelid = 'public.order_test'::regclass
-          AND tgname = 'zz_auto_order_order_test'
+          AND tgname = 'a_auto_order_order_test'
           AND NOT tgisinternal
     ),
     'auto-assign trigger should be removed when order_column is cleared'
@@ -256,8 +256,8 @@ UPDATE entities SET table_name = 'order_rn2' WHERE table_name = 'order_rn';
 
 SELECT is(
     (SELECT string_agg(tgname::TEXT, ', ' ORDER BY tgname) FROM pg_trigger
-      WHERE tgrelid = 'public.order_rn2'::regclass AND tgname LIKE 'zz\_auto\_order\_%'),
-    'zz_auto_order_order_rn2',
+      WHERE tgrelid = 'public.order_rn2'::regclass AND tgname LIKE 'a\_auto\_order\_%'),
+    'a_auto_order_order_rn2',
     'a renamed entity''s auto-assign trigger carries the new name');
 
 UPDATE entities SET order_column = 'position2' WHERE table_name = 'order_rn2';

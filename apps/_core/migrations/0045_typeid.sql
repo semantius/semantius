@@ -322,7 +322,13 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 -- -----------------------------------------------------
 -- TG_ARGV[0] is the key column, TG_ARGV[1] the entity's current prefix. A row
 -- without an id gets a generated one; a row that brings its own id must carry
--- the current prefix. Only the prefix is checked here: the column's
+-- the current prefix. It is installed as a_typeid_assign, before the
+-- entity's computed fields and validation rules, which must see the id it
+-- generates, and on a table whose rules write the key again after them as
+-- zz_key_check_insert, which checks what they wrote (dd_install_id_triggers
+-- and dd_install_key_rule_checks in 0160_dd_functions.sql; the firing order is
+-- listed in build_record_logic_trigger, 0210_computed_validation.sql).
+-- Only the prefix is checked here: the column's
 -- common.typeid domain already holds the value to the TypeID format, and it
 -- would reject a malformed id whatever this trigger did.
 --
@@ -378,7 +384,7 @@ END
 $$;
 
 COMMENT ON FUNCTION common.typeid_assign() IS
-'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix, then the prefixes of its is_a subtypes). Generates the id when none is supplied and rejects a supplied id without the current prefix (90237); a subtype prefix is accepted only from inside a trigger, where the generated write routine inserts the whole record.';
+'BEFORE INSERT trigger of a typeid entity table (TG_ARGV: key column, current prefix, then the prefixes of its is_a subtypes), installed as a_typeid_assign before the entity''s rules and, where a rule writes the key, as zz_key_check_insert after them. Generates the id when none is supplied and rejects a supplied id without the current prefix (90237); a subtype prefix is accepted only from inside a trigger, where the generated write routine inserts the whole record.';
 
 -- -----------------------------------------------------
 -- common.ext_write_guard()  - BEFORE INSERT OR UPDATE OR DELETE on <entity>_ext
@@ -428,9 +434,12 @@ COMMENT ON FUNCTION common.ext_write_guard() IS
 -- CASCADE would only repair the first of those. The comparison is IS DISTINCT
 -- FROM, not "the column was in the SET list", because a client that PATCHes a
 -- whole record sends its unchanged id back and must not be refused for it.
--- Installed on every dictionary-created table and on users, modules, roles and
--- _apikeys; not on entities and permissions, whose natural keys are renamable,
--- nor on the junction tables, whose generated keys follow their key columns.
+-- Installed as pk_immutable, BEFORE UPDATE OF <key>, on the tables whose key
+-- is set once (which ones, and why the others have none: 0070_rbac_schema.sql),
+-- and on such a table whose rules write the key again as zz_key_check_update,
+-- a plain BEFORE UPDATE after the rules: UPDATE OF fires only for a key the
+-- statement names, never for one a trigger changes (dd_install_key_rule_checks
+-- in 0160_dd_functions.sql).
 CREATE OR REPLACE FUNCTION common.reject_pk_change()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -447,7 +456,7 @@ END
 $$;
 
 COMMENT ON FUNCTION common.reject_pk_change() IS
-'BEFORE UPDATE OF <key> trigger (TG_ARGV: key column): refuses a change of a record key with 90236. An update that writes the unchanged key back passes.';
+'BEFORE UPDATE trigger (TG_ARGV: key column), installed as pk_immutable (UPDATE OF <key>) and, where a rule writes the key, as zz_key_check_update after the rules: refuses a change of a record key with 90236. An update that writes the unchanged key back passes.';
 
 REVOKE EXECUTE ON FUNCTION common.uuid_v7() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.base32_encode(uuid) FROM PUBLIC;

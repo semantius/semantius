@@ -149,6 +149,20 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   names, metrics and topic bindings are readable. Queue contents are not:
   they are reachable only through the queue RPCs, which require the queue's
   view or manage permission.
+- **A client that runs SQL as the request role can ask whether a record is
+  held by a blocking consultation.** The generated write routine of an is_a or
+  has_a entity runs as the caller, and before the subtype's rules run it holds
+  the family root's gated state columns. For that it calls
+  `common.raci_held_state`, which is SECURITY DEFINER and executable by the
+  request role, and which answers for any record of a governed entity whether
+  an unacted blocking consultation holds its state.
+  - Unreachable behind PostgREST or an app server: they expose `public` only.
+  - Reachable where the client itself runs SQL as the request role, that is,
+    session mode handed to end users or a PostgreSQL 18 bearer session.
+  - `common.is_a_part_missing` has the same reach. It tells whether a family
+    record is missing a part.
+  - Over RPC, `raci_blocking_consultation_pending` stays revoked from the
+    request role.
 - **JsonLogic rules have no recursion or size limit.** A select rule or
   validation rule can be made arbitrarily expensive by the administrator who
   writes it. This is accepted as a residual denial of service by a trusted

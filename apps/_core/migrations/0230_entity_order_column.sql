@@ -32,6 +32,11 @@
 -- The order column name is passed as a trigger argument (TG_ARGV[0]), so a single
 -- function serves every entity that declares an order_column.
 --
+-- The trigger is named a_auto_order_<table>, which sorts before the entity's
+-- rules: they see the position it assigns rather than the column default 0,
+-- and a rule that writes the order column itself still wins (the firing order
+-- is listed in build_record_logic_trigger, 0210_computed_validation.sql).
+--
 -- The `fields` table is special: it holds the field metadata for many entities in
 -- one physical table, so its order runs independently per table_name (a new field
 -- continues its own entity's 10/20/30… sequence). Every other entity is a single
@@ -98,7 +103,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_old          TEXT := '';
     v_new          TEXT := COALESCE(NEW.order_column, '');
-    v_trigger_name TEXT := 'zz_auto_order_' || NEW.table_name;
+    v_trigger_name TEXT := 'a_auto_order_' || NEW.table_name;
 BEGIN
     SET LOCAL client_min_messages = WARNING;
 
@@ -171,6 +176,6 @@ CREATE OR REPLACE TRIGGER zz_entity_order_column_update_trigger
 -- On the fields table the auto-assign scopes MAX(field_order) per table_name, so a
 -- new field lands at that entity's max (below the 900000 ceiling) + 10 — the pinned
 -- created_at/updated_at audit columns at 999998/999999 never inflate the max.
-CREATE OR REPLACE TRIGGER zz_auto_order_fields
+CREATE OR REPLACE TRIGGER a_auto_order_fields
     BEFORE INSERT ON public.fields
     FOR EACH ROW EXECUTE FUNCTION auto_set_order_value('field_order');
