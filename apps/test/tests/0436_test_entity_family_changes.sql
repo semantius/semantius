@@ -51,7 +51,7 @@
 
 BEGIN;
 
-SELECT plan(363);
+SELECT plan(367);
 
 -- =====================================================
 -- Helpers
@@ -936,6 +936,38 @@ SELECT throws_ok($$UPDATE entities SET label_column = 'bic' WHERE table_name = '
 SELECT throws_ok($$UPDATE entities SET label_parent = 'bic' WHERE table_name = 'fcc_banks'$$,
     '90242', NULL,
     'a grandchild''s own label_parent change is refused');
+
+-- The label field's title is the root's too: every level shows the root's
+-- label_column_label, and a change of the root's title, on its field or on
+-- its entity row, reaches every level.
+SELECT is(
+    (SELECT count(*)::INTEGER FROM entities d
+      WHERE d.table_name IN ('fcc_orgs', 'fcc_banks', 'fcc_persons', 'fcc_vendors')
+        AND d.label_column_label IS DISTINCT FROM
+            (SELECT r.label_column_label FROM entities r WHERE r.table_name = 'fcc_parties')),
+    0,
+    'every level carries the root''s label_column_label');
+
+SELECT throws_ok($$UPDATE entities SET label_column_label = 'Org Label' WHERE table_name = 'fcc_orgs'$$,
+    '90242', NULL,
+    'a child''s own label_column_label change is refused');
+
+UPDATE fields SET title = 'Party Name' WHERE table_name = 'fcc_parties' AND field_name = 'label';
+
+SELECT is(
+    (SELECT string_agg(table_name || '=' || label_column_label, ', ' ORDER BY table_name COLLATE "C") FROM entities
+      WHERE table_name IN ('fcc_parties', 'fcc_orgs', 'fcc_banks', 'fcc_persons', 'fcc_vendors')),
+    'fcc_banks=Party Name, fcc_orgs=Party Name, fcc_parties=Party Name, fcc_persons=Party Name, fcc_vendors=Party Name',
+    'a title change on the root''s label field reaches every level');
+
+UPDATE entities SET label_column_label = 'Label' WHERE table_name = 'fcc_parties';
+
+SELECT is(
+    (SELECT title FROM fields WHERE table_name = 'fcc_parties' AND field_name = 'label')
+    || ' | ' || (SELECT string_agg(DISTINCT label_column_label, ', ') FROM entities
+                  WHERE table_name IN ('fcc_parties', 'fcc_orgs', 'fcc_banks', 'fcc_persons', 'fcc_vendors')),
+    'Label | Label',
+    'a label_column_label change on the root writes its label field and reaches every level');
 
 -- The root's identity spine composes into every level's label.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fcx_units', 'Unit', 'Units', 1);

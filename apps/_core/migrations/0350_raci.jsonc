@@ -157,7 +157,7 @@
         "fields": [
           // record_id is TEXT on purpose: entity primary keys need not be
           // integer serials (as with entities.id_column).
-          {"field_name": "record_id", "ctype": "label", "title": "Record", "field_order": 30,
+          {"field_name": "record_id", "ctype": "label", "field_order": 30,
            "description": "Governed record PK (text for non-integer PKs)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,

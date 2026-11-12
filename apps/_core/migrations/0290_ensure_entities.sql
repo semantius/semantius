@@ -476,12 +476,24 @@ BEGIN
         END IF;
         -- Values a trigger would rewrite: stored differently from the file,
         -- they would make every later apply see a change that is not one.
-        FOREACH v_key IN ARRAY ARRAY['singular', 'singular_label'] LOOP
+        FOREACH v_key IN ARRAY ARRAY['singular', 'singular_label', 'label_column_label'] LOOP
             IF v_entity ? v_key AND coalesce(v_entity ->> v_key, '') = '' THEN
                 RAISE EXCEPTION 'ensure_entities: entity %: an empty % is derived by a trigger; omit it instead',
                     v_table, v_key USING ERRCODE = '22023';
             END IF;
         END LOOP;
+        -- label_column_label and the label field's title are copies of each
+        -- other: two different values would be written back and forth on every
+        -- apply.
+        IF v_entity ? 'label_column_label' AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(coalesce(v_entity -> 'fields', '[]')) f
+                WHERE f ->> 'field_name' = coalesce(v_entity ->> 'label_column',
+                          (SELECT e.label_column FROM entities e WHERE e.table_name = v_table), 'label')
+                  AND f ? 'title'
+                  AND f ->> 'title' IS DISTINCT FROM v_entity ->> 'label_column_label') THEN
+            RAISE EXCEPTION 'ensure_entities: entity %: label_column_label differs from the title of its label field; give one of them',
+                v_table USING ERRCODE = '22023';
+        END IF;
         IF v_entity ? 'fields' AND jsonb_typeof(v_entity -> 'fields') <> 'array' THEN
             RAISE EXCEPTION 'ensure_entities: the fields of % must be an array', v_table
                 USING ERRCODE = '22023';
@@ -665,7 +677,7 @@ BEGIN
         -- values are not written, so an export made before the root's label
         -- column changed still applies, and applies again unchanged.
         IF coalesce(v_current.id_type, v_entity ->> 'id_type') IN ('is_a', 'has_a') THEN
-            v_row := v_row - 'label_column';
+            v_row := v_row - 'label_column' - 'label_column_label';
         END IF;
         IF v_entity ? 'module_name' THEN
             SELECT id INTO v_module_id FROM modules WHERE module_name = v_entity ->> 'module_name';

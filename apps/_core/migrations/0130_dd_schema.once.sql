@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS entities (
     -- CASCADE carries a rename of the base.
     id_refentity TEXT REFERENCES entities(table_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     label_column TEXT NOT NULL DEFAULT 'label',
+    -- The label field's title, here so a caller can give it in the same insert
+    -- that creates the entity. fields.title stays the source; triggers in
+    -- 0160_dd_functions.sql keep this a copy of it.
+    label_column_label TEXT NOT NULL DEFAULT '',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,

@@ -1,7 +1,7 @@
 -- Test managed flag functionality for tables and fields
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(19);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -123,8 +123,8 @@ SELECT ok(
 -- =====================================================
 
 -- Test 14: Create table with managed=false and add a custom field
-INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed) 
-VALUES ('test_toggle_managed', 'test_toggle_managed', 'Test Toggle', 'Test Toggles', 'Toggle managed test', 1, 'public:read', 'admin', 'id', 'label', FALSE);
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, label_column_label, managed)
+VALUES ('test_toggle_managed', 'test_toggle_managed', 'Test Toggle', 'Test Toggles', 'Toggle managed test', 1, 'public:read', 'admin', 'id', 'label', 'Toggle Title', FALSE);
 
 INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description)
 VALUES ('test_toggle_managed', 'custom_field', 'Custom Field', 'text', FALSE, 10, 'default', 'default', 'A custom field');
@@ -156,6 +156,13 @@ SELECT ok(
 SELECT ok(
     (SELECT COUNT(*) FROM fields WHERE table_name = 'test_toggle_managed' AND field_name IN ('id', 'label', 'created_at', 'updated_at')) = 4,
     'Core field records (id, label, created_at, updated_at) should exist after toggling managed to true'
+);
+
+-- The label field created by the toggle takes the title given at insert.
+SELECT is(
+    (SELECT title FROM fields WHERE table_name = 'test_toggle_managed' AND field_name = 'label'),
+    'Toggle Title',
+    'the label field created on toggling managed to true is titled with label_column_label'
 );
 
 -- Test 18: After toggle, updating a field's metadata should work correctly

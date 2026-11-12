@@ -377,7 +377,7 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, NEW.label_column_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)

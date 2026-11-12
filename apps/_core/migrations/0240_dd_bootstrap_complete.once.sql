@@ -75,6 +75,16 @@ SET is_child = EXISTS (
       AND f.format = 'parent'
 );
 
+-- The core tables' label titles, copied into entities.label_column_label as
+-- dd_label_title_from_field (0160_dd_functions.sql) would have when their
+-- fields rows were inserted.
+UPDATE entities e
+   SET label_column_label = f.title
+  FROM fields f
+ WHERE f.table_name = e.table_name
+   AND f.field_name = e.label_column
+   AND e.label_column_label IS DISTINCT FROM f.title;
+
 -- =====================================================
 -- LABEL FUNCTIONS
 -- =====================================================

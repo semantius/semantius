@@ -10,7 +10,7 @@
 --      several levels
 BEGIN;
 
-SELECT plan(77);
+SELECT plan(83);
 
 -- =====================================================
 -- PART 1: ensure_entities
@@ -245,6 +245,22 @@ SELECT lives_ok($$SELECT ensure_entities(jsonc_to_jsonb('{"version": 1, "entitie
 SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ee_links_item_id_fkey'),
     '  and the foreign key is created');
 
+-- ------------------------------------------------------ the label title
+-- Given on the label field or on the entity, it ends up in both places.
+SELECT lives_ok($$SELECT ensure_entities(jsonc_to_jsonb('{"version": 1, "entities": [{"entity": {
+    "table_name": "ee_titled", "module_name": "EE Test", "singular_label": "Titled", "plural_label": "Titleds",
+    "label_column": "ref_number",
+    "fields": [{"field_name": "ref_number", "ctype": "label", "title": "Ref #"}]}}]}'))$$,
+    'a definition may title its label field');
+SELECT is((SELECT label_column_label FROM entities WHERE table_name = 'ee_titled'), 'Ref #',
+    '  and the title wins over the default and is copied to label_column_label');
+SELECT lives_ok($$SELECT ensure_entities(jsonc_to_jsonb('{"version": 1, "entities": [{"entity": {
+    "table_name": "ee_titled_too", "module_name": "EE Test", "singular_label": "Titled", "plural_label": "Titleds",
+    "label_column": "ref_number", "label_column_label": "Reference", "fields": []}}]}'))$$,
+    'a definition may give label_column_label');
+SELECT is((SELECT title FROM fields WHERE id = 'ee_titled_too.ref_number'), 'Reference',
+    '  and the label field is created with it');
+
 -- -------------------------------------------------------------- refusals
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "fields": [{"field_name": "zeta", "field_order": 0}]}}]}')$$,
@@ -252,6 +268,12 @@ SELECT throws_ok(
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "singular": "", "fields": []}}]}')$$,
     '22023', NULL, 'an empty singular is refused (a trigger would derive one)');
+SELECT throws_ok(
+    $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "label_column_label": "", "fields": []}}]}')$$,
+    '22023', NULL, 'an empty label_column_label is refused (a trigger would derive one)');
+SELECT throws_ok(
+    $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_titled", "label_column_label": "Ref", "fields": [{"field_name": "ref_number", "title": "Ref #"}]}}]}')$$,
+    '22023', NULL, 'a label_column_label that differs from the label field''s title is refused');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "fields": [{"field_name": "zeta", "enum_values": {"a": 1}}]}}]}')$$,
     '22023', NULL, 'enum_values that is not an array is refused');

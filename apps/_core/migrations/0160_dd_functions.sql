@@ -1450,7 +1450,7 @@ BEGIN
     SELECT *
       FROM (VALUES
         (NEW.table_name, NEW.id_column, 'Id', v_key.id_format, TRUE, 10, v_key.input_type, 'default', 'id', FALSE, '', '', v_key.input_type_rule),
-        (NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '', '{}'::jsonb),
+        (NEW.table_name, NEW.label_column, NEW.label_column_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '', '{}'::jsonb),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb)
       ) AS v(table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
@@ -2870,6 +2870,70 @@ COMMENT ON TRIGGER handle_field_searchable_delete_trigger ON fields IS
 'Automatically updates search_vector column and index when searchable fields are deleted';
 
 -- =====================================================
+-- LABEL TITLE: entities.label_column_label <-> fields.title
+-- =====================================================
+-- The label field's fields.title is the title; entities.label_column_label is
+-- a copy, so a caller can give it in the insert that creates the entity.
+-- Each direction writes only when the value differs, and checks that before
+-- it updates: a no-op UPDATE still fires the other table's whole trigger
+-- stack (on fields, the statement-level searchable triggers even when no row
+-- matches), and the two triggers would call each other.
+
+CREATE OR REPLACE FUNCTION dd_label_title_to_field()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- An is_a or has_a entity's label field is its root's: the root's own
+    -- update writes it.
+    IF NEW.id_type IN ('is_a', 'has_a') THEN
+        RETURN NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM fields
+                WHERE table_name = NEW.table_name
+                  AND field_name = NEW.label_column
+                  AND title IS DISTINCT FROM NEW.label_column_label) THEN
+        UPDATE fields
+           SET title = NEW.label_column_label
+         WHERE table_name = NEW.table_name
+           AND field_name = NEW.label_column;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_label_title_to_field() IS
+'AFTER UPDATE trigger on entities: writes a changed label_column_label to the title of the entity''s label field.';
+
+CREATE OR REPLACE TRIGGER label_title_to_field_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_column_label IS DISTINCT FROM NEW.label_column_label)
+    EXECUTE FUNCTION dd_label_title_to_field();
+
+CREATE OR REPLACE FUNCTION dd_label_title_from_field()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM entities
+                WHERE table_name = NEW.table_name
+                  AND label_column = NEW.field_name
+                  AND label_column_label IS DISTINCT FROM NEW.title) THEN
+        UPDATE entities
+           SET label_column_label = NEW.title
+         WHERE table_name = NEW.table_name
+           AND label_column = NEW.field_name;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_label_title_from_field() IS
+'AFTER INSERT OR UPDATE trigger on fields: copies the title of an entity''s label field into entities.label_column_label; family_label_column_trigger carries it to the is_a and has_a entities based on it.';
+
+CREATE OR REPLACE TRIGGER label_title_from_field_trigger
+    AFTER INSERT OR UPDATE OF title ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_label_title_from_field();
+
+-- =====================================================
 -- TRIGGER FUNCTION: Recompute entities.searchable on direct update
 -- =====================================================
 -- Ensures entities.searchable always reflects the actual state of fields
@@ -3023,17 +3087,14 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 --   90240  the base: an is_a entity on a managed typeid or is_a entity, a
 --          has_a entity on a managed typeid entity, neither on itself
 --   90241  id_refentity never changes
---   90242  label_column and label_parent come from the base
+--   90242  label_column, label_column_label and label_parent come from the base
 --   90249  no order_column (the root's order column is no field and not in
 --          the views)
 --   90252  a base stays managed while entities are based on it
 --   90254  a new is_a entity's prefix is carried by no row of its root
--- The key column and the label column are set from the base on insert; the
--- label column is the root's, which every level of a chain shares. So is
--- is_child, which a parent field on any level above sets.
---
--- The name sorts before set_entity_defaults_trigger, which derives
--- singular_label from label_column and has to see the inherited one.
+-- The key column and the label column with its title are set from the base on
+-- insert; the label field is the root's, which every level of a chain shares.
+-- So is is_child, which a parent field on any level above sets.
 CREATE OR REPLACE FUNCTION check_entity_family()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -3042,6 +3103,7 @@ DECLARE
     v_has_base   BOOLEAN := FALSE;
     v_root       TEXT;
     v_root_label TEXT;
+    v_root_title TEXT;
     v_taken      BOOLEAN;
     v_dependents TEXT;
 BEGIN
@@ -3063,7 +3125,8 @@ BEGIN
                               'hint', 'An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.')::text;
             END IF;
             IF v_has_base THEN
-                SELECT e.label_column, e.table_name INTO v_root_label, v_root
+                SELECT e.label_column, e.label_column_label, e.table_name
+                  INTO v_root_label, v_root_title, v_root
                   FROM dd_ancestors(NEW.id_refentity) a
                   JOIN entities e ON e.table_name = a.table_name
                  WHERE a.depth = 0;
@@ -3090,6 +3153,7 @@ BEGIN
                 END IF;
                 NEW.id_column := v_base.id_column;
                 NEW.label_column := v_root_label;
+                NEW.label_column_label := v_root_title;
                 NEW.label_parent := '';
                 -- It has no fields yet; a parent field above it makes it a
                 -- child from the start.
@@ -3115,12 +3179,14 @@ BEGIN
         -- NEW.id_refentity even while this row is being renamed or follows
         -- its base's rename.
         IF v_derived THEN
-            SELECT e.label_column INTO v_root_label
+            SELECT e.label_column, e.label_column_label INTO v_root_label, v_root_title
               FROM dd_ancestors(NEW.id_refentity) a
               JOIN entities e ON e.table_name = a.table_name
              WHERE a.depth = 0;
-            IF NEW.label_column IS DISTINCT FROM v_root_label OR NEW.label_parent <> '' THEN
-                RAISE EXCEPTION 'label_column and label_parent of ${table} come from its base ${base}'
+            IF NEW.label_column IS DISTINCT FROM v_root_label
+               OR NEW.label_column_label IS DISTINCT FROM v_root_title
+               OR NEW.label_parent <> '' THEN
+                RAISE EXCEPTION 'label_column, label_column_label and label_parent of ${table} come from its base ${base}'
                     USING ERRCODE = '90242',
                           HINT = jsonb_build_object('table', NEW.table_name, 'base', NEW.id_refentity)::text;
             END IF;
@@ -3150,39 +3216,42 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION check_entity_family() IS
-'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_parent and is_child from the base on insert.';
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
 
 CREATE OR REPLACE TRIGGER check_entity_family_trigger
     BEFORE INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION check_entity_family();
 
--- Every level of a family carries the root's label column (90242 holds it
--- there), so a change of a base's label column is carried to the entities
--- based on it directly, and their own update carries it one level further.
--- Without it, a changed root would leave its descendants with a value 90242
--- refuses, and every later write to their rows - a rename, a searchable
--- change - would fail. The change is written before the rows below are
--- checked against it, because this runs after the base's row is updated.
+-- Every level of a family carries the root's label column and its title
+-- (90242 holds them there), so a change of a base's is carried to the
+-- entities based on it directly, and their own update carries it one level
+-- further. Without it, a changed root would leave its descendants with a
+-- value 90242 refuses, and every later write to their rows - a rename, a
+-- searchable change - would fail. The change is written before the rows below
+-- are checked against it, because this runs after the base's row is updated.
 -- A plain entity has nothing based on it, and the update writes no row.
 CREATE OR REPLACE FUNCTION dd_family_label_column_changed()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE entities
-       SET label_column = NEW.label_column
+       SET label_column = NEW.label_column,
+           label_column_label = NEW.label_column_label
      WHERE id_refentity = NEW.table_name
-       AND label_column IS DISTINCT FROM NEW.label_column;
+       AND (label_column IS DISTINCT FROM NEW.label_column
+            OR label_column_label IS DISTINCT FROM NEW.label_column_label);
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION dd_family_label_column_changed() IS
-'AFTER UPDATE trigger on entities: carries a changed label_column to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
+'AFTER UPDATE trigger on entities: carries a changed label_column or label_column_label to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
 
 CREATE OR REPLACE TRIGGER family_label_column_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
-    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column)
+    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column
+       OR OLD.label_column_label IS DISTINCT FROM NEW.label_column_label)
     EXECUTE FUNCTION dd_family_label_column_changed();
 
 -- Two checks on the fields of a family:
@@ -4717,6 +4786,8 @@ REVOKE EXECUTE ON FUNCTION delete_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION delete_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_search_vector_column(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_table_searchable_flag(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_title_to_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_title_from_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION apply_field_searchable_change(TEXT[], TEXT[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION handle_field_searchable_insert() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION handle_field_searchable_update() FROM PUBLIC;

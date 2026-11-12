@@ -5727,6 +5727,10 @@ CREATE TABLE IF NOT EXISTS entities (
     -- CASCADE carries a rename of the base.
     id_refentity TEXT REFERENCES entities(table_name) ON DELETE RESTRICT ON UPDATE CASCADE,
     label_column TEXT NOT NULL DEFAULT 'label',
+    -- The label field's title, here so a caller can give it in the same insert
+    -- that creates the entity. fields.title stays the source; triggers in
+    -- 0160_dd_functions.sql keep this a copy of it.
+    label_column_label TEXT NOT NULL DEFAULT '',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
@@ -5914,7 +5918,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', 'cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135')
+        VALUES ('_core.0130_dd_schema.once.sql', 'a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6347,6 +6351,7 @@ VALUES
     ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT/UPDATE/DELETE from this table', 'admin', 'reference', FALSE, 100,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
     ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 150, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'label_column_label', 'Label Column Label', 'Title of the label field. Give it when the entity is created; left empty, it is derived from label_column without the entity''s own name (company_name on companies gives Name, region_description on regions gives Description), except that a column ending in _number, _no, _id or _code keeps it (offer_number gives Offer Number). Always equal to the label field''s title: changing either one changes both.', '', 'text', FALSE, 155, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 160, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'order_column',   'Order Column',   'Store a fixed row order in this column',                '',             'text',      FALSE, 170, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'managed',        'Managed',        'When disabled, changes to this entity and its fields no longer run DDL',       'true',         'boolean',   FALSE, 180, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
@@ -6484,7 +6489,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', 'cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', '904c163f07529561f3b2d9abe70c7ac31d3023e2d967ac077300b9330ccb4ade')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6521,7 +6526,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5c633662a5df7f7b83ae648db059f7bbd38d320366cb6cd15f0d931d8e11d3f5') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -7976,7 +7981,7 @@ BEGIN
     SELECT *
       FROM (VALUES
         (NEW.table_name, NEW.id_column, 'Id', v_key.id_format, TRUE, 10, v_key.input_type, 'default', 'id', FALSE, '', '', v_key.input_type_rule),
-        (NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '', '{}'::jsonb),
+        (NEW.table_name, NEW.label_column, NEW.label_column_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', '', '{}'::jsonb),
         (NEW.table_name, 'created_at', 'Created At', 'date-time', FALSE, 999998, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb),
         (NEW.table_name, 'updated_at', 'Updated At', 'date-time', FALSE, 999999, 'disabled', 'default', 'audit', FALSE, '', '', '{}'::jsonb)
       ) AS v(table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, input_type_rule)
@@ -9396,6 +9401,70 @@ COMMENT ON TRIGGER handle_field_searchable_delete_trigger ON fields IS
 'Automatically updates search_vector column and index when searchable fields are deleted';
 
 -- =====================================================
+-- LABEL TITLE: entities.label_column_label <-> fields.title
+-- =====================================================
+-- The label field's fields.title is the title; entities.label_column_label is
+-- a copy, so a caller can give it in the insert that creates the entity.
+-- Each direction writes only when the value differs, and checks that before
+-- it updates: a no-op UPDATE still fires the other table's whole trigger
+-- stack (on fields, the statement-level searchable triggers even when no row
+-- matches), and the two triggers would call each other.
+
+CREATE OR REPLACE FUNCTION dd_label_title_to_field()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- An is_a or has_a entity's label field is its root's: the root's own
+    -- update writes it.
+    IF NEW.id_type IN ('is_a', 'has_a') THEN
+        RETURN NULL;
+    END IF;
+    IF EXISTS (SELECT 1 FROM fields
+                WHERE table_name = NEW.table_name
+                  AND field_name = NEW.label_column
+                  AND title IS DISTINCT FROM NEW.label_column_label) THEN
+        UPDATE fields
+           SET title = NEW.label_column_label
+         WHERE table_name = NEW.table_name
+           AND field_name = NEW.label_column;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_label_title_to_field() IS
+'AFTER UPDATE trigger on entities: writes a changed label_column_label to the title of the entity''s label field.';
+
+CREATE OR REPLACE TRIGGER label_title_to_field_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_column_label IS DISTINCT FROM NEW.label_column_label)
+    EXECUTE FUNCTION dd_label_title_to_field();
+
+CREATE OR REPLACE FUNCTION dd_label_title_from_field()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM entities
+                WHERE table_name = NEW.table_name
+                  AND label_column = NEW.field_name
+                  AND label_column_label IS DISTINCT FROM NEW.title) THEN
+        UPDATE entities
+           SET label_column_label = NEW.title
+         WHERE table_name = NEW.table_name
+           AND label_column = NEW.field_name;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_label_title_from_field() IS
+'AFTER INSERT OR UPDATE trigger on fields: copies the title of an entity''s label field into entities.label_column_label; family_label_column_trigger carries it to the is_a and has_a entities based on it.';
+
+CREATE OR REPLACE TRIGGER label_title_from_field_trigger
+    AFTER INSERT OR UPDATE OF title ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_label_title_from_field();
+
+-- =====================================================
 -- TRIGGER FUNCTION: Recompute entities.searchable on direct update
 -- =====================================================
 -- Ensures entities.searchable always reflects the actual state of fields
@@ -9549,17 +9618,14 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 --   90240  the base: an is_a entity on a managed typeid or is_a entity, a
 --          has_a entity on a managed typeid entity, neither on itself
 --   90241  id_refentity never changes
---   90242  label_column and label_parent come from the base
+--   90242  label_column, label_column_label and label_parent come from the base
 --   90249  no order_column (the root's order column is no field and not in
 --          the views)
 --   90252  a base stays managed while entities are based on it
 --   90254  a new is_a entity's prefix is carried by no row of its root
--- The key column and the label column are set from the base on insert; the
--- label column is the root's, which every level of a chain shares. So is
--- is_child, which a parent field on any level above sets.
---
--- The name sorts before set_entity_defaults_trigger, which derives
--- singular_label from label_column and has to see the inherited one.
+-- The key column and the label column with its title are set from the base on
+-- insert; the label field is the root's, which every level of a chain shares.
+-- So is is_child, which a parent field on any level above sets.
 CREATE OR REPLACE FUNCTION check_entity_family()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -9568,6 +9634,7 @@ DECLARE
     v_has_base   BOOLEAN := FALSE;
     v_root       TEXT;
     v_root_label TEXT;
+    v_root_title TEXT;
     v_taken      BOOLEAN;
     v_dependents TEXT;
 BEGIN
@@ -9589,7 +9656,8 @@ BEGIN
                               'hint', 'An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.')::text;
             END IF;
             IF v_has_base THEN
-                SELECT e.label_column, e.table_name INTO v_root_label, v_root
+                SELECT e.label_column, e.label_column_label, e.table_name
+                  INTO v_root_label, v_root_title, v_root
                   FROM dd_ancestors(NEW.id_refentity) a
                   JOIN entities e ON e.table_name = a.table_name
                  WHERE a.depth = 0;
@@ -9616,6 +9684,7 @@ BEGIN
                 END IF;
                 NEW.id_column := v_base.id_column;
                 NEW.label_column := v_root_label;
+                NEW.label_column_label := v_root_title;
                 NEW.label_parent := '';
                 -- It has no fields yet; a parent field above it makes it a
                 -- child from the start.
@@ -9641,12 +9710,14 @@ BEGIN
         -- NEW.id_refentity even while this row is being renamed or follows
         -- its base's rename.
         IF v_derived THEN
-            SELECT e.label_column INTO v_root_label
+            SELECT e.label_column, e.label_column_label INTO v_root_label, v_root_title
               FROM dd_ancestors(NEW.id_refentity) a
               JOIN entities e ON e.table_name = a.table_name
              WHERE a.depth = 0;
-            IF NEW.label_column IS DISTINCT FROM v_root_label OR NEW.label_parent <> '' THEN
-                RAISE EXCEPTION 'label_column and label_parent of ${table} come from its base ${base}'
+            IF NEW.label_column IS DISTINCT FROM v_root_label
+               OR NEW.label_column_label IS DISTINCT FROM v_root_title
+               OR NEW.label_parent <> '' THEN
+                RAISE EXCEPTION 'label_column, label_column_label and label_parent of ${table} come from its base ${base}'
                     USING ERRCODE = '90242',
                           HINT = jsonb_build_object('table', NEW.table_name, 'base', NEW.id_refentity)::text;
             END IF;
@@ -9676,39 +9747,42 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION check_entity_family() IS
-'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_parent and is_child from the base on insert.';
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
 
 CREATE OR REPLACE TRIGGER check_entity_family_trigger
     BEFORE INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION check_entity_family();
 
--- Every level of a family carries the root's label column (90242 holds it
--- there), so a change of a base's label column is carried to the entities
--- based on it directly, and their own update carries it one level further.
--- Without it, a changed root would leave its descendants with a value 90242
--- refuses, and every later write to their rows - a rename, a searchable
--- change - would fail. The change is written before the rows below are
--- checked against it, because this runs after the base's row is updated.
+-- Every level of a family carries the root's label column and its title
+-- (90242 holds them there), so a change of a base's is carried to the
+-- entities based on it directly, and their own update carries it one level
+-- further. Without it, a changed root would leave its descendants with a
+-- value 90242 refuses, and every later write to their rows - a rename, a
+-- searchable change - would fail. The change is written before the rows below
+-- are checked against it, because this runs after the base's row is updated.
 -- A plain entity has nothing based on it, and the update writes no row.
 CREATE OR REPLACE FUNCTION dd_family_label_column_changed()
 RETURNS TRIGGER AS $$
 BEGIN
     UPDATE entities
-       SET label_column = NEW.label_column
+       SET label_column = NEW.label_column,
+           label_column_label = NEW.label_column_label
      WHERE id_refentity = NEW.table_name
-       AND label_column IS DISTINCT FROM NEW.label_column;
+       AND (label_column IS DISTINCT FROM NEW.label_column
+            OR label_column_label IS DISTINCT FROM NEW.label_column_label);
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION dd_family_label_column_changed() IS
-'AFTER UPDATE trigger on entities: carries a changed label_column to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
+'AFTER UPDATE trigger on entities: carries a changed label_column or label_column_label to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
 
 CREATE OR REPLACE TRIGGER family_label_column_trigger
     AFTER UPDATE ON entities
     FOR EACH ROW
-    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column)
+    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column
+       OR OLD.label_column_label IS DISTINCT FROM NEW.label_column_label)
     EXECUTE FUNCTION dd_family_label_column_changed();
 
 -- Two checks on the fields of a family:
@@ -11243,6 +11317,8 @@ REVOKE EXECUTE ON FUNCTION delete_dd_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION delete_dd_table() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_search_vector_column(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_table_searchable_flag(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_title_to_field() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_title_from_field() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION apply_field_searchable_change(TEXT[], TEXT[]) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION handle_field_searchable_insert() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION handle_field_searchable_update() FROM PUBLIC;
@@ -11255,7 +11331,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '5c633662a5df7f7b83ae648db059f7bbd38d320366cb6cd15f0d931d8e11d3f5')
+        VALUES ('_core.0160_dd_functions.sql', '871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -11939,7 +12015,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -12321,7 +12397,7 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.id_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
-    SELECT NEW.table_name, NEW.label_column, 'Name', 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
+    SELECT NEW.table_name, NEW.label_column, NEW.label_column_label, 'text', FALSE, 20, 'required', 'default', 'label', TRUE, '', ''
     WHERE NOT EXISTS (SELECT 1 FROM fields WHERE table_name = NEW.table_name AND field_name = NEW.label_column);
 
     INSERT INTO fields (table_name, field_name, title, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode)
@@ -13054,7 +13130,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f')
+        VALUES ('_core.0180_managed_enable.sql', 'e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15519,32 +15595,16 @@ $pgsem__core_0210_computed_validation_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0220_entity_insert_defaults.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0220_entity_insert_defaults.sql';
       EXECUTE $pgsem__core_0220_entity_insert_defaults_sql$-- =====================================================
--- MIGRATION: entity insert defaults (singular, singular_label)
+-- MIGRATION: entity defaults
 -- =====================================================
--- When a row is inserted into entities, create_dd_table() (0160_dd_functions.sql) seeds the
--- name/label field's title from entities.singular_label. Previously, if the
--- caller did not supply singular/singular_label they stayed '' (the column
--- default), so the name field was created with a blank title.
---
--- This migration fills sensible defaults BEFORE INSERT so they flow into the
--- field title automatically (create_dd_table runs AFTER INSERT and reads the
--- already-populated NEW.singular_label):
---
---   * singular        -- derived from table_name by a naive de-pluralize
---                        ('tenants' -> 'tenant', 'cities' -> 'city')
---   * singular_label  -- derived from label_column via snake_to_label()
---                        ('tenant_name' -> 'Tenant Name', 'label' -> 'Label')
---
--- Values supplied by the caller are always preserved verbatim -- defaults are
--- only applied when the column is left blank. plural is handled separately by
--- the existing auto_set_plural trigger (0140_dd_schema.sql) and is not touched here.
---
--- Additive only (no objects removed), so a single forward migration covers both
--- fresh and existing/production databases.
+-- What an entity gets for a field the caller leaves blank: singular from
+-- table_name, singular_label from singular, and label_column_label (the label
+-- field's title) from label_column. A value the caller supplies is kept.
+-- plural is set by auto_set_plural (0140_dd_schema.sql).
 
 -- =====================================================
 -- FUNCTION: snake_to_label
@@ -15568,32 +15628,109 @@ COMMENT ON FUNCTION public.snake_to_label(TEXT) IS
 
 REVOKE EXECUTE ON FUNCTION public.snake_to_label(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.snake_to_label(TEXT) TO semantius_user;
+
+-- =====================================================
+-- FUNCTION: dd_label_field_title
+-- =====================================================
+-- The label field's default title: label_column in words, without a leading
+-- entity name. On companies, company_name is "Name", for the same reason a
+-- phone field there is "Phone" and not "Company Phone". A column ending in
+-- _number, _no, _id or _code keeps the entity name, because "Number" or "Id"
+-- alone says nothing. The plural forms are tried too: singular is derived
+-- naively (addresses gives addresse) or supplied as free text.
+CREATE OR REPLACE FUNCTION public.dd_label_field_title(
+    p_label_column TEXT,
+    p_singular     TEXT,
+    p_table_name   TEXT
+)
+RETURNS TEXT
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public
+AS $$
+DECLARE
+    v_prefix TEXT;
+BEGIN
+    IF p_label_column !~ '_(number|no|id|code)$' THEN
+        SELECT p INTO v_prefix
+          FROM unnest(ARRAY[p_table_name,
+                            lower(p_singular),
+                            regexp_replace(p_table_name, 'ies$', 'y'),
+                            regexp_replace(p_table_name, 'es$', ''),
+                            regexp_replace(p_table_name, 's$', '')]) AS p
+         WHERE p <> '' AND starts_with(p_label_column, p || '_')
+         ORDER BY length(p) DESC
+         LIMIT 1;
+    END IF;
+
+    RETURN public.snake_to_label(
+        CASE WHEN v_prefix IS NULL THEN p_label_column
+             ELSE substr(p_label_column, length(v_prefix) + 2)
+        END);
+END;
+$$;
+
+COMMENT ON FUNCTION public.dd_label_field_title(TEXT, TEXT, TEXT) IS
+'Default title of an entity''s label field: label_column in words without a leading entity singular or plural (company_name on companies -> Name), except for a column ending in _number, _no, _id or _code (offer_number -> Offer Number).';
+
+REVOKE EXECUTE ON FUNCTION public.dd_label_field_title(TEXT, TEXT, TEXT) FROM PUBLIC;
+-- set_entity_defaults runs as the caller.
+GRANT EXECUTE ON FUNCTION public.dd_label_field_title(TEXT, TEXT, TEXT) TO semantius_user;
+
 -- =====================================================
 -- TRIGGER FUNCTION: set_entity_defaults
 -- =====================================================
--- Fills singular and singular_label from table_name / label_column when the
--- caller leaves them blank. Runs BEFORE INSERT so create_dd_table() (AFTER
--- INSERT) sees the populated values and seeds the name field title correctly.
+-- BEFORE INSERT, so create_dd_table (AFTER INSERT) creates the label field
+-- with its final title and no second entities UPDATE is needed.
 
 CREATE OR REPLACE FUNCTION public.set_entity_defaults()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SET search_path = public
 AS $$
+DECLARE
+    v_title TEXT;
 BEGIN
-    -- Derive singular from table_name (naive de-pluralize) when not provided.
-    -- Handles regular plurals and '...ies'; leaves '...ss' and irregulars alone.
-    IF NEW.singular IS NULL OR NEW.singular = '' THEN
-        NEW.singular := CASE
-            WHEN NEW.table_name ~ 'ies$'   THEN regexp_replace(NEW.table_name, 'ies$', 'y')
-            WHEN NEW.table_name ~ '[^s]s$' THEN left(NEW.table_name, length(NEW.table_name) - 1)
-            ELSE NEW.table_name
-        END;
+    IF TG_OP = 'INSERT' THEN
+        -- Naive de-pluralize: regular plurals and '...ies'; '...ss' and
+        -- irregulars stay as they are.
+        IF NEW.singular IS NULL OR NEW.singular = '' THEN
+            NEW.singular := CASE
+                WHEN NEW.table_name ~ 'ies$'   THEN regexp_replace(NEW.table_name, 'ies$', 'y')
+                WHEN NEW.table_name ~ '[^s]s$' THEN left(NEW.table_name, length(NEW.table_name) - 1)
+                ELSE NEW.table_name
+            END;
+        END IF;
+
+        IF NEW.singular_label IS NULL OR NEW.singular_label = '' THEN
+            NEW.singular_label := public.snake_to_label(NEW.singular);
+        END IF;
     END IF;
 
-    -- Derive singular_label from label_column when not provided.
-    IF NEW.singular_label IS NULL OR NEW.singular_label = '' THEN
-        NEW.singular_label := public.snake_to_label(NEW.label_column);
+    -- An is_a or has_a entity has no label field of its own: check_entity_family
+    -- gives it its root's title.
+    IF NEW.id_type IN ('is_a', 'has_a') THEN
+        RETURN NEW;
+    END IF;
+
+    -- A label_column pointed at another field takes that field's title, unless
+    -- the same update gives one. A label field rename finds no row under the
+    -- new name yet, so the title stays.
+    IF TG_OP = 'UPDATE'
+       AND NEW.label_column IS DISTINCT FROM OLD.label_column
+       AND NEW.label_column_label IS NOT DISTINCT FROM OLD.label_column_label THEN
+        SELECT f.title INTO v_title
+          FROM fields f
+         WHERE f.table_name = OLD.table_name
+           AND f.field_name = NEW.label_column;
+        IF FOUND THEN
+            NEW.label_column_label := v_title;
+        END IF;
+    END IF;
+
+    IF NEW.label_column_label IS NULL OR NEW.label_column_label = '' THEN
+        NEW.label_column_label := public.dd_label_field_title(
+            NEW.label_column, NEW.singular, NEW.table_name);
     END IF;
 
     RETURN NEW;
@@ -15601,22 +15738,22 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.set_entity_defaults() IS
-'Trigger function that derives singular (de-pluralized table_name) and singular_label (snake_to_label of label_column) when left blank on insert.';
+'Trigger function that fills singular (de-pluralized table_name) and singular_label (snake_to_label of singular) on insert when left blank, and label_column_label (dd_label_field_title) on insert or update when left blank. A changed label_column takes the title of the field it now names.';
 
 REVOKE EXECUTE ON FUNCTION public.set_entity_defaults() FROM PUBLIC;
 
 DROP TRIGGER IF EXISTS set_entity_defaults_trigger ON entities;
 CREATE OR REPLACE TRIGGER set_entity_defaults_trigger
-    BEFORE INSERT ON entities
+    BEFORE INSERT OR UPDATE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION public.set_entity_defaults();
 
 COMMENT ON TRIGGER set_entity_defaults_trigger ON entities IS
-'Derives singular and singular_label on insert when the caller leaves them blank.';
+'Fills singular, singular_label and label_column_label when the caller leaves them blank.';
 $pgsem__core_0220_entity_insert_defaults_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0220_entity_insert_defaults.sql', 'a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16')
+        VALUES ('_core.0220_entity_insert_defaults.sql', '530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15957,6 +16094,16 @@ SET is_child = EXISTS (
       AND f.format = 'parent'
 );
 
+-- The core tables' label titles, copied into entities.label_column_label as
+-- dd_label_title_from_field (0160_dd_functions.sql) would have when their
+-- fields rows were inserted.
+UPDATE entities e
+   SET label_column_label = f.title
+  FROM fields f
+ WHERE f.table_name = e.table_name
+   AND f.field_name = e.label_column
+   AND e.label_column_label IS DISTINCT FROM f.title;
+
 -- =====================================================
 -- LABEL FUNCTIONS
 -- =====================================================
@@ -16061,7 +16208,7 @@ $$;
 $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924')
+        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17794,7 +17941,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -18275,12 +18422,24 @@ BEGIN
         END IF;
         -- Values a trigger would rewrite: stored differently from the file,
         -- they would make every later apply see a change that is not one.
-        FOREACH v_key IN ARRAY ARRAY['singular', 'singular_label'] LOOP
+        FOREACH v_key IN ARRAY ARRAY['singular', 'singular_label', 'label_column_label'] LOOP
             IF v_entity ? v_key AND coalesce(v_entity ->> v_key, '') = '' THEN
                 RAISE EXCEPTION 'ensure_entities: entity %: an empty % is derived by a trigger; omit it instead',
                     v_table, v_key USING ERRCODE = '22023';
             END IF;
         END LOOP;
+        -- label_column_label and the label field's title are copies of each
+        -- other: two different values would be written back and forth on every
+        -- apply.
+        IF v_entity ? 'label_column_label' AND EXISTS (
+               SELECT 1 FROM jsonb_array_elements(coalesce(v_entity -> 'fields', '[]')) f
+                WHERE f ->> 'field_name' = coalesce(v_entity ->> 'label_column',
+                          (SELECT e.label_column FROM entities e WHERE e.table_name = v_table), 'label')
+                  AND f ? 'title'
+                  AND f ->> 'title' IS DISTINCT FROM v_entity ->> 'label_column_label') THEN
+            RAISE EXCEPTION 'ensure_entities: entity %: label_column_label differs from the title of its label field; give one of them',
+                v_table USING ERRCODE = '22023';
+        END IF;
         IF v_entity ? 'fields' AND jsonb_typeof(v_entity -> 'fields') <> 'array' THEN
             RAISE EXCEPTION 'ensure_entities: the fields of % must be an array', v_table
                 USING ERRCODE = '22023';
@@ -18464,7 +18623,7 @@ BEGIN
         -- values are not written, so an export made before the root's label
         -- column changed still applies, and applies again unchanged.
         IF coalesce(v_current.id_type, v_entity ->> 'id_type') IN ('is_a', 'has_a') THEN
-            v_row := v_row - 'label_column';
+            v_row := v_row - 'label_column' - 'label_column_label';
         END IF;
         IF v_entity ? 'module_name' THEN
             SELECT id INTO v_module_id FROM modules WHERE module_name = v_entity ->> 'module_name';
@@ -18788,7 +18947,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', '688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859')
+        VALUES ('_core.0290_ensure_entities.sql', '82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -21950,7 +22109,7 @@ $pgsem__core_0340_queue_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0350_raci.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0350_raci.jsonc';
       EXECUTE $pgsem__core_0350_raci_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// RACI entities (Responsible, Accountable, Consulted, Informed):
@@ -22112,7 +22271,7 @@ $pgsem__core_0340_queue_sql$;
         "fields": [
           // record_id is TEXT on purpose: entity primary keys need not be
           // integer serials (as with entities.id_column).
-          {"field_name": "record_id", "ctype": "label", "title": "Record", "field_order": 30,
+          {"field_name": "record_id", "ctype": "label", "field_order": 30,
            "description": "Governed record PK (text for non-integer PKs)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -22143,7 +22302,7 @@ $pgsem_jsonc$));
 $pgsem__core_0350_raci_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0350_raci.jsonc', '1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193')
+        VALUES ('_core.0350_raci.jsonc', '9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25725,7 +25884,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"5c633662a5df7f7b83ae648db059f7bbd38d320366cb6cd15f0d931d8e11d3f5","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"904c163f07529561f3b2d9abe70c7ac31d3023e2d967ac077300b9330ccb4ade","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -25789,7 +25948,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"cd732a58dba859457672d848886f3a539675319e8681a090b6df72606bd95135","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"cacf2beb1e3428c653a05777b3e86543066c548fdb1baf2395992275cd19fb16","_core.0160_dd_functions.sql":"5c633662a5df7f7b83ae648db059f7bbd38d320366cb6cd15f0d931d8e11d3f5","_core.0170_dd_rename.sql":"a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8","_core.0180_managed_enable.sql":"9156a5e00e4ff37d96ef56a00dd211290f0e749bfae86045bec4d4a4bfac8f0f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0","_core.0220_entity_insert_defaults.sql":"a1e81388ee9b5f33ee5792f29f42f29cd8aa8435e1ef4586a2cdc4bdb6783f16","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"7b0071d397a7844b1f0cbfadb96374910ee29820ebf566a8c913e875d1ca8924","_core.0250_public_functions.sql":"b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"688aadc45557280eb00769ef2012e6baae195a268b857d823f03a2be45d79859","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"1c49dee94d876ab38b60b8a0c363d5c73163ca4dfb25297d8decd36e4fd69193","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"904c163f07529561f3b2d9abe70c7ac31d3023e2d967ac077300b9330ccb4ade","_core.0160_dd_functions.sql":"871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f","_core.0170_dd_rename.sql":"a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8","_core.0180_managed_enable.sql":"e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
