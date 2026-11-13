@@ -17,7 +17,7 @@
 
 BEGIN;
 
-SELECT plan(65);
+SELECT plan(66);
 
 SELECT authenticate_as('user3');
 
@@ -466,14 +466,13 @@ SELECT set_eq(
     'Every Northwind entity should have the expected entity_type'
 );
 
--- Test 63: amount is derived, so the form must not offer it, let alone submit
--- it (disabled, not readonly: an HTML readonly input is still submitted), and
--- it sums in a cube
+-- Test 63: amount is computed, which its ctype says (a client renders it
+-- disabled from that), and it sums in a cube
 SELECT is(
-    (SELECT format || ':' || input_type || ':' || cube_type FROM fields
+    (SELECT format || ':' || ctype || ':' || input_type || ':' || cube_type FROM fields
       WHERE table_name = 'order_details' AND field_name = 'amount'),
-    'number:disabled:measure',
-    'order_details.amount should be a disabled number and a cube measure'
+    'number:computed:default:measure',
+    'order_details.amount should be a computed number and a cube measure'
 );
 
 -- Test 64: subtotal is the rollup of the line amounts. The definition is compared
@@ -481,17 +480,27 @@ SELECT is(
 SELECT is(
     (SELECT jsonb_build_array(format, ctype, input_type, cube_type, "precision", rollup) FROM fields
       WHERE table_name = 'orders' AND field_name = 'subtotal'),
-    '["number", "rollup", "disabled", "measure", 2,
+    '["number", "rollup", "default", "measure", 2,
       {"link_field": "order_details.order_id", "function": "sum", "value_field": "amount"}]'::jsonb,
-    'orders.subtotal should be a disabled rollup of order_details.amount and a cube measure'
+    'orders.subtotal should be a rollup of order_details.amount and a cube measure'
 );
 
 -- Test 65: total is computed, not a rollup: it has a rule and no definition
 SELECT is(
     (SELECT format || ':' || ctype || ':' || input_type || ':' || cube_type || ':' || rollup::text FROM fields
       WHERE table_name = 'orders' AND field_name = 'total'),
-    'number:computed:disabled:measure:{}',
-    'orders.total should be a disabled computed number and a cube measure'
+    'number:computed:default:measure:{}',
+    'orders.total should be a computed number and a cube measure'
+);
+
+-- Test 66: both computed labels say so in their ctype and keep the input type
+-- the label column is created with
+SELECT is(
+    (SELECT string_agg(table_name || '.' || field_name || ':' || ctype || ':' || input_type, ', ' ORDER BY table_name)
+       FROM fields
+      WHERE (table_name, field_name) IN (('orders', 'label'), ('order_details', 'label'))),
+    'order_details.label:computed_label:required, orders.label:computed_label:required',
+    'the orders and order_details labels should carry ctype computed_label'
 );
 
 SELECT * FROM finish();

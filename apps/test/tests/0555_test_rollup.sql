@@ -74,15 +74,16 @@ SELECT is(
     'total,line_count,max_qty,avg_amount,last_ship,first_note,open_total',
     'every rollup field carries ctype = rollup although none was sent');
 
+-- ctype is the signal a client reads; input_type stays the author's.
 SELECT is(
     (SELECT input_type FROM fields WHERE table_name = 'ru_parent' AND field_name = 'total'),
-    'disabled',
-    'input_type default is coerced to disabled: a form must not submit a computed value');
+    'default',
+    'input_type default is kept: a client renders a rollup disabled from its ctype');
 UPDATE fields SET input_type = 'readonly' WHERE table_name = 'ru_parent' AND field_name = 'total';
 SELECT is(
     (SELECT input_type FROM fields WHERE table_name = 'ru_parent' AND field_name = 'total'),
-    'disabled',
-    'and so is readonly, which an HTML form would still submit');
+    'readonly',
+    'and so is readonly');
 
 SELECT is(
     (SELECT jsonb_build_array(p ->> 'ctype', p ->> 'is_core', p ->> 'format', p -> 'rollup' ->> 'function', p ->> 'precision')

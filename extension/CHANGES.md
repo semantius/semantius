@@ -52,12 +52,17 @@ installs the core schema as ordinary objects.
   tables take no other writes until the saving transaction commits.
 - **`ctype` marks derived fields.** A field one of the entity's
   `computed_fields` names carries `ctype = 'computed'`, derived like `rollup`
-  and never set by hand (the label column keeps `label`); both markers leave
-  the field renameable and deletable (`dd_ctype_is_core`). A computed or
-  rollup field's `input_type` `default` or `readonly` becomes `disabled`: a
-  form must not submit a computed value, and an HTML readonly input is still
-  submitted. A field has one derivation (`90907`, `90261`). The Northwind
-  and RACI computed fields are `disabled` accordingly.
+  and never set by hand; both markers leave the field renameable and deletable
+  (`dd_ctype_is_core`). A label column that a rule computes carries
+  `computed_label` and keeps the label's protection. `input_type` stays as the
+  author set it: a client renders a visible `computed`, `computed_label` or
+  `rollup` field disabled from its `ctype`. A field has one derivation
+  (`90907`, `90261`).
+- **The label marker follows `entities.label_column`.** Pointing it at another
+  field makes that field the label (`label` or `computed_label`) and the
+  previous one an ordinary field, and rebuilds `search_vector` when either is
+  searchable. A field that carries another marker cannot become the label
+  (`90270`).
 - Every generated function body (the record-rule and select-rule functions,
   the rollup functions) is dollar-quoted with a tag derived from the body
   itself (`dd_dollar_quote`). A fixed tag could be ended by the same tag

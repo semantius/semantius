@@ -10,7 +10,7 @@
 --      several levels
 BEGIN;
 
-SELECT plan(83);
+SELECT plan(90);
 
 -- =====================================================
 -- PART 1: ensure_entities
@@ -260,6 +260,36 @@ SELECT lives_ok($$SELECT ensure_entities(jsonc_to_jsonb('{"version": 1, "entitie
     'a definition may give label_column_label');
 SELECT is((SELECT title FROM fields WHERE id = 'ee_titled_too.ref_number'), 'Reference',
     '  and the label field is created with it');
+
+-- ------------------------------------------------- a computed label field
+-- A document names its label field with ctype label and computes it; the
+-- dictionary derives computed_label once the deferred computed_fields are in
+-- place. Applying the document again, or an export that carries
+-- computed_label, is not a ctype change; giving the label as a plain field is.
+CREATE TEMP TABLE ee_named_doc (doc JSONB);
+INSERT INTO ee_named_doc VALUES (jsonc_to_jsonb('{"version": 1, "entities": [{"entity": {
+    "table_name": "ee_named", "module_name": "EE Test", "singular_label": "Named", "plural_label": "Nameds",
+    "label_column": "name", "computed_fields": [{"name": "name", "jsonlogic": {"var": "code"}}],
+    "fields": [{"field_name": "name", "ctype": "label", "title": "Name"},
+               {"field_name": "code", "title": "Code", "format": "text", "field_order": 30}]}}]}'));
+SELECT lives_ok($$SELECT ensure_entities((SELECT doc FROM ee_named_doc))$$,
+    'a definition may compute its label field');
+SELECT is((SELECT ctype FROM fields WHERE id = 'ee_named.name'), 'computed_label',
+    '  and the label field carries computed_label');
+SELECT lives_ok($$SELECT ensure_entities((SELECT doc FROM ee_named_doc))$$,
+    '  applying it again with ctype label is not a ctype change');
+SELECT lives_ok($$SELECT ensure_entities(jsonb_set((SELECT doc FROM ee_named_doc),
+                                                   '{entities,0,entity,fields,0,ctype}', '"computed_label"'))$$,
+    '  nor is an export that carries computed_label');
+SELECT lives_ok($$SELECT ensure_entities(jsonb_set(jsonb_set((SELECT doc FROM ee_named_doc),
+                                                             '{entities,0,entity,table_name}', '"ee_named_export"'),
+                                                   '{entities,0,entity,fields,0,ctype}', '"computed_label"'))$$,
+    'an export that carries computed_label creates its entity');
+SELECT is((SELECT ctype FROM fields WHERE id = 'ee_named_export.name'), 'computed_label',
+    '  and its label field ends up computed_label');
+SELECT throws_ok(
+    $$SELECT ensure_entities(jsonb_set((SELECT doc FROM ee_named_doc), '{entities,0,entity,fields,0,ctype}', '""'))$$,
+    '0A000', NULL, 'giving a computed label field as a plain field is a ctype change and is refused');
 
 -- -------------------------------------------------------------- refusals
 SELECT throws_ok(

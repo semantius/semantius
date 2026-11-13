@@ -1430,20 +1430,17 @@ BEGIN
                                'problem', 'a rollup field cannot be unique'));
     END IF;
 
+    -- ctype is the signal a client reads to know the guard writes the value, so
+    -- it renders a visible rollup field disabled; input_type stays as the
+    -- author set it, as on a computed field (zz_derive_computed_ctype).
     NEW.ctype := 'rollup';
     NEW."precision" := (v_def ->> 'precision')::smallint;
-    -- The guard makes user input meaningless, and a form must not even submit
-    -- the value: disabled, not readonly, because an HTML readonly input is still
-    -- part of the submission while a disabled one is not. hidden stays as set.
-    IF NEW.input_type IN ('default', 'readonly') THEN
-        NEW.input_type := 'disabled';
-    END IF;
     RETURN NEW;
 END;
 $fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION zz_validate_rollup_field() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, coerces input_type default and readonly to disabled, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
+'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
 
 CREATE OR REPLACE TRIGGER zz_validate_rollup_field
     BEFORE INSERT OR UPDATE ON fields

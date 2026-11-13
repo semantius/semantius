@@ -108,10 +108,9 @@ not be allowed to edit):
   the parent table. A rollup column cannot be written by hand: on INSERT it is
   the empty aggregate, on UPDATE a changed value is recomputed. The guard
   sorts before `compute_validate_trigger`, so the parent's computed fields see
-  the true value. `input_type` `default` and `readonly` are coerced to
-  `disabled`: a form must not even submit a computed value, and an HTML
-  `readonly` input is still part of the submission while a `disabled` one is
-  not (`hidden` stays as set). `required`, `searchable` and `unique_value` are
+  the true value. `input_type` stays as the author set it: the guard
+  overwrites whatever a form submits, and a client renders a visible field
+  with ctype `rollup` disabled. `required`, `searchable` and `unique_value` are
   refused (90261).
 - The parent's `update_<parent>_updated_at` and `audit_i_u_d` triggers carry
   the rollup columns as ignored columns.
@@ -204,8 +203,8 @@ dollar tag derived from the body itself, so no literal can end it early.
   save (90908), so a computed field over a rollup is never left behind.
 - **Removing the definition** (`rollup` back to `{}`, the field stays) keeps the
   last values as ordinary data, clears the `rollup` marker and drops the
-  generated objects. `input_type` stays `disabled` until the administrator
-  changes it. Removing a computed rule works the same way.
+  generated objects. The field becomes an ordinary, editable field. Removing a
+  computed rule works the same way.
 - **Renames** are followed: a renamed child or parent table, link field, value
   field, filtered column or rollup field rewrites the definitions that name it
   and regenerates the objects under the new names.

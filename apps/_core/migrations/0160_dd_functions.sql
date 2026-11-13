@@ -1530,8 +1530,10 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
 -- the two managed markers that are not core: the dictionary derives them from
 -- a rollup definition or from the entity's computed_fields and maintains the
 -- column's values, but the field itself stays the administrator's to rename,
--- retype within its column type and delete, so they answer FALSE here. One
--- predicate rather than a condition repeated at every site, so the two
+-- retype within its column type and delete, so they answer FALSE here.
+-- 'computed_label' is the label column that a computed_fields rule names: it is
+-- the label column first, so it keeps the label's protection and answers TRUE.
+-- One predicate rather than a condition repeated at every site, so the two
 -- directions cannot drift apart: a site that forgot a derived marker would lock
 -- that field, a site that forgot the core markers would unlock a key column.
 CREATE OR REPLACE FUNCTION dd_ctype_is_core(p_ctype TEXT)
@@ -1541,10 +1543,28 @@ SET search_path = public
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
-'TRUE when a ctype marks a core column (id, label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
+'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
+
+-- The label column carries one of two markers: 'label', or 'computed_label'
+-- when one of its entity's computed_fields names it (zz_derive_computed_ctype,
+-- 0210_computed_validation.sql). Every site that treats the label column
+-- specially (the rename and default exemptions, search weight A, the _label
+-- ordering in get_schema, the ensure_entities comparison) asks this predicate,
+-- so a computed label is never mistaken for an ordinary core column.
+CREATE OR REPLACE FUNCTION dd_ctype_is_label(p_ctype TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE
+SET search_path = public
+AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label') $$;
+
+COMMENT ON FUNCTION dd_ctype_is_label(TEXT) IS
+'TRUE when a ctype marks the label column: label, or computed_label when one of the entity''s computed_fields names it.';
+
+REVOKE EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) TO semantius_user;
 
 -- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
@@ -1917,7 +1937,7 @@ BEGIN
         -- generation, CURRENT_TIMESTAMP), and the core columns of the system
         -- tables carry defaults the platform reads ('public:read', 'domain');
         -- changing any of those breaks the table.
-        IF OLD.default_value IS DISTINCT FROM NEW.default_value AND OLD.ctype <> 'label' THEN
+        IF OLD.default_value IS DISTINCT FROM NEW.default_value AND NOT dd_ctype_is_label(OLD.ctype) THEN
             RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
                 USING ERRCODE = '90220',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
@@ -2604,7 +2624,7 @@ BEGIN
             format('setweight(to_tsvector(''simple'', coalesce(%I, '''')), ''%s'')',
                 f.field_name,
                 CASE 
-                    WHEN f.ctype = 'label' THEN 'A'  -- Label fields get highest weight
+                    WHEN dd_ctype_is_label(f.ctype) THEN 'A'  -- Label fields get highest weight
                     WHEN f.field_name IN ('title', 'name') THEN 'A'  -- Title/name fields
                     WHEN f.field_name LIKE '%description%' THEN 'B'  -- Description fields
                     ELSE 'C'  -- Other searchable fields
@@ -2932,6 +2952,83 @@ CREATE OR REPLACE TRIGGER label_title_from_field_trigger
     AFTER INSERT OR UPDATE OF title ON fields
     FOR EACH ROW
     EXECUTE FUNCTION dd_label_title_from_field();
+
+-- =====================================================
+-- LABEL MARKER: the label ctype follows entities.label_column
+-- =====================================================
+-- The label column's ctype (label, or computed_label) is what gives it the
+-- label's protection and search weight A, so it moves with label_column: the
+-- field label_column leaves becomes an ordinary field again (computed if a rule
+-- still names it) and loses that protection, and the field it names becomes
+-- the label (computed_label if a rule names it; zz_derive_computed_ctype
+-- derives both from the plain marker written here). Two cases write nothing:
+--   * an is_a or has_a entity: its label field is its root's (90242), and the
+--     root's own update moves the marker.
+--   * no field carries the new name. That is how a rename of the label field
+--     arrives here: validate_field_rename_and_format points label_column at
+--     the new name from inside the BEFORE trigger of the row being renamed, so
+--     the row still has its old name, and writing it again from here would fail
+--     ("tuple to be updated was already modified by an operation triggered by
+--     the current command"). The renamed row keeps its marker, and
+--     zz_derive_computed_ctype re-derives it under the new name.
+-- A field that carries another marker (id, audit, core, rollup) cannot become
+-- the label: ctype holds one marker, and the protection that marker gives the
+-- field would be lost to the label's (90270).
+-- update_search_vector_column weights the label A, and runs otherwise only
+-- when a searchable flag changes, so a move that involves a searchable field
+-- runs it here. It rewrites the table only when the generated expression
+-- changes.
+CREATE OR REPLACE FUNCTION dd_label_marker_follow()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_new fields;
+    v_old fields;
+BEGIN
+    IF NEW.id_type IN ('is_a', 'has_a') THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT * INTO v_new FROM fields
+     WHERE table_name = NEW.table_name AND field_name = NEW.label_column;
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+    IF coalesce(v_new.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
+        RAISE EXCEPTION 'label_column of ${table} cannot name ${field_name}, which is already a ${ctype} field'
+            USING ERRCODE = '90270',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', v_new.field_name,
+                                            'ctype', v_new.ctype)::text;
+    END IF;
+
+    SELECT * INTO v_old FROM fields
+     WHERE table_name = NEW.table_name AND field_name = OLD.label_column
+       AND dd_ctype_is_label(ctype);
+    IF FOUND THEN
+        UPDATE fields SET ctype = ''
+         WHERE table_name = NEW.table_name AND field_name = OLD.label_column;
+    END IF;
+    IF NOT dd_ctype_is_label(v_new.ctype) THEN
+        UPDATE fields SET ctype = 'label'
+         WHERE table_name = NEW.table_name AND field_name = NEW.label_column;
+    END IF;
+
+    IF v_new.searchable OR coalesce(v_old.searchable, FALSE) THEN
+        PERFORM apply_field_searchable_change(ARRAY[NEW.table_name], ARRAY[NEW.table_name]);
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_label_marker_follow() IS
+'AFTER UPDATE trigger on entities: moves the label marker (ctype label or computed_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
+
+REVOKE EXECUTE ON FUNCTION dd_label_marker_follow() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER label_marker_follow_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column)
+    EXECUTE FUNCTION dd_label_marker_follow();
 
 -- =====================================================
 -- TRIGGER FUNCTION: Recompute entities.searchable on direct update

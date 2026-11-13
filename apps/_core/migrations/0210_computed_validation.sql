@@ -561,20 +561,18 @@ BEGIN
            OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
             PERFORM build_record_logic_trigger(NEW.table_name);
         END IF;
-        -- The ctype marker and the input mode of the fields the rules name
-        -- follow the rules. A write that changes nothing of its own runs
-        -- zz_derive_computed_ctype on the row, the one place that derives
-        -- them; only the rows whose derived state would change are written,
-        -- since every fields write costs a label-function rebuild.
+        -- The ctype marker of the fields the rules name follows the rules. A
+        -- write that changes nothing of its own runs zz_derive_computed_ctype
+        -- on the row, the one place that derives it; only the rows whose
+        -- marker would change are written, since every fields write fires
+        -- the whole BEFORE and AFTER trigger chain on fields.
         IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields THEN
             UPDATE fields f
                SET ctype = f.ctype
              WHERE f.table_name = NEW.table_name
-               AND coalesce(f.ctype, '') IN ('', 'computed')
-               AND ((f.ctype = 'computed') IS DISTINCT FROM
-                        EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)
-                    OR (f.input_type IN ('default', 'readonly')
-                        AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)));
+               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label')
+               AND (coalesce(f.ctype, '') IN ('computed', 'computed_label')) IS DISTINCT FROM
+                   EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name);
         END IF;
         -- Last, so the pass runs through the rule trigger rebuilt above. Removing
         -- a rule writes nothing: its column keeps the last value as ordinary data.
@@ -614,27 +612,35 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- STEP 2b: the derived ctype of a computed field
 -- =====================================================
 -- A field that one of its entity's computed_fields names carries ctype
--- 'computed', as a rollup field carries 'rollup': derived from the rule, never
--- sent by a client (fields_ctype_lock runs first and refuses a ctype a caller
--- sends, so the marker never passes through it), and not a core marker
+-- 'computed', as a rollup field carries 'rollup', and the label column carries
+-- 'computed_label' instead of 'label'. ctype is the one signal a client reads
+-- to know the database writes the value: derived from the rule, never sent by
+-- a client (fields_ctype_lock runs first and refuses a ctype a caller sends, so
+-- the marker never passes through it). 'computed' is not a core marker
 -- (dd_ctype_is_core), so the field stays the administrator's to rename and
--- delete. The label column is the exception: it keeps 'label', whose
--- protection must not be lost, so a client that wants the computed labels too
--- reads the entity's computed_fields. A computed value is not the form's to
--- submit, so input_type default and readonly become disabled (an HTML readonly
--- input is still part of the submission, a disabled one is not); hidden stays.
+-- delete; 'computed_label' is, because the label column keeps its protection
+-- whether or not a rule writes it.
+--
+-- input_type is left as the author set it. The rule overwrites whatever a form
+-- submits, so a client renders a visible computed field disabled from its
+-- ctype; hidden and an input_type_rule keep working as they do on any field,
+-- and required keeps its meaning on a computed field too: the required check
+-- runs after the rule, so it refuses a write whose rule produced no value
+-- (0515_test_required_enforcement.sql).
 --
 -- BEFORE INSERT OR UPDATE, so a field created after its rule is marked, a
--- renamed field the rule no longer names loses the marker, and the no-op write
--- manage_record_logic_trigger issues when the rules change re-derives it. The
--- zz_ name puts it after fields_ctype_lock and before zz_validate_rollup_field,
--- which refuses a rollup on a computed field.
+-- renamed field the rule no longer names loses the marker, a field renamed to
+-- a name a rule writes gains it, and the no-op write manage_record_logic_trigger
+-- issues when the rules change re-derives it. The zz_ name puts it after
+-- fields_ctype_lock and validate_field_rename_and_format_trigger (which points
+-- entities.label_column at a renamed label field) and before
+-- zz_validate_rollup_field, which refuses a rollup on a computed field.
 CREATE OR REPLACE FUNCTION zz_derive_computed_ctype()
 RETURNS TRIGGER AS $$
 DECLARE
     v_named BOOLEAN;
 BEGIN
-    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed') THEN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
         RETURN NEW;
     END IF;
     SELECT EXISTS (
@@ -643,20 +649,17 @@ BEGIN
          WHERE e.table_name = NEW.table_name
            AND c ->> 'name' = NEW.field_name)
       INTO v_named;
-    IF v_named THEN
-        NEW.ctype := 'computed';
-        IF NEW.input_type IN ('default', 'readonly') THEN
-            NEW.input_type := 'disabled';
-        END IF;
-    ELSIF NEW.ctype = 'computed' THEN
-        NEW.ctype := '';
+    IF dd_ctype_is_label(NEW.ctype) THEN
+        NEW.ctype := CASE WHEN v_named THEN 'computed_label' ELSE 'label' END;
+    ELSE
+        NEW.ctype := CASE WHEN v_named THEN 'computed' ELSE '' END;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed (and input_type disabled) on a field that one of its entity''s computed_fields names, and clears the marker when no rule names it. The label column keeps ctype label.';
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
 
 REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
 
@@ -875,7 +878,10 @@ COMMENT ON FUNCTION computed_backfill(TEXT) IS
 REVOKE EXECUTE ON FUNCTION computed_backfill(TEXT) FROM PUBLIC;
 
 -- The other order of the two steps: a rule that named a field before it existed.
--- zz_ puts it after add_field_trigger, which creates the column.
+-- zz_ puts it after add_field_trigger, which creates the column. A computed_label
+-- row is not handled here: the label column only arrives with its table, from
+-- create_dd_table (no records yet) or enable_dd_table, whose switch to managed
+-- runs computed_backfill from manage_record_logic_trigger once the rules are built.
 CREATE OR REPLACE FUNCTION zz_computed_field_added()
 RETURNS TRIGGER AS $$
 BEGIN

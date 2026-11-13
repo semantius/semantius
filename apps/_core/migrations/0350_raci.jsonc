@@ -57,7 +57,7 @@
         // itself be an enum).
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "raci"}}],
         "fields": [
-          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "disabled", "field_order": 5,
+          {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 5,
            "description": "Display label — mirrors the RACI letter (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -101,7 +101,7 @@
         // itself be an enum).
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "gate_kind"}}],
         "fields": [
-          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "disabled", "field_order": 5,
+          {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 5,
            "description": "Display label — mirrors the gate kind (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,

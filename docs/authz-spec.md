@@ -165,10 +165,13 @@ core of the remediation — today it is not):
 - **I6 · DD integrity** — core fields (identified by `dd_ctype_is_core(ctype)`, i.e. `ctype` not in
   `''`, `'rollup'`, `'computed'`; originally `ctype <> ''`) cannot be deleted or
   structurally altered (format/default/pk) by any non-migration subject, via any op/shape/role;
-  they cannot be renamed EXCEPT the label column (`ctype='label'`), whose rename is
-  *intentionally allowed* and cascades to `entities.label_column` (pinned by
-  `0460_test_ddl_rename.sql`). The core marker cannot be set/cleared to trap or free a
-  field. Enforced by an all-roles trigger keyed on `ctype` (NOT the mutable `is_core` flag).
+  they cannot be renamed EXCEPT the label column (`dd_ctype_is_label(ctype)`, i.e. `'label'`
+  or `'computed_label'`), whose rename is *intentionally allowed* and cascades to
+  `entities.label_column` (pinned by `0460_test_ddl_rename.sql`). The core marker cannot
+  be set/cleared to trap or free a field. The one marker that moves is the label's: it
+  follows `entities.label_column`, which only a holder of the entities edit permission
+  can change, and never onto a field that carries another marker (90270). Enforced by an
+  all-roles trigger keyed on `ctype` (NOT the mutable `is_core` flag).
 - **I7 · Rule completeness** — `validation_rules`/`computed_fields` evaluate for every
   affected row on INSERT/UPDATE/**DELETE** regardless of shape, with correct `$mode`/`$old`.
   Computed fields are authoritative (override user input).

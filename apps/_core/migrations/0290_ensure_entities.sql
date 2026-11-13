@@ -758,14 +758,22 @@ BEGIN
         EXIT WHEN v_last;
 
         IF v_exists THEN
-            -- ctype is set when a field is created. The empty value and the
-            -- derived rollup marker count as the same here: the dictionary
-            -- writes 'rollup' itself when a definition is added, so a document
-            -- that adds one to an existing field, or an export applied again,
-            -- is not asking for a change.
+            -- ctype is set when a field is created. A derived marker counts as
+            -- the marker it is derived from: the dictionary writes 'rollup'
+            -- and 'computed' itself when a definition or rule names a plain
+            -- field, and 'computed_label' when a rule names the label column.
+            -- A document is applied before its computed_fields (they are
+            -- deferred) and again after, and an export carries whichever
+            -- marker it saw, so neither is asking for a change.
             v_cur_ctype := (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name');
-            IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM v_cur_ctype
-               AND (dd_ctype_is_core(v_row ->> 'ctype') OR dd_ctype_is_core(v_cur_ctype)) THEN
+            IF v_row ? 'ctype'
+               AND (CASE WHEN dd_ctype_is_label(v_row ->> 'ctype') THEN 'label'
+                         WHEN dd_ctype_is_core(v_row ->> 'ctype') THEN v_row ->> 'ctype'
+                         ELSE '' END)
+                   IS DISTINCT FROM
+                   (CASE WHEN dd_ctype_is_label(v_cur_ctype) THEN 'label'
+                         WHEN dd_ctype_is_core(v_cur_ctype) THEN v_cur_ctype
+                         ELSE '' END) THEN
                 RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
                     v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
             END IF;

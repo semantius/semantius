@@ -6230,11 +6230,14 @@ DECLARE
   -- rollup (0440_rollup.sql) and computed (0210_computed_validation.sql) are
   -- derived from a rollup definition and from the entity's computed_fields; they
   -- are the two managed markers that do not make a core column (dd_ctype_is_core).
+  -- computed_label is derived the same way for the label column, and stays core
+  -- like label.
   ctype_entries JSONB := '[{"value": "", "label": "Regular field"}, {"value": "id", "label": "Primary key"},
                            {"value": "label", "label": "Display label"}, {"value": "audit", "label": "Audit column"},
                            {"value": "core", "label": "System column"},
                            {"value": "rollup", "label": "Rollup (aggregated by the database)"},
-                           {"value": "computed", "label": "Computed (by a rule of the entity)"}]';
+                           {"value": "computed", "label": "Computed (by a rule of the entity)"},
+                           {"value": "computed_label", "label": "Computed display label (by a rule of the entity)"}]';
   ctype_values TEXT[] := ARRAY(
     SELECT e ->> 'value' FROM jsonb_array_elements(ctype_entries) WITH ORDINALITY AS t(e, n) ORDER BY n
   );
@@ -6308,7 +6311,7 @@ BEGIN
       ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type',           'Input Type',           'How the UI presents the field for input; input_type_rule can override it per record',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        '', '{}'::jsonb),
       ('fields', 'width',                'Width',                'default (automatic), s (small), m (medium), w (wide)',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, width_entries,                  '',          '',        '', '{}'::jsonb),
-      ('fields', 'ctype',                'Column Type',          'Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity''s computed_fields rules writes (the label column keeps label). Derived, never set by hand.', '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, ctype_entries,                  '',          '',        '', '{}'::jsonb),
+      ('fields', 'ctype',                'Column Type',          'Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity''s computed_fields rules writes, and computed_label the label column when such a rule writes it. A form shows rollup, computed and computed_label fields disabled. Derived, never set by hand.', '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, ctype_entries,                  '',          '',        '', '{}'::jsonb),
       ('fields', 'searchable',           'Searchable',           '',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'::jsonb),
       ('fields', 'enum_values',          'Enum Values',          'JSON array in display order. Each entry is a value or a {"value", "label"} object with an optional "description", "color" and "icon", e.g. ["active", {"value": "on_hold", "label": "On hold", "color": "amber"}]',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'::jsonb),
       ('fields', 'precision',            'Precision',            'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'::jsonb),
@@ -6489,7 +6492,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', '904c163f07529561f3b2d9abe70c7ac31d3023e2d967ac077300b9330ccb4ade')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', '827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6526,7 +6529,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4401d54b6312c1107a55e41b1c42c0f2917754d7ae3fca67c979cab8443c4ff3') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -8061,8 +8064,10 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
 -- the two managed markers that are not core: the dictionary derives them from
 -- a rollup definition or from the entity's computed_fields and maintains the
 -- column's values, but the field itself stays the administrator's to rename,
--- retype within its column type and delete, so they answer FALSE here. One
--- predicate rather than a condition repeated at every site, so the two
+-- retype within its column type and delete, so they answer FALSE here.
+-- 'computed_label' is the label column that a computed_fields rule names: it is
+-- the label column first, so it keeps the label's protection and answers TRUE.
+-- One predicate rather than a condition repeated at every site, so the two
 -- directions cannot drift apart: a site that forgot a derived marker would lock
 -- that field, a site that forgot the core markers would unlock a key column.
 CREATE OR REPLACE FUNCTION dd_ctype_is_core(p_ctype TEXT)
@@ -8072,10 +8077,28 @@ SET search_path = public
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
-'TRUE when a ctype marks a core column (id, label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
+'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
+
+-- The label column carries one of two markers: 'label', or 'computed_label'
+-- when one of its entity's computed_fields names it (zz_derive_computed_ctype,
+-- 0210_computed_validation.sql). Every site that treats the label column
+-- specially (the rename and default exemptions, search weight A, the _label
+-- ordering in get_schema, the ensure_entities comparison) asks this predicate,
+-- so a computed label is never mistaken for an ordinary core column.
+CREATE OR REPLACE FUNCTION dd_ctype_is_label(p_ctype TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE
+SET search_path = public
+AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label') $$;
+
+COMMENT ON FUNCTION dd_ctype_is_label(TEXT) IS
+'TRUE when a ctype marks the label column: label, or computed_label when one of the entity''s computed_fields names it.';
+
+REVOKE EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) TO semantius_user;
 
 -- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
@@ -8448,7 +8471,7 @@ BEGIN
         -- generation, CURRENT_TIMESTAMP), and the core columns of the system
         -- tables carry defaults the platform reads ('public:read', 'domain');
         -- changing any of those breaks the table.
-        IF OLD.default_value IS DISTINCT FROM NEW.default_value AND OLD.ctype <> 'label' THEN
+        IF OLD.default_value IS DISTINCT FROM NEW.default_value AND NOT dd_ctype_is_label(OLD.ctype) THEN
             RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
                 USING ERRCODE = '90220',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
@@ -9135,7 +9158,7 @@ BEGIN
             format('setweight(to_tsvector(''simple'', coalesce(%I, '''')), ''%s'')',
                 f.field_name,
                 CASE 
-                    WHEN f.ctype = 'label' THEN 'A'  -- Label fields get highest weight
+                    WHEN dd_ctype_is_label(f.ctype) THEN 'A'  -- Label fields get highest weight
                     WHEN f.field_name IN ('title', 'name') THEN 'A'  -- Title/name fields
                     WHEN f.field_name LIKE '%description%' THEN 'B'  -- Description fields
                     ELSE 'C'  -- Other searchable fields
@@ -9463,6 +9486,83 @@ CREATE OR REPLACE TRIGGER label_title_from_field_trigger
     AFTER INSERT OR UPDATE OF title ON fields
     FOR EACH ROW
     EXECUTE FUNCTION dd_label_title_from_field();
+
+-- =====================================================
+-- LABEL MARKER: the label ctype follows entities.label_column
+-- =====================================================
+-- The label column's ctype (label, or computed_label) is what gives it the
+-- label's protection and search weight A, so it moves with label_column: the
+-- field label_column leaves becomes an ordinary field again (computed if a rule
+-- still names it) and loses that protection, and the field it names becomes
+-- the label (computed_label if a rule names it; zz_derive_computed_ctype
+-- derives both from the plain marker written here). Two cases write nothing:
+--   * an is_a or has_a entity: its label field is its root's (90242), and the
+--     root's own update moves the marker.
+--   * no field carries the new name. That is how a rename of the label field
+--     arrives here: validate_field_rename_and_format points label_column at
+--     the new name from inside the BEFORE trigger of the row being renamed, so
+--     the row still has its old name, and writing it again from here would fail
+--     ("tuple to be updated was already modified by an operation triggered by
+--     the current command"). The renamed row keeps its marker, and
+--     zz_derive_computed_ctype re-derives it under the new name.
+-- A field that carries another marker (id, audit, core, rollup) cannot become
+-- the label: ctype holds one marker, and the protection that marker gives the
+-- field would be lost to the label's (90270).
+-- update_search_vector_column weights the label A, and runs otherwise only
+-- when a searchable flag changes, so a move that involves a searchable field
+-- runs it here. It rewrites the table only when the generated expression
+-- changes.
+CREATE OR REPLACE FUNCTION dd_label_marker_follow()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_new fields;
+    v_old fields;
+BEGIN
+    IF NEW.id_type IN ('is_a', 'has_a') THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT * INTO v_new FROM fields
+     WHERE table_name = NEW.table_name AND field_name = NEW.label_column;
+    IF NOT FOUND THEN
+        RETURN NULL;
+    END IF;
+    IF coalesce(v_new.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
+        RAISE EXCEPTION 'label_column of ${table} cannot name ${field_name}, which is already a ${ctype} field'
+            USING ERRCODE = '90270',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', v_new.field_name,
+                                            'ctype', v_new.ctype)::text;
+    END IF;
+
+    SELECT * INTO v_old FROM fields
+     WHERE table_name = NEW.table_name AND field_name = OLD.label_column
+       AND dd_ctype_is_label(ctype);
+    IF FOUND THEN
+        UPDATE fields SET ctype = ''
+         WHERE table_name = NEW.table_name AND field_name = OLD.label_column;
+    END IF;
+    IF NOT dd_ctype_is_label(v_new.ctype) THEN
+        UPDATE fields SET ctype = 'label'
+         WHERE table_name = NEW.table_name AND field_name = NEW.label_column;
+    END IF;
+
+    IF v_new.searchable OR coalesce(v_old.searchable, FALSE) THEN
+        PERFORM apply_field_searchable_change(ARRAY[NEW.table_name], ARRAY[NEW.table_name]);
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION dd_label_marker_follow() IS
+'AFTER UPDATE trigger on entities: moves the label marker (ctype label or computed_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
+
+REVOKE EXECUTE ON FUNCTION dd_label_marker_follow() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER label_marker_follow_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_column IS DISTINCT FROM NEW.label_column)
+    EXECUTE FUNCTION dd_label_marker_follow();
 
 -- =====================================================
 -- TRIGGER FUNCTION: Recompute entities.searchable on direct update
@@ -11331,7 +11431,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f')
+        VALUES ('_core.0160_dd_functions.sql', '4401d54b6312c1107a55e41b1c42c0f2917754d7ae3fca67c979cab8443c4ff3')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -11368,7 +11468,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -11815,7 +11915,7 @@ BEGIN
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
         -- Core fields (dd_ctype_is_core) cannot be renamed, except the label column
         IF dd_ctype_is_core(OLD.ctype) THEN
-            IF OLD.ctype = 'label' THEN
+            IF dd_ctype_is_label(OLD.ctype) THEN
                 -- Label column rename is allowed; update entities.label_column
                 -- to match. family_label_column_trigger (0160_dd_functions.sql)
                 -- carries it to the entities based on this one.
@@ -11978,7 +12078,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', 'a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8')
+        VALUES ('_core.0170_dd_rename.sql', '35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14370,7 +14470,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1093e84de5002cef5a23b94af6bb95d0313a94a93b150f885ef4e624e6227159') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -14936,20 +15036,18 @@ BEGIN
            OR OLD.table_name IS DISTINCT FROM NEW.table_name THEN
             PERFORM build_record_logic_trigger(NEW.table_name);
         END IF;
-        -- The ctype marker and the input mode of the fields the rules name
-        -- follow the rules. A write that changes nothing of its own runs
-        -- zz_derive_computed_ctype on the row, the one place that derives
-        -- them; only the rows whose derived state would change are written,
-        -- since every fields write costs a label-function rebuild.
+        -- The ctype marker of the fields the rules name follows the rules. A
+        -- write that changes nothing of its own runs zz_derive_computed_ctype
+        -- on the row, the one place that derives it; only the rows whose
+        -- marker would change are written, since every fields write fires
+        -- the whole BEFORE and AFTER trigger chain on fields.
         IF OLD.computed_fields IS DISTINCT FROM NEW.computed_fields THEN
             UPDATE fields f
                SET ctype = f.ctype
              WHERE f.table_name = NEW.table_name
-               AND coalesce(f.ctype, '') IN ('', 'computed')
-               AND ((f.ctype = 'computed') IS DISTINCT FROM
-                        EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)
-                    OR (f.input_type IN ('default', 'readonly')
-                        AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name)));
+               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label')
+               AND (coalesce(f.ctype, '') IN ('computed', 'computed_label')) IS DISTINCT FROM
+                   EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name);
         END IF;
         -- Last, so the pass runs through the rule trigger rebuilt above. Removing
         -- a rule writes nothing: its column keeps the last value as ordinary data.
@@ -14989,27 +15087,35 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- STEP 2b: the derived ctype of a computed field
 -- =====================================================
 -- A field that one of its entity's computed_fields names carries ctype
--- 'computed', as a rollup field carries 'rollup': derived from the rule, never
--- sent by a client (fields_ctype_lock runs first and refuses a ctype a caller
--- sends, so the marker never passes through it), and not a core marker
+-- 'computed', as a rollup field carries 'rollup', and the label column carries
+-- 'computed_label' instead of 'label'. ctype is the one signal a client reads
+-- to know the database writes the value: derived from the rule, never sent by
+-- a client (fields_ctype_lock runs first and refuses a ctype a caller sends, so
+-- the marker never passes through it). 'computed' is not a core marker
 -- (dd_ctype_is_core), so the field stays the administrator's to rename and
--- delete. The label column is the exception: it keeps 'label', whose
--- protection must not be lost, so a client that wants the computed labels too
--- reads the entity's computed_fields. A computed value is not the form's to
--- submit, so input_type default and readonly become disabled (an HTML readonly
--- input is still part of the submission, a disabled one is not); hidden stays.
+-- delete; 'computed_label' is, because the label column keeps its protection
+-- whether or not a rule writes it.
+--
+-- input_type is left as the author set it. The rule overwrites whatever a form
+-- submits, so a client renders a visible computed field disabled from its
+-- ctype; hidden and an input_type_rule keep working as they do on any field,
+-- and required keeps its meaning on a computed field too: the required check
+-- runs after the rule, so it refuses a write whose rule produced no value
+-- (0515_test_required_enforcement.sql).
 --
 -- BEFORE INSERT OR UPDATE, so a field created after its rule is marked, a
--- renamed field the rule no longer names loses the marker, and the no-op write
--- manage_record_logic_trigger issues when the rules change re-derives it. The
--- zz_ name puts it after fields_ctype_lock and before zz_validate_rollup_field,
--- which refuses a rollup on a computed field.
+-- renamed field the rule no longer names loses the marker, a field renamed to
+-- a name a rule writes gains it, and the no-op write manage_record_logic_trigger
+-- issues when the rules change re-derives it. The zz_ name puts it after
+-- fields_ctype_lock and validate_field_rename_and_format_trigger (which points
+-- entities.label_column at a renamed label field) and before
+-- zz_validate_rollup_field, which refuses a rollup on a computed field.
 CREATE OR REPLACE FUNCTION zz_derive_computed_ctype()
 RETURNS TRIGGER AS $$
 DECLARE
     v_named BOOLEAN;
 BEGIN
-    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed') THEN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
         RETURN NEW;
     END IF;
     SELECT EXISTS (
@@ -15018,20 +15124,17 @@ BEGIN
          WHERE e.table_name = NEW.table_name
            AND c ->> 'name' = NEW.field_name)
       INTO v_named;
-    IF v_named THEN
-        NEW.ctype := 'computed';
-        IF NEW.input_type IN ('default', 'readonly') THEN
-            NEW.input_type := 'disabled';
-        END IF;
-    ELSIF NEW.ctype = 'computed' THEN
-        NEW.ctype := '';
+    IF dd_ctype_is_label(NEW.ctype) THEN
+        NEW.ctype := CASE WHEN v_named THEN 'computed_label' ELSE 'label' END;
+    ELSE
+        NEW.ctype := CASE WHEN v_named THEN 'computed' ELSE '' END;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed (and input_type disabled) on a field that one of its entity''s computed_fields names, and clears the marker when no rule names it. The label column keeps ctype label.';
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
 
 REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
 
@@ -15250,7 +15353,10 @@ COMMENT ON FUNCTION computed_backfill(TEXT) IS
 REVOKE EXECUTE ON FUNCTION computed_backfill(TEXT) FROM PUBLIC;
 
 -- The other order of the two steps: a rule that named a field before it existed.
--- zz_ puts it after add_field_trigger, which creates the column.
+-- zz_ puts it after add_field_trigger, which creates the column. A computed_label
+-- row is not handled here: the label column only arrives with its table, from
+-- create_dd_table (no records yet) or enable_dd_table, whose switch to managed
+-- runs computed_backfill from manage_record_logic_trigger once the rules are built.
 CREATE OR REPLACE FUNCTION zz_computed_field_added()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -15558,7 +15664,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0')
+        VALUES ('_core.0210_computed_validation.sql', '1093e84de5002cef5a23b94af6bb95d0313a94a93b150f885ef4e624e6227159')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -16245,7 +16351,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -16735,14 +16841,14 @@ BEGIN
     label_props AS (
         SELECT
             '_label'::text AS field_name,
-            (COALESCE((SELECT ord FROM family WHERE ctype = 'label' ORDER BY ord LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            (COALESCE((SELECT ord FROM family WHERE dd_ctype_is_label(ctype) ORDER BY ord LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', v_table_record.singular_label,
                 'description', 'Composed, human-readable label folded from the parent chain',
                 'inputMode', 'readonly', 'width', 'default',
                 'field_order', COALESCE((SELECT field_order FROM family
-                                         WHERE ctype = 'label'
+                                         WHERE dd_ctype_is_label(ctype)
                                          ORDER BY ord LIMIT 1), 1),
                 'ctype', '_label', 'is_core', false, 'searchable', false,
                 'writable', false, 'selectable', true,
@@ -17233,7 +17339,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', 'b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459')
+        VALUES ('_core.0250_public_functions.sql', '98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17941,7 +18047,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'dd5f88ee03ae98641256835df8ebc8d8bf660c97bf6cac45710b620e3d821765') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -18704,14 +18810,22 @@ BEGIN
         EXIT WHEN v_last;
 
         IF v_exists THEN
-            -- ctype is set when a field is created. The empty value and the
-            -- derived rollup marker count as the same here: the dictionary
-            -- writes 'rollup' itself when a definition is added, so a document
-            -- that adds one to an existing field, or an export applied again,
-            -- is not asking for a change.
+            -- ctype is set when a field is created. A derived marker counts as
+            -- the marker it is derived from: the dictionary writes 'rollup'
+            -- and 'computed' itself when a definition or rule names a plain
+            -- field, and 'computed_label' when a rule names the label column.
+            -- A document is applied before its computed_fields (they are
+            -- deferred) and again after, and an export carries whichever
+            -- marker it saw, so neither is asking for a change.
             v_cur_ctype := (SELECT ctype FROM fields WHERE table_name = v_table AND field_name = v_field ->> 'field_name');
-            IF v_row ? 'ctype' AND (v_row ->> 'ctype') IS DISTINCT FROM v_cur_ctype
-               AND (dd_ctype_is_core(v_row ->> 'ctype') OR dd_ctype_is_core(v_cur_ctype)) THEN
+            IF v_row ? 'ctype'
+               AND (CASE WHEN dd_ctype_is_label(v_row ->> 'ctype') THEN 'label'
+                         WHEN dd_ctype_is_core(v_row ->> 'ctype') THEN v_row ->> 'ctype'
+                         ELSE '' END)
+                   IS DISTINCT FROM
+                   (CASE WHEN dd_ctype_is_label(v_cur_ctype) THEN 'label'
+                         WHEN dd_ctype_is_core(v_cur_ctype) THEN v_cur_ctype
+                         ELSE '' END) THEN
                 RAISE EXCEPTION 'ensure_entities: field %.%: ctype is set when a field is created and cannot change',
                     v_table, v_field ->> 'field_name' USING ERRCODE = '0A000';
             END IF;
@@ -18947,7 +19061,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', '82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf')
+        VALUES ('_core.0290_ensure_entities.sql', 'dd5f88ee03ae98641256835df8ebc8d8bf660c97bf6cac45710b620e3d821765')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -22109,7 +22223,7 @@ $pgsem__core_0340_queue_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0350_raci.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0350_raci.jsonc';
       EXECUTE $pgsem__core_0350_raci_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// RACI entities (Responsible, Accountable, Consulted, Informed):
@@ -22171,7 +22285,7 @@ $pgsem__core_0340_queue_sql$;
         // itself be an enum).
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "raci"}}],
         "fields": [
-          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "disabled", "field_order": 5,
+          {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 5,
            "description": "Display label — mirrors the RACI letter (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -22215,7 +22329,7 @@ $pgsem__core_0340_queue_sql$;
         // itself be an enum).
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "gate_kind"}}],
         "fields": [
-          {"field_name": "name", "ctype": "label", "title": "Name", "input_type": "disabled", "field_order": 5,
+          {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 5,
            "description": "Display label — mirrors the gate kind (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -22302,7 +22416,7 @@ $pgsem_jsonc$));
 $pgsem__core_0350_raci_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0350_raci.jsonc', '9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f')
+        VALUES ('_core.0350_raci.jsonc', '6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -23806,7 +23920,7 @@ $pgsem__core_0430_required_field_description_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'de2735673df0e2b448a3edebd5b2aabf3d89ed88ac47a98354c55e654cb9be96') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
       EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
@@ -25241,20 +25355,17 @@ BEGIN
                                'problem', 'a rollup field cannot be unique'));
     END IF;
 
+    -- ctype is the signal a client reads to know the guard writes the value, so
+    -- it renders a visible rollup field disabled; input_type stays as the
+    -- author set it, as on a computed field (zz_derive_computed_ctype).
     NEW.ctype := 'rollup';
     NEW."precision" := (v_def ->> 'precision')::smallint;
-    -- The guard makes user input meaningless, and a form must not even submit
-    -- the value: disabled, not readonly, because an HTML readonly input is still
-    -- part of the submission while a disabled one is not. hidden stays as set.
-    IF NEW.input_type IN ('default', 'readonly') THEN
-        NEW.input_type := 'disabled';
-    END IF;
     RETURN NEW;
 END;
 $fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION zz_validate_rollup_field() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, coerces input_type default and readonly to disabled, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
+'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
 
 CREATE OR REPLACE TRIGGER zz_validate_rollup_field
     BEFORE INSERT OR UPDATE ON fields
@@ -25496,7 +25607,7 @@ REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
 $pgsem__core_0440_rollup_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0440_rollup.sql', '38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6')
+        VALUES ('_core.0440_rollup.sql', 'de2735673df0e2b448a3edebd5b2aabf3d89ed88ac47a98354c55e654cb9be96')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25884,7 +25995,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"904c163f07529561f3b2d9abe70c7ac31d3023e2d967ac077300b9330ccb4ade","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"4401d54b6312c1107a55e41b1c42c0f2917754d7ae3fca67c979cab8443c4ff3","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"1093e84de5002cef5a23b94af6bb95d0313a94a93b150f885ef4e624e6227159","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"dd5f88ee03ae98641256835df8ebc8d8bf660c97bf6cac45710b620e3d821765","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"de2735673df0e2b448a3edebd5b2aabf3d89ed88ac47a98354c55e654cb9be96","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -25948,7 +26059,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"904c163f07529561f3b2d9abe70c7ac31d3023e2d967ac077300b9330ccb4ade","_core.0160_dd_functions.sql":"871b35d77d75d522b727a3256ebd5c6edc05c1d79b41bd79cf85157cb2d0665f","_core.0170_dd_rename.sql":"a3a64c00e5baf8a85057b51446a4a9972cc89e4a81c8243d74b4b7a32d5790e8","_core.0180_managed_enable.sql":"e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"e3cd984379e25aa5550802dccb436bb74c55e7bdec44fe134ec9fe1814d653e0","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"b0378f0c33eaf389ed270041e2176d8e9c8aad3a7392780bf59045b5561e7459","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"82416aa5558dd2491254f5e425fc785a24436d14778e90fd0b21ff85348243cf","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"9b44fdbb87097d23dab2712a41834eb360ec36b40a0da571ed615ccf7bfd808f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"38ec60b28d47b4d8ec44386e378362c98cc63c06ebce7bac5e51cdb3dd993aa6","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"408b5755ce004def3a643489f9164f75ce50fbe062f22740b0ffcc94926775fe","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"4401d54b6312c1107a55e41b1c42c0f2917754d7ae3fca67c979cab8443c4ff3","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"e8c7e3943085fdd518cc24417b38bc6b801b9c5b162da048410cfe8c27cac128","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"1093e84de5002cef5a23b94af6bb95d0313a94a93b150f885ef4e624e6227159","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"dd5f88ee03ae98641256835df8ebc8d8bf660c97bf6cac45710b620e3d821765","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"ed787c4eaff695ebf99a73c096d4056d4b86288fc075558cf165eb8c9261e581","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"de2735673df0e2b448a3edebd5b2aabf3d89ed88ac47a98354c55e654cb9be96","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

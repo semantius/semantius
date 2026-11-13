@@ -6,9 +6,10 @@
 --   1. ctype coverage for the record-versioning timestamps
 --   2. ctype lock and core-column protection
 --   3. the derived marker of a computed field
+--   4. the label marker follows entities.label_column
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(38);
 
 -- =====================================================
 -- PART 1: ctype coverage for the record-versioning timestamps
@@ -33,14 +34,15 @@ SELECT is(
     0,
     'every created_at/updated_at field row has ctype = audit');
 
--- The ctype enum enumerates the b7 marker set, plus the two derived markers:
--- rollup for a field the database aggregates (0440_rollup.sql) and computed for
--- a field one of the entity's computed_fields writes (0210); both derived, and
--- the two managed markers dd_ctype_is_core does not count as core.
+-- The ctype enum enumerates the b7 marker set, plus the derived markers:
+-- rollup for a field the database aggregates (0440_rollup.sql), computed for
+-- a field one of the entity's computed_fields writes (0210), the two managed
+-- markers dd_ctype_is_core does not count as core, and computed_label for a
+-- label column such a rule writes, which stays core like label.
 SELECT is(
     (SELECT enum_value_list(enum_values) FROM fields WHERE table_name = 'fields' AND field_name = 'ctype'),
-    '["", "id", "label", "audit", "core", "rollup", "computed"]'::jsonb,
-    'fields.ctype enum_values are the b7 marker set plus rollup and computed');
+    '["", "id", "label", "audit", "core", "rollup", "computed", "computed_label"]'::jsonb,
+    'fields.ctype enum_values are the b7 marker set plus rollup, computed and computed_label');
 
 -- A freshly created managed table's auto-inserted timestamps carry ctype='audit'.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
@@ -161,12 +163,15 @@ SELECT lives_ok(
 -- =====================================================
 -- PART 3: the derived marker of a computed field
 -- =====================================================
--- A field one of its entity's computed_fields names carries ctype 'computed'
--- (zz_derive_computed_ctype, 0210_computed_validation.sql): derived when the
--- field is created after the rule and when the rule is added after the field,
--- dropped when the rule goes or the field is renamed away from it, never set by
--- hand, not core, and the label column keeps 'label'. A computed value is not
--- the form's to submit, so input_type default and readonly become disabled.
+-- A field one of its entity's computed_fields names carries ctype 'computed',
+-- and the label column 'computed_label' (zz_derive_computed_ctype,
+-- 0210_computed_validation.sql). Every way into and out of the two markers:
+-- the field created after its rule, the rule added after the field, the rule
+-- removed, one rule change that moves several fields at once, a rename away
+-- from the rule and back onto it, for a plain field and for the label column.
+-- The marker is never set or cleared by hand, computed is not core,
+-- computed_label keeps the label's protection, and input_type stays what the
+-- author set.
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
@@ -181,45 +186,194 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES ('cc_probe', 'qty', 'Qty', 'int32', 10, 'default'),
        ('cc_probe', 'total', 'Total', 'int32', 20, 'readonly');
 
+-- '' -> computed (field created after its rule), label -> computed_label (the
+-- label column created with an entity whose rule names it).
 SELECT is(
     (SELECT string_agg(field_name || ':' || ctype || ':' || input_type, ', ' ORDER BY field_name)
        FROM fields WHERE table_name = 'cc_probe' AND field_name IN ('label', 'qty', 'total')),
-    'label:label:required, qty::default, total:computed:disabled',
-    'a field created after its rule is marked computed and disabled; the label column keeps label; an unnamed field stays plain');
+    'label:computed_label:required, qty::default, total:computed:readonly',
+    'fields created after their rule are marked computed and computed_label, their input_type untouched; an unnamed field stays plain');
 
+-- '' -> computed (rule added after the field).
 UPDATE entities
    SET computed_fields = computed_fields || '[{"name": "qty", "jsonlogic": {"+": [{"var": "qty"}, 0]}}]'::jsonb
  WHERE table_name = 'cc_probe';
 SELECT is(
     (SELECT ctype || ':' || input_type FROM fields WHERE table_name = 'cc_probe' AND field_name = 'qty'),
-    'computed:disabled',
-    'a rule added after the field marks it');
+    'computed:default',
+    'a rule added after the field marks it and leaves its input_type');
 
+-- One rule change that moves three markers: computed_label -> label and
+-- computed -> '' (rules removed), qty stays computed.
 UPDATE entities
-   SET computed_fields = '[{"name": "label", "jsonlogic": {"cat": ["L", {"var": "qty"}]}}]'::jsonb
+   SET computed_fields = '[{"name": "qty", "jsonlogic": {"+": [{"var": "qty"}, 0]}}]'::jsonb
  WHERE table_name = 'cc_probe';
 SELECT is(
-    (SELECT string_agg(ctype, ',' ORDER BY field_order) FROM fields WHERE table_name = 'cc_probe' AND field_name IN ('qty', 'total')),
-    ',',
-    'removing the rules clears the markers (the input mode stays as it is)');
+    (SELECT string_agg(field_name || ':' || ctype, ', ' ORDER BY field_name)
+       FROM fields WHERE table_name = 'cc_probe' AND field_name IN ('label', 'qty', 'total')),
+    'label:label, qty:computed, total:',
+    'removing the label and total rules returns them to label and plain in the same write; qty stays computed');
 
+-- label -> computed_label and '' -> computed (rules added back), computed -> ''
+-- (qty's rule removed), again in one write.
 UPDATE entities
-   SET computed_fields = computed_fields || '[{"name": "total", "jsonlogic": {"*": [{"var": "qty"}, 2]}}]'::jsonb
+   SET computed_fields = '[{"name": "label", "jsonlogic": {"cat": ["L", {"var": "qty"}]}},
+                           {"name": "total", "jsonlogic": {"*": [{"var": "qty"}, 2]}}]'::jsonb
  WHERE table_name = 'cc_probe';
+SELECT is(
+    (SELECT string_agg(field_name || ':' || ctype || ':' || input_type, ', ' ORDER BY field_name)
+       FROM fields WHERE table_name = 'cc_probe' AND field_name IN ('label', 'qty', 'total')),
+    'label:computed_label:required, qty::default, total:computed:readonly',
+    'adding the rules back marks label and total again; qty, whose rule is gone, is plain with its input_type as before');
+
+-- computed -> '' (renamed away from the rule), '' -> computed (renamed onto it).
 UPDATE fields SET field_name = 'sum_total' WHERE table_name = 'cc_probe' AND field_name = 'total';
 SELECT is(
     (SELECT ctype FROM fields WHERE table_name = 'cc_probe' AND field_name = 'sum_total'),
     '',
     'a field renamed away from its rule loses the marker (nothing rewrites computed_fields on a rename)');
+UPDATE fields SET field_name = 'total' WHERE table_name = 'cc_probe' AND field_name = 'sum_total';
+SELECT is(
+    (SELECT ctype FROM fields WHERE table_name = 'cc_probe' AND field_name = 'total'),
+    'computed',
+    'a field renamed to a name a rule writes gains the marker');
 
+-- computed_label -> label (the label renamed away from its rule), label ->
+-- computed_label (renamed back onto it). label_column follows each rename.
+UPDATE fields SET field_name = 'caption' WHERE table_name = 'cc_probe' AND field_name = 'label';
+SELECT is(
+    (SELECT e.label_column || ':' || f.ctype FROM entities e
+       JOIN fields f ON f.table_name = e.table_name AND f.field_name = e.label_column
+      WHERE e.table_name = 'cc_probe'),
+    'caption:label',
+    'a computed label renamed away from its rule stays the label, as label');
+UPDATE fields SET field_name = 'label' WHERE table_name = 'cc_probe' AND field_name = 'caption';
+SELECT is(
+    (SELECT e.label_column || ':' || f.ctype FROM entities e
+       JOIN fields f ON f.table_name = e.table_name AND f.field_name = e.label_column
+      WHERE e.table_name = 'cc_probe'),
+    'label:computed_label',
+    'a label renamed to the name its rule writes becomes computed_label again');
+
+-- Never by hand: not set on a plain field, not cleared, not swapped.
 SELECT throws_ok(
     $$UPDATE fields SET ctype = 'computed' WHERE table_name = 'cc_probe' AND field_name = 'qty'$$,
     '90214', NULL,
-    'the marker cannot be set by hand');
+    'the computed marker cannot be set by hand');
+SELECT throws_ok(
+    $$UPDATE fields SET ctype = 'computed_label' WHERE table_name = 'cc_probe' AND field_name = 'qty'$$,
+    '90214', NULL,
+    'the computed_label marker cannot be set by hand');
+SELECT throws_ok(
+    $$UPDATE fields SET ctype = 'label' WHERE table_name = 'cc_probe' AND field_name = 'label'$$,
+    '90214', NULL,
+    'a computed label cannot be turned back into label by hand');
+SELECT throws_ok(
+    $$UPDATE fields SET ctype = '' WHERE table_name = 'cc_probe' AND field_name = 'total'$$,
+    '90214', NULL,
+    'the computed marker cannot be cleared by hand');
+
+-- computed_label keeps the label's protection; computed is not core.
+SELECT throws_ok(
+    $$DELETE FROM fields WHERE table_name = 'cc_probe' AND field_name = 'label'$$,
+    '90217', NULL,
+    'a computed label cannot be deleted');
+SELECT throws_ok(
+    $$UPDATE fields SET format = 'multiline' WHERE table_name = 'cc_probe' AND field_name = 'label'$$,
+    '90219', NULL,
+    'the format of a computed label cannot change');
+SELECT lives_ok(
+    $$UPDATE fields SET default_value = 'x' WHERE table_name = 'cc_probe' AND field_name = 'label'$$,
+    'the default of a computed label may change, as on any label');
 SELECT is(
-    (public.get_schema('cc_probe')::jsonb -> 'properties' -> 'sum_total' ->> 'is_core'),
+    (SELECT jsonb_build_array(s -> 'label' ->> 'ctype', s -> 'label' ->> 'is_core',
+                              s -> 'total' ->> 'ctype', s -> 'total' ->> 'is_core')
+       FROM (SELECT public.get_schema('cc_probe')::jsonb -> 'properties' AS s) x),
+    '["computed_label", "true", "computed", "false"]'::jsonb,
+    'get_schema shows both markers: computed_label is core, computed is not');
+
+-- =====================================================
+-- PART 4: the label marker follows entities.label_column
+-- =====================================================
+-- Pointing label_column at another field moves the marker
+-- (dd_label_marker_follow, 0160_dd_functions.sql): the field it leaves becomes
+-- plain, or computed if a rule names it, and loses the label's protection; the
+-- field it names becomes label, or computed_label if a rule names it. A field
+-- that carries another marker (id, audit, core, rollup) cannot become the label
+-- (90270). The search vector weights the label A, so it follows the move.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, computed_fields)
+VALUES ('lm_probe', 'lm_probe', 'LM Probe', 'LM Probes', 'label marker probe',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "calc", "jsonlogic": {"cat": ["C-", {"var": "code"}]}}]'::jsonb),
+       ('lm_child', 'lm_child', 'LM Child', 'LM Children', 'label marker rollup child',
+    1, 'public:read', 'admin', 'id', 'label', '[]'::jsonb);
+INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
+VALUES ('lm_probe', 'code', 'Code', 'text', 10, TRUE),
+       ('lm_probe', 'calc', 'Calc', 'text', 20, FALSE);
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('lm_child', 'parent_id', 'Parent', 'parent', 10, 'lm_probe', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('lm_probe', 'kids', 'Kids', 'int64', 30, '{"link_field": "lm_child.parent_id", "function": "count"}');
+
+-- label -> '' on the field left, '' -> label on the field named.
+UPDATE entities SET label_column = 'code' WHERE table_name = 'lm_probe';
+SELECT is(
+    (SELECT string_agg(field_name || ':' || ctype, ', ' ORDER BY field_name)
+       FROM fields WHERE table_name = 'lm_probe' AND field_name IN ('label', 'code', 'calc')),
+    'calc:computed, code:label, label:',
+    'moving label_column to a plain field makes it the label and the old label plain');
+SELECT ok(
+    (SELECT pg_get_expr(d.adbin, d.adrelid)
+       FROM pg_attrdef d
+       JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+      WHERE d.adrelid = 'public.lm_probe'::regclass AND a.attname = 'search_vector')
+      ~ 'COALESCE\(code,[^)]*\)\), ''A''',
+    'the search vector is rebuilt and weights the new label A');
+SELECT is(
+    (public.get_schema('lm_probe')::jsonb -> 'properties' -> 'label' ->> 'is_core'),
     'false',
-    'a computed field is not core in get_schema');
+    'the field label_column left is no longer core');
+
+-- label -> '' on the field left, computed -> computed_label on the field named.
+UPDATE entities SET label_column = 'calc' WHERE table_name = 'lm_probe';
+SELECT is(
+    (SELECT string_agg(field_name || ':' || ctype, ', ' ORDER BY field_name)
+       FROM fields WHERE table_name = 'lm_probe' AND field_name IN ('label', 'code', 'calc')),
+    'calc:computed_label, code:, label:',
+    'moving label_column to a computed field makes it computed_label');
+
+-- computed_label -> computed on the field left, '' -> label on the field named.
+UPDATE entities SET label_column = 'code' WHERE table_name = 'lm_probe';
+SELECT is(
+    (SELECT string_agg(field_name || ':' || ctype, ', ' ORDER BY field_name)
+       FROM fields WHERE table_name = 'lm_probe' AND field_name IN ('label', 'code', 'calc')),
+    'calc:computed, code:label, label:',
+    'moving label_column off a computed label leaves it computed');
+
+-- A field with another marker cannot become the label, and nothing moves.
+SELECT throws_ok(
+    $$UPDATE entities SET label_column = 'id' WHERE table_name = 'lm_probe'$$,
+    '90270', NULL,
+    'label_column cannot name the id column');
+SELECT throws_ok(
+    $$UPDATE entities SET label_column = 'created_at' WHERE table_name = 'lm_probe'$$,
+    '90270', NULL,
+    'label_column cannot name an audit column');
+SELECT throws_ok(
+    $$UPDATE entities SET label_column = 'kids' WHERE table_name = 'lm_probe'$$,
+    '90270', NULL,
+    'label_column cannot name a rollup field');
+SELECT is(
+    (SELECT e.label_column || ':' || f.ctype FROM entities e
+       JOIN fields f ON f.table_name = e.table_name AND f.field_name = e.label_column
+      WHERE e.table_name = 'lm_probe'),
+    'code:label',
+    'a refused move leaves label_column and the marker where they were');
 
 SELECT * FROM finish();
 ROLLBACK;

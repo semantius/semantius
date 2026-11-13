@@ -485,14 +485,14 @@ BEGIN
     label_props AS (
         SELECT
             '_label'::text AS field_name,
-            (COALESCE((SELECT ord FROM family WHERE ctype = 'label' ORDER BY ord LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
+            (COALESCE((SELECT ord FROM family WHERE dd_ctype_is_label(ctype) ORDER BY ord LIMIT 1), 1)::numeric * 1000 + 1) AS sort_order,
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', v_table_record.singular_label,
                 'description', 'Composed, human-readable label folded from the parent chain',
                 'inputMode', 'readonly', 'width', 'default',
                 'field_order', COALESCE((SELECT field_order FROM family
-                                         WHERE ctype = 'label'
+                                         WHERE dd_ctype_is_label(ctype)
                                          ORDER BY ord LIMIT 1), 1),
                 'ctype', '_label', 'is_core', false, 'searchable', false,
                 'writable', false, 'selectable', true,

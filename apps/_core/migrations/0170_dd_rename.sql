@@ -442,7 +442,7 @@ BEGIN
     IF OLD.field_name IS DISTINCT FROM NEW.field_name THEN
         -- Core fields (dd_ctype_is_core) cannot be renamed, except the label column
         IF dd_ctype_is_core(OLD.ctype) THEN
-            IF OLD.ctype = 'label' THEN
+            IF dd_ctype_is_label(OLD.ctype) THEN
                 -- Label column rename is allowed; update entities.label_column
                 -- to match. family_label_column_trigger (0160_dd_functions.sql)
                 -- carries it to the entities based on this one.
