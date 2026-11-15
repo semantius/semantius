@@ -14933,7 +14933,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '32a4255267720446f205755643037eedcd15f40ebbdef1c446c6e555a24928f0') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -15980,6 +15980,157 @@ COMMENT ON FUNCTION public.jl_request_context() IS
 REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 
+-- =====================================================
+-- A row being written passes the read rule for that one check
+-- =====================================================
+-- The write policies of an entity with a select_rule ask the rule about the
+-- row as it was (USING) and only the edit permission about the row as it will
+-- be (WITH CHECK): a write may move a row out of the writer's own rule, which
+-- is what reassigning a record to somebody else is. PostgreSQL adds a check of
+-- its own. Whenever the statement reads a column of the table - a WHERE on the
+-- key, a RETURNING - it holds the new row to the SELECT policy as well, and
+-- refuses the statement with 42501 when the rule hides that row. A client
+-- addresses a record by its key, so without what follows it could never move
+-- one, and an INSERT of a row outside the rule would work only when the client
+-- did not ask for the row back.
+--
+-- A policy sees the row and the session, and nothing in a row says that it is
+-- the one being written. So a trigger says it: common.row_move_mark, the last
+-- BEFORE ROW trigger on the table, leaves a token for the row in a
+-- transaction-local setting, the rule predicate lets a row through when the
+-- token is the row's, and common.row_move_clear empties the setting when the
+-- statement ends. From then on the writer can no longer read, update or delete
+-- the row it moved; RETURNING hands back the row it just wrote.
+--
+-- The setting is one a client can write wherever the client runs SQL itself,
+-- so its value must be something a client cannot make. The token is the
+-- SHA-256 of a secret, the transaction id, the table and the key. The secret
+-- is a random value in _settings, which no policy opens to the request role,
+-- and neither function that reads it is executable by that role. A client
+-- that writes the setting therefore opens nothing, and a token it reads back
+-- names a row it wrote itself, in a transaction that is still its own.
+--
+-- An INSERT is marked only when no row with its key is stored. The trigger
+-- fires before PostgreSQL finds a key conflict, so a marked INSERT ... ON
+-- CONFLICT DO NOTHING of a key that names a hidden row would let the same
+-- statement read that row. An UPDATE needs no such test: its row passed the
+-- rule before the trigger fired.
+CREATE OR REPLACE FUNCTION common.row_move_token(p_secret TEXT, p_xid TEXT, p_rel TEXT, p_key TEXT)
+RETURNS TEXT AS $$
+    SELECT encode(sha256(convert_to(p_secret || '|' || p_xid || '|' || p_rel || '|' || p_key, 'UTF8')), 'hex');
+$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) IS
+'The token that lets one row pass its entity''s select_rule while it is being written: the SHA-256 of the secret, the transaction id, the table and the key. NULL when any of them is.';
+
+-- Called when a rule is saved, so the secret is there before any write needs
+-- it: the predicate reads it with the snapshot of the statement it runs in,
+-- which would not see a secret the same statement had just created.
+CREATE OR REPLACE FUNCTION common.row_move_secret()
+RETURNS TEXT AS $$
+DECLARE
+    v_secret TEXT;
+BEGIN
+    SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
+    IF NOT FOUND THEN
+        INSERT INTO _settings (name, value)
+        VALUES ('row_move_secret', replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''))
+        ON CONFLICT (name) DO NOTHING;
+        SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
+    END IF;
+    RETURN v_secret;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION common.row_move_secret() IS
+'The secret the row move tokens are made with, created on first use: a random value in _settings that the request role cannot read.';
+
+-- TG_ARGV[0] is the key column. The name sorts after every other BEFORE ROW
+-- trigger of an entity table, so the key is the one the row is stored under:
+-- a TypeID is assigned by a trigger, and a computed field may write the key.
+CREATE OR REPLACE FUNCTION common.row_move_mark()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_key    TEXT := to_jsonb(NEW) ->> TG_ARGV[0];
+    v_stored BOOLEAN := FALSE;
+BEGIN
+    IF v_key IS NOT NULL AND TG_OP = 'INSERT' THEN
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = ($1).%I)',
+                       TG_TABLE_NAME, TG_ARGV[0], TG_ARGV[0])
+           INTO v_stored USING NEW;
+    END IF;
+
+    IF v_key IS NULL OR v_stored THEN
+        PERFORM set_config('app.row_move', '', true);
+    ELSE
+        PERFORM set_config('app.row_move',
+                           common.row_move_token(common.row_move_secret(), pg_current_xact_id()::text,
+                                                 TG_TABLE_NAME::text, v_key),
+                           true);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+COMMENT ON FUNCTION common.row_move_mark() IS
+'BEFORE INSERT OR UPDATE row trigger zz_row_move of an entity with a select_rule: leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the rule when PostgreSQL holds the new row to the read policy. An INSERT whose key is already stored is not marked.';
+
+CREATE OR REPLACE FUNCTION common.row_move_clear()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF COALESCE(current_setting('app.row_move', true), '') <> '' THEN
+        PERFORM set_config('app.row_move', '', true);
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION common.row_move_clear() IS
+'AFTER INSERT OR UPDATE statement trigger zz_row_move_clear of an entity with a select_rule: empties app.row_move, so a row the statement moved out of the writer''s rule is hidden again.';
+
+-- Not SECURITY DEFINER, and not granted to the request role: it is called by
+-- the generated rule predicate, which runs as the owner, and it reads the
+-- secret. A caller that reached it as itself would be refused the function,
+-- and behind it the table. A transaction that has written nothing has no
+-- transaction id and so no token.
+CREATE OR REPLACE FUNCTION common.row_move_matches(p_rel TEXT, p_key TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_token  TEXT := current_setting('app.row_move', true);
+    v_xid    xid8 := pg_current_xact_id_if_assigned();
+    v_secret TEXT;
+BEGIN
+    IF COALESCE(v_token, '') = '' OR v_xid IS NULL OR p_key IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
+    RETURN COALESCE(v_token = common.row_move_token(v_secret, v_xid::text, p_rel, p_key), FALSE);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
+'Whether app.row_move holds the token of the given row for the current transaction, that is, whether this row is the one the running statement is writing. Called by the generated select_rule predicates.';
+
+REVOKE EXECUTE ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.row_move_secret() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.row_move_mark() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.row_move_clear() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.row_move_matches(TEXT, TEXT) FROM PUBLIC;
+
+-- On an upgrade the generated predicates and the dictionary's definer code
+-- already run as semantius_owner, while a function new in this file stays owned
+-- by the installer until 9900_owner_hardening.sql runs last.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            common.row_move_token(TEXT, TEXT, TEXT, TEXT),
+            common.row_move_secret(),
+            common.row_move_matches(TEXT, TEXT)
+        TO semantius_owner;
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
 RETURNS VOID AS $$
 DECLARE
@@ -16029,6 +16180,9 @@ BEGIN
     -- If select_rule is empty, restore the default permission-only policies (read = view
     -- permission, writes = edit permission, no per-row rule).
     IF v_entity.select_rule = '{}'::jsonb THEN
+        -- No rule, so no row can leave it: the two row move triggers go.
+        EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
+        EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
             v_policy_name, v_rel, v_entity.view_permission);
@@ -16103,9 +16257,18 @@ BEGIN
         RETURN FALSE;
     END;
 
-    RETURN jl_truthy(v_result);
+    IF jl_truthy(v_result) THEN
+        RETURN TRUE;
+    END IF;
+    -- The rule hides the row. It passes all the same when it is the row the
+    -- running statement is writing (common.row_move_mark). The setting is
+    -- tested here so that a read pays nothing more for a hidden row.
+    IF COALESCE(current_setting('app.row_move', true), '') = '' THEN
+        RETURN FALSE;
+    END IF;
+    RETURN common.row_move_matches(%L, to_jsonb(p_row) ->> %L);
 END;
-$SEL$, v_row_data, v_logic_lit);
+$SEL$, v_row_data, v_logic_lit, v_rel, v_entity.id_column);
     ELSE
         v_predicate := $SEL$
 BEGIN
@@ -16158,7 +16321,16 @@ $SEL$, v_fn_name)));
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
     -- of statement shape, a bare "UPDATE t SET ..." cannot reach rows the SELECT policy hides.
     -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
-    -- row out of its own rule.
+    -- row out of its own rule. PostgreSQL holds the new row to the SELECT policy as well
+    -- whenever the statement reads a column, and the two triggers below are what let the
+    -- row being written pass that check (common.row_move_mark).
+    PERFORM common.row_move_secret();
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER zz_row_move BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION common.row_move_mark(%L)',
+        v_rel, v_entity.id_column);
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER zz_row_move_clear AFTER INSERT OR UPDATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION common.row_move_clear()',
+        v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
     EXECUTE format(
@@ -16171,7 +16343,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it. With no select_rule set, the three policies are the permission-only form instead. The generated functions have EXECUTE revoked from PUBLIC.';
+'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, the three policies are the permission-only form instead and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -16230,7 +16402,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076')
+        VALUES ('_core.0210_computed_validation.sql', '32a4255267720446f205755643037eedcd15f40ebbdef1c446c6e555a24928f0')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26623,7 +26795,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"e364a8c2a606ab73c6863894c1d06146d9f60fe33a2949f318570f9ee9a40d36","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"52f7c0898dea517eb5bde501d837075274774ba70c535e0833b0f746b9fd1d48","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"e428a61b9fc05bb850272f2a339bd175ce56699d7fa6c26458a1fe00685fda4e","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"e364a8c2a606ab73c6863894c1d06146d9f60fe33a2949f318570f9ee9a40d36","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"52f7c0898dea517eb5bde501d837075274774ba70c535e0833b0f746b9fd1d48","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"32a4255267720446f205755643037eedcd15f40ebbdef1c446c6e555a24928f0","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"e428a61b9fc05bb850272f2a339bd175ce56699d7fa6c26458a1fe00685fda4e","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -26687,7 +26859,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"e364a8c2a606ab73c6863894c1d06146d9f60fe33a2949f318570f9ee9a40d36","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"52f7c0898dea517eb5bde501d837075274774ba70c535e0833b0f746b9fd1d48","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"e428a61b9fc05bb850272f2a339bd175ce56699d7fa6c26458a1fe00685fda4e","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"e364a8c2a606ab73c6863894c1d06146d9f60fe33a2949f318570f9ee9a40d36","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"52f7c0898dea517eb5bde501d837075274774ba70c535e0833b0f746b9fd1d48","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"32a4255267720446f205755643037eedcd15f40ebbdef1c446c6e555a24928f0","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"e428a61b9fc05bb850272f2a339bd175ce56699d7fa6c26458a1fe00685fda4e","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

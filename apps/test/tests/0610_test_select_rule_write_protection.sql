@@ -20,7 +20,7 @@
 -- user1 (id 1001) is a plain user; user3 is admin (auto-granted every permission).
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(35);
 
 -- =====================================================
 -- SETUP (as admin): entity whose rows are visible only to their owner (or admin),
@@ -284,23 +284,25 @@ SELECT is(
 ROLLBACK TO sp_i1;
 
 -- With RETURNING, PostgreSQL also holds the new row to the SELECT policy, which
--- is the rule, so the same insert is refused as a whole. A client that asks for
--- the created row back (PostgREST's return=representation) gets 42501 for an
--- insert that works without it.
+-- is the rule. The row being written passes that one check, so a client that
+-- asks for the created row back (PostgREST's return=representation) gets it,
+-- as it gets the insert without asking; afterward the rule hides the row.
 SAVEPOINT sp_i2;
 SELECT authenticate_as('user2');
-SELECT throws_ok(
+SELECT lives_ok(
     $$ INSERT INTO test_abac_write (label, assigned_to)
        VALUES ('moved-in', (SELECT id FROM users WHERE external_id = 'user1')) RETURNING id $$,
-    '42501',
-    'new row violates row-level security policy for table "test_abac_write"',
-    'insert outside the rule with RETURNING: refused, because the returned row has to pass the read policy');
+    'insert outside the rule with RETURNING: the row is stored and handed back');
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write WHERE label = 'moved-in'),
+    0,
+    'insert outside the rule with RETURNING: and the editor cannot read it afterward');
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT is(
     (SELECT count(*)::int FROM test_abac_write WHERE label = 'moved-in'),
-    0,
-    'insert outside the rule with RETURNING: and nothing was stored');
+    1,
+    'insert outside the rule with RETURNING: the owner finds the row stored');
 ROLLBACK TO sp_i2;
 
 -- =====================================================
@@ -343,7 +345,72 @@ SELECT lives_ok(
     $$ UPDATE test_abac_write SET assigned_to = (SELECT id FROM users WHERE external_id = 'user1')
         WHERE label = 'owned-row' $$,
     'move out of the rule: an editor may reassign its own row (a statement that reads a column)');
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write),
+    0,
+    'move out of the rule: and no longer sees the row it moved with a WHERE');
 ROLLBACK TO sp_m2;
+
+-- The same with RETURNING: the statement hands back the row it wrote, once.
+SAVEPOINT sp_m3;
+SELECT authenticate_as('user2');
+WITH u AS (
+    UPDATE test_abac_write SET assigned_to = (SELECT id FROM users WHERE external_id = 'user1')
+     WHERE label = 'owned-row' RETURNING label
+)
+SELECT is((SELECT string_agg(label, ',') FROM u), 'owned-row',
+    'move out of the rule: a move with RETURNING hands back the row it wrote');
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write),
+    0,
+    'move out of the rule: and the row is hidden once the statement has ended');
+ROLLBACK TO sp_m3;
+
+-- =====================================================
+-- WHAT LETS THE WRITTEN ROW PASS CANNOT BE FORGED
+-- =====================================================
+-- The row being written passes the rule through a token in the setting
+-- app.row_move. A client that runs SQL can write that setting, so the token is
+-- made with a secret the request role cannot read: a value the client chose
+-- opens nothing, and the token of one row does not open another.
+SAVEPOINT sp_f1;
+SELECT authenticate_as('user2');
+SELECT set_config('app.row_move', 'test_abac_write', true);
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write WHERE label = 'hidden-row'),
+    0,
+    'forgery: a value the client wrote into app.row_move opens no hidden row');
+ROLLBACK TO sp_f1;
+
+-- An INSERT is marked before PostgreSQL finds a key conflict. An insert under
+-- the key of a hidden row, which ON CONFLICT DO NOTHING then drops, must not
+-- let the same statement read that row.
+SAVEPOINT sp_f2;
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT set_config('test.hidden_id', (SELECT id::text FROM test_abac_write WHERE label = 'hidden-row'), true);
+SELECT authenticate_as('user2');
+-- The LATERAL reference makes the insert run before the table is read.
+WITH i AS (
+    INSERT INTO test_abac_write (id, label, assigned_to)
+    VALUES (current_setting('test.hidden_id')::bigint, 'probe', (SELECT id FROM users WHERE external_id = 'user2'))
+    ON CONFLICT DO NOTHING
+    RETURNING 1
+)
+SELECT is(
+    (SELECT count(*)::int
+       FROM (SELECT count(*) AS n FROM i OFFSET 0) done
+      CROSS JOIN LATERAL (SELECT 1 FROM test_abac_write t
+                           WHERE t.id = current_setting('test.hidden_id')::bigint AND done.n >= 0) seen),
+    0,
+    'forgery: an insert under the key of a hidden row does not let its statement read that row');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT string_agg(label, ',' ORDER BY label) FROM test_abac_write),
+    'hidden-row,owned-row',
+    'forgery: and the hidden row is as it was');
+ROLLBACK TO sp_f2;
 
 SELECT * FROM finish();
 ROLLBACK;
