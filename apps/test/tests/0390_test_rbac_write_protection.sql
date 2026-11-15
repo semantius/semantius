@@ -4,9 +4,12 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. users table write protection
 --   2. No escalation through the RBAC tables
+--   3. The deny-all tables (_settings, _apikeys)
+--   4. UPDATE and DELETE on the RBAC and catalog tables
+--   5. external_id of an existing user is written by an administrator only
 BEGIN;
 
-SELECT plan(9);
+SELECT plan(57);
 
 -- =====================================================
 -- PART 1: users table write protection
@@ -121,6 +124,354 @@ SELECT throws_ok(
     '42501', NULL,
     'I5: user1 cannot create a permission'
 );
+
+-- =====================================================
+-- PART 3: the deny-all tables
+-- =====================================================
+-- _settings and _apikeys carry one policy, FOR ALL, with USING and WITH CHECK
+-- both false, and nobody is exempt: the request role is refused whatever the
+-- caller holds, an administrator included. Reading yields no row, an INSERT is
+-- refused by the policy (42501), and UPDATE and DELETE find nothing to change.
+-- "Nothing changed" is proved against the owner's view of the tables, taken
+-- before the attempts, and both tables hold a real row so an empty table
+-- cannot satisfy it by itself.
+--
+-- Helpers, all in pg_temp. write_effect runs one UPDATE and one DELETE over the
+-- whole table as the calling role and reports the rows each changed, or the
+-- SQLSTATE if a statement raised, so a refusal where silence is expected shows
+-- up in the assertion and does not abort the file. digest_snapshot holds a hash
+-- of every table's rows; changed_tables names those whose rows differ from it.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.write_effect(p_table TEXT, p_set TEXT) RETURNS TEXT AS $$
+DECLARE
+    v_updated BIGINT;
+    v_deleted BIGINT;
+BEGIN
+    EXECUTE format('UPDATE %I SET %s', p_table, p_set);
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+    EXECUTE format('DELETE FROM %I', p_table);
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RETURN format('update %s, delete %s', v_updated, v_deleted);
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pg_temp.table_digest(p_table TEXT) RETURNS TEXT AS $$
+DECLARE
+    v_digest TEXT;
+BEGIN
+    EXECUTE format(
+        'SELECT md5(coalesce(string_agg(to_jsonb(t)::text, ''|'' ORDER BY to_jsonb(t)::text), '''')) FROM %I t',
+        p_table) INTO v_digest;
+    RETURN v_digest;
+END;
+$$ LANGUAGE plpgsql;
+
+-- A direct per-user grant, so user_permissions is not an empty table.
+INSERT INTO user_permissions (user_id, permission_name, granted_by)
+SELECT u1.id, 'public:read', u3.id
+FROM users u1, users u3
+WHERE u1.external_id = 'user1' AND u3.external_id = 'user3';
+
+CREATE TEMP TABLE digest_snapshot AS
+SELECT t.name AS tbl, pg_temp.table_digest(t.name) AS digest
+FROM unnest(ARRAY['_settings', '_apikeys', 'user_roles', 'role_permissions',
+                  'user_permissions', 'roles', 'permissions',
+                  'permission_hierarchy', 'entities']) AS t(name);
+
+CREATE FUNCTION pg_temp.changed_tables() RETURNS TEXT AS $$
+    SELECT string_agg(d.tbl, ', ' ORDER BY d.tbl)
+    FROM digest_snapshot d
+    WHERE pg_temp.table_digest(d.tbl) <> d.digest;
+$$ LANGUAGE sql;
+
+SELECT is(
+    (SELECT string_agg(t.name, ', ' ORDER BY t.name)
+     FROM unnest(ARRAY['_settings', '_apikeys', 'user_roles', 'role_permissions',
+                       'user_permissions', 'roles', 'permissions',
+                       'permission_hierarchy', 'entities']) AS t(name)
+     WHERE pg_temp.table_digest(t.name) = md5('')),
+    NULL::text,
+    'setup: every table attacked below holds at least one row'
+);
+
+-- As user1, a plain user.
+SELECT authenticate_as('user1');
+
+SELECT is((SELECT count(*)::int FROM _settings), 0,
+    'user1 reads no row of _settings');
+SELECT throws_ok(
+    $$ INSERT INTO _settings (name, value) VALUES ('probe_setting', 'x') $$,
+    '42501', NULL,
+    'user1 cannot INSERT into _settings');
+SELECT is(pg_temp.write_effect('_settings', $$value = 'tampered'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on _settings change no row');
+
+SELECT is((SELECT count(*)::int FROM _apikeys), 0,
+    'user1 reads no row of _apikeys');
+SELECT throws_ok(
+    $$ INSERT INTO _apikeys (user_id, key_id, secret_hash)
+       VALUES ((SELECT id FROM users WHERE external_id = 'user1'), 'uk-probe00000001', 'x') $$,
+    '42501', NULL,
+    'user1 cannot INSERT into _apikeys');
+SELECT is(pg_temp.write_effect('_apikeys', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on _apikeys change no row');
+
+RESET ROLE;
+SELECT is(pg_temp.changed_tables(), NULL,
+    'after the attempts of user1 the owner finds _settings and _apikeys as they were');
+
+-- As user3, the administrator: nothing in the policy names a permission.
+SELECT authenticate_as('user3');
+
+SELECT is((SELECT count(*)::int FROM _settings), 0,
+    'user3 reads no row of _settings');
+SELECT throws_ok(
+    $$ INSERT INTO _settings (name, value) VALUES ('probe_setting', 'x') $$,
+    '42501', NULL,
+    'user3 cannot INSERT into _settings');
+SELECT is(pg_temp.write_effect('_settings', $$value = 'tampered'$$), 'update 0, delete 0',
+    'user3 UPDATE and DELETE on _settings change no row');
+
+SELECT is((SELECT count(*)::int FROM _apikeys), 0,
+    'user3 reads no row of _apikeys');
+SELECT throws_ok(
+    $$ INSERT INTO _apikeys (user_id, key_id, secret_hash)
+       VALUES ((SELECT id FROM users WHERE external_id = 'user3'), 'uk-probe00000002', 'x') $$,
+    '42501', NULL,
+    'user3 cannot INSERT into _apikeys');
+SELECT is(pg_temp.write_effect('_apikeys', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user3 UPDATE and DELETE on _apikeys change no row');
+
+RESET ROLE;
+SELECT is(pg_temp.changed_tables(), NULL,
+    'after the attempts of user3 the owner finds _settings and _apikeys as they were');
+
+-- =====================================================
+-- PART 4: the RBAC and catalog tables
+-- =====================================================
+-- Every policy on these tables names admin for its write side, so neither
+-- user1 (the User role) nor user2 (Northwind Sales) changes a row. entities is
+-- the case that matters most: its rows are readable by public:read, so the
+-- rows are visible to the caller and only the write policy keeps them safe.
+-- The first six are also admin-only to read, which leaves a plain user an empty
+-- table. The digest taken in part 3 covers all of them.
+
+SELECT cmp_ok(
+    (SELECT least(
+        (SELECT count(*) FROM user_roles), (SELECT count(*) FROM role_permissions),
+        (SELECT count(*) FROM user_permissions), (SELECT count(*) FROM roles),
+        (SELECT count(*) FROM permissions), (SELECT count(*) FROM permission_hierarchy))),
+    '>', 0::bigint,
+    'setup: the owner sees rows in all six admin-gated tables');
+
+-- user1, then user2: the same attempts, the same expectation.
+SELECT authenticate_as('user1');
+
+SELECT is(
+    (SELECT concat_ws('/',
+        (SELECT count(*) FROM user_roles), (SELECT count(*) FROM role_permissions),
+        (SELECT count(*) FROM user_permissions), (SELECT count(*) FROM roles),
+        (SELECT count(*) FROM permissions), (SELECT count(*) FROM permission_hierarchy))),
+    '0/0/0/0/0/0',
+    'user1 reads no row of user_roles, role_permissions, user_permissions, roles, permissions or permission_hierarchy');
+SELECT is(pg_temp.write_effect('user_roles', $$assigned_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on user_roles change no row');
+SELECT is(pg_temp.write_effect('role_permissions', $$granted_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on role_permissions change no row');
+SELECT is(pg_temp.write_effect('user_permissions', $$granted_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on user_permissions change no row');
+SELECT is(pg_temp.write_effect('roles', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on roles change no row');
+SELECT is(pg_temp.write_effect('permissions', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on permissions change no row');
+SELECT is(pg_temp.write_effect('permission_hierarchy', $$created_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on permission_hierarchy change no row');
+SELECT is(pg_temp.write_effect('entities', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user1 UPDATE and DELETE on entities change no row, although it reads them');
+
+RESET ROLE;
+SELECT is(pg_temp.changed_tables(), NULL,
+    'after the attempts of user1 the owner finds every RBAC and catalog table as it was');
+
+SELECT authenticate_as('user2');
+
+SELECT is(
+    (SELECT concat_ws('/',
+        (SELECT count(*) FROM user_roles), (SELECT count(*) FROM role_permissions),
+        (SELECT count(*) FROM user_permissions), (SELECT count(*) FROM roles),
+        (SELECT count(*) FROM permissions), (SELECT count(*) FROM permission_hierarchy))),
+    '0/0/0/0/0/0',
+    'user2 reads no row of user_roles, role_permissions, user_permissions, roles, permissions or permission_hierarchy');
+SELECT is(pg_temp.write_effect('user_roles', $$assigned_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on user_roles change no row');
+SELECT is(pg_temp.write_effect('role_permissions', $$granted_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on role_permissions change no row');
+SELECT is(pg_temp.write_effect('user_permissions', $$granted_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on user_permissions change no row');
+SELECT is(pg_temp.write_effect('roles', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on roles change no row');
+SELECT is(pg_temp.write_effect('permissions', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on permissions change no row');
+SELECT is(pg_temp.write_effect('permission_hierarchy', $$created_at = '2000-01-01'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on permission_hierarchy change no row');
+SELECT is(pg_temp.write_effect('entities', $$description = 'tampered'$$), 'update 0, delete 0',
+    'user2 UPDATE and DELETE on entities change no row, although it reads them');
+
+RESET ROLE;
+SELECT is(pg_temp.changed_tables(), NULL,
+    'after the attempts of user2 the owner finds every RBAC and catalog table as it was');
+
+-- The same statements are not inert: the administrator's policy lets them
+-- through, so the zeros above come from the policies and not from the SET
+-- clauses. One row each, so nothing else is touched.
+SELECT authenticate_as('user3');
+
+SELECT cmp_ok(
+    (SELECT least(
+        (SELECT count(*) FROM user_roles), (SELECT count(*) FROM role_permissions),
+        (SELECT count(*) FROM user_permissions), (SELECT count(*) FROM roles),
+        (SELECT count(*) FROM permissions), (SELECT count(*) FROM permission_hierarchy))),
+    '>', 0::bigint,
+    'control: the administrator reads rows in the six tables that user1 and user2 see empty');
+
+WITH upd AS (
+    UPDATE roles SET description = 'tampered' WHERE role_name = 'User' RETURNING 1
+)
+SELECT is(count(*)::int, 1, 'control: user3 UPDATE of a roles row succeeds') FROM upd;
+
+WITH upd AS (
+    UPDATE entities SET description = 'tampered' WHERE table_name = 'roles' RETURNING 1
+)
+SELECT is(count(*)::int, 1, 'control: user3 UPDATE of an entities row succeeds') FROM upd;
+
+-- =====================================================
+-- PART 5: external_id of an existing user
+-- =====================================================
+-- external_id is the identity: a request is whoever's row carries the token's
+-- sub claim. Writing it is therefore not user administration but a change of
+-- who a principal is. A caller who can set the external_id of an
+-- administrator's row to a sub claim it controls becomes that administrator
+-- at the next request, without ever touching user_roles, and one who rewrites
+-- its own can step into any identity that has no row yet. `user:manage` opens
+-- the users table for writing (users_update_policy names it), so it must not
+-- be enough for this one column: only a holder of `admin` changes the
+-- external_id of an existing user. Every other column stays writable with
+-- `user:manage`, and a direct owner connection is exempt, as it is from every
+-- guard on these tables.
+--
+-- The caller is user1 with a direct grant of `user:manage`, the same shape
+-- 0370_test_last_administrator.sql uses for a writer of users without `admin`.
+-- Every attempt is followed by a look at the row as the owner, and the owner
+-- then puts the three identities back as they were, so an attempt that went
+-- through cannot change who the next statement runs as.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE TEMP TABLE identity_before AS
+SELECT id, external_id, email, display_name
+FROM users
+WHERE external_id IN ('user1', 'user2', 'user3');
+
+CREATE FUNCTION pg_temp.restore_identities() RETURNS VOID AS $$
+    UPDATE users u
+       SET external_id = b.external_id, email = b.email, display_name = b.display_name
+      FROM identity_before b
+     WHERE u.id = b.id
+       AND (u.external_id, u.email, u.display_name)
+           IS DISTINCT FROM (b.external_id, b.email, b.display_name);
+$$ LANGUAGE sql;
+
+-- granted_by is the grantee itself, so the row does not depend on user3.
+INSERT INTO user_permissions (user_id, permission_name, granted_by)
+SELECT b.id, 'user:manage', b.id
+FROM identity_before b
+WHERE b.external_id = 'user1';
+
+SELECT authenticate_as('user1');
+
+SELECT is(
+    ARRAY[rbac.has_permission('user:manage'), rbac.has_permission('admin')],
+    ARRAY[TRUE, FALSE],
+    'setup: the caller holds user:manage and does not hold admin');
+
+SELECT throws_ok(
+    $$ UPDATE users SET external_id = 'user1_moved' WHERE external_id = 'user1' $$,
+    '42501', NULL,
+    'user:manage without admin cannot change the external_id of its own row');
+
+RESET ROLE;
+SELECT is(
+    (SELECT u.external_id FROM users u JOIN identity_before b ON b.id = u.id
+      WHERE b.external_id = 'user1'),
+    'user1',
+    'the caller''s own external_id is unchanged after the attempt');
+SELECT pg_temp.restore_identities();
+
+SELECT authenticate_as('user1');
+
+SELECT throws_ok(
+    $$ UPDATE users SET external_id = 'user3_moved' WHERE external_id = 'user3' $$,
+    '42501', NULL,
+    'user:manage without admin cannot change the external_id of an administrator');
+
+RESET ROLE;
+SELECT is(
+    (SELECT u.external_id FROM users u JOIN identity_before b ON b.id = u.id
+      WHERE b.external_id = 'user3'),
+    'user3',
+    'the administrator''s external_id is unchanged after the attempt');
+SELECT pg_temp.restore_identities();
+
+-- The refusal is about that one column: the same caller still maintains the
+-- rest of a user's row.
+SELECT authenticate_as('user1');
+
+SELECT lives_ok(
+    $$ UPDATE users SET email = 'renamed@test.com', display_name = 'Renamed Person'
+        WHERE external_id = 'user2' $$,
+    'user:manage without admin can change the email and display_name of a user');
+
+RESET ROLE;
+SELECT is(
+    (SELECT ARRAY[u.external_id, u.email, u.display_name]
+       FROM users u JOIN identity_before b ON b.id = u.id
+      WHERE b.external_id = 'user2'),
+    ARRAY['user2', 'renamed@test.com', 'Renamed Person'],
+    'the email and display_name are written and the external_id beside them is untouched');
+SELECT pg_temp.restore_identities();
+
+-- A holder of admin changes it.
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$ UPDATE users SET external_id = 'user2_moved' WHERE external_id = 'user2' $$,
+    'an administrator can change the external_id of a user');
+
+RESET ROLE;
+SELECT is(
+    (SELECT u.external_id FROM users u JOIN identity_before b ON b.id = u.id
+      WHERE b.external_id = 'user2'),
+    'user2_moved',
+    'the external_id the administrator wrote is stored');
+
+-- The owner, on a direct connection outside the request role, puts it back.
+SELECT lives_ok(
+    $$ SELECT pg_temp.restore_identities() $$,
+    'a direct owner connection can change the external_id of a user');
+
+SELECT is(
+    (SELECT count(*)::int
+       FROM users u JOIN identity_before b ON b.id = u.id
+      WHERE (u.external_id, u.email, u.display_name)
+            IS NOT DISTINCT FROM (b.external_id, b.email, b.display_name)),
+    3,
+    'the three test identities are as they were before the attempts');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -3,7 +3,7 @@
 -- when modules or related tables are modified.
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(32);
 
 -- =====================================================
 -- SETUP: Use superuser context for DDL operations
@@ -263,6 +263,139 @@ DO $$ DECLARE v_before INTEGER; v_after INTEGER; BEGIN
 END $$;
 
 SELECT pass('Delete from fields increments module version');
+
+-- =====================================================
+-- TEST: a row moved to another module bumps both modules
+-- =====================================================
+-- roles.module_id is nullable and updatable, so a role can leave one module for
+-- another, for no module, or come from no module. Both modules the row touches
+-- change what get_schema() and the module cubes return, so each moves exactly
+-- once: the bump of the new module does not bump a second time through its own
+-- AFTER trigger on modules (the app.bumping_module_version guard).
+
+INSERT INTO modules (module_name, description, view_permission)
+VALUES ('MV Test Module 2', 'Second module, the target of moved rows', 'admin');
+
+INSERT INTO roles (role_name, module_id)
+VALUES ('mv_move_role', (SELECT id FROM modules WHERE module_name = 'MV Test Module'));
+
+CREATE TEMP TABLE mv_snapshot AS
+SELECT module_name, version FROM modules WHERE module_name LIKE 'MV Test Module%';
+
+UPDATE roles
+   SET module_id = (SELECT id FROM modules WHERE module_name = 'MV Test Module 2')
+ WHERE role_name = 'mv_move_role';
+
+SELECT is(
+    (SELECT m.version - s.version FROM modules m JOIN mv_snapshot s USING (module_name)
+      WHERE m.module_name = 'MV Test Module 2'),
+    1,
+    'A role moved into a module bumps that module once');
+
+SELECT is(
+    (SELECT m.version - s.version FROM modules m JOIN mv_snapshot s USING (module_name)
+      WHERE m.module_name = 'MV Test Module'),
+    1,
+    'A role moved out of a module bumps the module it left once');
+
+-- Moving a role to no module leaves the module it was in with one role fewer.
+DROP TABLE mv_snapshot;
+CREATE TEMP TABLE mv_snapshot AS
+SELECT module_name, version FROM modules WHERE module_name LIKE 'MV Test Module%';
+
+UPDATE roles SET module_id = NULL WHERE role_name = 'mv_move_role';
+
+SELECT is(
+    (SELECT m.version - s.version FROM modules m JOIN mv_snapshot s USING (module_name)
+      WHERE m.module_name = 'MV Test Module 2'),
+    1,
+    'A role moved out of a module to no module bumps the module it left');
+
+-- A role that belongs to no module is no module's business.
+DROP TABLE mv_snapshot;
+CREATE TEMP TABLE mv_snapshot AS
+SELECT module_name, version FROM modules WHERE module_name LIKE 'MV Test Module%';
+
+SELECT lives_ok(
+    $$DELETE FROM roles WHERE role_name = 'mv_move_role'$$,
+    'Deleting a role that belongs to no module succeeds');
+
+SELECT is(
+    (SELECT count(*)::int FROM roles WHERE role_name = 'mv_move_role'),
+    0,
+    'The role that belonged to no module is deleted');
+
+SELECT is(
+    (SELECT sum(m.version - s.version)::int FROM modules m JOIN mv_snapshot s USING (module_name)),
+    0,
+    'Deleting a role that belongs to no module bumps no module');
+
+-- =====================================================
+-- TEST: the recursion guard silences related-table bumps
+-- =====================================================
+-- While a bump is in flight (app.bumping_module_version is true) a change to a
+-- related row must not bump again, or the UPDATE of modules that the bump itself
+-- issues would loop through the triggers.
+
+DROP TABLE mv_snapshot;
+CREATE TEMP TABLE mv_snapshot AS
+SELECT module_name, version FROM modules WHERE module_name LIKE 'MV Test Module%';
+
+SELECT set_config('app.bumping_module_version', 'true', TRUE);
+
+SELECT lives_ok(
+    $$INSERT INTO roles (role_name, module_id)
+      VALUES ('mv_guarded_role', (SELECT id FROM modules WHERE module_name = 'MV Test Module'))$$,
+    'Inserting a role while a bump is in flight succeeds');
+
+SELECT lives_ok(
+    $$UPDATE roles SET description = 'guarded' WHERE role_name = 'mv_guarded_role'$$,
+    'Updating a role while a bump is in flight succeeds');
+
+SELECT lives_ok(
+    $$DELETE FROM roles WHERE role_name = 'mv_guarded_role'$$,
+    'Deleting a role while a bump is in flight succeeds');
+
+SELECT set_config('app.bumping_module_version', 'false', TRUE);
+
+SELECT is(
+    (SELECT sum(m.version - s.version)::int FROM modules m JOIN mv_snapshot s USING (module_name)),
+    0,
+    'A role insert, update and delete during a bump bump no module');
+
+-- =====================================================
+-- TEST: bump_module_version tolerates a DELETE trigger
+-- =====================================================
+-- The function is attached only to INSERT and UPDATE of modules, but it states
+-- what a delete does: nothing. A trigger attached to DELETE (here a probe)
+-- must not bump any module, the deleted one included.
+
+INSERT INTO modules (module_name, description, view_permission)
+VALUES ('MV Test Module 3', 'Module deleted under a bump trigger', 'admin');
+
+DROP TABLE mv_snapshot;
+CREATE TEMP TABLE mv_snapshot AS
+SELECT module_name, version FROM modules WHERE module_name LIKE 'MV Test Module%';
+
+CREATE TRIGGER mv_probe_delete
+    AFTER DELETE ON public.modules
+    FOR EACH ROW EXECUTE FUNCTION public.bump_module_version();
+
+SELECT lives_ok(
+    $$DELETE FROM modules WHERE module_name = 'MV Test Module 3'$$,
+    'Deleting a module under a bump_module_version trigger succeeds');
+
+DROP TRIGGER mv_probe_delete ON public.modules;
+
+SELECT is(
+    (SELECT count(*)::int FROM modules WHERE module_name = 'MV Test Module 3'),
+    0,
+    'The module is deleted');
+
+SELECT is(
+    (SELECT sum(m.version - s.version)::int FROM modules m JOIN mv_snapshot s USING (module_name)),
+    0,
+    'Deleting a module under a bump_module_version trigger bumps no other module');
 
 SELECT * FROM finish();
 ROLLBACK;

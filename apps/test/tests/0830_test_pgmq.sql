@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. pgmq install
 --   2. pgmq operations
+--   3. the request role holds no table privilege on pgmq
 BEGIN;
 
-SELECT plan(57);
+SELECT plan(67);
 
 -- =====================================================
 -- PART 1: pgmq install
@@ -224,6 +225,78 @@ SELECT ok(pgmq.drop_queue('ops_q2'), 'drop_queue: returns true for an existing q
 SELECT ok(NOT EXISTS (SELECT 1 FROM pgmq.meta WHERE queue_name = 'ops_q2'), 'drop_queue: the queue is removed from pgmq.meta');
 SELECT ok(NOT pgmq.drop_queue('ops_q2'), 'drop_queue: returns false for an unknown queue');
 SELECT ok(pgmq.drop_queue('ops_q'), 'drop_queue: drops a queue that still has an archive and bindings');
+
+-- =====================================================
+-- PART 3: the request role holds no table privilege on pgmq
+-- =====================================================
+-- Messages reach a request only through the public.queue_* wrappers, which check
+-- the queue's own permissions (0840_test_queue.sql). That holds only while the
+-- request role cannot read or write the queue tables itself: a SELECT privilege
+-- would bypass every check in the wrappers. The role requests run as is
+-- semantius_user (authenticate_as switches to it); authenticated, the role a
+-- PostgREST connection switches to, is a member of it, and PUBLIC is what every
+-- role inherits. The schema USAGE of part 1 is deliberate: without it a refusal
+-- would come from the schema, not from the table.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT pgmq.create('priv_q');
+
+SELECT is(
+    (SELECT array_agg(r || ' ' || p ORDER BY r, p)
+       FROM unnest(ARRAY['semantius_user', 'authenticated', 'public']) AS r,
+            unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']
+                   || CASE WHEN current_setting('server_version_num')::int >= 170000
+                           THEN ARRAY['MAINTAIN'] ELSE ARRAY[]::text[] END) AS p
+      WHERE has_table_privilege(r, 'pgmq.q_priv_q', p)),
+    NULL,
+    'no request role holds any privilege on a queue table');
+
+SELECT is(
+    (SELECT array_agg(r || ' ' || p ORDER BY r, p)
+       FROM unnest(ARRAY['semantius_user', 'authenticated', 'public']) AS r,
+            unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']
+                   || CASE WHEN current_setting('server_version_num')::int >= 170000
+                           THEN ARRAY['MAINTAIN'] ELSE ARRAY[]::text[] END) AS p
+      WHERE has_table_privilege(r, 'pgmq.a_priv_q', p)),
+    NULL,
+    'and none on its archive table');
+
+SELECT is(
+    (SELECT array_agg(r || ' ' || p ORDER BY r, p)
+       FROM unnest(ARRAY['semantius_user', 'authenticated', 'public']) AS r,
+            unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']
+                   || CASE WHEN current_setting('server_version_num')::int >= 170000
+                           THEN ARRAY['MAINTAIN'] ELSE ARRAY[]::text[] END) AS p
+      WHERE has_table_privilege(r, 'pgmq.meta', p)),
+    NULL,
+    'and none on the queue registry');
+
+-- An administrator is no exception: the refusal is the role's, not the user's.
+SELECT authenticate_as('user3');
+
+SELECT throws_ok($$SELECT * FROM pgmq.q_priv_q$$, '42501',
+    'permission denied for table q_priv_q',
+    'the request role cannot read a queue table');
+SELECT throws_ok($$INSERT INTO pgmq.q_priv_q (message) VALUES ('{}')$$, '42501',
+    'permission denied for table q_priv_q',
+    'the request role cannot enqueue into a queue table directly');
+SELECT throws_ok($$UPDATE pgmq.q_priv_q SET vt = now()$$, '42501',
+    'permission denied for table q_priv_q',
+    'the request role cannot update a queue table');
+SELECT throws_ok($$DELETE FROM pgmq.q_priv_q$$, '42501',
+    'permission denied for table q_priv_q',
+    'the request role cannot delete from a queue table');
+SELECT throws_ok($$SELECT * FROM pgmq.a_priv_q$$, '42501',
+    'permission denied for table a_priv_q',
+    'the request role cannot read an archive table');
+SELECT throws_ok($$DELETE FROM pgmq.a_priv_q$$, '42501',
+    'permission denied for table a_priv_q',
+    'the request role cannot delete from an archive table');
+SELECT throws_ok($$SELECT * FROM pgmq.meta$$, '42501',
+    'permission denied for table meta',
+    'the request role cannot read the queue registry');
 
 SELECT * FROM finish();
 ROLLBACK;

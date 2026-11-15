@@ -8,7 +8,7 @@
 --   3. New permissions are granted to Administrator
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(21);
 
 -- =====================================================
 -- PART 1: User role auto-assignment and protection
@@ -136,6 +136,27 @@ SELECT is(
     (SELECT assigned_by FROM user_roles WHERE user_id = 1001 AND role_id = 2),
     1002::bigint,
     'assigned_by should preserve explicit value (1002) when provided'
+);
+
+-- Test 3: without an authenticated caller there is nobody to record, so the
+-- column stays NULL and the insert still succeeds. A direct owner connection
+-- (a migration, a seed script) is the case: its claims are blank, and the
+-- default must not turn that into an error.
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '', true);
+SELECT set_config('request.jwt.claim.role', '', true);
+SELECT set_config('app.context_initialized', '', true);
+SELECT set_config('app.current_external_id', '', true);
+
+SELECT lives_ok(
+    $$ INSERT INTO user_roles (user_id, role_id) VALUES (9002, 2) $$,
+    'a user_roles insert without an authenticated caller is not refused'
+);
+
+SELECT is(
+    (SELECT assigned_by FROM user_roles WHERE user_id = 9002 AND role_id = 2),
+    NULL::bigint,
+    'assigned_by stays NULL when no caller can be resolved'
 );
 
 -- =====================================================

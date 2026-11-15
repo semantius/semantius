@@ -7,7 +7,7 @@
 -- Fixtures (apps/test/migrations/0030_seed.once.sql): user1=1001 (User role only), user3=admin.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(22);
 
 SELECT authenticate_as('user3');
 
@@ -206,6 +206,72 @@ SELECT throws_ok(
        VALUES ('phc:a', 'phc:c') $$,
     '42501', NULL,
     'non-admin cannot write permission_hierarchy'
+);
+
+-- =====================================================
+-- REMOVAL: deleting an edge removes what it implied
+-- =====================================================
+-- The implied permission is computed from the edges every time, so it goes the
+-- moment its edge does. The User role gets phc:a on top of the grants above, so
+-- user1 reaches the whole chain phc:a -> phc:b -> phc:c as well as
+-- phc:parent -> phc:child. Two edges are then deleted: the single edge under
+-- phc:parent, and the one in the middle of the chain, which must cut only what
+-- hangs below it.
+SELECT authenticate_as('user3');
+
+INSERT INTO role_permissions (role_id, permission_name)
+VALUES ((SELECT id FROM roles WHERE role_name = 'User'), 'phc:a');
+
+SELECT authenticate_as('user1');
+
+-- Test 17: the control, so the removals below cannot pass for a permission that
+-- was never reached
+SELECT ok(
+    rbac.has_permission('phc:c'),
+    'before the removal user1 reaches the bottom of the chain through phc:a'
+);
+
+SELECT authenticate_as('user3');
+
+DELETE FROM permission_hierarchy
+ WHERE including_permission_name = 'phc:parent' AND included_permission_name = 'phc:child';
+DELETE FROM permission_hierarchy
+ WHERE including_permission_name = 'phc:b' AND included_permission_name = 'phc:c';
+
+-- authenticate_as drops the cached context, so these answers are recomputed
+SELECT authenticate_as('user1');
+
+-- Test 18
+SELECT ok(
+    NOT rbac.has_permission('phc:child'),
+    'removing the edge removes the permission it implied'
+);
+
+-- Test 19: the grant itself is not the edge
+SELECT ok(
+    rbac.has_permission('phc:parent'),
+    'the including permission is still held after its edge is removed'
+);
+
+-- Test 20
+SELECT ok(
+    NOT rbac.has_permission('phc:c'),
+    'removing a middle edge removes what hung below it'
+);
+
+-- Test 21
+SELECT ok(
+    rbac.has_permission('phc:b'),
+    'removing a middle edge keeps what lies above it'
+);
+
+-- Test 22: the same answer from the effective permission set
+SELECT is(
+    (SELECT array_agg(permission_name ORDER BY permission_name)
+       FROM rbac.get_user_permissions('user1')
+      WHERE permission_name LIKE 'phc:%'),
+    ARRAY['phc:a', 'phc:b', 'phc:child2', 'phc:parent'],
+    'the effective permission set no longer lists what the removed edges implied'
 );
 
 SELECT * FROM finish();

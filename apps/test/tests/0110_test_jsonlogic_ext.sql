@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(139);
+SELECT plan(167);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1159,6 +1159,119 @@ SELECT is(
     evaluate_json_logic('{"to_date":[{"max":["2026-01-05","2026-03-01"]}]}'::jsonb, '{}'::jsonb),
     '"2026-03-01"'::jsonb,
     'dates: to_date turns the epoch integer of max back into a date');
+
+-- =====================================================
+-- Arithmetic and comparison where only the server can answer
+-- =====================================================
+-- These rules either have no JavaScript counterpart (an offset in a date string
+-- is no number there) or JavaScript answers with a value JSON cannot hold (NaN,
+-- Infinity), so none of them can sit in the shared corpus. jl_eval and jl_call
+-- return a raised error as a value: a rule that raises inside a bare statement
+-- would abort the file and hide every assertion after it.
+CREATE FUNCTION pg_temp.jl_eval(p_rule text, p_data text DEFAULT '{}') RETURNS jsonb
+LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN evaluate_json_logic(p_rule::jsonb, p_data::jsonb);
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('raised', SQLSTATE, 'message', SQLERRM);
+END;
+$$;
+CREATE FUNCTION pg_temp.jl_call(p_sql text) RETURNS text
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_result text;
+BEGIN
+    EXECUTE p_sql INTO v_result;
+    RETURN COALESCE(v_result, 'SQL NULL');
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE || ': ' || SQLERRM;
+END;
+$$;
+
+-- A zero divisor has no number to give, in % as in /.
+SELECT is(pg_temp.jl_eval('{"%":[1,0]}'), 'null'::jsonb,
+    'arithmetic: a zero divisor in % gives null');
+SELECT is(pg_temp.jl_eval('{"/":[1,0]}'), 'null'::jsonb,
+    'arithmetic: a zero divisor in / gives null');
+
+-- A whole result beyond the bigint range is still a number: narrowing it to
+-- bigint would raise 22003, and JavaScript has no such limit.
+SELECT is(pg_temp.jl_eval('{"*":[10000000000,10000000000]}'), '100000000000000000000'::jsonb,
+    'arithmetic: a product beyond the bigint range is returned');
+SELECT is(pg_temp.jl_eval('{"+":[50000000000000000000,50000000000000000000]}'), '100000000000000000000'::jsonb,
+    'arithmetic: a sum beyond the bigint range is returned');
+SELECT is(pg_temp.jl_eval('{"-":[0,100000000000000000000]}'), '-100000000000000000000'::jsonb,
+    'arithmetic: a difference beyond the bigint range is returned');
+SELECT is(pg_temp.jl_eval('{"/":[200000000000000000000,2]}'), '100000000000000000000'::jsonb,
+    'arithmetic: a quotient beyond the bigint range is returned');
+SELECT is(pg_temp.jl_eval('{"max":[100000000000000000000,1]}'), '100000000000000000000'::jsonb,
+    'arithmetic: a maximum beyond the bigint range is returned');
+SELECT is(pg_temp.jl_eval('{"min":[-100000000000000000000,1]}'), '-100000000000000000000'::jsonb,
+    'arithmetic: a minimum beyond the bigint range is returned');
+
+-- A negative length stops that many characters before the end of the text, and
+-- one that reaches back past the start leaves nothing.
+SELECT is(pg_temp.jl_eval('{"substr":["abc",0,-5]}'), '""'::jsonb,
+    'substr: a negative length past the start of the text gives the empty text');
+SELECT is(pg_temp.jl_eval('{"substr":["abc",1,-5]}'), '""'::jsonb,
+    'substr: a negative length past the start gives the empty text from a later start too');
+
+-- A date-time string with an offset names an instant, and subtraction measures the
+-- distance between instants: the offset moves the instant, it is not dropped.
+SELECT is(pg_temp.jl_eval('{"-":["2026-01-05T01:00:00+02:00","2026-01-04T23:00:00Z"]}'), '0'::jsonb,
+    'arithmetic: two spellings of one instant are 0 seconds apart');
+SELECT is(pg_temp.jl_eval('{"-":["2026-01-05T01:00:00Z","2026-01-05T01:00:00+02:00"]}'), '7200'::jsonb,
+    'arithmetic: 01:00Z is two hours after 01:00+02:00');
+-- The distance never depends on the session's zone, and a date is UTC midnight in
+-- every zone: with the clocks changing on 2026-03-29 in Berlin, a local midnight
+-- would make that day 82800 seconds long.
+SET LOCAL timezone = 'Europe/Berlin';
+SELECT is(pg_temp.jl_eval('{"-":["2026-01-05T01:00:00+02:00","2026-01-04T23:00:00Z"]}'), '0'::jsonb,
+    'arithmetic: two spellings of one instant are 0 seconds apart in another zone');
+SELECT is(pg_temp.jl_eval('{"-":["2026-03-30","2026-03-29"]}'), '86400'::jsonb,
+    'arithmetic: consecutive dates are 86400 seconds apart on the day the clocks change');
+RESET timezone;
+
+-- A string that only the date parser reads as a number is not one in JavaScript,
+-- and which strings the parser reads follows the session's DateStyle: 01/02/2026
+-- is a date under MDY, DMY and German, and an error under YMD. 13/02/2026 is a
+-- date under DMY only. None of them compares as a number.
+SET LOCAL datestyle = 'ISO, MDY';
+SELECT is(pg_temp.jl_eval('{">":["01/02/2026",0]}'), 'false'::jsonb,
+    'comparison: a slash date is no number under DateStyle ISO, MDY');
+SET LOCAL datestyle = 'ISO, DMY';
+SELECT is(pg_temp.jl_eval('{">":["01/02/2026",0]}'), 'false'::jsonb,
+    'comparison: a slash date is no number under DateStyle ISO, DMY');
+SELECT is(pg_temp.jl_eval('{">":["13/02/2026",0]}'), 'false'::jsonb,
+    'comparison: a day-first slash date is no number under DateStyle ISO, DMY');
+SET LOCAL datestyle = 'ISO, YMD';
+SELECT is(pg_temp.jl_eval('{">":["01/02/2026",0]}'), 'false'::jsonb,
+    'comparison: a slash date is no number under DateStyle ISO, YMD');
+SET LOCAL datestyle = 'German';
+SELECT is(pg_temp.jl_eval('{">":["01/02/2026",0]}'), 'false'::jsonb,
+    'comparison: a slash date is no number under DateStyle German');
+RESET datestyle;
+
+-- The coercion helpers, called directly. An array or an object has no number; SQL
+-- NULL is the empty text and a falsy value rather than an error.
+SELECT is(pg_temp.jl_call($$SELECT jl_try_number('[1,2]'::jsonb)$$), 'SQL NULL',
+    'jl_try_number: an array has no number');
+SELECT is(pg_temp.jl_call($$SELECT jl_try_number('{"a":1}'::jsonb)$$), 'SQL NULL',
+    'jl_try_number: an object has no number');
+SELECT is(pg_temp.jl_call($$SELECT '[' || jl_to_text(NULL::jsonb) || ']'$$), '[]',
+    'jl_to_text: SQL NULL is the empty text');
+SELECT is(pg_temp.jl_call($$SELECT jl_truthy(NULL::jsonb)$$), 'false',
+    'jl_truthy: SQL NULL is falsy');
+SELECT is(pg_temp.jl_call($$SELECT jl_loose_eq('[1,2]'::jsonb, '{"a":1}'::jsonb)$$), 'false',
+    'jl_loose_eq: an array and an object are different');
+SELECT is(pg_temp.jl_call($$SELECT jl_loose_eq(NULL::jsonb, NULL::jsonb)$$), 'true',
+    'jl_loose_eq: two SQL NULLs are equal');
+SELECT is(pg_temp.jl_call($$SELECT jl_loose_eq(NULL::jsonb, '1'::jsonb)$$), 'false',
+    'jl_loose_eq: a SQL NULL is not equal to a value');
+SELECT is(pg_temp.jl_call($$SELECT jl_loose_eq('1'::jsonb, NULL::jsonb)$$), 'false',
+    'jl_loose_eq: a value is not equal to a SQL NULL');
+SELECT is(pg_temp.jl_call($$SELECT jl_try_number(NULL::jsonb)$$), 'SQL NULL',
+    'jl_try_number: SQL NULL has no number');
 
 -- At any instant one of these two zones is on a different calendar day from UTC.
 SET LOCAL timezone = 'Pacific/Kiritimati';

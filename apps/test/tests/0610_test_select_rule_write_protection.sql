@@ -12,11 +12,15 @@
 -- policies to an UPDATE/DELETE when the statement reads columns (WHERE / RETURNING).
 -- Unqualified bulk statements are the dangerous case.
 --
+-- A second part covers the other side of the same policies: a reader who sees
+-- a row through the rule but lacks the edit permission, and what an editor may
+-- insert or move around the rule.
+--
 -- Fixtures: user2 (id 1002) holds 'nwind:manage' via the Northwind Sales role (apps/nwind);
 -- user1 (id 1001) is a plain user; user3 is admin (auto-granted every permission).
 BEGIN;
 
-SELECT plan(11);
+SELECT plan(28);
 
 -- =====================================================
 -- SETUP (as admin): entity whose rows are visible only to their owner (or admin),
@@ -189,6 +193,157 @@ SELECT ok(
     'H: DELETE ... WHERE TRUE (reads no column) must NOT remove a select_rule-hidden row'
 );
 ROLLBACK TO sp_h;
+
+-- =====================================================
+-- READER WITHOUT THE EDIT PERMISSION
+-- =====================================================
+-- UPDATE and DELETE are allowed by edit_permission AND the row rule, so seeing
+-- a row through the rule is not enough to write it. user1 holds neither
+-- nwind:manage nor admin and sees exactly the row assigned to it (the label
+-- 'hidden-row' only says the row is hidden from user2). Every attempt is read
+-- back as the owner, which bypasses row security, so a write that was filtered
+-- out silently is told apart from one that never ran.
+SELECT authenticate_as('user1');
+SELECT is(
+    (SELECT string_agg(label, ',') FROM test_abac_write),
+    'hidden-row',
+    'reader: user1 sees the row assigned to it through the rule, and only that one');
+
+SAVEPOINT sp_r1;
+SELECT authenticate_as('user1');
+WITH u AS (
+    UPDATE test_abac_write SET label = 'reader-edit'
+     WHERE assigned_to = (SELECT id FROM users WHERE external_id = 'user1') RETURNING 1
+)
+SELECT is(count(*)::int, 0,
+    'reader: UPDATE of a row it sees but may not edit affects 0 rows'
+) FROM u;
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT label FROM test_abac_write WHERE assigned_to = (SELECT id FROM users WHERE external_id = 'user1')),
+    'hidden-row',
+    'reader: and the row is unchanged for the owner');
+ROLLBACK TO sp_r1;
+
+SAVEPOINT sp_r2;
+SELECT authenticate_as('user1');
+WITH d AS (
+    DELETE FROM test_abac_write
+     WHERE assigned_to = (SELECT id FROM users WHERE external_id = 'user1') RETURNING 1
+)
+SELECT is(count(*)::int, 0,
+    'reader: DELETE of a row it sees but may not edit affects 0 rows'
+) FROM d;
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT ok(
+    EXISTS (SELECT 1 FROM test_abac_write WHERE assigned_to = (SELECT id FROM users WHERE external_id = 'user1')),
+    'reader: and the row is still there for the owner');
+ROLLBACK TO sp_r2;
+
+-- INSERT is gated by edit_permission alone, so the reader is refused outright
+-- rather than filtered.
+SAVEPOINT sp_r3;
+SELECT authenticate_as('user1');
+SELECT throws_ok(
+    $$ INSERT INTO test_abac_write (label, assigned_to)
+       VALUES ('reader-insert', (SELECT id FROM users WHERE external_id = 'user1')) $$,
+    '42501',
+    'new row violates row-level security policy for table "test_abac_write"',
+    'reader: INSERT of a row the rule would show it is refused for lack of the edit permission');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write WHERE label = 'reader-insert'),
+    0,
+    'reader: and nothing was stored for the owner');
+ROLLBACK TO sp_r3;
+
+-- =====================================================
+-- INSERT OUTSIDE THE CALLER'S OWN RULE
+-- =====================================================
+-- The INSERT policy carries edit_permission only: there is no per-row rule on
+-- an insert, so an editor may store a row that the rule then hides from it.
+SAVEPOINT sp_i1;
+SELECT authenticate_as('user2');
+SELECT lives_ok(
+    $$ INSERT INTO test_abac_write (label, assigned_to)
+       VALUES ('moved-in', (SELECT id FROM users WHERE external_id = 'user1')) $$,
+    'insert outside the rule: an editor may insert a row assigned to somebody else');
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write WHERE label = 'moved-in'),
+    0,
+    'insert outside the rule: and cannot read the row back through the rule');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write WHERE label = 'moved-in'),
+    1,
+    'insert outside the rule: the owner finds the row stored');
+ROLLBACK TO sp_i1;
+
+-- With RETURNING, PostgreSQL also holds the new row to the SELECT policy, which
+-- is the rule, so the same insert is refused as a whole. A client that asks for
+-- the created row back (PostgREST's return=representation) gets 42501 for an
+-- insert that works without it.
+SAVEPOINT sp_i2;
+SELECT authenticate_as('user2');
+SELECT throws_ok(
+    $$ INSERT INTO test_abac_write (label, assigned_to)
+       VALUES ('moved-in', (SELECT id FROM users WHERE external_id = 'user1')) RETURNING id $$,
+    '42501',
+    'new row violates row-level security policy for table "test_abac_write"',
+    'insert outside the rule with RETURNING: refused, because the returned row has to pass the read policy');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write WHERE label = 'moved-in'),
+    0,
+    'insert outside the rule with RETURNING: and nothing was stored');
+ROLLBACK TO sp_i2;
+
+-- =====================================================
+-- UPDATE THAT MOVES A ROW OUT OF THE CALLER'S OWN RULE
+-- =====================================================
+-- The UPDATE policy's WITH CHECK is edit_permission only, so there is no
+-- post-image rule and a write may move a row out of its own rule. The old row
+-- still has to pass the rule (the USING clause), so the editor touches only
+-- the row it sees, and once the row has left it cannot write it again.
+SAVEPOINT sp_m1;
+SELECT authenticate_as('user2');
+SELECT lives_ok(
+    $$ UPDATE test_abac_write SET assigned_to = (SELECT id FROM users WHERE external_id = 'user1') $$,
+    'move out of the rule: an editor may reassign its own row (a statement that reads no column)');
+SELECT is(
+    (SELECT count(*)::int FROM test_abac_write),
+    0,
+    'move out of the rule: and no longer sees it');
+WITH u AS (
+    UPDATE test_abac_write SET label = 'second-edit' RETURNING 1
+)
+SELECT is(count(*)::int, 0,
+    'move out of the rule: and its next write affects 0 rows'
+) FROM u;
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT string_agg(label || ':' || (assigned_to = (SELECT id FROM users WHERE external_id = 'user1'))::text,
+                       ',' ORDER BY label) FROM test_abac_write),
+    'hidden-row:true,owned-row:true',
+    'move out of the rule: the owner finds the row reassigned and unedited, and the other row untouched');
+ROLLBACK TO sp_m1;
+
+-- The same move with a WHERE on a column of the table, the shape a client that
+-- addresses a record by its key uses. PostgreSQL then holds the new row to the
+-- SELECT policy as well, which is the rule.
+SAVEPOINT sp_m2;
+SELECT authenticate_as('user2');
+SELECT lives_ok(
+    $$ UPDATE test_abac_write SET assigned_to = (SELECT id FROM users WHERE external_id = 'user1')
+        WHERE label = 'owned-row' $$,
+    'move out of the rule: an editor may reassign its own row (a statement that reads a column)');
+ROLLBACK TO sp_m2;
 
 SELECT * FROM finish();
 ROLLBACK;

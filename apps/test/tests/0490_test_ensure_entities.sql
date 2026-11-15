@@ -8,9 +8,10 @@
 --   3. ensure_entities with an is_a family
 --   4. a family file applied again: grown, changed, and with records on
 --      several levels
+--   5. a definition that is refused, and what it names
 BEGIN;
 
-SELECT plan(90);
+SELECT plan(131);
 
 -- =====================================================
 -- PART 1: ensure_entities
@@ -289,39 +290,50 @@ SELECT is((SELECT ctype FROM fields WHERE id = 'ee_named_export.name'), 'compute
     '  and its label field ends up computed_label');
 SELECT throws_ok(
     $$SELECT ensure_entities(jsonb_set((SELECT doc FROM ee_named_doc), '{entities,0,entity,fields,0,ctype}', '""'))$$,
-    '0A000', NULL, 'giving a computed label field as a plain field is a ctype change and is refused');
+    '0A000', 'ensure_entities: field ee_named.name: ctype is set when a field is created and cannot change',
+    'giving a computed label field as a plain field is a ctype change and is refused');
 
 -- -------------------------------------------------------------- refusals
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "fields": [{"field_name": "zeta", "field_order": 0}]}}]}')$$,
-    '22023', NULL, 'field_order 0 is refused (a trigger would replace it)');
+    '22023', 'ensure_entities: field ee_items.zeta: field_order 0 is replaced by a trigger; give a position or omit it',
+    'field_order 0 is refused (a trigger would replace it)');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "singular": "", "fields": []}}]}')$$,
-    '22023', NULL, 'an empty singular is refused (a trigger would derive one)');
+    '22023', 'ensure_entities: entity ee_items: an empty singular is derived by a trigger; omit it instead',
+    'an empty singular is refused (a trigger would derive one)');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "label_column_label": "", "fields": []}}]}')$$,
-    '22023', NULL, 'an empty label_column_label is refused (a trigger would derive one)');
+    '22023', 'ensure_entities: entity ee_items: an empty label_column_label is derived by a trigger; omit it instead',
+    'an empty label_column_label is refused (a trigger would derive one)');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_titled", "label_column_label": "Ref", "fields": [{"field_name": "ref_number", "title": "Ref #"}]}}]}')$$,
-    '22023', NULL, 'a label_column_label that differs from the label field''s title is refused');
+    '22023', 'ensure_entities: entity ee_titled: label_column_label differs from the title of its label field; give one of them',
+    'a label_column_label that differs from the label field''s title is refused');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "fields": [{"field_name": "zeta", "enum_values": {"a": 1}}]}}]}')$$,
-    '22023', NULL, 'enum_values that is not an array is refused');
+    '22023', 'ensure_entities: field ee_items.zeta: enum_values must be an array or null',
+    'enum_values that is not an array is refused');
 SELECT throws_ok(
-    $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "colour": "red", "fields": []}}]}')$$,
-    '22023', NULL, 'an unknown entity key is refused');
+    $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "bogus": "red", "fields": []}}]}')$$,
+    '22023', 'ensure_entities: entity ee_items: unknown key(s): bogus',
+    'an unknown entity key is refused');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_new", "module_name": "No Such Module", "fields": []}}]}')$$,
-    '22023', NULL, 'an unknown module is refused');
+    '22023', 'ensure_entities: entity ee_new: no module named No Such Module',
+    'an unknown module is refused');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 2, "entities": []}')$$,
-    '22023', NULL, 'a version other than 1 is refused');
+    '22023', 'ensure_entities: "version" must be 1, not 2',
+    'a version other than 1 is refused');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "order_column": "sort", "fields": []}}]}')$$,
-    '0A000', NULL, 'changing order_column is refused (the old column would be dropped)');
+    '0A000', 'ensure_entities: entity ee_items: order_column cannot change from position to sort (the old column would be dropped)',
+    'changing order_column is refused (the old column would be dropped)');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items", "managed": false, "fields": []}}]}')$$,
-    '0A000', NULL, 'managed true -> false is refused');
+    '0A000', 'ensure_entities: entity ee_items cannot change from managed to unmanaged',
+    'managed true -> false is refused');
 SELECT throws_ok(
     $$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"table_name": "ee_items"}, "records": [{"id": 40, "label": "neg", "zeta": "", "alpha": "", "mid": 0, "price": -1}]}]}')$$,
     '99101', 'price must not be negative',
@@ -680,8 +692,204 @@ SELECT throws_ok($$
                           "party_ref": "ensfpty_01h455vb4pex5vsknk084sn02x"}]}
         ]
     }'::jsonb) $$,
-    '22023', NULL,
+    '22023', 'ensure_entities: the records of ens4_parties, ens4_orgs reference each other; no order writes them',
     'records: a subtype record that references a record of its base in the same file cannot be ordered');
+
+-- =====================================================
+-- PART 5: a definition that is refused, and what it names
+-- =====================================================
+-- ensure_entities checks the whole document before it writes anything, so a
+-- malformed section is refused with a message that names it, and the later
+-- steps refuse what only the database can tell: a role that does not exist, a
+-- record that has no field to go into. Each refusal is 22023 and each message
+-- is what an operator reads in the migration log.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- The document itself.
+SELECT throws_ok($$SELECT ensure_entities('[]')$$,
+    '22023', 'ensure_entities: the definition must be a JSON object',
+    'a definition that is an array is refused');
+SELECT throws_ok($$SELECT ensure_entities(NULL)$$,
+    '22023', 'ensure_entities: the definition must be a JSON object',
+    'a NULL definition is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "bogus": "red"}')$$,
+    '22023', 'ensure_entities: unknown top-level key(s): bogus',
+    'an unknown top-level key is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "permissions": {}}')$$,
+    '22023', 'ensure_entities: "permissions" must be an array',
+    'a section that is not an array is refused');
+
+-- The module section.
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"description": "no name"}}')$$,
+    '22023', 'ensure_entities: "module" must be an object with a module_name',
+    'a module without a module_name is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": ""}}')$$,
+    '22023', 'ensure_entities: "module" must be an object with a module_name',
+    'a module with an empty module_name is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse", "bogus": "red"}}')$$,
+    '22023', 'ensure_entities: module EE Refuse: unknown key(s): bogus',
+    'an unknown module key is refused and names the module');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse", "module_slug": ""}}')$$,
+    '22023', 'ensure_entities: module EE Refuse: an empty module_slug is derived by a trigger; omit it instead',
+    'an empty module_slug is refused: a trigger would derive another');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "permissions": [{"permission_name": "eerefuse:view"}]}')$$,
+    '22023', 'ensure_entities: permissions and roles belong to the document''s "module", which is missing',
+    'permissions without a module are refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "roles": [{"slug": "eerefuse_role"}]}')$$,
+    '22023', 'ensure_entities: permissions and roles belong to the document''s "module", which is missing',
+    'roles without a module are refused');
+
+-- Permissions, the hierarchy, roles and grants.
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse"},
+    "permissions": [{"description": "no name"}]}')$$,
+    '22023', 'ensure_entities: every permission needs a permission_name',
+    'a permission without a permission_name is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse"},
+    "permissions": [{"permission_name": "eerefuse:view", "bogus": "red"}]}')$$,
+    '22023', 'ensure_entities: permission eerefuse:view: unknown key(s): bogus',
+    'an unknown permission key is refused and names the permission');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "permission_hierarchy": [{"including_permission_name": "eerefuse:manage"}]}')$$,
+    '22023', 'ensure_entities: every permission_hierarchy row needs including_permission_name and included_permission_name',
+    'a hierarchy row that names one permission is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "permission_hierarchy": [{"including_permission_name": "eerefuse:manage",
+                              "included_permission_name": "eerefuse:view", "bogus": "red"}]}')$$,
+    '22023', 'ensure_entities: permission_hierarchy: unknown key(s): bogus',
+    'an unknown hierarchy key is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse"},
+    "roles": [{"role_name": "no slug"}]}')$$,
+    '22023', 'ensure_entities: every role needs a slug (roles are matched by slug)',
+    'a role without a slug is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse"},
+    "roles": [{"slug": "eerefuse_role", "bogus": "red"}]}')$$,
+    '22023', 'ensure_entities: role eerefuse_role: unknown key(s): bogus',
+    'an unknown role key is refused and names the role');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "role_permissions": [{"role_slug": "eerefuse_role"}]}')$$,
+    '22023', 'ensure_entities: every role_permissions row needs role_slug and permission_name',
+    'a grant that names no permission is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "role_permissions": [{"role_slug": "eerefuse_role", "permission_name": "eerefuse:view", "bogus": "red"}]}')$$,
+    '22023', 'ensure_entities: role_permissions: unknown key(s): bogus',
+    'an unknown grant key is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse"},
+    "permissions": [{"permission_name": "eerefuse:view"}],
+    "role_permissions": [{"role_slug": "eerefuse_nobody", "permission_name": "eerefuse:view"}]}')$$,
+    '22023', 'ensure_entities: grant of eerefuse:view: no role with slug eerefuse_nobody',
+    'a grant to a role that does not exist is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "module": {"module_name": "EE Refuse",
+    "default_viewer_role_slug": "eerefuse_nobody"}}')$$,
+    '22023', 'ensure_entities: module EE Refuse: default_viewer_role_slug: no role with slug eerefuse_nobody',
+    'a default role that does not exist is refused');
+
+-- Entities and fields.
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "entities": [{"records": []}]}')$$,
+    '22023', 'ensure_entities: every entry of "entities" needs an "entity" with a table_name',
+    'an entry without an entity is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1, "entities": [{"entity": {"singular": "x"}}]}')$$,
+    '22023', 'ensure_entities: every entry of "entities" needs an "entity" with a table_name',
+    'an entity without a table_name is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_x", "fields": []}, "bogus": "red"}]}')$$,
+    '22023', 'ensure_entities: entry ee5_x: unknown key(s): bogus',
+    'an unknown key beside the entity is refused and names the entry');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_x"}, "records": {}}]}')$$,
+    '22023', 'ensure_entities: the records of ee5_x must be an array',
+    'records that are not an array are refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_x", "fields": {}}}]}')$$,
+    '22023', 'ensure_entities: the fields of ee5_x must be an array',
+    'fields that are not an array are refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_x", "fields": [{"title": "no name"}]}}]}')$$,
+    '22023', 'ensure_entities: every field of ee5_x needs a field_name',
+    'a field without a field_name is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_x", "fields": [{"field_name": "f", "bogus": "red"}]}}]}')$$,
+    '22023', 'ensure_entities: field ee5_x.f: unknown key(s): bogus',
+    'an unknown field key is refused and names the field');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_x"}, "records": [1]}]}')$$,
+    '22023', 'ensure_entities: every record of ee5_x must be an object',
+    'a record that is not an object is refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_nowhere"}, "records": [{"id": 1}]}]}')$$,
+    '22023', 'ensure_entities: entity ee5_nowhere does not exist and the definition carries no schema for it (no "fields")',
+    'records for an entity that does not exist, with no fields to create it, are refused');
+SELECT throws_ok($$SELECT ensure_entities('{"version": 1,
+    "entities": [{"entity": {"table_name": "ee5_nomod", "fields": []}}]}')$$,
+    '22023', 'ensure_entities: entity ee5_nomod needs a module_name to be created',
+    'a new entity without a module_name is refused');
+
+-- Records: the three refusals only the written entity can raise.
+CREATE TEMP TABLE ee5_doc (doc JSONB);
+INSERT INTO ee5_doc VALUES ('{
+    "version": 1,
+    "entities": [{
+        "entity": {"table_name": "ee5_rec", "module_name": "_core", "singular_label": "Rec", "plural_label": "Recs",
+                   "fields": [{"field_name": "qty", "title": "Qty", "format": "int32", "field_order": 30}]},
+        "records": [{"id": 1, "label": "a", "qty": 1}]
+    }]
+}');
+
+SELECT throws_ok(
+    $$SELECT ensure_entities(jsonb_set((SELECT doc FROM ee5_doc), '{entities,0,records}',
+                                       '[{"id": 1, "label": "a", "qty": 1}, {"id": 2, "label": "b"}]'))$$,
+    '22023', 'ensure_entities: the records of ee5_rec do not all carry the same keys',
+    'records that do not all carry the same keys are refused');
+SELECT throws_ok(
+    $$SELECT ensure_entities(jsonb_set((SELECT doc FROM ee5_doc), '{entities,0,records}',
+                                       '[{"label": "a", "qty": 1}]'))$$,
+    '22023', 'ensure_entities: the records of ee5_rec carry no id, the id column',
+    'records without the id column are refused');
+SELECT throws_ok(
+    $$SELECT ensure_entities(jsonb_set((SELECT doc FROM ee5_doc), '{entities,0,records}',
+                                       '[{"id": 1, "label": "a", "nosuch": 1}]'))$$,
+    '22023', 'ensure_entities: records of ee5_rec: ee5_rec has no field nosuch',
+    'a record key that names no field is refused');
+
+-- A default role given as null is cleared. Nothing but the deferred role
+-- column differs in the second document, so the module still counts as updated.
+SELECT lives_ok($$SELECT ensure_entities('{
+    "version": 1,
+    "module": {"module_name": "EE Defaults", "view_permission": "eedef:view", "default_viewer_role_slug": "eedef_viewer"},
+    "permissions": [{"permission_name": "eedef:view"}],
+    "roles": [{"slug": "eedef_viewer", "role_name": "EE Defaults Viewer", "origin": "model"}]
+}')$$, 'a module with a default role, given by slug, is created');
+
+SELECT ok(
+    (SELECT default_viewer_role_id = (SELECT id FROM roles WHERE slug = 'eedef_viewer')
+       FROM modules WHERE module_name = 'EE Defaults'),
+    'the default role is stored as the id of the role');
+
+CREATE TEMP TABLE ee5_cleared AS SELECT ensure_entities('{
+    "version": 1,
+    "module": {"module_name": "EE Defaults", "default_viewer_role_slug": null}
+}') AS summary;
+
+SELECT is((SELECT summary ->> 'module' FROM ee5_cleared), 'updated',
+    'a default role cleared by null is a module update');
+SELECT is((SELECT default_viewer_role_id FROM modules WHERE module_name = 'EE Defaults'), NULL,
+    'a default role given as null is cleared');
+SELECT is(
+    ensure_entities('{"version": 1, "module": {"module_name": "EE Defaults", "default_viewer_role_slug": null}}') ->> 'module',
+    'unchanged',
+    'a default role that is already cleared is not a change');
+
+-- ensure_entities_insert_rows has nothing to do for no rows, or for rows that
+-- name no column.
+CREATE TEMP TABLE ee5_count AS SELECT count(*)::int AS n FROM fields;
+
+SELECT lives_ok($$SELECT ensure_entities_insert_rows('fields', '[]')$$,
+    'ensure_entities_insert_rows: an empty list of rows succeeds');
+SELECT lives_ok($$SELECT ensure_entities_insert_rows('fields', '[{}]')$$,
+    'ensure_entities_insert_rows: a row without keys succeeds');
+SELECT is((SELECT count(*)::int FROM fields), (SELECT n FROM ee5_count),
+    'ensure_entities_insert_rows: neither inserts a row');
 
 SELECT * FROM finish();
 ROLLBACK;

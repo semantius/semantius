@@ -4,7 +4,7 @@
 -- and the labels of is_a and has_a entities, which are functions of their views.
 BEGIN;
 
-SELECT plan(40);
+SELECT plan(42);
 
 -- =====================================================
 -- SETUP: build a candidate -> application -> interview -> scorecard identity chain
@@ -365,6 +365,17 @@ SELECT is((SELECT public._label(c) FROM lb_contacts c), 'Ada',
 UPDATE entities SET label_parent = 'org_id' WHERE table_name = 'lb_people';
 SELECT is((SELECT public._label(s) FROM lb_staff s WHERE s.label = 'Bob'), 'Acme › Bob',
     'family labels: the base''s identity spine composes into the subtype''s label');
+
+-- An extension whose base table is not there (it was renamed by hand, say, and
+-- the view followed it) cannot compose its base's label, so its _label is its
+-- own local label instead of a call that names a table that is gone.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+ALTER TABLE lb_people RENAME TO lb_people_moved;
+SELECT lives_ok($$SELECT public.rebuild_entity_label_functions('lb_contacts')$$,
+    'family labels: the label functions of an extension are rebuilt while its base table is missing');
+SELECT is((SELECT public._label(c) FROM lb_contacts c), 'Ada',
+    'family labels: and its _label is the record''s own label');
 
 SELECT * FROM finish();
 ROLLBACK;

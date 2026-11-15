@@ -5,9 +5,13 @@
 --   1. Audit log
 --   2. TRUNCATE audit path
 --   3. audit of is_a and has_a records
+--   4. the acting user when the request context cannot be read
+--   5. audit.enable_tracking called directly
+--   6. a table that becomes managed after its entity asked for audit
+--   7. who may read and prune the logs
 BEGIN;
 
-SELECT plan(61);
+SELECT plan(99);
 
 -- =====================================================
 -- PART 1: Audit log
@@ -772,6 +776,300 @@ SELECT authenticate_as('user3');
 SELECT throws_ok($$ INSERT INTO audit.generated_ddl DEFAULT VALUES $$,
     '42501', NULL,
     'family audit: the request role cannot mark DDL as generated, so it cannot keep its own out of the log');
+
+-- =====================================================
+-- PART 4: the acting user when the request context cannot be read
+-- =====================================================
+-- audit.current_user_id() derives the user through rbac. When that fails (here
+-- because the cached user id is not a number) the audit trigger that asked must
+-- not abort the write it records: the user id falls back to 0, the value a
+-- session without a user (a migration, a seed) gets.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column, audit_log
+) VALUES (
+    'audit_ctx_items', 'item', 'Audit Context Item', 'Audit Context Items',
+    'Test entity for the unreadable-context audit path',
+    1, 'public:read', 'admin', 'id', 'label', TRUE
+);
+
+-- Warms the context: from here rbac.user_id() reads the cached value back.
+SELECT is(rbac.user_id(), (SELECT id FROM users WHERE external_id = 'user3'),
+    'fixture: the request context is initialized for user3');
+
+RESET ROLE;
+SELECT set_config('app.current_user_id', 'not-a-number', true);
+
+SELECT is(catch_error($$SELECT rbac.user_id()$$) ->> 'code', '22P02',
+    'fixture: with an unreadable cached user id rbac.user_id() raises');
+
+SELECT is(audit.current_user_id(), 0::bigint,
+    'audit.current_user_id: falls back to 0 when the user id cannot be derived');
+
+SELECT lives_ok($$INSERT INTO audit_ctx_items (label) VALUES ('c1')$$,
+    'an audited write succeeds although the acting user cannot be derived');
+
+SELECT is(
+    (SELECT user_id FROM audit_record_logs WHERE table_name = 'audit_ctx_items' AND op = 'INSERT'),
+    0::bigint,
+    'and its audit row carries user_id 0');
+
+-- authenticate_as discards the cached context, the unreadable value included, so
+-- the parts below start from a context that is derived afresh.
+SELECT authenticate_as('user3');
+
+-- =====================================================
+-- PART 5: audit.enable_tracking called directly
+-- =====================================================
+-- manage_audit_log is the usual caller. These cases call the function itself:
+-- a table it must refuse, and a table that already carries a wider audit_i_u_d.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- An audit row is keyed by the row it describes, so a table without a primary
+-- key cannot be audited.
+CREATE TABLE public.audit_nopk (a INT, b TEXT);
+
+SELECT throws_ok(
+    $$SELECT audit.enable_tracking('public.audit_nopk'::regclass)$$,
+    '90601',
+    'Table ${table} cannot be audited because it has no primary key',
+    'enable_tracking refuses a table without a primary key');
+
+SELECT is(
+    catch_error_hint($$SELECT audit.enable_tracking('public.audit_nopk'::regclass)$$) ->> 'table',
+    'public.audit_nopk',
+    'and the error names the table, schema-qualified');
+
+SELECT is(
+    (SELECT count(*)::int FROM pg_trigger
+      WHERE tgrelid = 'public.audit_nopk'::regclass AND starts_with(tgname::text, 'audit_')),
+    0,
+    'and it leaves no audit trigger behind');
+
+-- A table can carry an audit_i_u_d that fires on INSERT as well as UPDATE (built
+-- by hand, or restored from a dump taken with a wider trigger). Next to audit_i
+-- it would log every insert twice, so enable_tracking narrows it to UPDATE.
+SELECT authenticate_as('user3');
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column
+) VALUES (
+    'audit_wide_items', 'item', 'Audit Wide Item', 'Audit Wide Items',
+    'Test entity that starts with a wide audit_i_u_d',
+    1, 'public:read', 'admin', 'id', 'label'
+);
+
+RESET ROLE;
+SELECT lives_ok(
+    $$CREATE TRIGGER audit_i_u_d AFTER INSERT OR UPDATE ON public.audit_wide_items
+      FOR EACH ROW EXECUTE FUNCTION audit.insert_update_delete_trigger()$$,
+    'fixture: audit_i_u_d fires on INSERT and UPDATE');
+
+SELECT ok(
+    (SELECT (tgtype & 4) <> 0 FROM pg_trigger
+      WHERE tgrelid = 'public.audit_wide_items'::regclass AND tgname = 'audit_i_u_d'),
+    'fixture: the wide audit_i_u_d includes the INSERT event');
+
+SELECT lives_ok($$SELECT audit.enable_tracking('public.audit_wide_items'::regclass)$$,
+    'enable_tracking accepts a table that already carries a wide audit_i_u_d');
+
+SELECT ok(
+    (SELECT (tgtype & 1) <> 0 AND (tgtype & 16) <> 0 AND (tgtype & 12) = 0 FROM pg_trigger
+      WHERE tgrelid = 'public.audit_wide_items'::regclass AND tgname = 'audit_i_u_d'),
+    'audit_i_u_d is rebuilt as a row trigger for UPDATE only');
+
+SELECT is(
+    (SELECT array_agg(tgname::text ORDER BY tgname) FROM pg_trigger
+      WHERE tgrelid = 'public.audit_wide_items'::regclass AND starts_with(tgname::text, 'audit_')),
+    ARRAY['audit_d', 'audit_i', 'audit_i_u_d', 'audit_t'],
+    'and the table carries the full set of audit triggers');
+
+SELECT lives_ok(
+    $$INSERT INTO audit_wide_items (label) VALUES ('w1');
+      UPDATE audit_wide_items SET label = 'w2' WHERE label = 'w1';
+      DELETE FROM audit_wide_items WHERE label = 'w2'$$,
+    'writes to the rebuilt table succeed');
+
+SELECT is(
+    (SELECT array_agg(op::text ORDER BY op::text) FROM audit_record_logs
+      WHERE table_name = 'audit_wide_items'),
+    ARRAY['DELETE', 'INSERT', 'UPDATE'],
+    'an insert, an update and a delete log one row each, none twice');
+
+-- =====================================================
+-- PART 6: a table that becomes managed after its entity asked for audit
+-- =====================================================
+-- An unmanaged entity has no table, so audit_log = TRUE cannot install anything
+-- yet. The triggers go on when the physical table appears, that is when managed
+-- turns TRUE; audit_log itself does not change in that update.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column, managed, audit_log
+) VALUES
+    ('audit_flip_items', 'item', 'Audit Flip Item', 'Audit Flip Items',
+     'Unmanaged entity that asks for audit', 1, 'public:read', 'admin', 'id', 'label', FALSE, TRUE),
+    ('audit_flip_plain', 'item', 'Audit Flip Plain', 'Audit Flip Plains',
+     'Unmanaged entity that does not ask for audit', 1, 'public:read', 'admin', 'id', 'label', FALSE, FALSE);
+
+SELECT is(to_regclass('public.audit_flip_items')::text, NULL,
+    'fixture: an unmanaged entity has no table');
+
+SELECT lives_ok(
+    $$UPDATE entities SET managed = TRUE WHERE table_name IN ('audit_flip_items', 'audit_flip_plain')$$,
+    'making the entities managed succeeds');
+
+SELECT is(
+    (SELECT array_agg(tgname::text ORDER BY tgname) FROM pg_trigger
+      WHERE tgrelid = 'public.audit_flip_items'::regclass AND starts_with(tgname::text, 'audit_')),
+    ARRAY['audit_d', 'audit_i', 'audit_i_u_d', 'audit_t'],
+    'the table created by the flip carries the full set of audit triggers when audit_log is TRUE');
+
+SELECT is(
+    (SELECT count(*)::int FROM pg_trigger
+      WHERE tgrelid = 'public.audit_flip_plain'::regclass AND starts_with(tgname::text, 'audit_')),
+    0,
+    'and none when audit_log is FALSE');
+
+SELECT lives_ok($$INSERT INTO audit_flip_items (label) VALUES ('f1')$$,
+    'a write to the newly managed table succeeds');
+
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs
+      WHERE table_name = 'audit_flip_items' AND op = 'INSERT'),
+    1,
+    'and is audited');
+
+-- =====================================================
+-- PART 7: who may read and prune the logs
+-- =====================================================
+-- audit_record_logs and audit_ddl_logs are readable and deletable only by a
+-- holder of admin (their row security policies). Everyone else sees an empty
+-- log and deletes nothing, without an error. Part 1 covers the administrator's
+-- prune; this part covers the callers the policies exclude, and reads the log
+-- back as the owner to show their attempts removed nothing.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column, audit_log
+) VALUES (
+    'audit_rls_items', 'item', 'Audit Row Security Item', 'Audit Row Security Items',
+    'Test entity that leaves a row in each log', 1, 'public:read', 'admin', 'id', 'label', TRUE
+);
+INSERT INTO audit_rls_items (label) VALUES ('seen only by an administrator');
+
+RESET ROLE;
+-- A data-modifying CTE cannot sit inside a sub-select, so the number of rows a
+-- DELETE removed comes from a helper that runs the statement as the caller.
+CREATE FUNCTION pg_temp.deleted_rows(p_sql TEXT) RETURNS INT LANGUAGE plpgsql AS $$
+DECLARE
+    v_rows INT;
+BEGIN
+    EXECUTE p_sql;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows;
+END;
+$$;
+
+-- The owner's view, kept for the comparison after the excluded callers have
+-- tried to delete: one record row, and as many DDL rows as creating the entity
+-- logged.
+SELECT set_config('audit_test.ddl_rows',
+    (SELECT count(*)::text FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'),
+    true);
+
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs WHERE table_name = 'audit_rls_items'),
+    1,
+    'fixture: the owner sees the record-audit row');
+SELECT ok(
+    current_setting('audit_test.ddl_rows')::int > 0,
+    'fixture: the owner sees the DDL-audit rows of the entity');
+
+-- user1 has no role that grants admin; user2 is a Northwind Sales member and
+-- holds none either.
+SELECT authenticate_as('user1');
+SELECT is((SELECT count(*)::int FROM audit_record_logs), 0,
+    'user1 reads no record-audit row');
+SELECT is((SELECT count(*)::int FROM audit_ddl_logs), 0,
+    'user1 reads no DDL-audit row');
+SELECT is(
+    pg_temp.deleted_rows($$DELETE FROM audit_record_logs WHERE table_name = 'audit_rls_items'$$),
+    0,
+    'user1 deletes no record-audit row');
+SELECT is(
+    pg_temp.deleted_rows($$DELETE FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'$$),
+    0,
+    'user1 deletes no DDL-audit row');
+
+SELECT authenticate_as('user2');
+SELECT is((SELECT count(*)::int FROM audit_record_logs), 0,
+    'user2 reads no record-audit row');
+SELECT is((SELECT count(*)::int FROM audit_ddl_logs), 0,
+    'user2 reads no DDL-audit row');
+SELECT is(
+    pg_temp.deleted_rows($$DELETE FROM audit_record_logs WHERE table_name = 'audit_rls_items'$$),
+    0,
+    'user2 deletes no record-audit row');
+SELECT is(
+    pg_temp.deleted_rows($$DELETE FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'$$),
+    0,
+    'user2 deletes no DDL-audit row');
+
+RESET ROLE;
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs WHERE table_name = 'audit_rls_items'),
+    1,
+    'the owner still finds the record-audit row after the excluded callers tried to delete it');
+SELECT is(
+    (SELECT count(*)::text FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'),
+    current_setting('audit_test.ddl_rows'),
+    'and every DDL-audit row');
+
+-- user3 holds admin: the same statements read and delete.
+SELECT authenticate_as('user3');
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs WHERE table_name = 'audit_rls_items'),
+    1,
+    'user3 reads the record-audit row');
+SELECT is(
+    (SELECT count(*)::text FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'),
+    current_setting('audit_test.ddl_rows'),
+    'and the DDL-audit rows');
+SELECT is(
+    pg_temp.deleted_rows($$DELETE FROM audit_record_logs WHERE table_name = 'audit_rls_items'$$),
+    1,
+    'user3 deletes the record-audit row');
+SELECT is(
+    pg_temp.deleted_rows($$DELETE FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'$$)::text,
+    current_setting('audit_test.ddl_rows'),
+    'and the DDL-audit rows');
+
+RESET ROLE;
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs WHERE table_name = 'audit_rls_items')
+    + (SELECT count(*)::int FROM audit_ddl_logs WHERE object_identity LIKE 'public.audit\_rls\_items%'),
+    0,
+    'the owner confirms they are gone');
 
 SELECT * FROM finish();
 ROLLBACK;

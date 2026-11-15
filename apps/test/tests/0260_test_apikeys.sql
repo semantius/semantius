@@ -6,7 +6,7 @@ SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcd
 
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(41);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -426,6 +426,58 @@ SELECT throws_ok(
     '42501',
     NULL,
     'Non-admin should not be able to delete a key belonging to another user'
+);
+
+-- =====================================================
+-- TEST: an unknown target is refused with its own code
+-- =====================================================
+-- The admin check passes first, so the refusal below is the existence test and
+-- nothing else. The user id is far above anything the sequence has issued.
+
+SELECT authenticate_as('user3');
+
+SELECT throws_ok(
+    $$ SELECT generate_api_key(987654321) $$,
+    '90401',
+    'User with id ${user_id} does not exist',
+    'generate_api_key refuses a user id that does not exist'
+);
+
+SELECT is(
+    catch_error_hint($$ SELECT generate_api_key(987654321) $$),
+    '{"user_id": 987654321}'::jsonb,
+    'generate_api_key 90401 hint carries the user id'
+);
+
+SELECT throws_ok(
+    $$ SELECT list_api_keys(987654321) $$,
+    '90401',
+    'User with id ${user_id} does not exist',
+    'list_api_keys refuses a user id that does not exist'
+);
+
+SELECT is(
+    catch_error_hint($$ SELECT list_api_keys(987654321) $$),
+    '{"user_id": 987654321}'::jsonb,
+    'list_api_keys 90401 hint carries the user id'
+);
+
+-- A key id nobody holds gets the same answer whoever asks, so the refusal tells
+-- a non-admin nothing about keys that belong to other users.
+SELECT throws_ok(
+    $$ SELECT delete_api_key('uk-nosuchkey00') $$,
+    '90402',
+    'API key not found',
+    'delete_api_key refuses a key id that does not exist (administrator)'
+);
+
+SELECT authenticate_as('user1');
+
+SELECT throws_ok(
+    $$ SELECT delete_api_key('uk-nosuchkey00') $$,
+    '90402',
+    'API key not found',
+    'delete_api_key refuses a key id that does not exist (plain user)'
 );
 
 SELECT * FROM finish();

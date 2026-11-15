@@ -12,7 +12,7 @@
 -- and the exemption itself is asserted with RESET ROLE.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(24);
 
 SELECT authenticate_as('user3');
 
@@ -168,6 +168,83 @@ RESET ROLE;
 SELECT lives_ok(
     $$DELETE FROM user_roles WHERE role_id = 2$$,
     'a BYPASSRLS connection may still empty the Administrator set');
+
+-- =====================================================
+-- Statements the guard does not watch (behavior recorded as it is today)
+-- =====================================================
+-- The guard watches DELETE on user_roles, users and roles and UPDATE of
+-- users.is_disabled. Two other routes to a system without a working
+-- Administrator are not watched: re-pointing the Administrator's user_roles row
+-- with an UPDATE, and taking `admin` away from role 2. Whether they should be
+-- refused is not decided, so the assertions below record what happens and are
+-- named "today"; a decision either way changes them.
+--
+-- Fresh fixture, built as the owner: user3 is the only enabled holder of role 2
+-- again, and a spare role exists to point an assignment at.
+RESET ROLE;
+UPDATE users SET is_disabled = FALSE WHERE id IN (1001, 1003);
+INSERT INTO user_roles (user_id, role_id) VALUES (1003, 2);
+INSERT INTO roles (role_name, description)
+VALUES ('Last Admin Probe', 'target of a re-pointed Administrator assignment');
+
+SELECT is(
+    rbac.count_enabled_administrators(),
+    1,
+    'fixture: user3 is the only enabled Administrator again');
+
+-- Re-pointing the row at another role: the user keeps no Administrator role.
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$UPDATE user_roles
+         SET role_id = (SELECT id FROM roles WHERE role_name = 'Last Admin Probe')
+       WHERE user_id = 1003 AND role_id = 2$$,
+    'today: pointing the last Administrator''s assignment at another role is not refused');
+
+SELECT is(
+    rbac.count_enabled_administrators(),
+    0,
+    'today: the system is then left without an enabled Administrator');
+
+-- Re-pointing the row at another user: here a disabled one, so the role is held
+-- by somebody who cannot use it.
+RESET ROLE;
+UPDATE user_roles SET role_id = 2 WHERE user_id = 1003 AND role_id <> 1;
+UPDATE users SET is_disabled = TRUE WHERE id = 1001;
+
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$UPDATE user_roles SET user_id = 1001 WHERE user_id = 1003 AND role_id = 2$$,
+    'today: pointing the last Administrator''s assignment at a disabled user is not refused');
+
+SELECT is(
+    rbac.count_enabled_administrators(),
+    0,
+    'today: the system is then left without an enabled Administrator (the holder is disabled)');
+
+-- Taking admin away from role 2: the assignment survives, the authority does not.
+RESET ROLE;
+UPDATE user_roles SET user_id = 1003 WHERE user_id = 1001 AND role_id = 2;
+
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$DELETE FROM role_permissions WHERE role_id = 2 AND permission_name = 'admin'$$,
+    'today: removing admin from the Administrator role is not refused');
+
+SELECT is(
+    rbac.count_enabled_administrators(),
+    1,
+    'today: the guard still counts user3 as an enabled Administrator');
+
+RESET ROLE;
+
+SELECT is(
+    (SELECT count(*)::integer FROM rbac.get_user_permissions_by_id(1003)
+      WHERE permission_name = 'admin'),
+    0,
+    'today: although user3 no longer holds admin through any role');
 
 SELECT * FROM finish();
 ROLLBACK;

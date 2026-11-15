@@ -7,9 +7,14 @@
 --   2. $today / $now inside select_rule
 --   3. is_a records under row security: base + extension permissions, the
 --      whole-record skip, a derived select_rule over the whole record
+--   4. The builder where no entity row backs it
+--   5. A rule is checked when the entity is saved: an unknown operator and an
+--      object with two keys are refused, the empty object is accepted
+--   6. A stored rule the save would refuse: it still builds, and what a reader
+--      sees under it
 BEGIN;
 
-SELECT plan(23);
+SELECT plan(38);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -338,6 +343,170 @@ SELECT ok(
     EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'select_rule_sec_leads'
               AND pg_get_function_identity_arguments(oid) = 'p_row sec_leads_ext, p_ctx jsonb'),
     'families: the rule function takes the row of <entity>_ext and keeps the entity''s name');
+
+-- =====================================================
+-- PART 4: The builder and its trigger function where no entity row backs them
+-- =====================================================
+-- Asked to build the policy of a name the dictionary does not know,
+-- build_select_rule_policy drops both overloads of select_rule_<name> and, with
+-- them, the policies that call them; the table is not the builder's to touch.
+-- Both overloads have to go, because a DROP naming one signature leaves the
+-- other behind and the CASCADE that removes the policy rides on it. The stale
+-- objects are made by hand as the owner, since no entity can produce them.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE TABLE public.sr_stale (id int, label text);
+ALTER TABLE public.sr_stale ENABLE ROW LEVEL SECURITY;
+CREATE FUNCTION public.select_rule_sr_stale(p_row public.sr_stale, p_ctx jsonb) RETURNS boolean
+    LANGUAGE sql AS $$ SELECT TRUE $$;
+CREATE FUNCTION public.select_rule_sr_stale(p_row public.sr_stale) RETURNS boolean
+    LANGUAGE sql AS $$ SELECT TRUE $$;
+-- The builder runs as the dictionary's owner, which drops only what it owns.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
+        ALTER TABLE public.sr_stale OWNER TO semantius_owner;
+        ALTER FUNCTION public.select_rule_sr_stale(public.sr_stale, jsonb) OWNER TO semantius_owner;
+        ALTER FUNCTION public.select_rule_sr_stale(public.sr_stale) OWNER TO semantius_owner;
+    END IF;
+END $$;
+CREATE POLICY sr_stale_select_policy ON public.sr_stale FOR SELECT USING (public.select_rule_sr_stale(sr_stale.*));
+
+SELECT is(
+    (SELECT count(*)::int FROM pg_proc WHERE proname = 'select_rule_sr_stale' AND pronamespace = 'public'::regnamespace)::text
+    || '/' || (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'sr_stale')::text,
+    '2/1',
+    'no entity: the stale rule functions and the policy that calls them exist before the builder runs');
+
+SELECT lives_ok($$ SELECT public.build_select_rule_policy('sr_stale') $$,
+    'no entity: the builder accepts a name the dictionary does not know');
+
+SELECT is(
+    (SELECT count(*)::int FROM pg_proc WHERE proname = 'select_rule_sr_stale' AND pronamespace = 'public'::regnamespace)::text
+    || '/' || (SELECT count(*)::int FROM pg_policies WHERE schemaname = 'public' AND tablename = 'sr_stale')::text,
+    '0/0',
+    'no entity: both overloads of the rule function and the policy that calls them are gone');
+
+SELECT ok(to_regclass('public.sr_stale') IS NOT NULL,
+    'no entity: and the table itself is left alone');
+
+-- =====================================================
+-- PART 5: A rule is checked when the entity is saved
+-- =====================================================
+-- The generated predicate answers FALSE for any error the rule raises, so an
+-- operator the interpreter does not know hides every row from every reader
+-- and nobody is told. A rule that is not one operator object does the
+-- opposite: the interpreter reads an object with two keys as data, data is
+-- truthy, and every reader sees every row. Neither is what its author meant,
+-- so the save refuses both, on an insert and on an update alike; the empty
+-- object stays the way to say that an entity has no rule. Each save names an
+-- entity of its own, so a save that goes through changes nothing another
+-- assertion reads.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+        VALUES ('sr_save_op', 'sr_save_op_item', 'Sr Save Op Item', 'Sr Save Op Items', 'Refused at save',
+                '{"unknown_op":[1,2]}'::jsonb, 1)$$) ->> 'code',
+    '^909',
+    'save: a select_rule with an unknown operator is refused');
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+        VALUES ('sr_save_two_keys', 'sr_save_two_keys_item', 'Sr Save Two Keys Item', 'Sr Save Two Keys Items', 'Refused at save',
+                '{"==":[1,1],"x":2}'::jsonb, 1)$$) ->> 'code',
+    '^909',
+    'save: a select_rule that is an object with two keys is refused');
+
+SELECT is(
+    ARRAY(SELECT n
+            FROM unnest(ARRAY['sr_save_op', 'sr_save_two_keys']) AS n
+           WHERE EXISTS (SELECT 1 FROM entities WHERE table_name = n)
+              OR to_regclass('public.' || n) IS NOT NULL),
+    '{}'::text[],
+    'save: a refused insert leaves neither the entity row nor its table behind');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id)
+VALUES ('sr_save_update', 'sr_save_update_item', 'Sr Save Update Item', 'Sr Save Update Items', 'Refused at update', 1);
+
+SELECT matches(
+    catch_error($$UPDATE entities SET select_rule = '{"unknown_op":[1,2]}'::jsonb
+                   WHERE table_name = 'sr_save_update'$$) ->> 'code',
+    '^909',
+    'save: the same refusal when a rule is set on an existing entity');
+
+SELECT is(
+    (SELECT select_rule FROM entities WHERE table_name = 'sr_save_update'),
+    '{}'::jsonb,
+    'save: and the refused update leaves the entity without a rule');
+
+SELECT lives_ok(
+    $$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+      VALUES ('sr_save_empty', 'sr_save_empty_item', 'Sr Save Empty Item', 'Sr Save Empty Items', 'No rule',
+              '{}'::jsonb, 1)$$,
+    'save: the empty object is accepted');
+
+-- =====================================================
+-- PART 6: A stored rule the save would refuse
+-- =====================================================
+-- A rule can be in the dictionary without having passed a save: a restored
+-- dump, or a row written while the triggers of entities are off, which is how
+-- the two below get there. The builder installs a rule as it stands, so the
+-- entity can still be rebuilt, by a rename or a change of its view permission,
+-- and each reader meets what PART 5 describes: no row under the unknown
+-- operator, every row under the object with two keys.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id)
+VALUES ('sr_stored_op', 'sr_stored_op_item', 'Sr Stored Op Item', 'Sr Stored Op Items', 'Unknown operator stored past the save', 1),
+       ('sr_stored_two_keys', 'sr_stored_two_keys_item', 'Sr Stored Two Keys Item', 'Sr Stored Two Keys Items', 'Two keys stored past the save', 1);
+
+INSERT INTO sr_stored_op (label) VALUES ('first'), ('second');
+INSERT INTO sr_stored_two_keys (label) VALUES ('first'), ('second');
+
+-- Turning the triggers of entities off takes its owner, and the builder is the
+-- owner's as well.
+RESET ROLE;
+
+ALTER TABLE entities DISABLE TRIGGER USER;
+UPDATE entities SET select_rule = '{"unknown_op":[1,2]}'::jsonb WHERE table_name = 'sr_stored_op';
+UPDATE entities SET select_rule = '{"==":[1,1],"x":2}'::jsonb WHERE table_name = 'sr_stored_two_keys';
+ALTER TABLE entities ENABLE TRIGGER USER;
+
+SELECT lives_ok($$ SELECT public.build_select_rule_policy('sr_stored_op') $$,
+    'stored rule: the builder installs a rule with an unknown operator as it stands');
+
+SELECT lives_ok($$ SELECT public.build_select_rule_policy('sr_stored_two_keys') $$,
+    'stored rule: the builder installs a rule with two keys as it stands');
+
+-- What a reader gets from a table: the number of rows, or the SQLSTATE the
+-- read raises. It runs as its caller, so the caller's policies apply.
+CREATE FUNCTION pg_temp.sr_read(p_table TEXT) RETURNS TEXT LANGUAGE plpgsql AS $$
+DECLARE
+    v_rows INT;
+BEGIN
+    EXECUTE format('SELECT count(*) FROM public.%I', p_table) INTO v_rows;
+    RETURN v_rows || ' rows';
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raises ' || SQLSTATE;
+END;
+$$;
+
+SELECT authenticate_as('user3');
+SELECT is(pg_temp.sr_read('sr_stored_op'), '0 rows',
+    'today: a stored rule with an unknown operator hides every row from an administrator, and the read raises nothing');
+
+SELECT authenticate_as('user1');
+SELECT is(pg_temp.sr_read('sr_stored_op'), '0 rows',
+    'today: a stored rule with an unknown operator hides every row from a plain reader as well');
+
+SELECT is(pg_temp.sr_read('sr_stored_two_keys'), '2 rows',
+    'today: a stored rule with two keys shows every row to a plain reader');
 
 SELECT * FROM finish();
 ROLLBACK;

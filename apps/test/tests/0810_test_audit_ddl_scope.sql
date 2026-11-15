@@ -16,6 +16,7 @@
 --  11. DROP TABLE in a foreign schema is not audited
 --  12. the label churn's DROP FUNCTION half is not audited either
 --  13. audit.log_drop_event is SECURITY DEFINER, for the reason 5 gives
+--  14. a drop issued once audit_ddl_logs itself is gone still succeeds
 --
 -- The NOTIFY half of the same change (pgrst_ddl_watch's schema filter) is NOT
 -- testable here: pgTAP runs inside a transaction that rolls back, and a
@@ -23,7 +24,7 @@
 -- asserted in pgdocker/pg-ext-lifecycle.sh, where sessions commit for real.
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(23);
 
 -- =====================================================
 -- TEST 1: DDL in a non-Semantius schema is not logged
@@ -317,6 +318,36 @@ SELECT ok(
       WHERE n.nspname = 'audit' AND p.proname = 'log_drop_event'),
     'audit.log_drop_event is SECURITY DEFINER'
 );
+
+-- =====================================================
+-- TEST 14: a drop after audit_ddl_logs is gone still succeeds
+-- =====================================================
+-- A teardown drops the tables of public one at a time, audit_ddl_logs among
+-- them, and the sql_drop trigger fires for every one of those drops. Once the
+-- log table is gone it has nowhere to write, so it returns early instead of
+-- failing on the insert and leaving the teardown half done. The drops after
+-- that point are not audited: the audit itself is what is being destroyed.
+--
+-- The scratch table is created first, because a CREATE after the log is gone
+-- would be refused by the ddl_command_end half, which has no such guard.
+
+CREATE TABLE public.audit_scope_late (id int);
+
+SELECT lives_ok(
+    'DROP TABLE public.audit_ddl_logs CASCADE',
+    'dropping audit_ddl_logs succeeds: its own sql_drop event has no log to write to');
+
+SELECT ok(
+    to_regclass('public.audit_ddl_logs') IS NULL,
+    'the log table is gone');
+
+SELECT lives_ok(
+    'DROP TABLE public.audit_scope_late',
+    'a later drop in public succeeds although the log table is gone');
+
+SELECT ok(
+    to_regclass('public.audit_scope_late') IS NULL,
+    'and drops the table');
 
 SELECT * FROM finish();
 ROLLBACK;

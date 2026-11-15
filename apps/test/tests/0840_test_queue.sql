@@ -6,9 +6,11 @@
 --   1. Queue system
 --   2. Queue RPC mutators
 --   3. no queue mapping on an is_a or has_a entity (90249)
+--   4. mappings and statement triggers: edits, large statements, strays
+--   5. a mapping that names no queue
 BEGIN;
 
-SELECT plan(81);
+SELECT plan(102);
 
 -- =====================================================
 -- PART 1: Queue system
@@ -541,10 +543,14 @@ SELECT is(public.queue_pop('rpc_q'), '[]'::jsonb,
 SELECT ok(NOT public.queue_delete('rpc_q', 999999),
     'queue_delete: returns false for an unknown message id');
 
-SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$, NULL, NULL,
-    'queue_read: an unknown queue raises');
-SELECT throws_ok($$SELECT public.queue_pop('no_such_queue')$$, NULL, NULL,
-    'queue_pop: an unknown queue raises');
+SELECT throws_ok($$SELECT public.queue_read('no_such_queue', 0, 1)$$,
+    '90504', 'Queue ${queue} is not registered',
+    'queue_read: an unknown queue raises 90504 for an administrator');
+SELECT throws_ok($$SELECT public.queue_pop('no_such_queue')$$,
+    '90504', 'Queue ${queue} is not registered',
+    'queue_pop: an unknown queue raises 90504 for an administrator');
+SELECT is(catch_error_hint($$SELECT public.queue_pop('no_such_queue')$$) ->> 'queue', 'no_such_queue',
+    'queue_pop: the error names the queue it did not find');
 
 -- The archive table holds the archived payload (owner view, no RLS on pgmq)
 RESET ROLE;
@@ -654,6 +660,132 @@ SELECT throws_ok(
        SELECT id, 'client change', 'q_clients', 'change' FROM queues WHERE queue_name = 'fam_q' $$,
     '90249', NULL,
     'a queue mapping on a has_a entity is refused');
+
+-- =====================================================
+-- PART 4: mappings and statement triggers: edits, large statements, strays
+-- =====================================================
+-- Targets are nwind tables, as in part 1: regions (a mapping that is edited),
+-- categories (a queue that goes away without queue_before_delete), suppliers
+-- (a trigger with no mapping) and shippers (a large statement). Each is mapped
+-- by at most one of these cases.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- A mapping row is editable: only table_name is immutable, and part 1 pins the
+-- refusal. Writing the same table_name back is not a change.
+INSERT INTO queues (queue_name) VALUES ('edit_q');
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT id, 'region insert', 'regions', 'insert' FROM queues WHERE queue_name = 'edit_q';
+
+SELECT lives_ok(
+    $$UPDATE queue_table_events SET event_name = 'region insert, renamed' WHERE table_name = 'regions'$$,
+    'a mapping can be renamed: only table_name is immutable');
+SELECT is((SELECT event_name FROM queue_table_events WHERE table_name = 'regions'),
+    'region insert, renamed',
+    'and the new name is stored');
+SELECT is(
+    (SELECT count(*)::int FROM pg_trigger
+      WHERE tgrelid = 'public.regions'::regclass AND tgname = 'queue_edit_q_insert_on_regions'),
+    1,
+    'and the trigger of the mapping is still there');
+SELECT lives_ok(
+    $$UPDATE queue_table_events SET table_name = table_name WHERE table_name = 'regions'$$,
+    'writing the same table_name back is accepted');
+
+DELETE FROM queues WHERE queue_name = 'edit_q';
+
+-- A queue deleted while queue_before_delete is switched off still loses its
+-- mapping, through the foreign key's cascade, but only after the queue row is
+-- gone. queue_event_after_delete then has no queue name to build the trigger
+-- names from, so it completes without dropping anything instead of failing the
+-- delete.
+INSERT INTO queues (queue_name) VALUES ('orphan_q');
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT id, 'category change', 'categories', 'change' FROM queues WHERE queue_name = 'orphan_q';
+
+SELECT lives_ok($$ALTER TABLE queues DISABLE TRIGGER queue_before_delete_trigger$$,
+    'fixture: queue_before_delete is switched off');
+SELECT lives_ok($$DELETE FROM queues WHERE queue_name = 'orphan_q'$$,
+    'deleting a queue succeeds although its mapping can no longer name the queue');
+SELECT lives_ok($$ALTER TABLE queues ENABLE TRIGGER queue_before_delete_trigger$$,
+    'fixture: queue_before_delete is switched back on');
+SELECT is((SELECT count(*)::int FROM queue_table_events WHERE table_name = 'categories'),
+    0,
+    'and the mapping went with the queue');
+
+-- A statement trigger without a mapping behind it (what an aborted install
+-- leaves, or the case above) finds no queue to send to. The write goes through
+-- and nothing is enqueued anywhere.
+SELECT lives_ok(
+    $$CREATE TRIGGER queue_stray_insert_on_suppliers
+          AFTER INSERT ON suppliers
+          REFERENCING NEW TABLE AS new_rows
+          FOR EACH STATEMENT EXECUTE FUNCTION queue_build_record_json()$$,
+    'fixture: a queue trigger on a table that no mapping names');
+SELECT set_config('queue_test.messages',
+    (SELECT coalesce(sum(queue_length), 0)::text FROM pgmq.metrics_all()), true);
+SELECT lives_ok($$INSERT INTO suppliers (company_name) VALUES ('Stray Supplier')$$,
+    'a write that fires a queue trigger with no mapping behind it succeeds');
+SELECT is((SELECT count(*)::int FROM suppliers WHERE company_name = 'Stray Supplier'),
+    1,
+    'and the row is stored');
+SELECT is((SELECT coalesce(sum(queue_length), 0)::text FROM pgmq.metrics_all()),
+    current_setting('queue_test.messages'),
+    'and no queue received a message');
+
+-- Messages go out in windows of 1000. 2001 rows is two full windows and a tail
+-- of one; the 2000 rows deleted afterwards are two full windows and no tail.
+-- Either way every row must arrive exactly once.
+INSERT INTO queues (queue_name) VALUES ('bulk_q');
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT id, 'shipper change', 'shippers', 'change' FROM queues WHERE queue_name = 'bulk_q';
+
+SELECT lives_ok(
+    $$INSERT INTO shippers (company_name) SELECT 'Bulk ' || g FROM generate_series(1, 2001) g$$,
+    'a 2001-row INSERT into a mapped table succeeds');
+SELECT is((SELECT count(*)::int FROM pgmq.q_bulk_q WHERE message ->> 'op' = 'INSERT'),
+    2001,
+    'it enqueues one message per row');
+SELECT is(
+    (SELECT count(DISTINCT s.id)::int
+       FROM pgmq.q_bulk_q q
+       JOIN shippers s ON s.id = (q.message ->> 'id_value')::bigint
+      WHERE q.message ->> 'op' = 'INSERT' AND s.company_name LIKE 'Bulk %'),
+    2001,
+    'and the messages name each inserted row exactly once, across the window boundaries');
+
+SELECT lives_ok(
+    $$DELETE FROM shippers WHERE company_name LIKE 'Bulk %' AND company_name <> 'Bulk 1'$$,
+    'a 2000-row DELETE from a mapped table succeeds');
+SELECT is((SELECT count(*)::int FROM pgmq.q_bulk_q WHERE message ->> 'op' = 'DELETE'),
+    2000,
+    'it enqueues one message per deleted row');
+SELECT is(
+    (SELECT count(DISTINCT message ->> 'id_value')::int FROM pgmq.q_bulk_q WHERE message ->> 'op' = 'DELETE'),
+    2000,
+    'and no row is named twice');
+SELECT is(
+    (SELECT count(*)::int FROM pgmq.q_bulk_q q
+      WHERE q.message ->> 'op' = 'DELETE'
+        AND EXISTS (SELECT 1 FROM shippers s WHERE s.id = (q.message ->> 'id_value')::bigint)),
+    0,
+    'and none of the rows they name is still there');
+
+-- =====================================================
+-- PART 5: a mapping that names no queue
+-- =====================================================
+-- The foreign key on queue_id refuses a mapping for a queue that does not
+-- exist, before any trigger runs.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT throws_ok(
+    $$INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+      VALUES (0, 'no queue', 'regions', 'insert')$$,
+    '23503', NULL,
+    'the foreign key refuses a mapping for a queue that does not exist');
 
 SELECT * FROM finish();
 ROLLBACK;

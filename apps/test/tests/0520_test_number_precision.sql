@@ -4,9 +4,11 @@
 --   • format='number' generates a NUMERIC(18, precision) column
 --   • Custom precision overrides the default
 --   • Northwind monetary/measure fields use 'number' (not 'float') with default precision 2
+--   • A precision change on an existing field is recorded and leaves the column's scale as it is
+--   • The precision range (0 to 18) is enforced on insert and update
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(21);
 
 SELECT authenticate_as('user3');
 
@@ -123,6 +125,119 @@ SELECT is(
         AND f.format = 'float'),
     0,
     'nwind: no fields should still use the float format'
+);
+
+-- =====================================================
+-- precision changed on an existing field
+-- =====================================================
+-- The scale is part of the column's type, and a number column holds values
+-- written under it, so a precision change on a field whose column exists is
+-- recorded in the dictionary and leaves the column as it is (the same holds for
+-- the rollup of a number field, docs/rollup-fields.md). The column takes a
+-- precision when it is created: with the field, or when an unmanaged entity
+-- becomes managed.
+
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label,
+    module_id, view_permission, edit_permission, id_column, label_column
+)
+VALUES (
+    'precision_change', 'Precision Change', 'precision_change',
+    'Precision Change', 'Precision Changes',
+    1, 'public:read', 'admin', 'id', 'label'
+);
+
+INSERT INTO fields (table_name, field_name, title, format, default_value, field_order)
+VALUES ('precision_change', 'amount', 'Amount', 'number', '0.0', 30);
+
+INSERT INTO precision_change (label, amount) VALUES ('before', 1.239);
+
+SELECT lives_ok(
+    $$UPDATE fields SET "precision" = 4
+       WHERE table_name = 'precision_change' AND field_name = 'amount'$$,
+    'precision of an existing number field can be changed'
+);
+
+SELECT is(
+    (SELECT "precision" FROM fields WHERE table_name = 'precision_change' AND field_name = 'amount'),
+    4::smallint,
+    'the changed precision is stored on the field'
+);
+
+SELECT is(
+    (SELECT numeric_scale FROM information_schema.columns
+      WHERE table_name = 'precision_change' AND column_name = 'amount')::INTEGER,
+    2,
+    'a precision change should leave the scale of the existing column alone'
+);
+
+INSERT INTO precision_change (label, amount) VALUES ('after', 1.23456);
+
+SELECT is(
+    (SELECT string_agg(label || '=' || amount, ', ' ORDER BY label) FROM precision_change),
+    'after=1.23, before=1.24',
+    'values keep the scale of the column, those written before and after the change'
+);
+
+-- The check on fields.precision covers the range of NUMERIC(18, scale).
+SELECT throws_ok(
+    $$UPDATE fields SET "precision" = 19
+       WHERE table_name = 'precision_change' AND field_name = 'amount'$$,
+    '23514',
+    'new row for relation "fields" violates check constraint "valid_precision"',
+    'a precision above 18 should be refused'
+);
+
+SELECT throws_ok(
+    $$UPDATE fields SET "precision" = -1
+       WHERE table_name = 'precision_change' AND field_name = 'amount'$$,
+    '23514',
+    'new row for relation "fields" violates check constraint "valid_precision"',
+    'a negative precision should be refused'
+);
+
+SELECT is(
+    (SELECT "precision" FROM fields WHERE table_name = 'precision_change' AND field_name = 'amount'),
+    4::smallint,
+    'a refused precision should leave the stored one as it was'
+);
+
+INSERT INTO fields (table_name, field_name, title, format, "precision", field_order)
+VALUES ('precision_change', 'whole', 'Whole', 'number', 0, 40),
+       ('precision_change', 'exact', 'Exact', 'number', 18, 50);
+
+SELECT is(
+    (SELECT jsonb_object_agg(column_name, numeric_scale) FROM information_schema.columns
+      WHERE table_name = 'precision_change' AND column_name IN ('whole', 'exact')),
+    '{"whole": 0, "exact": 18}'::jsonb,
+    'precision 0 and 18, the ends of the range, should produce those scales'
+);
+
+-- An unmanaged entity has no column yet; the table is built from the fields as
+-- they are when it becomes managed.
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label,
+    module_id, view_permission, edit_permission, id_column, label_column, managed
+)
+VALUES (
+    'precision_late', 'Precision Late', 'precision_late',
+    'Precision Late', 'Precision Lates',
+    1, 'public:read', 'admin', 'id', 'label', FALSE
+);
+
+INSERT INTO fields (table_name, field_name, title, format, "precision", field_order)
+VALUES ('precision_late', 'amount', 'Amount', 'number', 2, 30);
+
+UPDATE fields SET "precision" = 5
+ WHERE table_name = 'precision_late' AND field_name = 'amount';
+
+UPDATE entities SET managed = TRUE WHERE table_name = 'precision_late';
+
+SELECT is(
+    (SELECT numeric_scale FROM information_schema.columns
+      WHERE table_name = 'precision_late' AND column_name = 'amount')::INTEGER,
+    5,
+    'a precision changed before the entity is managed should be the scale of the column built then'
 );
 
 SELECT * FROM finish();

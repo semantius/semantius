@@ -7,9 +7,10 @@
 -- superuser powers. On managed platforms (installer not a superuser) the
 -- migration is a no-op; every assertion below then reports a pass with a
 -- "skipped" note instead of failing, so the suite stays meaningful on both.
+-- Part 2 pins the request role itself: it never bypasses row-level security.
 BEGIN;
 
-SELECT plan(8);
+SELECT plan(15);
 
 CREATE TEMP TABLE hardening_ctx AS
 SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') AS active;
@@ -91,6 +92,58 @@ SELECT ok(has_table_privilege('semantius_user', 'public.own_probe', 'SELECT')
        AND has_table_privilege('semantius_user', 'public.own_probe', 'UPDATE')
        AND has_table_privilege('semantius_user', 'public.own_probe', 'DELETE'),
     'semantius_user holds the table privileges on a dictionary-created table');
+
+-- =====================================================
+-- PART 2: the request role does not bypass row-level security
+-- =====================================================
+-- Every policy in the schema binds semantius_user. Were that role a superuser,
+-- hold BYPASSRLS, or inherit either from another role, every policy would be
+-- decoration. The attributes are asserted first, then the same fact is shown
+-- behaviorally: with rows present, the role reads none of a deny-all table, and
+-- asking PostgreSQL to switch row security off is refused instead of honored.
+-- These do not depend on the owner hardening above being active.
+
+SELECT is(
+    (SELECT rolbypassrls FROM pg_roles WHERE rolname = 'semantius_user'),
+    FALSE,
+    'semantius_user does not hold BYPASSRLS');
+
+SELECT is(
+    (SELECT rolsuper FROM pg_roles WHERE rolname = 'semantius_user'),
+    FALSE,
+    'semantius_user is not a superuser');
+
+SELECT is(
+    (SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname)
+       FROM pg_roles r
+      WHERE pg_has_role('semantius_user', r.oid, 'USAGE')
+        AND (r.rolsuper OR r.rolbypassrls)),
+    NULL::text,
+    'semantius_user inherits the privileges of no superuser and no BYPASSRLS role');
+
+SELECT cmp_ok(
+    (SELECT count(*) FROM _apikeys), '>', 0::bigint,
+    'setup: the owner reads rows from _apikeys, a deny-all table');
+
+SET ROLE semantius_user;
+SELECT is(
+    (SELECT count(*)::int FROM _apikeys),
+    0,
+    'semantius_user reads no row of _apikeys although rows exist');
+RESET ROLE;
+
+-- A table with real policies, read with a valid identity that holds no admin.
+SELECT authenticate_as('user1');
+SELECT is(
+    (SELECT count(*)::int FROM roles),
+    0,
+    'semantius_user as a plain user reads no row of roles, whose policy needs admin');
+
+SET LOCAL row_security = off;
+SELECT throws_ok(
+    $$ SELECT count(*) FROM roles $$,
+    '42501', NULL,
+    'with row_security off semantius_user is refused instead of reading past the policy');
 
 SELECT * FROM finish();
 ROLLBACK;

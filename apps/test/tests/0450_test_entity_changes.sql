@@ -14,7 +14,7 @@
 --   entity: eptest1 → eptest2 → eptest3 → eptest4
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(43);
 
 SELECT authenticate_as('user3');
 
@@ -488,6 +488,87 @@ SELECT is(
     'EP Renamed Items',
     'Table comment is just the plural label when description is empty'
 );
+
+-- =====================================================
+-- TEST 17: a changed edit_permission takes effect for the former editor
+-- =====================================================
+-- user2 holds nwind:manage through the Northwind Sales role and is not an
+-- administrator. While nwind:manage is the entity's edit permission user2
+-- writes; once it is changed to admin, the same writes are refused: the insert
+-- by the policy, the update and the delete by finding no row they may change.
+-- Reading is not affected, because view_permission did not change.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- The number of rows a statement changed, or raised SQLSTATE: a refusal where
+-- silence is expected shows up in the assertion and does not abort the file.
+CREATE FUNCTION pg_temp.rows_changed(p_sql TEXT) RETURNS TEXT AS $$
+DECLARE
+    v_rows BIGINT;
+BEGIN
+    EXECUTE p_sql;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    RETURN v_rows::text;
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column
+) VALUES (
+    'eptest5', 'eptest5_item', 'EP Test Item', 'EP Test Items',
+    'Former editor test',
+    1, 'public:read', 'nwind:manage', 'id', 'label'
+);
+INSERT INTO eptest5 (label) VALUES ('kept'), ('removable');
+
+SELECT authenticate_as('user2');
+
+SELECT lives_ok(
+    $$INSERT INTO eptest5 (label) VALUES ('by editor')$$,
+    'a holder of the edit permission can insert');
+SELECT is(
+    pg_temp.rows_changed($$UPDATE eptest5 SET label = 'edited' WHERE label = 'kept'$$),
+    '1',
+    'a holder of the edit permission can update');
+SELECT is(
+    pg_temp.rows_changed($$DELETE FROM eptest5 WHERE label = 'removable'$$),
+    '1',
+    'a holder of the edit permission can delete');
+
+SELECT authenticate_as('user3');
+UPDATE entities SET edit_permission = 'admin' WHERE table_name = 'eptest5';
+
+SELECT authenticate_as('user2');
+
+SELECT throws_ok(
+    $$INSERT INTO eptest5 (label) VALUES ('after the change')$$,
+    '42501', 'new row violates row-level security policy for table "eptest5"',
+    'the former editor can no longer insert');
+SELECT is(
+    pg_temp.rows_changed($$UPDATE eptest5 SET label = 'changed' WHERE label = 'edited'$$),
+    '0',
+    'the former editor can no longer update');
+SELECT is(
+    pg_temp.rows_changed($$DELETE FROM eptest5 WHERE label = 'by editor'$$),
+    '0',
+    'the former editor can no longer delete');
+SELECT is(
+    (SELECT string_agg(label, ', ' ORDER BY label) FROM eptest5),
+    'by editor, edited',
+    'the former editor still reads the rows, as they were left');
+
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$INSERT INTO eptest5 (label) VALUES ('by admin')$$,
+    'an administrator can write under the new edit permission');
 
 SELECT * FROM finish();
 ROLLBACK;

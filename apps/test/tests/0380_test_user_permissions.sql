@@ -1,7 +1,7 @@
 -- Test user_permissions: direct per-user permission grants
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(24);
 
 -- =====================================================
 -- TEST 1: authenticate_as is not in public schema
@@ -314,6 +314,44 @@ SELECT throws_ok(
     'get_user_permissions: a plain user still cannot ask about another subject'
 );
 RESET ROLE;
+
+-- =====================================================
+-- TEST 12: granted_by defaults to the caller
+-- =====================================================
+-- An insert that names no granter records the authenticated caller. Without
+-- one - a direct owner connection with blank claims - there is nobody to
+-- record: the column stays NULL and the insert still succeeds.
+SELECT authenticate_as('user3');
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT id, 'hotpath:b' FROM users WHERE external_id = 'hotpath-no-roles';
+
+SELECT is(
+    (SELECT granted_by FROM user_permissions
+      WHERE permission_name = 'hotpath:b'
+        AND user_id = (SELECT id FROM users WHERE external_id = 'hotpath-no-roles')),
+    1003::bigint,
+    'granted_by defaults to the authenticated caller'
+);
+
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '', true);
+SELECT set_config('request.jwt.claim.role', '', true);
+SELECT set_config('app.context_initialized', '', true);
+SELECT set_config('app.current_external_id', '', true);
+
+SELECT lives_ok(
+    $$ INSERT INTO user_permissions (user_id, permission_name)
+       SELECT id, 'hotpath:a' FROM users WHERE external_id = 'hotpath-no-roles' $$,
+    'a user_permissions insert without an authenticated caller is not refused'
+);
+
+SELECT is(
+    (SELECT granted_by FROM user_permissions
+      WHERE permission_name = 'hotpath:a'
+        AND user_id = (SELECT id FROM users WHERE external_id = 'hotpath-no-roles')),
+    NULL::bigint,
+    'granted_by stays NULL when no caller can be resolved'
+);
 
 -- A disabled user authenticates fine at the JWT layer - is_disabled is a
 -- users-row property, not a claims one - so the cold context still has to

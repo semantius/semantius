@@ -32,7 +32,7 @@
 -- omitting 'admin' confines even an administrator out of it.
 BEGIN;
 
-SELECT plan(109);
+SELECT plan(118);
 
 -- =====================================================
 -- GROUP 1: has_any_permission / require_any_permission (user2)
@@ -354,6 +354,24 @@ SELECT throws_ok(
     '42501', NULL,
     'upsert_user_from_jwt: not callable by the request role, admin included');
 
+-- Reached as the owner, the function itself refuses a subject that names nobody.
+-- Its one caller, get_userinfo(), always passes the sub that rbac.uid() validated,
+-- so only a direct owner connection can get here.
+RESET ROLE;
+
+SELECT throws_ok(
+    $$SELECT rbac.upsert_user_from_jwt('')$$,
+    '90007', 'external_id cannot be null or empty',
+    'upsert_user_from_jwt: an empty external_id is refused');
+SELECT throws_ok(
+    $$SELECT rbac.upsert_user_from_jwt('   ')$$,
+    '90007', 'external_id cannot be null or empty',
+    'upsert_user_from_jwt: a blank external_id is refused');
+SELECT throws_ok(
+    $$SELECT rbac.upsert_user_from_jwt(NULL)$$,
+    '90007', 'external_id cannot be null or empty',
+    'upsert_user_from_jwt: a NULL external_id is refused');
+
 -- get_userinfo() is the supported way in and is unaffected: it is SECURITY
 -- DEFINER and passes rbac.uid(), so it still provisions and refreshes the
 -- calling principal.
@@ -543,6 +561,31 @@ SELECT ok(NOT rbac.has_permission('user:read'),
     'memoized expansion: rewriting the list rebuilds rather than answering from the old one');
 
 SELECT set_config('app.oauth_scopes', '', true);
+
+-- =====================================================
+-- GROUP 11: an empty subject
+-- =====================================================
+-- An empty or NULL external_id is never the caller's own, so the target check
+-- sends it to the admin test first: an administrator gets the empty answer, a
+-- plain user is refused exactly as for any other principal. Nobody can tell
+-- from the answer whether such a user exists.
+SELECT authenticate_as('user3');
+
+SELECT is(rbac.get_user_by_external_id(''), NULL::bigint,
+    'get_user_by_external_id: an administrator asking for the empty subject gets NULL');
+SELECT is(rbac.get_user_by_external_id(NULL), NULL::bigint,
+    'get_user_by_external_id: an administrator asking for a NULL subject gets NULL');
+SELECT is((SELECT count(*)::int FROM rbac.get_user_permissions('')), 0,
+    'get_user_permissions: an administrator asking for the empty subject gets no rows');
+SELECT is((SELECT count(*)::int FROM rbac.get_user_permissions(NULL)), 0,
+    'get_user_permissions: an administrator asking for a NULL subject gets no rows');
+
+SELECT authenticate_as('user1');
+
+SELECT throws_ok($$SELECT rbac.get_user_by_external_id('')$$, '42501', NULL,
+    'get_user_by_external_id: a plain user is refused for the empty subject, not told it is empty');
+SELECT throws_ok($$SELECT * FROM rbac.get_user_permissions('')$$, '42501', NULL,
+    'get_user_permissions: a plain user is refused for the empty subject, not told it is empty');
 
 SELECT * FROM finish();
 ROLLBACK;

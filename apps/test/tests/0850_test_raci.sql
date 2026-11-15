@@ -5,9 +5,10 @@
 --   1. RACI system
 --   2. user_process_raci does not leak to non-admins
 --   3. no process gate on an is_a or has_a entity (90249)
+--   4. a request context that holds no user id
 BEGIN;
 
-SELECT plan(81);
+SELECT plan(85);
 
 -- =====================================================
 -- PART 1: RACI system
@@ -1002,6 +1003,48 @@ SELECT throws_ok(
        SELECT id, 'rg_deals', 'approval', 'won', 'stage' FROM processes WHERE process_key = 'fam_deal' $$,
     '90249', NULL,
     'a process gate on an is_a entity is refused');
+
+-- =====================================================
+-- PART 4: a request context that holds no user id
+-- =====================================================
+-- is_raci_actor and has_consultation read the caller's id from the cached
+-- request context. A context that is marked initialized for the caller's subject
+-- but carries no id cannot name a participant, so both answer FALSE, the same
+-- answer a non-participant gets, and neither raises. The app.* settings are
+-- ordinary GUCs, so a direct SQL session can produce this state. Each call is
+-- first made against the intact context as a control: user3 is accountable for
+-- the make_offer gate and the consulted event of probe_a has been acted.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+SELECT is(
+    is_raci_actor('raci_probe', 'approved', 'accountable'),
+    TRUE,
+    'control: is_raci_actor is TRUE for the accountable user from an intact context'
+);
+
+SELECT is(
+    has_consultation('raci_probe', 'approved', (SELECT a_id::text FROM _rp)),
+    TRUE,
+    'control: has_consultation is TRUE for a participant from an intact context'
+);
+
+-- The context stays initialized for user3; only the cached id is blank.
+SELECT set_config('app.current_user_id', '', true);
+
+SELECT is(
+    is_raci_actor('raci_probe', 'approved', 'accountable'),
+    FALSE,
+    'is_raci_actor is FALSE when the cached context holds no user id'
+);
+
+SELECT is(
+    has_consultation('raci_probe', 'approved', (SELECT a_id::text FROM _rp)),
+    FALSE,
+    'has_consultation is FALSE when the cached context holds no user id'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

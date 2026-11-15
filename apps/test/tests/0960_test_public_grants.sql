@@ -14,9 +14,11 @@
 --   3. a table created by hand is invisible to the request role
 --   4. a table the dictionary created is reachable, sequence included
 --   5. adoption secures a hand-made table: RLS, four policies, the grants
+--   6. the internal tables _settings and _apikeys cannot be registered as
+--      entities or adopted, so adoption never opens them
 BEGIN;
 
-SELECT plan(17);
+SELECT plan(27);
 
 -- =====================================================
 -- TEST 1: no default privilege on tables or sequences in public
@@ -289,6 +291,153 @@ SELECT ok(
     AND has_sequence_privilege('semantius_user',
             pg_get_serial_sequence('public.grant_probe_secured', 'id'), 'USAGE'),
     'adoption grants the request role the table and its sequence here too'
+);
+
+-- =====================================================
+-- TEST 6: the internal tables are not entities
+-- =====================================================
+-- _settings and _apikeys are protected by having no permission model at all:
+-- one deny-all policy, and SECURITY DEFINER functions as the only readers
+-- (0390_test_rbac_write_protection.sql pins that nobody is exempt, an
+-- administrator included). Registering either as an entity gives it one.
+-- Created managed, or registered unmanaged and then flipped, the table gets
+-- the four permission policies, and PostgreSQL ORs them with the deny-all one,
+-- so every holder of the entity's view_permission reads the system settings
+-- or the API key hashes through the Data API. The two audit logs have the same
+-- problem for their write side and are refused at the flip
+-- (0200_audit_log.sql); these two have nothing to offer an entity at any stage,
+-- so the registration itself is refused, managed or not.
+--
+-- Each attempt declares the key and a label column the table really has, so
+-- the refusal a mismatched key gets from dd_check_id_column (90235) cannot
+-- stand in for the one asserted here.
+--
+-- An attempt runs in a subtransaction that is always rolled back, whatever
+-- came of it, and reports from inside what it saw: the SQLSTATE, or 'accepted',
+-- and how many rows of the table the caller could read once the statements had
+-- run (after the rollback when they were refused). Undoing an accepted
+-- registration by deleting the entity row is not an option: for a managed
+-- entity that drops the table.
+
+RESET ROLE;
+
+CREATE FUNCTION pg_temp.registration_attempt(p_table TEXT, p_sql TEXT) RETURNS JSONB AS $$
+DECLARE
+    v_code    TEXT;
+    v_message TEXT;
+    v_rows    BIGINT;
+BEGIN
+    BEGIN
+        EXECUTE p_sql;
+        EXECUTE format('SELECT count(*) FROM public.%I', p_table) INTO v_rows;
+        RAISE EXCEPTION USING ERRCODE = 'ZZ001', MESSAGE = v_rows::text;
+    EXCEPTION
+        WHEN SQLSTATE 'ZZ001' THEN
+            RETURN jsonb_build_object('code', 'accepted', 'rows_readable', SQLERRM::bigint);
+        WHEN OTHERS THEN
+            v_code := SQLSTATE;
+            v_message := SQLERRM;
+    END;
+    EXECUTE format('SELECT count(*) FROM public.%I', p_table) INTO v_rows;
+    RETURN jsonb_build_object('code', v_code, 'message', v_message, 'rows_readable', v_rows);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Both tables hold a row, so "reads no row" below is not true of an empty table.
+SELECT ok(
+    EXISTS (SELECT 1 FROM _settings) AND EXISTS (SELECT 1 FROM _apikeys),
+    'setup: _settings and _apikeys each hold at least one row'
+);
+
+SELECT authenticate_as('user3');
+
+CREATE TEMP TABLE registration_outcome AS
+SELECT a.attempt, a.tbl, pg_temp.registration_attempt(a.tbl, a.sql) AS outcome
+FROM (VALUES
+    ('managed', '_settings', $q$
+        INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, id_type, label_column)
+        VALUES ('_settings', '_setting', 'Setting', 'Settings', 'registration probe', 1, 'public:read', 'admin', 'name', 'text', 'value') $q$),
+    ('unmanaged', '_settings', $q$
+        INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, id_type, label_column, managed)
+        VALUES ('_settings', '_setting', 'Setting', 'Settings', 'registration probe', 1, 'public:read', 'admin', 'name', 'text', 'value', false) $q$),
+    ('adopted', '_settings', $q$
+        INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, id_type, label_column, managed)
+        VALUES ('_settings', '_setting', 'Setting', 'Settings', 'registration probe', 1, 'public:read', 'admin', 'name', 'text', 'value', false);
+        UPDATE entities SET managed = true WHERE table_name = '_settings' $q$),
+    ('managed', '_apikeys', $q$
+        INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, id_type, label_column)
+        VALUES ('_apikeys', '_apikey', 'API Key', 'API Keys', 'registration probe', 1, 'public:read', 'admin', 'id', 'auto_increment', 'description') $q$),
+    ('unmanaged', '_apikeys', $q$
+        INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, id_type, label_column, managed)
+        VALUES ('_apikeys', '_apikey', 'API Key', 'API Keys', 'registration probe', 1, 'public:read', 'admin', 'id', 'auto_increment', 'description', false) $q$),
+    ('adopted', '_apikeys', $q$
+        INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, id_type, label_column, managed)
+        VALUES ('_apikeys', '_apikey', 'API Key', 'API Keys', 'registration probe', 1, 'public:read', 'admin', 'id', 'auto_increment', 'description', false);
+        UPDATE entities SET managed = true WHERE table_name = '_apikeys' $q$)
+) AS a(attempt, tbl, sql);
+
+RESET ROLE;
+
+SELECT matches(
+    (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_settings' AND attempt = 'managed'),
+    '^90',
+    'registering _settings as a managed entity is refused'
+);
+
+SELECT matches(
+    (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_settings' AND attempt = 'unmanaged'),
+    '^90',
+    'registering _settings as an unmanaged entity is refused'
+);
+
+SELECT matches(
+    (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_settings' AND attempt = 'adopted'),
+    '^90',
+    'registering _settings unmanaged and flipping it to managed is refused'
+);
+
+SELECT matches(
+    (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_apikeys' AND attempt = 'managed'),
+    '^90',
+    'registering _apikeys as a managed entity is refused'
+);
+
+SELECT matches(
+    (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_apikeys' AND attempt = 'unmanaged'),
+    '^90',
+    'registering _apikeys as an unmanaged entity is refused'
+);
+
+SELECT matches(
+    (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_apikeys' AND attempt = 'adopted'),
+    '^90',
+    'registering _apikeys unmanaged and flipping it to managed is refused'
+);
+
+-- What the refusal is for. Written as a list of the attempts that opened the
+-- table, so a failure says which ones.
+SELECT is(
+    (SELECT string_agg(attempt, ', ' ORDER BY attempt) FROM registration_outcome
+      WHERE tbl = '_settings' AND (outcome ->> 'rows_readable')::bigint <> 0),
+    NULL,
+    'no attempt leaves a row of _settings readable by the request role'
+);
+
+SELECT is(
+    (SELECT string_agg(attempt, ', ' ORDER BY attempt) FROM registration_outcome
+      WHERE tbl = '_apikeys' AND (outcome ->> 'rows_readable')::bigint <> 0),
+    NULL,
+    'no attempt leaves a row of _apikeys readable by the request role'
+);
+
+SELECT is(
+    (SELECT count(*)::text FROM entities WHERE table_name IN ('_settings', '_apikeys'))
+    || ' / '
+    || (SELECT string_agg(tablename || '.' || policyname, ', ' ORDER BY tablename, policyname)
+          FROM pg_policies
+         WHERE schemaname = 'public' AND tablename IN ('_settings', '_apikeys')),
+    '0 / _apikeys.apikeys_deny_all, _settings.settings_deny_all',
+    'after the attempts neither table is an entity and each carries its deny-all policy alone'
 );
 
 SELECT * FROM finish();

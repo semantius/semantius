@@ -5,9 +5,10 @@
 --   1. get_schema()
 --   2. get_schemas()
 --   3. get_schema of is_a and has_a entities
+--   4. get_schema_children()
 BEGIN;
 
-SELECT plan(166);
+SELECT plan(175);
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -1332,6 +1333,20 @@ SELECT is(
     'get_schemas() single-table result should match get_schema() output exactly'
 );
 
+-- Blank entries (a leading, repeated or trailing comma, or a lone space) are
+-- skipped and never looked up as a table named ''
+SELECT is(
+    json_array_length(public.get_schemas(' , ')),
+    0,
+    'get_schemas() with only blank entries should return an empty array'
+);
+
+SELECT is(
+    (public.get_schemas(',customers, ,')::jsonb),
+    jsonb_build_array(public.get_schema('customers')::jsonb),
+    'get_schemas() should skip blank entries around a table name'
+);
+
 -- =====================================================
 -- TEST: get_schemas() raises errors for missing/inaccessible tables
 -- =====================================================
@@ -1445,6 +1460,79 @@ SELECT authenticate_as('user1');
 SELECT throws_ok($$ SELECT public.get_schema('gs_vendors') $$,
     '42P01', NULL,
     'family schema: the view permission of every level gates the schema');
+
+-- =====================================================
+-- PART 4: get_schema_children()
+-- =====================================================
+-- The children of a table are the fields of other tables that point at it with
+-- format 'parent'. They are part of what get_schema() shows about the parent,
+-- and the function is callable on its own. The caller sees a child only when
+-- the caller may see the child's table (its view_permission): a child the
+-- caller may not view is not described to them, and a parent the caller may
+-- not view lists no children.
+--
+-- Fixtures: the persisted orders (view nwind:view) with its child order_details,
+-- and an ephemeral parent gsc_parent (public:read) with two children, gsc_open
+-- (public:read) and gsc_closed (admin). user2 holds nwind:view, user1 holds
+-- neither it nor admin.
+--
+-- pg_temp.child_ids reports the child field ids the function returns, or the
+-- SQLSTATE it raised, so a refusal shows up in the assertion and does not abort
+-- the file.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.child_ids(p_table TEXT) RETURNS TEXT AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT string_agg(c ->> 'id', ', ' ORDER BY c ->> 'id')
+           FROM json_array_elements(public.get_schema_children(p_table)) AS c),
+        '');
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission)
+VALUES ('gsc_parent', 'Child Probe Parent', 'Child Probe Parents', 1, 'public:read'),
+       ('gsc_open',   'Open Child',         'Open Children',       1, 'public:read'),
+       ('gsc_closed', 'Closed Child',       'Closed Children',     1, 'admin');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('gsc_open',   'parent_id', 'Parent', 'parent', 'gsc_parent', 'cascade', 30),
+       ('gsc_closed', 'parent_id', 'Parent', 'parent', 'gsc_parent', 'cascade', 30);
+
+SELECT is(pg_temp.child_ids('gsc_parent'), 'gsc_closed.parent_id, gsc_open.parent_id',
+    'get_schema_children: an administrator sees every child of the parent');
+
+SELECT authenticate_as('user2');
+SELECT is(pg_temp.child_ids('orders'), 'order_details.order_id',
+    'get_schema_children: a caller who may view the parent and the child sees the child');
+
+SELECT is(pg_temp.child_ids('gsc_parent'), 'gsc_open.parent_id',
+    'get_schema_children: a child the caller may not view is not listed');
+
+SELECT authenticate_as('user1');
+SELECT is(pg_temp.child_ids('gsc_parent'), 'gsc_open.parent_id',
+    'get_schema_children: a plain user sees only the child it may view');
+
+SELECT is(pg_temp.child_ids('orders'), '',
+    'get_schema_children: a caller who may not view the parent or the child sees no child');
+
+SELECT is(pg_temp.child_ids('no_such_table'), '',
+    'get_schema_children: a table that is nobody''s parent has no children');
+
+-- No claims at all: the authentication gate refuses before anything is read.
+RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', '', true);
+SELECT set_config('request.jwt.claim.role', '', true);
+SELECT set_config('app.context_initialized', '', true);
+SELECT set_config('app.current_external_id', '', true);
+SET ROLE semantius_user;
+SELECT is(pg_temp.child_ids('orders'), 'raised 42501',
+    'get_schema_children: a session without claims is refused');
 
 SELECT * FROM finish();
 ROLLBACK;

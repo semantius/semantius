@@ -13,9 +13,10 @@
 --   5. Through rollups: a child's rule, a computed field over a rollup
 --   6. is_a and has_a entities
 --   7. A required field: a rule that fills it, a rule that leaves a record without a value
+--   8. An entity the dictionary does not manage, and a name that is no entity
 BEGIN;
 
-SELECT plan(57);
+SELECT plan(63);
 
 -- =====================================================
 -- PART 1: An upgrade through ensure_entities
@@ -345,6 +346,61 @@ $$;
 SELECT throws_ok(pg_temp.cb_rsub_refused(), '90908', NULL, 'is_a: a rule that leaves a record without a value refuses the change');
 SELECT is(catch_error_hint(pg_temp.cb_rsub_refused()) ->> 'cause_code', '90258', 'is_a: and the required check as the cause');
 SELECT is((SELECT string_agg(rv, ' ' ORDER BY label) FROM cb_rsub), 'R-n R-', 'is_a: no record moved');
+
+-- =====================================================
+-- PART 8: An entity the dictionary does not manage
+-- =====================================================
+-- A pass belongs to a managed entity. An unmanaged entity registered over a
+-- table that already exists gets no rule function and no trigger, and its
+-- records are not the dictionary's to write, so saving a rule on it changes
+-- none of them; the same rule fills them as soon as the entity is managed. A
+-- name that is no entity at all is the same no-op. The function is the
+-- owner's, so the calls are made after RESET ROLE.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT lives_ok($$ SELECT public.computed_backfill('cb_no_such_entity') $$,
+    'no entity: a pass over a name the dictionary does not know does nothing and raises nothing');
+
+CREATE TABLE public.cb_hand (id bigserial PRIMARY KEY, label text NOT NULL DEFAULT '',
+                             base int NOT NULL DEFAULT 0, calc int NOT NULL DEFAULT 0);
+-- The dictionary's own routines run as semantius_owner where owner hardening is
+-- in place, and adopt only a table that role owns.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
+        ALTER TABLE public.cb_hand OWNER TO semantius_owner;
+        ALTER SEQUENCE public.cb_hand_id_seq OWNER TO semantius_owner;
+    END IF;
+END $$;
+INSERT INTO public.cb_hand (label, base) VALUES ('h1', 5), ('h2', 7);
+
+SELECT authenticate_as('user3');
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, managed)
+VALUES ('cb_hand', 'cb_hand', 'CB Hand', 'CB Hands', 1, FALSE);
+
+SELECT lives_ok(
+    $$UPDATE entities
+         SET computed_fields = '[{"name": "calc", "jsonlogic": {"*": [{"var": "base"}, 2]}}]'
+       WHERE table_name = 'cb_hand'$$,
+    'unmanaged: saving a rule on an entity over an existing table is accepted');
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is((SELECT string_agg(label || '=' || calc, ' ' ORDER BY label) FROM cb_hand), 'h1=0 h2=0',
+    'unmanaged: and no pass wrote the records');
+SELECT ok(
+    to_regprocedure('common.record_rules_cb_hand(text, jsonb, jsonb)') IS NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.cb_hand'::regclass AND tgname = 'compute_validate_trigger'),
+    'unmanaged: and no rule function or trigger was built');
+
+SELECT authenticate_as('user3');
+SELECT lives_ok($$UPDATE entities SET managed = TRUE WHERE table_name = 'cb_hand'$$,
+    'managed: the entity over the existing table is switched to managed');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is((SELECT string_agg(label || '=' || calc, ' ' ORDER BY label) FROM cb_hand), 'h1=10 h2=14',
+    'managed: the same rule fills the existing records once the entity is managed');
 
 SELECT * FROM finish();
 ROLLBACK;

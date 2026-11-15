@@ -1,11 +1,17 @@
 -- Tests for entities.computed_fields and entities.validation_rules.
 -- Verifies trigger generation, computed-field evaluation on INSERT/UPDATE,
 -- reserved variables ($today, $now, $user_id), and validation-rule enforcement.
--- The last part covers the rules of an is_a entity, which run over the whole
--- record inside its write routine.
+-- Then the rule itself: the save refuses an unknown operator and a validation
+-- rule that is not one operator object, an error a rule raises on a write
+-- keeps its identity, and a stored rule with an unknown operator still builds
+-- and raises on a write.
+-- The next part covers the rules of an is_a entity, which run over the whole
+-- record inside its write routine. The last parts cover the definition errors
+-- a save raises, the hint merge the generated trigger relies on, and the
+-- builder where no entity row backs it.
 BEGIN;
 
-SELECT plan(56);
+SELECT plan(84);
 
 SELECT authenticate_as('user3');
 
@@ -318,37 +324,104 @@ SELECT is(
     '$old.label contains previous label value on second UPDATE');
 
 -- =====================================================
--- Test 2: invalid jsonlogic surfaces with rule name on evaluation
+-- A rule is checked when the entity is saved
 -- =====================================================
+-- An operator the interpreter does not know raises on the first write that
+-- reaches it, inside a trigger, on a record that has nothing to do with the
+-- mistake. A validation rule that is not one operator object is worse: the
+-- interpreter reads an object with two keys as data, data is truthy, and the
+-- rule passes every record. So the save refuses both, wherever in the rule the
+-- operator stands, on an insert and on an update alike. Each save names an
+-- entity of its own, so a save that goes through changes nothing another
+-- assertion reads.
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, computed_fields)
+        VALUES ('cv_save_computed', 'cv_save_computed', 'Save Computed', 'Save Computeds', 'Refused at save', 1,
+                '[{"name": "broken", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb)$$) ->> 'code',
+    '^909',
+    'save: a computed field with an unknown operator is refused');
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, computed_fields)
+        VALUES ('cv_save_nested', 'cv_save_nested', 'Save Nested', 'Save Nesteds', 'Refused at save', 1,
+                '[{"name": "broken", "jsonlogic": {"if": [{"var": "label"}, {"unknown_op": [1, 2]}, null]}}]'::jsonb)$$) ->> 'code',
+    '^909',
+    'save: an unknown operator below the top of a rule is refused as well');
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_save_rule_op', 'cv_save_rule_op', 'Save Rule Op', 'Save Rule Ops', 'Refused at save', 1,
+                '[{"code": "99030", "message": "m", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb)$$) ->> 'code',
+    '^909',
+    'save: a validation rule with an unknown operator is refused');
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_save_rule_shape', 'cv_save_rule_shape', 'Save Rule Shape', 'Save Rule Shapes', 'Refused at save', 1,
+                '[{"code": "99031", "message": "m", "jsonlogic": {"==": [1, 1], "x": 2}}]'::jsonb)$$) ->> 'code',
+    '^909',
+    'save: a validation rule that is an object with two keys is refused');
+
+SELECT is(
+    ARRAY(SELECT n
+            FROM unnest(ARRAY['cv_save_computed', 'cv_save_nested', 'cv_save_rule_op', 'cv_save_rule_shape']) AS n
+           WHERE EXISTS (SELECT 1 FROM entities WHERE table_name = n)
+              OR to_regclass('public.' || n) IS NOT NULL),
+    '{}'::text[],
+    'save: a refused insert leaves neither the entity row nor its table behind');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('cv_save_update', 'cv_save_update', 'Save Update', 'Save Updates', 'Refused at update',
+    1, 'public:read', 'admin', 'id', 'label');
+
+SELECT matches(
+    catch_error($$UPDATE entities
+        SET validation_rules = '[{"code": "99032", "message": "m", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb
+      WHERE table_name = 'cv_save_update'$$) ->> 'code',
+    '^909',
+    'save: the same refusal when a rule is added to an existing entity');
+
+SELECT is(
+    (SELECT validation_rules FROM entities WHERE table_name = 'cv_save_update'),
+    '[]'::jsonb,
+    'save: and the refused update leaves the entity without the rule');
+
+-- =====================================================
+-- An error of ours raised by a rule on a write
+-- =====================================================
+-- A rule that is sound when saved can still fail on a record: date_add over a
+-- label that is no date. The generated trigger adds where an error happened
+-- and changes nothing else. An error of class 90 is one of ours, so it travels
+-- as itself, keys and all, because the number is already the whole identity;
+-- and the message is the evaluator's own, unprefixed, because the message is
+-- what a client falls back to when it has no translation for the code, and a
+-- prefix is an interpolation. docs/error-contract.md, "The generated trigger".
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column,
     computed_fields)
-VALUES ('cv_bad_logic_test', 'cv_bad', 'Bad', 'Bad', 'Bad logic',
+VALUES ('cv_passthrough_test', 'cv_passthrough', 'Passthrough', 'Passthroughs', 'Rule failing on the record',
     1, 'public:read', 'admin', 'id', 'label',
-    '[
-        {"name": "broken", "jsonlogic": {"unknown_op": [1, 2]}}
-    ]'::jsonb);
+    '[{"name": "due", "jsonlogic": {"date_add": [{"var": "label"}, 1, "day"]}}]'::jsonb);
 
 INSERT INTO fields (table_name, field_name, title, format, field_order)
-VALUES ('cv_bad_logic_test', 'broken', 'Broken', 'text', 10);
+VALUES ('cv_passthrough_test', 'due', 'Due', 'text', 10);
 
--- The wrapper adds where the error happened and changes nothing else: the
--- message is the evaluator's own, unprefixed, because the message is what a
--- client falls back to when it has no translation for the code, and a prefix
--- is an interpolation. docs/error-contract.md, "The generated trigger".
 SELECT is(
-    catch_error($$INSERT INTO cv_bad_logic_test (label) VALUES ('boom')$$) ->> 'message',
-    'Unrecognized operation: ${op}',
-    'Evaluation error in a computed field keeps its own message, unprefixed');
+    catch_error($$INSERT INTO cv_passthrough_test (label) VALUES ('boom')$$) - 'hint',
+    '{"code": "90915", "message": "${operator} needs an ISO 8601 date or date-time, not ${value}", "details": ""}'::jsonb,
+    'A class 90 error out of a computed field keeps its code and its own message, unprefixed');
 
--- An unknown operator is one of ours, so it travels as itself: class 90 is
--- passed through untouched, keys and all, because the number is already the
--- whole identity.
 SELECT is(
-    catch_error_hint($$INSERT INTO cv_bad_logic_test (label) VALUES ('boom')$$),
-    '{"op": "unknown_op"}'::jsonb,
-    'A class 90 error out of a computed field passes through untouched');
+    catch_error_hint($$INSERT INTO cv_passthrough_test (label) VALUES ('boom')$$),
+    '{"operator": "date_add", "value": "boom"}'::jsonb,
+    'A class 90 error out of a computed field keeps its hint, with no key added');
 
 -- PostgreSQL's own errors do get stamped, because nothing else in them says
 -- which rule produced them. Modulo by zero is the shortest way to raise one
@@ -367,6 +440,50 @@ SELECT is(
     catch_error_hint($$INSERT INTO cv_divzero_test (label) VALUES ('boom')$$),
     '{"entity": "cv_divzero_test", "field": "ratio"}'::jsonb,
     'A PostgreSQL error out of a computed field is stamped with the entity and the field');
+
+-- =====================================================
+-- A stored rule with an unknown operator
+-- =====================================================
+-- A rule can be in the dictionary without having passed a save: a restored
+-- dump, or a row written while the triggers of entities are off, which is how
+-- this one gets there. The builder installs the rule as it stands, so the
+-- entity can still be rebuilt, by a rename or a change of managed, and the
+-- operator surfaces where the rule is evaluated: a write raises the
+-- interpreter's own error, which passes through like any other of class 90.
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('cv_stored_op_test', 'cv_stored_op', 'Stored Op', 'Stored Ops', 'Rule stored past the save',
+    1, 'public:read', 'admin', 'id', 'label');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('cv_stored_op_test', 'broken', 'Broken', 'text', 10);
+
+-- Turning the triggers of entities off takes its owner, and the builder is the
+-- owner's as well.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+ALTER TABLE entities DISABLE TRIGGER USER;
+UPDATE entities
+   SET computed_fields = '[{"name": "broken", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb
+ WHERE table_name = 'cv_stored_op_test';
+ALTER TABLE entities ENABLE TRIGGER USER;
+
+SELECT lives_ok($$SELECT public.build_record_logic_trigger('cv_stored_op_test')$$,
+    'stored rule: the builder installs a rule with an unknown operator as it stands');
+
+SELECT authenticate_as('user3');
+
+SELECT is(
+    catch_error($$INSERT INTO cv_stored_op_test (label) VALUES ('boom')$$) - 'hint',
+    '{"code": "90910", "message": "Unrecognized operation: ${op}", "details": ""}'::jsonb,
+    'stored rule: a write raises the unknown operator under its own code and message, unprefixed');
+
+SELECT is(
+    catch_error_hint($$INSERT INTO cv_stored_op_test (label) VALUES ('boom')$$),
+    '{"op": "unknown_op"}'::jsonb,
+    'stored rule: and its hint names the operator, with no key added');
 
 -- =====================================================
 -- An error raised inside a validation rule keeps its identity
@@ -635,6 +752,181 @@ SELECT ok(
     AND (SELECT prosecdef FROM pg_proc WHERE oid = 'common.record_rules_rl_premium(text, jsonb, jsonb)'::regprocedure)
     AND to_regprocedure('public.compute_validate_rl_premium()') IS NULL,
     'is_a rules: the root keeps its rule trigger; the subtype''s rules are a SECURITY DEFINER function and no trigger');
+
+-- =====================================================
+-- A rule with a required key missing is refused when the entity is saved
+-- =====================================================
+-- The trigger builder checks the shape of each element before it writes
+-- anything, so the save that would install a broken rule fails with the
+-- catalog code of the missing key, the index of the element and the entity,
+-- and the change is not made. A name or a code that is present but empty counts
+-- as missing. Each assertion compares the code, the message and the parsed
+-- hint; the DETAIL is empty for all of them.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+CREATE FUNCTION pg_temp.cv_refusal(p_sql TEXT) RETURNS JSONB LANGUAGE sql AS $$
+    SELECT (catch_error(p_sql) - 'details') || jsonb_build_object('hint', catch_error_hint(p_sql))
+$$;
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    validation_rules)
+VALUES ('cv_shape_probe', 'cv_shape_probe', 'Shape Probe', 'Shape Probes', 'Rule-shape probe',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"code": "99020", "message": "kept", "jsonlogic": true}]'::jsonb);
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET computed_fields = '[{"name": "a", "jsonlogic": true}, {"jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90900", "message": "computed_fields[${index}] on ${table} is missing required \"name\"",
+      "hint": {"index": 1, "table": "cv_shape_probe"}}'::jsonb,
+    '90900: a computed field without a name is refused, naming its index and the entity');
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET computed_fields = '[{"name": "", "jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90900", "message": "computed_fields[${index}] on ${table} is missing required \"name\"",
+      "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
+    '90900: an empty name counts as missing');
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET computed_fields = '[{"name": "a"}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90901", "message": "computed_fields[${index}] on ${table} is missing required \"jsonlogic\"",
+      "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
+    '90901: a computed field without a rule is refused');
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET validation_rules = '[{"code": "99020", "message": "m", "jsonlogic": true}, {"message": "m", "jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90902", "message": "validation_rules[${index}] on ${table} is missing required \"code\"",
+      "hint": {"index": 1, "table": "cv_shape_probe"}}'::jsonb,
+    '90902: a validation rule without a code is refused, naming its index and the entity');
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET validation_rules = '[{"code": "", "message": "m", "jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90902", "message": "validation_rules[${index}] on ${table} is missing required \"code\"",
+      "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
+    '90902: an empty code counts as missing');
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET validation_rules = '[{"code": "99020", "jsonlogic": true}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90903", "message": "validation_rules[${index}] on ${table} is missing required \"message\"",
+      "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
+    '90903: a validation rule without a message is refused');
+
+SELECT is(
+    pg_temp.cv_refusal($$UPDATE entities
+        SET validation_rules = '[{"code": "99020", "message": "m"}]'::jsonb
+      WHERE table_name = 'cv_shape_probe'$$),
+    '{"code": "90904", "message": "validation_rules[${index}] on ${table} is missing required \"jsonlogic\"",
+      "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
+    '90904: a validation rule without a rule body is refused');
+
+SELECT ok(
+    (SELECT computed_fields = '[]'::jsonb
+        AND validation_rules = '[{"code": "99020", "message": "kept", "jsonlogic": true}]'::jsonb
+       FROM entities WHERE table_name = 'cv_shape_probe')
+    AND to_regprocedure('public.compute_validate_cv_shape_probe()') IS NOT NULL,
+    'the refused saves left the entity with the rules it had, and its trigger function in place');
+
+-- The same check on an insert: the new entity and its table are rolled back
+-- with the refused statement.
+SELECT is(
+    pg_temp.cv_refusal($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                                module_id, computed_fields)
+        VALUES ('cv_shape_new', 'cv_shape_new', 'Shape New', 'Shape News', 'Refused at insert', 1,
+                '[{"jsonlogic": true}]'::jsonb)$$),
+    '{"code": "90900", "message": "computed_fields[${index}] on ${table} is missing required \"name\"",
+      "hint": {"index": 0, "table": "cv_shape_new"}}'::jsonb,
+    '90900: the same refusal on an insert');
+
+SELECT ok(
+    NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'cv_shape_new')
+    AND to_regclass('public.cv_shape_new') IS NULL,
+    'and a refused insert leaves neither the entity row nor its table behind');
+
+-- =====================================================
+-- The hint of an error being re-raised
+-- =====================================================
+-- jl_error_hint merges the locating keys into the hint of an error a rule
+-- raised. A hint that is not a JSON object - PostgreSQL's own advice is plain
+-- text, and text that opens with a brace can still be malformed - is kept as
+-- the "hint" key, and an object keeps every key it already has, so the entity
+-- of the innermost failure wins. The function is the owner's.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT is(
+    public.jl_error_hint('Check the argument types', '{"entity": "e", "field": "f"}'::jsonb)::jsonb,
+    '{"hint": "Check the argument types", "entity": "e", "field": "f"}'::jsonb,
+    'a plain-text hint is kept under "hint" next to the added keys');
+
+SELECT is(
+    public.jl_error_hint('{oops', '{"entity": "e", "field": "f"}'::jsonb)::jsonb,
+    '{"hint": "{oops", "entity": "e", "field": "f"}'::jsonb,
+    'text that opens with a brace and is not JSON is kept as text too, and the cast failure raises nothing');
+
+SELECT is(
+    public.jl_error_hint('[1, 2]', '{"entity": "e", "field": "f"}'::jsonb)::jsonb,
+    '{"hint": "[1, 2]", "entity": "e", "field": "f"}'::jsonb,
+    'JSON that is not an object is kept as text as well');
+
+SELECT is(
+    public.jl_error_hint('{"entity": "inner", "code": "90101"}', '{"entity": "outer", "rule": "r"}'::jsonb)::jsonb,
+    '{"entity": "inner", "code": "90101", "rule": "r"}'::jsonb,
+    'an object hint keeps its own keys and gains only the missing ones');
+
+SELECT is(
+    public.jl_error_hint(NULL, '{"entity": "e", "rule": "r"}'::jsonb)::jsonb,
+    '{"entity": "e", "rule": "r"}'::jsonb,
+    'no hint at all gives just the added keys');
+
+-- =====================================================
+-- The builder asked about a name that is no entity
+-- =====================================================
+-- It drops whatever rule function and trigger function exist under that name
+-- and leaves. No entity can leave them behind, so they are made by hand as the
+-- owner; the builder runs as the dictionary's owner, which drops only what it
+-- owns.
+
+CREATE FUNCTION public.compute_validate_cv_stale() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN RETURN NEW; END;
+$$;
+CREATE FUNCTION common.record_rules_cv_stale(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb
+    LANGUAGE sql AS $$ SELECT p_data $$;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'semantius_owner') THEN
+        ALTER FUNCTION public.compute_validate_cv_stale() OWNER TO semantius_owner;
+        ALTER FUNCTION common.record_rules_cv_stale(text, jsonb, jsonb) OWNER TO semantius_owner;
+    END IF;
+END $$;
+
+SELECT ok(
+    to_regprocedure('public.compute_validate_cv_stale()') IS NOT NULL
+    AND to_regprocedure('common.record_rules_cv_stale(text, jsonb, jsonb)') IS NOT NULL,
+    'no entity: the stale trigger function and rule function exist before the builder runs');
+
+SELECT lives_ok($$ SELECT public.build_record_logic_trigger('cv_stale') $$,
+    'no entity: the builder accepts a name the dictionary does not know');
+
+SELECT ok(
+    to_regprocedure('public.compute_validate_cv_stale()') IS NULL
+    AND to_regprocedure('common.record_rules_cv_stale(text, jsonb, jsonb)') IS NULL,
+    'no entity: and drops both generated functions');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -19,7 +19,7 @@
 
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(35);
 
 -- Admin user (can write entities/fields and managed tables).
 SELECT authenticate_as('user3');
@@ -267,6 +267,71 @@ SELECT lives_ok($$ INSERT INTO order_rn2 (label) VALUES ('r1') $$,
 
 SELECT is((SELECT position2 FROM order_rn2 WHERE label = 'r1'), 10,
     'after a rename, a changed order_column gets its positions assigned');
+
+-- =====================================================
+-- A multi-row insert numbers its rows one after the other
+-- =====================================================
+-- The auto-assign trigger runs once per row, and each run reads the rows the
+-- statement has already written, so rows that bring no position line up behind
+-- each other (and behind a row of the same statement that brings one) instead
+-- of all taking the same number.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, view_permission, edit_permission, order_column)
+VALUES ('order_multi', 'order_multi', 'Order Multi', 'Order Multis', 1, 'public:read', 'nwind:manage', 'sort_order');
+
+INSERT INTO order_multi (label) VALUES ('m1'), ('m2'), ('m3');
+
+SELECT is(
+    (SELECT string_agg(label || ':' || sort_order, ', ' ORDER BY sort_order) FROM order_multi),
+    'm1:10, m2:20, m3:30',
+    'a multi-row insert without positions numbers its rows 10, 20, 30');
+
+INSERT INTO order_multi (label, sort_order) VALUES ('m4', 100), ('m5', 0), ('m6', 0);
+
+SELECT is(
+    (SELECT string_agg(label || ':' || sort_order, ', ' ORDER BY sort_order) FROM order_multi WHERE label IN ('m4', 'm5', 'm6')),
+    'm4:100, m5:110, m6:120',
+    'rows without a position continue behind a row of the same statement that brings one');
+
+INSERT INTO order_multi (label) SELECT 's' || g FROM generate_series(1, 3) AS g;
+
+SELECT is(
+    (SELECT string_agg(label || ':' || sort_order, ', ' ORDER BY sort_order) FROM order_multi WHERE label LIKE 's%'),
+    's1:130, s2:140, s3:150',
+    'an INSERT ... SELECT of several rows numbers them the same way');
+
+-- The fields entity numbers per table_name, also within one statement.
+INSERT INTO fields (table_name, field_name, title, format)
+VALUES ('order_multi', 'a1', 'A1', 'text'), ('order_multi', 'a2', 'A2', 'text'), ('order_multi', 'a3', 'A3', 'text');
+
+SELECT is(
+    (SELECT string_agg(field_name || ':' || field_order, ', ' ORDER BY field_order) FROM fields
+      WHERE table_name = 'order_multi' AND field_name IN ('a1', 'a2', 'a3')),
+    'a1:30, a2:40, a3:50',
+    'a multi-row insert of fields continues the entity''s own sequence');
+
+-- =====================================================
+-- An unmanaged entity gets its order column when it becomes managed
+-- =====================================================
+-- With no table yet there is nothing to provision at insert, and nothing may
+-- fail for it; the column and the trigger arrive with the table.
+SELECT lives_ok(
+    $$INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, view_permission, edit_permission, managed, order_column)
+      VALUES ('order_unm', 'order_unm', 'Order Unmanaged', 'Order Unmanageds', 1, 'public:read', 'nwind:manage', FALSE, 'sort_order')$$,
+    'an unmanaged entity can be created with an order_column');
+
+SELECT hasnt_table('public', 'order_unm', 'and no table exists for it');
+
+UPDATE entities SET managed = TRUE WHERE table_name = 'order_unm';
+
+SELECT pgtap.has_column('public', 'order_unm', 'sort_order',
+    'becoming managed provisions the order column');
+
+INSERT INTO order_unm (label) VALUES ('u1'), ('u2');
+
+SELECT is(
+    (SELECT string_agg(label || ':' || sort_order, ', ' ORDER BY sort_order) FROM order_unm),
+    'u1:10, u2:20',
+    'and the auto-assign trigger numbers the rows');
 
 SELECT * FROM finish();
 

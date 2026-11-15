@@ -13,7 +13,7 @@
 -- request role gains SELECT on a queue table.
 BEGIN;
 
-SELECT plan(3);
+SELECT plan(4);
 
 SELECT is_empty(
     $$SELECT
@@ -113,6 +113,53 @@ SELECT is_empty(
         AND dep.objid IS NULL
         AND p.prosrc LIKE E'%\r%'$$,
     'No function body should contain a carriage return (all install paths normalize to LF)'
+);
+
+-- No function may build another function's body inside a dollar tag it wrote
+-- down itself. A generator hands its CREATE FUNCTION to EXECUTE as the owner,
+-- and text an administrator wrote (a default value, a rule, a message, a
+-- label) reaches the generated body through %L or quote_literal. Those protect
+-- the single-quote context only: a dollar-quoted body ends at the first
+-- occurrence of its tag wherever that is, a quoted literal included, so
+-- metadata that contains the tag ends the body early and the rest of the text
+-- runs as SQL of the owner. The tag therefore has to be one the body cannot
+-- contain, which is what dd_dollar_quote (0210_computed_validation.sql)
+-- derives from the body itself.
+--
+-- pg_proc.prosrc holds a function's body without its own delimiters, so
+-- `AS $tag$` in it can only be the opening of a body the function writes for
+-- another one. The empty tag counts: `$$` is as fixed as a named one. A
+-- generator that passes its body through dd_dollar_quote reads `AS %s` and
+-- does not match, and neither does a named tag that only quotes a format
+-- template (`format($FUNC$ ... AS %s $FUNC$, ...)`): that tag is closed before
+-- any metadata is spliced in. Case-insensitive, because SQL keywords are.
+SELECT is_empty(
+    $$SELECT
+        jsonb_build_object(
+            'schema', n.nspname,
+            'name', p.proname,
+            'args', pg_catalog.pg_get_function_identity_arguments(p.oid)
+        ) AS metadata
+    FROM
+        pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n
+            ON p.pronamespace = n.oid
+        LEFT JOIN pg_catalog.pg_depend dep
+            ON p.oid = dep.objid
+            AND dep.deptype = 'e'
+    WHERE
+        n.nspname NOT IN (
+            '_timescaledb_cache', '_timescaledb_catalog', '_timescaledb_config',
+            '_timescaledb_internal', 'auth', 'cron', 'extensions', 'graphql',
+            'graphql_public', 'information_schema', 'net', 'pgmq', 'pgroonga',
+            'pgsodium', 'pgsodium_masks', 'pgtle', 'pgbouncer', 'pg_catalog',
+            'pgrst', 'pgtap', 'pgtle', 'realtime', 'repack', 'storage',
+            'supabase_functions', 'supabase_migrations', 'tiger', 'topology', 'vault'
+        )
+        AND dep.objid IS NULL
+        AND p.prosrc ~* '\mAS\s+\$[A-Za-z_0-9]*\$'
+    ORDER BY n.nspname, p.proname$$,
+    'No function should wrap a generated function body in a fixed dollar tag'
 );
 
 SELECT * FROM finish();

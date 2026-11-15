@@ -30,6 +30,10 @@
     [ {"==":["0",false]}, {}, true ],
     [ {"==":["1",true]}, {}, true ],
     [ {"==":["12",12]}, {}, true ],
+    "# == of an array or an object against an unrelated string: nothing is coerced to a number or a boolean, so they differ",
+    [ {"==":[[1,2],"x"]}, {}, false ],
+    [ {"==":[{"var":"o"},"x"]}, {"o":{"a":1}}, false ],
+    [ {"!=":[{"var":"o"},"x"]}, {"o":{"a":1}}, true ],
     [ {"===":[1,1]}, {}, true ],
     [ {"===":[1,"1"]}, {}, false ],
     [ {"===":[1,2]}, {}, false ],
@@ -39,6 +43,9 @@
     [ {"!==":[1,2]}, {}, true ],
     [ {"!==":[1,1]}, {}, false ],
     [ {"!==":[1,"1"]}, {}, true ],
+    "# === and !== given one argument compare it with a second one that is undefined",
+    [ {"===":[1]}, {}, false ],
+    [ {"!==":[1]}, {}, true ],
     [ {">":[2,1]}, {}, true ],
     [ {">":[1,1]}, {}, false ],
     [ {">":[1,2]}, {}, false ],
@@ -94,6 +101,13 @@
     [ {"in":["Milhouse",["Bart","Homer","Lisa","Marge","Maggie"]]}, {}, false ],
     [ {"in":["Spring","Springfield"]}, {}, true ],
     [ {"in":["i","team"]}, {}, false ],
+    "# in with a needle that is null or missing: JavaScript searches the string for the text 'null', which is not there. The empty string is found in every string",
+    [ {"in":[null,"abc"]}, {}, false ],
+    [ {"in":[{"var":"missing"},"abc"]}, {}, false ],
+    [ {"in":["","abc"]}, {}, true ],
+    "# in against something that is neither an array nor a string finds nothing",
+    [ {"in":[1,123]}, {}, false ],
+    [ {"in":["a",{"var":"o"}]}, {"o":{"a":1}}, false ],
     [ {"cat":"ice"}, {}, "ice" ],
     [ {"cat":["ice"]}, {}, "ice" ],
     [ {"cat":["ice","cream"]}, {}, "icecream" ],
@@ -111,6 +125,9 @@
     [ {"min":[1,1,3]}, {}, 1 ],
     [ {"min":[3,2,1]}, {}, 1 ],
     [ {"min":[1]}, {}, 1 ],
+    "# a fractional maximum or minimum is returned as it is",
+    [ {"max":[1,2.5]}, {}, 2.5 ],
+    [ {"min":[1.5,2]}, {}, 1.5 ],
 
     [ {"+":[1,2]}, {}, 3 ],
     [ {"+":[2,2,2]}, {}, 6 ],
@@ -124,6 +141,8 @@
     [ {"-":[3,2]}, {}, 1 ],
     [ {"-":[3]}, {}, -3 ],
     [ {"-":["1",1]}, {}, 0 ],
+    "# a fractional difference is returned as it is",
+    [ {"-":[1,0.5]}, {}, 0.5 ],
     [ {"/":[4,2]}, {}, 2 ],
     [ {"/":[2,4]}, {}, 0.5 ],
     [ {"/":["1",1]}, {}, 1 ],
@@ -137,6 +156,7 @@
     [{"substr":["jsonlogic", -5, 5]}, null, "logic"],
     [{"substr":["jsonlogic", -5, -2]}, null, "log"],
     [{"substr":["jsonlogic", 1, -5]}, null, "son"],
+    [{"substr":["abc", 0, -3]}, null, ""],
 
     "Merge arrays",
     [{"merge":[]}, null, []],
@@ -206,6 +226,15 @@
     [{"and" : [ "0", true ]}, {}, true ],
     [{"or" : [ "0", true ]}, {}, "0" ],
 
+    [{"!" : [ {} ]}, {}, false],
+    [{"!!" : [ {} ]}, {}, true],
+    [{"and" : [ {}, true ]}, {}, true ],
+    [{"or" : [ {}, true ]}, {}, {} ],
+
+    "A missing operand is falsy",
+    [{"!" : []}, {}, true],
+    [{"!!" : []}, {}, false],
+
     "If the conditional is logic, it gets evaluated",
     [{"if":[ {">":[2,1]}, "apple", "banana"]}, null, "apple"],
     [{"if":[ {">":[1,2]}, "apple", "banana"]}, null, "banana"],
@@ -270,6 +299,11 @@
     [ {"var":""}, 1, 1 ],
     [ {"var":null}, 1, 1 ],
     [ {"var":[]}, 1, 1 ],
+    "# var into an array by a path segment that is no index, or is beyond the int range, finds nothing: the default, or null",
+    [ {"var":"a.x"}, {"a":[1,2]}, null ],
+    [ {"var":["a.x", 9]}, {"a":[1,2]}, 9 ],
+    [ {"var":"a.99999999999"}, {"a":[1,2]}, null ],
+    [ {"var":["a.99999999999", 9]}, {"a":[1,2]}, 9 ],
 
     "Missing",
     [{"missing":[]}, null, []],
@@ -340,6 +374,18 @@
         {"filter":[{"var":"integers"}, {"%":[{"var":""},2]}]},
         {"integers":[1,2,3]},
         [1,3]
+    ],
+
+    "A filter over something that is not an array is empty",
+    [
+        {"filter":[{"var":"integers"}, true]},
+        {"integers":5},
+        []
+    ],
+    [
+        {"filter":[{"var":"integers"}, true]},
+        null,
+        []
     ],
 
     [
@@ -419,6 +465,24 @@
             {"name":"cupcake","qty":3}
         ]},
         6
+    ],
+
+    "Reduce without a start value starts from null, and returns null when there is nothing to walk",
+    [
+        {"reduce":[
+            {"var":"letters"},
+            {"cat":[{"var":"accumulator"}, {"var":"current"}]}
+        ]},
+        {"letters":["a","b","c"]},
+        "abc"
+    ],
+    [
+        {"reduce":[
+            {"var":"letters"},
+            {"cat":[{"var":"accumulator"}, {"var":"current"}]}
+        ]},
+        null,
+        null
     ],
 
 
@@ -627,6 +691,26 @@
     [ {">=":["2024-01-01",0]}, {}, true ],
     [ {"<":[{"var":"a"},{"var":"b"}]}, {"a":"apple","b":"banana"}, true ],
     [ {">":[{"var":"a"},{"var":"b"}]}, {"a":"10","b":"9"}, false ],
+
+    "# Ordering a string that carries no number: JavaScript coerces it to NaN, and every comparison with NaN is false",
+    [ {"<":["abc",5]}, {}, false ],
+    [ {"<=":["abc",5]}, {}, false ],
+    [ {">":[5,"abc"]}, {}, false ],
+    [ {">=":[5,"abc"]}, {}, false ],
+    [ {"<":[-1,"abc",3]}, {}, false ],
+    [ {"<=":[-5,-1,"abc"]}, {}, false ],
+    "# null and the empty string are 0, not NaN",
+    [ {"<":[null,5]}, {}, true ],
+    [ {"<":["",5]}, {}, true ],
+    "# A word that PostgreSQL's number or date parser accepts but JavaScript's Number does not is NaN as well. Only the exact spelling Infinity is a number",
+    [ {">":["NaN",0]}, {}, false ],
+    [ {">":["infinity",0]}, {}, false ],
+    [ {">":["today",0]}, {}, false ],
+    [ {">":["Infinity",0]}, {}, true ],
+
+    "# log hands back its argument unchanged",
+    [ {"log":"apple"}, {}, "apple" ],
+    [ {"log":[{"+":[1,2]}]}, {}, 3 ],
 
     "# Date operators. Every evaluator must give these answers: the browser's test suite reads this file too.",
 

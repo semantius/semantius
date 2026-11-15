@@ -297,8 +297,8 @@ SELECT ok(
 SELECT throws_ok(
     $$UPDATE entities SET table_name = 'customers'
       WHERE table_name = 'qwertz2'$$,
-    NULL,
-    NULL,
+    '42P07',
+    'relation "customers" already exists',
     'Renaming to an already-existing table name (nwind customers) should fail'
 );
 
@@ -351,8 +351,8 @@ SELECT is_empty(
 SELECT throws_ok(
     $$UPDATE fields SET field_name = 'other_col_new'
       WHERE table_name = 'qwertz2' AND field_name = 'contact_field'$$,
-    NULL,
-    NULL,
+    '42701',
+    'column "other_col_new" of relation "qwertz2" already exists',
     'Renaming to an already-existing column name should fail'
 );
 

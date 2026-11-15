@@ -19,6 +19,8 @@
 --   PART 11 has_a: create, attach, detach, and what an entity may be based
 --           on (90240-90243, 90246, 90249-90252); field DDL reaching views
 --   PART 12 the generated routines meet the catalog invariants
+--   PART 13 the helpers' refusals, and the functions that find nothing to do
+--           for an entity without a table
 --
 -- How an is_a / has_a family changes - dictionary changes on any level, labels,
 -- key column, prefixes, rules and permissions, drops, and objects built on the
@@ -28,7 +30,7 @@
 
 BEGIN;
 
-SELECT plan(175);
+SELECT plan(198);
 
 -- =====================================================
 -- PART 1: UUIDv7 and TypeID helpers
@@ -1161,6 +1163,128 @@ SELECT is(
         AND c.relname <> 'fam_clash_ext'),
     '',
     'generated: every family table and view is granted to the request role');
+
+-- =====================================================
+-- PART 13: refusals of the helpers, and the paths that leave a row alone
+-- =====================================================
+-- The TypeID helpers raise on input their callers never hand them (the entities
+-- CHECK and the common.typeid domain stop it first), and four dictionary
+-- functions answer "nothing to do" for an entity that has no table to act on.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- typeid_generate_text concatenates the prefix into the value, so it holds the
+-- prefix to the TypeID grammar itself: 0 to 63 lowercase letters and
+-- underscores, starting and ending with a letter.
+SELECT throws_ok($$ SELECT common.typeid_generate_text('Bad-Prefix') $$,
+    '22023', 'typeid prefix must match the regular expression ^([a-z]([a-z_]{0,61}[a-z])?)?$',
+    'typeid_generate_text: a prefix with an uppercase letter or a hyphen is refused');
+
+SELECT throws_ok($$ SELECT common.typeid_generate_text(NULL) $$,
+    '22023', 'typeid prefix must match the regular expression ^([a-z]([a-z_]{0,61}[a-z])?)?$',
+    'typeid_generate_text: a NULL prefix is refused, not read as the empty prefix');
+
+SELECT throws_ok($$ SELECT common.typeid_generate_text('abc_') $$,
+    '22023', 'typeid prefix must match the regular expression ^([a-z]([a-z_]{0,61}[a-z])?)?$',
+    'typeid_generate_text: a prefix that ends with an underscore is refused');
+
+SELECT throws_ok(format($$ SELECT common.typeid_generate_text(%L) $$, repeat('a', 64)),
+    '22023', 'typeid prefix must match the regular expression ^([a-z]([a-z_]{0,61}[a-z])?)?$',
+    'typeid_generate_text: a prefix of 64 characters is refused');
+
+SELECT lives_ok(format($$ SELECT common.typeid_generate_text(%L) $$, repeat('a', 63)),
+    'typeid_generate_text: a prefix of 63 characters is accepted');
+
+-- The empty prefix is the spec's bare TypeID: the suffix alone.
+SELECT ok(
+    (SELECT length(t) = 26 AND common.typeid_check_text(t) AND common.typeid_prefix(t) = ''
+       FROM (SELECT common.typeid_generate_text('') AS t) s),
+    'typeid_generate_text: the empty prefix gives the bare 26-character suffix, a valid TypeID');
+
+SELECT is(
+    (SELECT uuid_extract_version(common.base32_decode(right(t, 26)))
+       FROM (SELECT common.typeid_generate_text('abc') AS t) s),
+    7::smallint,
+    'typeid_generate_text: the suffix is the base32 form of a UUIDv7');
+
+-- base32_decode raises invalid_text_representation (22P02) for each way a
+-- suffix can be malformed, and names which.
+SELECT throws_ok($$ SELECT common.base32_decode('abc') $$,
+    '22P02', 'typeid suffix must be 26 characters',
+    'base32_decode: a suffix shorter than 26 characters is refused');
+
+-- 26 characters but 52 bytes: the byte count is checked as well, or get_byte
+-- would index past the decoding table.
+SELECT throws_ok(format($$ SELECT common.base32_decode(%L) $$, repeat(U&'\00E9', 26)),
+    '22P02', 'typeid suffix must be 26 characters',
+    'base32_decode: 26 multi-byte characters are refused for their byte length');
+
+SELECT throws_ok($$ SELECT common.base32_decode('01h455vb4pex5vsknk084sn02u') $$,
+    '22P02', 'typeid suffix must only use characters from the base32 alphabet',
+    'base32_decode: a character outside the alphabet (u) is refused');
+
+SELECT throws_ok($$ SELECT common.base32_decode('01H455VB4PEX5VSKNK084SN02Q') $$,
+    '22P02', 'typeid suffix must only use characters from the base32 alphabet',
+    'base32_decode: the alphabet is lowercase, so an uppercase suffix is refused');
+
+SELECT throws_ok($$ SELECT common.base32_decode('81h455vb4pex5vsknk084sn02q') $$,
+    '22P02', 'typeid suffix must start with 0-7',
+    'base32_decode: a first character above 7 would overflow 128 bits and is refused');
+
+SELECT is(common.base32_decode('7zzzzzzzzzzzzzzzzzzzzzzzzz'),
+    'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid,
+    'base32_decode: the largest suffix (first character 7) is the all-ones UUID');
+
+-- A prefix change on an entity without a table has no trigger to recreate: the
+-- entity row changes and nothing else does. idt_ghost_tid is registered
+-- unmanaged and typeid, with no table.
+SELECT lives_ok($$ UPDATE entities SET id_prefix = 'idtghosttwo' WHERE table_name = 'idt_ghost_tid' $$,
+    'dd_sync_typeid_prefix: a prefix change on an unmanaged entity with no table succeeds');
+
+SELECT is((SELECT id_prefix FROM entities WHERE table_name = 'idt_ghost_tid'), 'idtghosttwo',
+    'dd_sync_typeid_prefix: ... and the prefix is stored');
+
+SELECT ok(to_regclass('public.idt_ghost_tid') IS NULL,
+    'dd_sync_typeid_prefix: ... and no table appears');
+
+-- An entity that was managed, with a table and its trigger, and is no longer:
+-- the author owns the table now, so the trigger keeps the prefix it has.
+UPDATE entities SET managed = FALSE WHERE table_name = 'idt_tid2';
+UPDATE entities SET id_prefix = 'idtunman' WHERE table_name = 'idt_tid2';
+
+SELECT ok(
+    (SELECT id_prefix = 'idtunman' FROM entities WHERE table_name = 'idt_tid2')
+    AND (SELECT pg_get_triggerdef(t.oid) LIKE '%''idtacct''%' AND pg_get_triggerdef(t.oid) NOT LIKE '%idtunman%'
+           FROM pg_trigger t
+          WHERE t.tgrelid = 'public.idt_tid2'::regclass AND t.tgname = 'a_typeid_assign'),
+    'dd_sync_typeid_prefix: a prefix change on an entity that is no longer managed leaves its table''s trigger as the author has it');
+
+-- is_a_part_missing answers FALSE, a broken record being the only TRUE, for an
+-- entity that is not is_a: a plain typeid entity, a has_a entity, an unknown one.
+SELECT is(common.is_a_part_missing('idt_tid', (SELECT id FROM idt_tid WHERE label = 'g-new')), FALSE,
+    'is_a_part_missing: FALSE for a typeid entity that is not is_a');
+
+SELECT is(common.is_a_part_missing('fam_suppliers', (SELECT id FROM fam_suppliers)), FALSE,
+    'is_a_part_missing: FALSE for a has_a entity');
+
+SELECT is(common.is_a_part_missing('idt_no_such_entity', 'x'), FALSE,
+    'is_a_part_missing: FALSE for an entity that does not exist');
+
+-- get_record_by_id reads the key type from the catalog, so an entity that is
+-- registered without a table has none: the answer is the NULL of "no such
+-- record", and the id is not even checked, where a table-backed entity refuses
+-- the same malformed id with 90238 (PART 8).
+SELECT is(get_record_by_id('idt_ghost_uuid', '7a1a1a1a-0000-4000-8000-000000000001'), NULL,
+    'get_record_by_id: an entity registered without a table has no record');
+
+SELECT is(get_record_by_id('idt_ghost_uuid', 'not-a-uuid'), NULL,
+    'get_record_by_id: ... and a malformed id is NULL there, not 90238');
+
+SELECT authenticate_as('user3');
+
+SELECT is(get_record_by_id('idt_ghost_uuid', 'not-a-uuid'), NULL,
+    'get_record_by_id: the same for a caller who may see the entity');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -16,13 +16,18 @@
 -- session cases below are the standing check on that, and they are the reason
 -- the trigger bodies can use plain static statements instead of dynamic SQL.
 --
+-- MERGE fires the statement triggers of each action it names, so groups 9 to 11
+-- check that an audited table, a queue-mapped table and the child of a rollup
+-- see the insert, update and delete actions of one MERGE as they see the three
+-- separate statements.
+--
 -- Fixtures: user3 = Administrator. shippers and regions are also mapped by
 -- 0840_test_queue.sql, which is harmless: each test file runs in its own
 -- transaction and rolls back, so the unique constraint on
 -- queue_table_events.table_name is never seen by both at once.
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(44);
 
 SELECT authenticate_as('user3');
 
@@ -410,6 +415,191 @@ SELECT cmp_ok(
     2,
     'a plain field insert emits no label-rebuild DDL'
 );
+
+-- =====================================================
+-- GROUP 9: MERGE against an audited table
+-- =====================================================
+-- MERGE fires the statement triggers of every action it names and the row
+-- triggers of every row an action touches, so the insert, update and delete
+-- actions of one MERGE are audited as the same three statements would be.
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, audit_log)
+VALUES ('merge_audit', 'merge_audit_item', 'Merge Audit', 'Merge Audits',
+    'MERGE audit probe', 1, 'public:read', 'admin', 'id', 'label', TRUE);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('merge_audit', 'qty', 'Qty', 'int32', 30);
+
+INSERT INTO merge_audit (label, qty) VALUES ('keep', 1), ('change', 2), ('remove', 3);
+DELETE FROM audit_record_logs WHERE table_name = 'merge_audit';
+
+SELECT lives_ok($$
+    MERGE INTO merge_audit t
+    USING (VALUES ('change', 20, 'update'), ('remove', 0, 'delete'), ('fresh', 4, 'insert')) AS s(label, qty, act)
+    ON t.label = s.label
+    WHEN MATCHED AND s.act = 'update' THEN UPDATE SET qty = s.qty
+    WHEN MATCHED AND s.act = 'delete' THEN DELETE
+    WHEN NOT MATCHED THEN INSERT (label, qty) VALUES (s.label, s.qty)
+$$, 'a MERGE with an insert, an update and a delete action succeeds');
+
+SELECT is(
+    (SELECT array_agg(op::text || ':' || coalesce(record ->> 'label', old_record ->> 'label') ORDER BY op::text)
+       FROM audit_record_logs WHERE table_name = 'merge_audit'),
+    ARRAY['DELETE:remove', 'INSERT:fresh', 'UPDATE:change'],
+    'each action of the MERGE is audited once, with its own operation');
+
+SELECT is(
+    (SELECT jsonb_build_array(old_record ->> 'qty', record ->> 'qty')
+       FROM audit_record_logs WHERE table_name = 'merge_audit' AND op = 'UPDATE'),
+    '["2", "20"]'::jsonb,
+    'the update action logs the row before and after');
+
+SELECT is(
+    (SELECT record IS NULL AND old_record ->> 'label' = 'remove'
+       FROM audit_record_logs WHERE table_name = 'merge_audit' AND op = 'DELETE'),
+    TRUE,
+    'the delete action logs only the old image');
+
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs
+      WHERE table_name = 'merge_audit' AND user_id = rbac.user_id()),
+    3,
+    'and every row carries the acting user');
+
+-- All three statement triggers fire for a MERGE that touches no row, and must
+-- neither fail nor log.
+SELECT lives_ok($$
+    MERGE INTO merge_audit t
+    USING (SELECT 'nobody'::text AS label WHERE FALSE) s
+    ON t.label = s.label
+    WHEN MATCHED AND t.qty > 100 THEN DELETE
+    WHEN MATCHED THEN UPDATE SET qty = 0
+    WHEN NOT MATCHED THEN INSERT (label) VALUES (s.label)
+$$, 'a MERGE that touches no row succeeds');
+
+SELECT is(
+    (SELECT count(*)::int FROM audit_record_logs WHERE table_name = 'merge_audit'),
+    3,
+    'and writes no audit row');
+
+-- =====================================================
+-- GROUP 10: MERGE against a queue-mapped table
+-- =====================================================
+-- The mapping is 'change', so all three statement triggers are installed and
+-- each MERGE action enqueues under the mapping's event_type.
+RESET ROLE;
+
+INSERT INTO queues (queue_name) VALUES ('merge_q');
+
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT id, 'shipper merge event', 'shippers', 'change'
+FROM queues WHERE queue_name = 'merge_q';
+
+INSERT INTO shippers (company_name) VALUES ('Merge keep'), ('Merge change'), ('Merge remove');
+
+CREATE TEMP TABLE merge_shippers AS
+SELECT id, company_name FROM shippers WHERE company_name LIKE 'Merge %';
+
+-- The setup inserts enqueued three messages of their own.
+SELECT pgmq.purge_queue('merge_q');
+
+SELECT lives_ok($$
+    MERGE INTO shippers t
+    USING (VALUES ('Merge change', 'update'), ('Merge remove', 'delete'), ('Merge fresh', 'insert')) AS s(name, act)
+    ON t.company_name = s.name
+    WHEN MATCHED AND s.act = 'update' THEN UPDATE SET phone = '555'
+    WHEN MATCHED AND s.act = 'delete' THEN DELETE
+    WHEN NOT MATCHED THEN INSERT (company_name) VALUES (s.name)
+$$, 'a MERGE with an insert, an update and a delete action succeeds on a mapped table');
+
+SELECT is(
+    (SELECT array_agg((q.message ->> 'op') || ':' || n.company_name ORDER BY q.message ->> 'op')
+       FROM pgmq.q_merge_q q
+       JOIN (SELECT id, company_name FROM merge_shippers
+             UNION
+             SELECT id, company_name FROM shippers WHERE company_name = 'Merge fresh') n
+         ON n.id = (q.message ->> 'id_value')::bigint),
+    ARRAY['DELETE:Merge remove', 'INSERT:Merge fresh', 'UPDATE:Merge change'],
+    'each action enqueues one message, with its own operation and the id of the row it touched');
+
+SELECT is(
+    (SELECT array_agg(DISTINCT message ->> 'event_type') FROM pgmq.q_merge_q),
+    ARRAY['change'],
+    'and every message carries the mapping''s event_type');
+
+SELECT lives_ok($$
+    MERGE INTO shippers t
+    USING (SELECT 'nobody'::text AS name WHERE FALSE) s
+    ON t.company_name = s.name
+    WHEN MATCHED AND t.phone = 'never' THEN DELETE
+    WHEN MATCHED THEN UPDATE SET phone = '000'
+    WHEN NOT MATCHED THEN INSERT (company_name) VALUES (s.name)
+$$, 'a MERGE that touches no row succeeds on a mapped table');
+
+SELECT is((SELECT count(*)::int FROM pgmq.q_merge_q), 3,
+    'and enqueues nothing');
+
+-- =====================================================
+-- GROUP 11: MERGE against a rollup child
+-- =====================================================
+-- The rollup triggers on the child are statement-level over transition tables,
+-- like the queue's. A MERGE that inserts, updates, deletes and re-parents rows
+-- must leave every parent's totals equal to a fresh aggregate over its children.
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('merge_parent', 'merge_parent', 'Merge Parent', 'Merge Parents', 'MERGE rollup parent',
+        1, 'public:read', 'admin', 'id', 'label'),
+       ('merge_child', 'merge_child', 'Merge Child', 'Merge Children', 'MERGE rollup child',
+        1, 'public:read', 'admin', 'id', 'label');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('merge_child', 'parent_id', 'Parent', 'parent', 10, 'merge_parent', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('merge_child', 'amount', 'Amount', 'number', 20);
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup) VALUES
+    ('merge_parent', 'total', 'Total', 'number', 10,
+     '{"link_field": "merge_child.parent_id", "function": "sum", "value_field": "amount"}'),
+    ('merge_parent', 'line_count', 'Lines', 'int64', 20,
+     '{"link_field": "merge_child.parent_id", "function": "count"}');
+
+INSERT INTO merge_parent (label) VALUES ('P1'), ('P2');
+INSERT INTO merge_child (label, parent_id, amount) VALUES
+    ('c1', (SELECT id FROM merge_parent WHERE label = 'P1'), 1),
+    ('c2', (SELECT id FROM merge_parent WHERE label = 'P1'), 2),
+    ('c3', (SELECT id FROM merge_parent WHERE label = 'P1'), 4);
+
+SELECT is(
+    (SELECT jsonb_object_agg(label, jsonb_build_array(total, line_count)) FROM merge_parent),
+    '{"P1": [7, 3], "P2": [0, 0]}'::jsonb,
+    'fixture: the totals follow the three inserted children');
+
+SELECT lives_ok($$
+    MERGE INTO merge_child t
+    USING (VALUES ('c1', 10, 'update'), ('c2', 0, 'delete'), ('c3', 0, 'move'), ('c4', 8, 'insert')) AS s(label, amount, act)
+    ON t.label = s.label
+    WHEN MATCHED AND s.act = 'update' THEN UPDATE SET amount = s.amount
+    WHEN MATCHED AND s.act = 'delete' THEN DELETE
+    WHEN MATCHED AND s.act = 'move' THEN UPDATE SET parent_id = (SELECT id FROM merge_parent WHERE label = 'P2')
+    WHEN NOT MATCHED THEN INSERT (label, parent_id, amount)
+         VALUES (s.label, (SELECT id FROM merge_parent WHERE label = 'P2'), s.amount)
+$$, 'a MERGE that updates, deletes, re-parents and inserts children succeeds');
+
+SELECT is(
+    (SELECT jsonb_object_agg(label, jsonb_build_array(total, line_count)) FROM merge_parent),
+    '{"P1": [10, 1], "P2": [12, 2]}'::jsonb,
+    'P1 keeps c1 at its new amount; P2 gains the re-parented c3 and the inserted c4');
+
+SELECT is(
+    (SELECT jsonb_object_agg(label, jsonb_build_array(total, line_count)) FROM merge_parent),
+    (SELECT jsonb_object_agg(label, jsonb_build_array(t, n))
+       FROM (SELECT p.label, coalesce(sum(c.amount), 0) AS t, count(c.id) AS n
+               FROM merge_parent p LEFT JOIN merge_child c ON c.parent_id = p.id
+              GROUP BY p.label) x),
+    'and every total equals a fresh aggregate over the children');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -6,9 +6,11 @@
 --   1. The field format list
 --   2. The jsonlogic format
 --   3. The color, icon and rating formats
+--   4. The string formats that only name a syntax
+--   5. The time format
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(51);
 
 -- =====================================================
 -- PART 1: The field format list
@@ -289,6 +291,306 @@ SELECT is(
             unnest(ARRAY['shade', 'glyph', 'stars', 'level']) AS f),
     '{"shade": ["color", "string"], "glyph": ["icon", "string"], "stars": ["rating", "integer"], "level": ["rating", "integer"]}'::jsonb,
     'get_schema should emit the format and type of color, icon and rating fields'
+);
+
+-- =====================================================
+-- PART 4: The string formats that only name a syntax
+-- =====================================================
+-- html, uri, uri-reference, uri-template, iri, iri-reference, email-like and
+-- host-like names (idn-email, hostname, idn-hostname), ipv4, ipv6, regex,
+-- json-pointer, json-pointer-uri-fragment, relative-json-pointer, byte and
+-- password map to a TEXT column, like text: the dictionary stores the string and gives the format
+-- to get_schema, and a client (SemSchema) checks the syntax. The column takes
+-- any string, a required field refuses a blank one, and a default is the
+-- column's default.
+--
+-- Fixtures: ONE ephemeral entity `txt_fmt_req` with a required field of each
+-- format and an explicit default, and ONE `txt_fmt_opt` with an optional field
+-- of each, both created in-tx as user3 (module _core, public:read / admin,
+-- managed).
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+-- One row per format: a value that is valid for it (also the field's default),
+-- a second valid value, and a value that is not valid for it.
+CREATE TEMP TABLE fmt_samples (ord INTEGER PRIMARY KEY, field_name TEXT, format TEXT, good TEXT, alt TEXT, odd TEXT);
+INSERT INTO fmt_samples VALUES
+    (1,  'f_html',    'html',                      '<p>Hello</p>',              '<b>bold</b>',                'no tag at all'),
+    (2,  'f_uri',     'uri',                       'https://example.com/a?b=c', 'urn:isbn:0451450523',        'not a uri'),
+    (3,  'f_uriref',  'uri-reference',             '/a/b?c=d#e',                '../up',                      'http://[bad'),
+    (4,  'f_uritpl',  'uri-template',              '/users/{id}{?page}',        'https://example.com/{+path}', '/users/{id'),
+    (5,  'f_ipv4',    'ipv4',                      '192.168.0.1',               '10.0.0.255',                 '999.1.1.1'),
+    (6,  'f_ipv6',    'ipv6',                      '2001:db8::1',               '::1',                        'not:an:address'),
+    (7,  'f_regex',   'regex',                     '^[a-z]+\d{2,}$',            '(a|b)*',                     '(unclosed'),
+    (8,  'f_jptr',    'json-pointer',              '/a/0/b~1c',                 '/x',                         'no leading slash'),
+    (9,  'f_jptrfr',  'json-pointer-uri-fragment', '#/a/0',                     '#/b',                        'x'),
+    (10, 'f_rjptr',   'relative-json-pointer',     '1/a',                       '0#',                         '/absolute'),
+    (11, 'f_byte',    'byte',                      'SGVsbG8gd29ybGQ=',          'AAECAw==',                   '!!!not base64'),
+    (12, 'f_pw',      'password',                  's3cr3t-p@ss',               'another secret',             'x'),
+    (13, 'f_iri',     'iri',                       U&'https://m\00FCller.de/stra\00DFe', 'urn:example:a',      'not an iri'),
+    (14, 'f_iriref',  'iri-reference',             U&'/stra\00DFe#top',         '../up',                      'http://[bad'),
+    (15, 'f_idnmail', 'idn-email',                 U&'j\00F6rg@m\00FCller.de',  'a@b.example',                'not an email'),
+    (16, 'f_host',    'hostname',                  'example.com',               'xn--mller-kva.de',           'not a host name!'),
+    (17, 'f_idnhost', 'idn-hostname',              U&'m\00FCller.de',           'example.org',                '-bad-');
+GRANT SELECT ON fmt_samples TO PUBLIC;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, managed
+)
+VALUES
+    ('txt_fmt_req', 'txt_fmt_req', 'txt_fmt_reqs', 'Required Probe', 'Required Probes',
+     'Ephemeral probe for the string formats, required fields', 1, 'public:read', 'admin', 'id', 'label', TRUE),
+    ('txt_fmt_opt', 'txt_fmt_opt', 'txt_fmt_opts', 'Optional Probe', 'Optional Probes',
+     'Ephemeral probe for the string formats, optional fields', 1, 'public:read', 'admin', 'id', 'label', TRUE);
+
+INSERT INTO fields (table_name, field_name, title, format, input_type, default_value, field_order)
+SELECT 'txt_fmt_req', field_name, 'Probe ' || format, format, 'required', good, 20 + ord * 10
+  FROM fmt_samples;
+
+INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+SELECT 'txt_fmt_opt', field_name, 'Probe ' || format, format, 'default', 20 + ord * 10
+  FROM fmt_samples;
+
+-- =====================================================
+-- The column and its default
+-- =====================================================
+SELECT is(
+    (SELECT jsonb_object_agg(column_name, jsonb_build_array(data_type, is_nullable, column_default))
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'txt_fmt_req'
+        AND column_name IN (SELECT field_name FROM fmt_samples)),
+    (SELECT jsonb_object_agg(field_name,
+                jsonb_build_array('text', 'NO', '''' || replace(good, '''', '''''') || '''::text'))
+       FROM fmt_samples),
+    'a required string-format field should create a NOT NULL text column defaulting to its default_value'
+);
+
+SELECT is(
+    (SELECT jsonb_object_agg(column_name, jsonb_build_array(data_type, is_nullable, column_default))
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'txt_fmt_opt'
+        AND column_name IN (SELECT field_name FROM fmt_samples)),
+    (SELECT jsonb_object_agg(field_name, jsonb_build_array('text', 'NO', '''''::text')) FROM fmt_samples),
+    'an optional string-format field should create a NOT NULL text column defaulting to '''''
+);
+
+INSERT INTO txt_fmt_req (label) VALUES ('defaults');
+INSERT INTO txt_fmt_opt (label) VALUES ('defaults');
+
+SELECT is(
+    (SELECT to_jsonb(p) - ARRAY['id', 'label', 'created_at', 'updated_at', 'search_vector']
+       FROM txt_fmt_req p WHERE label = 'defaults'),
+    (SELECT jsonb_object_agg(field_name, good) FROM fmt_samples),
+    'a row that leaves out the required string-format fields should get their defaults'
+);
+
+SELECT is(
+    (SELECT to_jsonb(p) - ARRAY['id', 'label', 'created_at', 'updated_at', 'search_vector']
+       FROM txt_fmt_opt p WHERE label = 'defaults'),
+    (SELECT jsonb_object_agg(field_name, '') FROM fmt_samples),
+    'a row that leaves out the optional string-format fields should get the empty string'
+);
+
+-- =====================================================
+-- Writing and reading a value
+-- =====================================================
+SELECT lives_ok(
+    (SELECT format('INSERT INTO txt_fmt_req (label, %s) VALUES (%L, %s)',
+                   string_agg(quote_ident(field_name), ', ' ORDER BY ord), 'written',
+                   string_agg(quote_literal(alt), ', ' ORDER BY ord))
+       FROM fmt_samples),
+    'a value valid for each string format should be accepted'
+);
+
+SELECT is(
+    (SELECT to_jsonb(p) - ARRAY['id', 'label', 'created_at', 'updated_at', 'search_vector']
+       FROM txt_fmt_req p WHERE label = 'written'),
+    (SELECT jsonb_object_agg(field_name, alt) FROM fmt_samples),
+    'a value written to a string-format field should be read back unchanged'
+);
+
+SELECT is(
+    (SELECT jsonb_object_agg(f.field_name, p.value ->> 'format')
+       FROM fmt_samples f,
+            LATERAL (SELECT (public.get_schema('txt_fmt_req')::jsonb -> 'properties') -> f.field_name AS value) p),
+    (SELECT jsonb_object_agg(field_name, format) FROM fmt_samples),
+    'get_schema should emit the format of each string-format property'
+);
+
+SELECT is(
+    (SELECT jsonb_object_agg(f.field_name, jsonb_build_array(p.value ->> 'type', p.value ->> 'default'))
+       FROM fmt_samples f,
+            LATERAL (SELECT (public.get_schema('txt_fmt_req')::jsonb -> 'properties') -> f.field_name AS value) p),
+    (SELECT jsonb_object_agg(field_name, jsonb_build_array('string', good)) FROM fmt_samples),
+    'get_schema should emit type string and the default of each string-format property'
+);
+
+-- By decision the database only maps the column type, as for color, icon and
+-- rating above: a value that is not valid for its format is stored as written,
+-- and SemSchema is what checks the syntax.
+SELECT lives_ok(
+    (SELECT format('INSERT INTO txt_fmt_req (label, %s) VALUES (%L, %s)',
+                   string_agg(quote_ident(field_name), ', ' ORDER BY ord), 'odd',
+                   string_agg(quote_literal(odd), ', ' ORDER BY ord))
+       FROM fmt_samples),
+    'the database should accept a value that is not valid for its string format'
+);
+
+SELECT is(
+    (SELECT to_jsonb(p) - ARRAY['id', 'label', 'created_at', 'updated_at', 'search_vector']
+       FROM txt_fmt_req p WHERE label = 'odd'),
+    (SELECT jsonb_object_agg(field_name, odd) FROM fmt_samples),
+    'a value that is not valid for its string format should be read back unchanged'
+);
+
+-- =====================================================
+-- Required
+-- =====================================================
+-- A blank value of one field, every other field holding a valid value. The
+-- check names the field that was blank.
+SELECT is(
+    (SELECT string_agg(t.field_name || '=' || coalesce(c.e ->> 'code', 'none') || ' ' ||
+                       coalesce((c.e ->> 'hint')::jsonb ->> 'field_name', ''), ', ' ORDER BY t.ord)
+       FROM fmt_samples t
+       CROSS JOIN LATERAL (
+           SELECT format('INSERT INTO txt_fmt_req (label, %s) VALUES (%L, %s)',
+                         string_agg(quote_ident(s.field_name), ', ' ORDER BY s.ord), 'blank',
+                         string_agg(quote_literal(CASE WHEN s.field_name = t.field_name THEN '' ELSE s.good END),
+                                    ', ' ORDER BY s.ord)) AS q
+             FROM fmt_samples s) b
+       CROSS JOIN LATERAL (SELECT catch_error(b.q) AS e) c),
+    (SELECT string_agg(field_name || '=90258 ' || field_name, ', ' ORDER BY ord) FROM fmt_samples),
+    'a required string-format field should refuse a blank value with 90258 naming the field'
+);
+
+SELECT is(
+    catch_error($$INSERT INTO txt_fmt_req (label, f_html) VALUES ('blank', '   ')$$) ->> 'message',
+    'Field ${field_name} on ${table} is required',
+    'a required string-format field should refuse a value of only spaces'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO txt_fmt_opt (label, f_html, f_ipv4, f_byte) VALUES ('blank', '', '', '')$$,
+    'an optional string-format field should accept a blank value'
+);
+
+-- =====================================================
+-- PART 5: The time format
+-- =====================================================
+-- time is a TIME column: unlike the string formats, the database checks the
+-- value.
+--
+-- Fixtures: `tm_fmt_probe` with an optional and a required time field, both
+-- with a default, `tm_fmt_bare` with one time field and no default, and
+-- `tm_fmt_rows`, a table with rows that time fields are added to; all created
+-- in-tx as user3.
+
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, managed
+)
+VALUES
+    ('tm_fmt_probe', 'tm_fmt_probe', 'tm_fmt_probes', 'Time Probe', 'Time Probes',
+     'Ephemeral probe for the time format', 1, 'public:read', 'admin', 'id', 'label', TRUE),
+    ('tm_fmt_bare', 'tm_fmt_bare', 'tm_fmt_bares', 'Bare Time Probe', 'Bare Time Probes',
+     'Ephemeral probe for a time field without a default', 1, 'public:read', 'admin', 'id', 'label', TRUE),
+    ('tm_fmt_rows', 'tm_fmt_rows', 'tm_fmt_rowss', 'Rows Time Probe', 'Rows Time Probes',
+     'Ephemeral table with rows that time fields are added to', 1, 'public:read', 'admin', 'id', 'label', TRUE);
+
+INSERT INTO fields (table_name, field_name, title, format, input_type, default_value, field_order)
+VALUES ('tm_fmt_probe', 't_open', 'Opens', 'time', 'default', '09:30', 30),
+       ('tm_fmt_probe', 't_close', 'Closes', 'time', 'required', '12:00', 40);
+
+SELECT is(
+    (SELECT jsonb_object_agg(column_name, jsonb_build_array(data_type, is_nullable, column_default))
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'tm_fmt_probe' AND column_name IN ('t_open', 't_close')),
+    jsonb_build_object(
+        't_open',  jsonb_build_array('time without time zone', 'NO', '''09:30:00''::time without time zone'),
+        't_close', jsonb_build_array('time without time zone', 'NO', '''12:00:00''::time without time zone')
+    ),
+    'a time field should create a NOT NULL time column defaulting to its default_value'
+);
+
+INSERT INTO tm_fmt_probe (label) VALUES ('defaults');
+
+SELECT is(
+    (SELECT t_open::text || ' ' || t_close::text FROM tm_fmt_probe WHERE label = 'defaults'),
+    '09:30:00 12:00:00',
+    'a row that leaves out the time fields should get their defaults'
+);
+
+INSERT INTO tm_fmt_probe (label, t_open, t_close) VALUES ('written', '14:30:00', '23:59:59.5');
+
+SELECT is(
+    (SELECT t_open::text || ' ' || t_close::text FROM tm_fmt_probe WHERE label = 'written'),
+    '14:30:00 23:59:59.5',
+    'a time written to a time field should be read back, fractional seconds included'
+);
+
+-- The format's own example, RFC 3339 with a zone: the TIME column keeps the
+-- time of day and drops the zone.
+INSERT INTO tm_fmt_probe (label, t_open) VALUES ('zoned', '14:30:00Z');
+
+SELECT is(
+    (SELECT t_open::text FROM tm_fmt_probe WHERE label = 'zoned'),
+    '14:30:00',
+    'a time field should accept the RFC 3339 example 14:30:00Z and keep 14:30:00'
+);
+
+SELECT is(
+    catch_error($$INSERT INTO tm_fmt_probe (label, t_open) VALUES ('bad', 'not a time')$$) -> 'message',
+    to_jsonb('invalid input syntax for type time: "not a time"'::text),
+    'a time field should refuse text that is not a time'
+);
+
+SELECT is(
+    catch_error($$INSERT INTO tm_fmt_probe (label, t_open) VALUES ('bad', '25:00:00')$$) ->> 'code',
+    '22008',
+    'a time field should refuse a time of day out of range'
+);
+
+SELECT is(
+    (SELECT jsonb_build_array(p ->> 'format', p ->> 'type', p ->> 'default')
+       FROM (SELECT (public.get_schema('tm_fmt_probe')::jsonb -> 'properties') -> 't_open' AS p) s),
+    '["time", "string", "09:30"]'::jsonb,
+    'get_schema should emit format time, type string and the default of a time property'
+);
+
+-- Every NOT NULL column carries a default (dd_column_default: "a blank falls
+-- back to the zero value of the column type"), so a time field with no
+-- default_value takes a row that leaves it out, and a table with rows takes
+-- the field.
+INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+VALUES ('tm_fmt_bare', 't_open', 'Opens', 'time', 'default', 30);
+
+SELECT lives_ok(
+    $$INSERT INTO tm_fmt_bare (label) VALUES ('without a time')$$,
+    'a time field without a default_value should take a row that leaves it out'
+);
+
+INSERT INTO tm_fmt_rows (label) VALUES ('first'), ('second');
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+      VALUES ('tm_fmt_rows', 't_close', 'Closes', 'time', 'required', 30)$$,
+    'a required time field without a default_value should be added to a table that has rows'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, input_type, default_value, field_order)
+      VALUES ('tm_fmt_rows', 't_start', 'Starts', 'time', 'required', '09:30', 40)$$,
+    'a required time field with a default_value should be added to a table that has rows'
+);
+
+SELECT is(
+    (SELECT string_agg(t_start::text, ', ' ORDER BY id) FROM tm_fmt_rows),
+    '09:30:00, 09:30:00',
+    'the rows that were there should take the default of a time field added later'
 );
 
 SELECT * FROM finish();
