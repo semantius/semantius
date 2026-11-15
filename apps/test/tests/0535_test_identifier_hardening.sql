@@ -15,13 +15,14 @@
 --   PART 4  SQL reserved words as entity and field names
 --   PART 5  quotes, percent and dollar signs and backslashes in metadata
 --   PART 6  a dollar-quote tag in a column default of a has_a base
+--   PART 7  field names whose generated names would not fit 63 bytes
 --
 -- Every case works on names of its own, so a statement that is accepted where
 -- a refusal is expected changes nothing for the cases after it. user3, an
 -- administrator, makes the dictionary changes. Everything is rolled back.
 BEGIN;
 
-SELECT plan(245);
+SELECT plan(256);
 
 -- =====================================================
 -- Helpers
@@ -370,6 +371,32 @@ SELECT lives_ok($$DELETE FROM fields WHERE table_name = 'idh_r' AND field_name =
 SELECT is(pg_temp.idh_index_count('idh_r_b', 'c'), 1,
     'idh_r_b.c keeps its index after idh_r.b_c is deleted');
 
+-- A rename reaches the same names. Renaming field x of idh_r to b_c, and
+-- renaming table idh_m, which has a field b_c, to idh_n next to idh_n_b.c,
+-- would each give an index the name the index of another table carries. Both
+-- are refused as the create is, and every table keeps its index.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('idh_n_b', 'Left', 'Lefts', 1, 'public:read', 'admin'),
+       ('idh_m',   'Right', 'Rights', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, reference_table)
+VALUES ('idh_r',   'x',   'Probe', 'reference', 'idh_probe'),
+       ('idh_n_b', 'c',   'Probe', 'reference', 'idh_probe'),
+       ('idh_m',   'b_c', 'Probe', 'reference', 'idh_probe');
+
+SELECT is(split_part(pg_temp.idh_refusal(
+        $$UPDATE fields SET field_name = 'b_c' WHERE table_name = 'idh_r' AND field_name = 'x'$$), ' ', 1),
+    '90274',
+    'renaming field x of idh_r to b_c, whose index name idh_r_b.c carries: refused');
+SELECT is(pg_temp.idh_index_count('idh_r_b', 'c') + pg_temp.idh_index_count('idh_r', 'x'), 2,
+    'idh_r_b.c and idh_r.x keep their indexes');
+
+SELECT is(split_part(pg_temp.idh_refusal(
+        $$UPDATE entities SET table_name = 'idh_n' WHERE table_name = 'idh_m'$$), ' ', 1),
+    '90274',
+    'renaming table idh_m to idh_n, whose field b_c would take the index name of idh_n_b.c: refused');
+SELECT is(pg_temp.idh_index_count('idh_n_b', 'c') + pg_temp.idh_index_count('idh_m', 'b_c'), 2,
+    'idh_n_b.c and idh_m.b_c keep their indexes');
+
 -- =====================================================
 -- PART 4: reserved words
 -- =====================================================
@@ -562,6 +589,67 @@ SELECT pg_temp.idh_dollar_family('rw', '$RW$');
 SELECT pg_temp.idh_dollar_family('vw', '$VW$');
 SELECT pg_temp.idh_dollar_family('dispatch', '$DISPATCH$');
 SELECT pg_temp.idh_dollar_family('body', '$body$');
+
+-- =====================================================
+-- PART 7: long field names
+-- =====================================================
+-- The names generated from a field carry the name of its relation and its own:
+-- idx_<rel>_<field>, <rel>_<field>_unique, <rel>_<field>_assert and, the
+-- longest, <rel>_<field>_not_null, which puts 10 bytes around the two. A name
+-- cut at 63 bytes can be the name of another field's constraint, so a field
+-- whose longest generated name would be cut is refused: when the field is
+-- created, when it is renamed, and when its table is renamed to a longer name
+-- under it. The relation of an is_a entity is <entity>_ext, 4 bytes longer.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('idh_len', 'Len', 'Lens', 1, 'public:read', 'admin'),
+       ('idh_tl',  'Tl',  'Tls',  1, 'public:read', 'admin');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+                      view_permission, edit_permission)
+VALUES ('idh_fam', 'Fam', 'Fams', 1, 'typeid', 'idhf', 'id', 'public:read', 'admin');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      view_permission, edit_permission)
+VALUES ('idh_is', 'Is', 'Iss', 1, 'is_a', 'idhi', 'idh_fam', 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format)
+VALUES ('idh_len', 'short', 'Short', 'text'),
+       ('idh_tl',  'g' || repeat('b', 39), 'Forty', 'text');
+
+-- idh_len (7 bytes): 7 + 46 + 10 = 63.
+SELECT is(pg_temp.idh_refusal(format(
+        $q$INSERT INTO fields (table_name, field_name, title, format) VALUES ('idh_len', %L, 'Fits', 'text')$q$,
+        'f' || repeat('a', 45))),
+    'accepted',
+    'a field whose longest generated name is exactly 63 bytes is created');
+SELECT is(split_part(pg_temp.idh_refusal(format(
+        $q$INSERT INTO fields (table_name, field_name, title, format) VALUES ('idh_len', %L, 'Over', 'text')$q$,
+        'o' || repeat('a', 46))), ' ', 1),
+    '90276',
+    'a field whose longest generated name would be 64 bytes is refused');
+SELECT is(split_part(pg_temp.idh_refusal(format(
+        $q$UPDATE fields SET field_name = %L WHERE table_name = 'idh_len' AND field_name = 'short'$q$,
+        'r' || repeat('a', 46))), ' ', 1),
+    '90276',
+    'renaming a field to a name whose longest generated name would be 64 bytes is refused');
+
+-- idh_is_ext (10 bytes): 10 + 43 + 10 = 63.
+SELECT is(pg_temp.idh_refusal(format(
+        $q$INSERT INTO fields (table_name, field_name, title, format) VALUES ('idh_is', %L, 'Fits', 'text')$q$,
+        'f' || repeat('a', 42))),
+    'accepted',
+    'is_a: a field whose longest generated name on <entity>_ext is exactly 63 bytes is created');
+SELECT is(split_part(pg_temp.idh_refusal(format(
+        $q$INSERT INTO fields (table_name, field_name, title, format) VALUES ('idh_is', %L, 'Over', 'text')$q$,
+        'o' || repeat('a', 43))), ' ', 1),
+    '90276',
+    'is_a: one byte more is refused');
+
+-- idh_tl holds a field of 40 bytes: 6 + 40 + 10 = 56. Under a table name of 14
+-- bytes the same field would need 64.
+SELECT is(split_part(pg_temp.idh_refusal(
+        $$UPDATE entities SET table_name = 'idh_tl_renamed' WHERE table_name = 'idh_tl'$$), ' ', 1),
+    '90276',
+    'renaming a table to a name under which a field it has would need 64 bytes is refused');
+SELECT is((SELECT count(*)::int FROM entities WHERE table_name = 'idh_tl'), 1,
+    'and the table keeps its name');
 
 SELECT * FROM finish();
 ROLLBACK;

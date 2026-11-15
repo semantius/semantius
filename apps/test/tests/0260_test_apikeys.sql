@@ -6,7 +6,7 @@ SELECT 'Seeded API key for user 1003 (UAT): sk-seed001003-ad22cd340123456789abcd
 
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(45);
 
 -- =====================================================
 -- TEST: _apikeys table exists
@@ -408,7 +408,9 @@ SELECT ok(
     'Admin should be able to delete a key belonging to another user'
 );
 
--- Test 26: non-admin cannot delete key belonging to another user
+-- Test 26: non-admin cannot delete key belonging to another user, and gets the
+-- answer an unknown key id gets: a refusal of its own would tell the caller
+-- that the key id exists.
 -- Generate a fresh key for user2 first
 SELECT authenticate_as('user2');
 
@@ -423,9 +425,15 @@ END $$;
 SELECT authenticate_as('user1');
 SELECT throws_ok(
     format($$ SELECT delete_api_key('%s') $$, current_setting('test.nonadmin_delete_key_id', true))::text,
-    '42501',
-    NULL,
-    'Non-admin should not be able to delete a key belonging to another user'
+    '90402',
+    'API key not found',
+    'Non-admin is told that a key belonging to another user does not exist'
+);
+
+RESET ROLE;
+SELECT ok(
+    (SELECT EXISTS (SELECT 1 FROM _apikeys WHERE key_id = current_setting('test.nonadmin_delete_key_id', true))),
+    'and the key belonging to the other user is still there'
 );
 
 -- =====================================================
@@ -478,6 +486,36 @@ SELECT throws_ok(
     '90402',
     'API key not found',
     'delete_api_key refuses a key id that does not exist (plain user)'
+);
+
+-- =====================================================
+-- TEST: the key of a disabled user
+-- =====================================================
+-- A disabled user is refused when the token is resolved, but the key itself
+-- must not validate: validate_api_key is what mints the token, and a key that
+-- validates also records a use that never happened. Enabling the user is all
+-- it takes for the key to work again.
+RESET ROLE;
+
+UPDATE _apikeys SET last_used_at = '2026-01-01 12:34:00+00' WHERE key_id = 'sk-seed001002';
+UPDATE users SET is_disabled = TRUE WHERE id = 1002;
+
+SELECT is(
+    validate_api_key('sk-seed001002-ab12cd340123456789abcdef01234567'), NULL,
+    'validate_api_key returns NULL for the key of a disabled user'
+);
+
+SELECT is(
+    (SELECT last_used_at FROM _apikeys WHERE key_id = 'sk-seed001002'),
+    '2026-01-01 12:34:00+00'::timestamptz,
+    'and does not record a use of it'
+);
+
+UPDATE users SET is_disabled = FALSE WHERE id = 1002;
+
+SELECT is(
+    validate_api_key('sk-seed001002-ab12cd340123456789abcdef01234567'), 1002::bigint,
+    'the key validates again once the user is enabled'
 );
 
 SELECT * FROM finish();

@@ -7,7 +7,7 @@
 --   2. label_column rename
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(48);
 
 -- =====================================================
 -- PART 1: Table and field rename
@@ -526,6 +526,105 @@ SELECT throws_ok(
     'Cannot rename core system field ${field_name}',
     'Renaming created_at column should still be rejected'
 );
+
+-- =====================================================
+-- A field that a rule names cannot be renamed
+-- =====================================================
+-- A rule reads a field by its name, and a rename rewrites no rule: the rule
+-- would go on reading the old name, find nothing, and decide on null without a
+-- word. So the rename is refused, and the error names the rule that has to be
+-- changed first. The rules that count are the computed fields, the validation
+-- rules and the select_rule of the entity, the input_type_rule of its fields,
+-- and the same rules of every is_a or has_a entity below it, whose records
+-- include the field.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+-- Renames p_field of p_table to <p_field>_new: 'renamed', or the code of the
+-- refusal with the table and the rule its hint names.
+CREATE FUNCTION pg_temp.frn_rename(p_table TEXT, p_field TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
+DECLARE
+    v_err  JSONB;
+    v_hint JSONB;
+BEGIN
+    v_err := catch_error(format(
+        $q$UPDATE fields SET field_name = %L WHERE table_name = %L AND field_name = %L$q$,
+        p_field || '_new', p_table, p_field));
+    IF v_err = 'null'::jsonb THEN
+        RETURN 'renamed';
+    END IF;
+    BEGIN
+        v_hint := (v_err ->> 'hint')::jsonb;
+    EXCEPTION WHEN OTHERS THEN
+        v_hint := '{}'::jsonb;
+    END;
+    RETURN concat_ws(' ', v_err ->> 'code', COALESCE(v_hint ->> 'table', '-'), COALESCE(v_hint ->> 'rule', '-'));
+END $f$;
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission,
+                      computed_fields, validation_rules, select_rule)
+VALUES ('frn_host', 'Frn Host', 'Frn Hosts', 1, 'public:read', 'admin',
+    '[{"name": "b", "jsonlogic": {"cat": [{"var": "a"}, "!"]}}]'::jsonb,
+    '[{"code": "99071", "message": "m", "jsonlogic": {"!=": [{"var": "c"}, "x"]}},
+      {"code": "99072", "message": "m", "jsonlogic": {"!=": [{"var": "$old.g"}, "x"]}},
+      {"code": "99073", "message": "m", "jsonlogic": {"!": {"missing": ["k"]}}}]'::jsonb,
+    '{"!=": [{"var": "d"}, "hidden"]}'::jsonb);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('frn_host', 'a', 'A', 'text', 20), ('frn_host', 'b', 'B', 'text', 30), ('frn_host', 'c', 'C', 'text', 40),
+       ('frn_host', 'd', 'D', 'text', 50), ('frn_host', 'e', 'E', 'text', 60), ('frn_host', 'g', 'G', 'text', 70),
+       ('frn_host', 'k', 'K', 'text', 80), ('frn_host', 'free', 'Free', 'text', 90);
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type_rule)
+VALUES ('frn_host', 'f', 'F', 'text', 100, '{"if": [{"var": "e"}, "required", "default"]}');
+
+SELECT is(pg_temp.frn_rename('frn_host', 'a'), '90275 frn_host computed_fields[0]',
+    'a field a computed field reads is not renamed');
+SELECT is(pg_temp.frn_rename('frn_host', 'b'), '90275 frn_host computed_fields[0]',
+    'a field a computed field writes is not renamed');
+SELECT is(pg_temp.frn_rename('frn_host', 'c'), '90275 frn_host validation_rules[0]',
+    'a field a validation rule reads is not renamed');
+SELECT is(pg_temp.frn_rename('frn_host', 'g'), '90275 frn_host validation_rules[1]',
+    'a field a rule reads behind $old is not renamed');
+SELECT is(pg_temp.frn_rename('frn_host', 'k'), '90275 frn_host validation_rules[2]',
+    'a field a rule names in missing is not renamed');
+SELECT is(pg_temp.frn_rename('frn_host', 'd'), '90275 frn_host select_rule',
+    'a field the select_rule reads is not renamed');
+SELECT is(pg_temp.frn_rename('frn_host', 'e'), '90275 frn_host f.input_type_rule',
+    'a field the input_type_rule of another field reads is not renamed');
+
+-- The rules of a family. An is_a or has_a entity is read and written as one
+-- record with its base, so its rules name the base's fields as their own.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+                      view_permission, edit_permission)
+VALUES ('frn_parties', 'Frn Party', 'Frn Parties', 1, 'typeid', 'frnp', 'id', 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('frn_parties', 'city', 'City', 'text', 30), ('frn_parties', 'zone', 'Zone', 'text', 40);
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      view_permission, edit_permission)
+VALUES ('frn_orgs', 'Frn Org', 'Frn Orgs', 1, 'is_a', 'frno', 'frn_parties', 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('frn_orgs', 'tag', 'Tag', 'text', 30);
+UPDATE entities
+   SET computed_fields = '[{"name": "tag", "jsonlogic": {"cat": ["T:", {"var": "city"}]}}]'::jsonb
+ WHERE table_name = 'frn_orgs';
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity,
+                      view_permission, edit_permission, select_rule)
+VALUES ('frn_vendors', 'Frn Vendor', 'Frn Vendors', 1, 'has_a', 'frn_parties', 'public:read', 'admin',
+        '{"!=": [{"var": "zone"}, "hidden"]}'::jsonb);
+
+SELECT is(pg_temp.frn_rename('frn_parties', 'city'), '90275 frn_orgs computed_fields[0]',
+    'a base field a computed field of an is_a entity reads is not renamed');
+SELECT is(pg_temp.frn_rename('frn_parties', 'zone'), '90275 frn_vendors select_rule',
+    'a base field the select_rule of a has_a entity reads is not renamed');
+
+-- A field no rule names is renamed as before.
+SELECT is(pg_temp.frn_rename('frn_host', 'free'), 'renamed',
+    'a field no rule names is renamed');
+SELECT has_column('public', 'frn_host', 'free_new',
+    'and its column carries the new name');
 
 SELECT * FROM finish();
 ROLLBACK;

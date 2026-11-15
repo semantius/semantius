@@ -21,7 +21,7 @@
 --  15. Values a filter meets when a child is written
 BEGIN;
 
-SELECT plan(366);
+SELECT plan(368);
 
 SELECT authenticate_as('user3');
 
@@ -1617,46 +1617,50 @@ SELECT is(pg_temp.ru_ops('{"in": [{"var": "x"}, ["1.5"]]}'), ARRAY[1, 0], 'the s
 SELECT is(pg_temp.ru_ops('{"in": [{"var": "t"}, [10]]}'), ARRAY[1, 0],
     'in with a list of numbers on a text column: compiled, the number is text; interpreted, nothing matches');
 
--- Differences that are written down nowhere. Each records what happens today.
---
 -- ! over a comparison that is NULL. SQL's NOT keeps NULL, so the row with a NULL
 -- column is in neither the comparison nor its negation. The interpreter always
 -- answers true or false, so the row is in exactly one of the two. The sides
 -- agree only where the interpreter's 0 puts the row into the comparison itself.
 SELECT is(pg_temp.ru_ops('{"!": {">": [{"var": "n"}, 5]}}'), ARRAY[5, 6],
-    'today: ! over > leaves the NULL row out when compiled and keeps it when interpreted');
+    '! over > leaves the NULL row out when compiled and keeps it when interpreted');
 SELECT is(pg_temp.ru_ops('{"!": {"<": [{"var": "n"}, 5]}}'), ARRAY[4, 4],
-    'today: ! over < leaves the NULL row out on both sides, as the interpreter counts it below 5');
+    '! over < leaves the NULL row out on both sides, as the interpreter counts it below 5');
 SELECT is(pg_temp.ru_ops('{"!": {"var": "b"}}'), ARRAY[3, 4],
-    'today: ! over a NULL boolean column leaves the row out when compiled and keeps it when interpreted');
+    '! over a NULL boolean column leaves the row out when compiled and keeps it when interpreted');
 SELECT is(pg_temp.ru_ops('{"!": {"in": [{"var": "n"}, [1, 5]]}}'), ARRAY[4, 5],
-    'today: ! over in leaves the NULL row out when compiled and keeps it when interpreted');
+    '! over in leaves the NULL row out when compiled and keeps it when interpreted');
 
--- Text ordering. The compiled comparison uses the column's collation, the
--- interpreter code points. A linguistic collation places Banana after a and an
--- accented e before f; code points place both in the opposite order. A database
--- whose default collation is C therefore shows no difference, so each expected
--- pair follows what this database answers for the value in question.
-SELECT is(pg_temp.ru_ops('{"<": [{"var": "t"}, "a"]}'),
-    CASE WHEN 'Banana' < 'a' THEN ARRAY[4, 4] ELSE ARRAY[3, 4] END,
-    'today: a capital initial sorts by the column''s collation when compiled and by code point when interpreted');
-SELECT is(pg_temp.ru_ops('{"<": [{"var": "t"}, "f"]}'),
-    CASE WHEN U&'\00E9lan' < 'f' THEN ARRAY[7, 6] ELSE ARRAY[6, 6] END,
-    'today: an accented initial sorts by the column''s collation when compiled and by code point when interpreted');
+-- Text ordering is by code point on both sides, whatever the collation of the
+-- column or of the database. A linguistic collation would place Banana after a
+-- and an accented e before f, and a rollup would then count other rows than the
+-- same rule counts in a validation rule.
+SELECT is(pg_temp.ru_ops('{"<": [{"var": "t"}, "a"]}'), ARRAY[4, 4],
+    'both ways: a capital initial sorts by code point, before every lower-case letter');
+SELECT is(pg_temp.ru_ops('{"<": [{"var": "t"}, "f"]}'), ARRAY[6, 6],
+    'both ways: an accented initial sorts by code point, after every unaccented letter');
 
--- === is compiled as ==, cast included, where the interpreter's === compares
--- the types first.
-SELECT is(pg_temp.ru_ops('{"===": [{"var": "n"}, "5"]}'), ARRAY[2, 0],
-    'today: === between an integer column and a string matches when compiled and never when interpreted');
--- The cast rounds a number to the column's scale before it compares.
-SELECT is(pg_temp.ru_ops('{"==": [{"var": "x"}, 1.501]}'), ARRAY[1, 0],
-    'today: a number with more decimals than the column equals the rounded value when compiled');
+-- === and !== compare the types first, and a column has one type. Against a
+-- literal of another JSON type the answer is the same for every row, which is
+-- never what the author meant, so the filter is refused.
+SELECT throws_ok($$SELECT rollup_filter_sql('{"===": [{"var": "n"}, "5"]}', 'ru_op_rows', 'c')$$,
+    '90265', NULL, '=== between an integer column and a string is refused');
+SELECT throws_ok($$SELECT rollup_filter_sql('{"!==": [{"var": "t"}, 5]}', 'ru_op_rows', 'c')$$,
+    '90265', NULL, '!== between a text column and a number is refused');
+-- A number is compared as it is written, not rounded to the column's scale.
+SELECT is(pg_temp.ru_ops('{"==": [{"var": "x"}, 1.501]}'), ARRAY[0, 0],
+    'both ways: a number with more decimals than the column equals no value of it');
 -- The compiled side reads a date-time or UUID literal as a value, the interpreter
 -- as text, so another spelling of the same value matches on one side only.
 SELECT is(pg_temp.ru_ops('{"==": [{"var": "ts"}, "2026-02-20T12:00:00Z"]}'), ARRAY[2, 0],
-    'today: a date-time written with Z equals the column when compiled and not when interpreted');
+    'a date-time written with Z equals the column when compiled and not when interpreted');
 SELECT is(pg_temp.ru_ops('{"==": [{"var": "u"}, "00000000-0000-0000-0000-00000000000A"]}'), ARRAY[1, 0],
-    'today: a UUID written in capitals equals the column when compiled and not when interpreted');
+    'a UUID written in capitals equals the column when compiled and not when interpreted');
+
+-- A time column is compared like any other.
+CREATE TABLE public.ru_time_rows (id SERIAL PRIMARY KEY, tm TIME);
+INSERT INTO public.ru_time_rows (tm) VALUES ('08:00:00'), ('18:30:00'), (NULL);
+SELECT is(pg_temp.ru_both('{"==": [{"var": "tm"}, "08:00:00"]}', 'ru_time_rows'), ARRAY[1, 1],
+    'both ways: == on a time column');
 
 -- =====================================================
 -- PART 15: Values a filter meets when a child is written
@@ -1702,7 +1706,7 @@ SELECT is(pg_temp.rx_err($$INSERT INTO fields (table_name, field_name, title, fo
                                    '{"link_field": "rt_sized.parent_id", "function": "count", "filter": {"<": [{"var": "days"}, 2.5]}}')$$),
     '{"code": "90265", "message": "Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}",
       "hint": {"table": "rt_parent", "field_name": "probe_fraction", "problem": "invalid input syntax for type bigint: \"2.5\""}}'::jsonb,
-    'today: a number with a fraction against an integer column is refused when the definition is saved');
+    'a number with a fraction against an integer column is refused when the definition is saved');
 
 -- One parent per case, each with a child inside its filter and one outside, so a
 -- write that fails in one case leaves the counts of the others alone.

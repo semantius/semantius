@@ -11,7 +11,7 @@
 -- builder where no entity row backs it.
 BEGIN;
 
-SELECT plan(87);
+SELECT plan(96);
 
 SELECT authenticate_as('user3');
 
@@ -322,6 +322,112 @@ SELECT is(
     (SELECT old_label FROM cv_old_test WHERE label = 'third'),
     'second',
     '$old.label contains previous label value on second UPDATE');
+
+-- =====================================================
+-- $old where the rule does not spell it
+-- =====================================================
+-- The previous row is serialized only for an entity whose rules can read it.
+-- A rule can read it without the name standing in its text: the key of a var,
+-- of missing and of missing_some may itself be computed. Such a rule cannot be
+-- told from its text, so it gets $old like a rule that names it. value_changed
+-- never names $old either and reads it all the same.
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column,
+    computed_fields)
+VALUES ('cv_old_var_list', 'cv_old_var_list', 'Old Var List', 'Old Var Lists', 'var with a computed key and a default',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "prev", "jsonlogic": {"var": [{"cat": ["$ol", "d.label"]}, "none"]}}]'::jsonb),
+       ('cv_old_missing', 'cv_old_missing', 'Old Missing', 'Old Missings', 'missing with a computed key',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "seen", "jsonlogic": {"if": [{"missing": [{"cat": ["$ol", "d.label"]}]}, "missing", "present"]}}]'::jsonb),
+       ('cv_old_changed', 'cv_old_changed', 'Old Changed', 'Old Changeds', 'value_changed',
+    1, 'public:read', 'admin', 'id', 'label',
+    '[{"name": "changed", "jsonlogic": {"value_changed": "label"}}]'::jsonb);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES
+    ('cv_old_var_list', 'prev',    'Prev',    'text',    10),
+    ('cv_old_missing',  'seen',    'Seen',    'text',    10),
+    ('cv_old_changed',  'changed', 'Changed', 'boolean', 10),
+    ('cv_old_changed',  'note',    'Note',    'text',    20);
+
+INSERT INTO cv_old_var_list (label) VALUES ('first');
+UPDATE cv_old_var_list SET label = 'second' WHERE label = 'first';
+
+SELECT is(
+    (SELECT prev FROM cv_old_var_list WHERE label = 'second'),
+    'first',
+    'a var whose key is computed, written with a default, reads $old on UPDATE');
+
+INSERT INTO cv_old_missing (label) VALUES ('first');
+UPDATE cv_old_missing SET label = 'second' WHERE label = 'first';
+
+SELECT is(
+    (SELECT seen FROM cv_old_missing WHERE label = 'second'),
+    'present',
+    'missing with a computed key finds $old.label on UPDATE');
+
+INSERT INTO cv_old_changed (label) VALUES ('first');
+UPDATE cv_old_changed SET note = 'edited' WHERE label = 'first';
+
+SELECT is(
+    (SELECT changed FROM cv_old_changed WHERE label = 'first'),
+    FALSE,
+    'value_changed reads $old: an UPDATE that leaves the label alone reports no change');
+
+-- =====================================================
+-- An input_type_rule is checked when the field is saved
+-- =====================================================
+-- The browser evaluates it for every record it shows and falls back to the
+-- static input_type when the rule raises, so a misspelled operator would turn
+-- a required or hidden field into an ordinary one without a word. The save
+-- refuses it like the rules of an entity. A rule yields an input type, so it
+-- may be a literal, and the empty object means no rule.
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('cv_itr_test', 'cv_itr', 'Itr', 'Itrs', 'input_type_rule probe',
+    1, 'public:read', 'admin', 'id', 'label');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type_rule)
+VALUES ('cv_itr_test', 'kept', 'Kept', 'text', 10, '{"if": [{"var": "label"}, "required", "hidden"]}');
+
+SELECT is(
+    COALESCE(catch_error($$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type_rule)
+        VALUES ('cv_itr_test', 'top', 'Top', 'text', 20, '{"unknown_op": [1, 2]}')$$) ->> 'code', 'no error'),
+    '90909',
+    'save: a field whose input_type_rule is an unknown operator is refused');
+
+SELECT is(
+    catch_error_hint($$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type_rule)
+        VALUES ('cv_itr_test', 'top_hint', 'Top Hint', 'text', 25, '{"unknown_op": [1, 2]}')$$),
+    '{"rule": "top_hint.input_type_rule", "table": "cv_itr_test", "op": "unknown_op"}'::jsonb,
+    'save: and the hint names the field''s rule, the table and the operator');
+
+SELECT is(
+    COALESCE(catch_error($$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type_rule)
+        VALUES ('cv_itr_test', 'nested', 'Nested', 'text', 30,
+                '{"if": [{"var": "label"}, {"unknown_op": [1, 2]}, "hidden"]}')$$) ->> 'code', 'no error'),
+    '90909',
+    'save: an unknown operator below the top of an input_type_rule is refused as well');
+
+SELECT is(
+    COALESCE(catch_error($$UPDATE fields SET input_type_rule = '{"unknown_op": [1, 2]}'
+                            WHERE table_name = 'cv_itr_test' AND field_name = 'kept'$$) ->> 'code', 'no error'),
+    '90909',
+    'save: an update that brings an unknown operator into an input_type_rule is refused');
+
+SELECT is(
+    COALESCE(catch_error($$UPDATE fields SET input_type_rule = '{"if": [{"unknown_op": [1, 2]}, "required", "hidden"]}'
+                            WHERE table_name = 'cv_itr_test' AND field_name = 'kept'$$) ->> 'code', 'no error'),
+    '90909',
+    'save: and so is an update that brings one in below the top');
+
+SELECT is(
+    (SELECT input_type_rule FROM fields WHERE table_name = 'cv_itr_test' AND field_name = 'kept'),
+    '{"if": [{"var": "label"}, "required", "hidden"]}'::jsonb,
+    'save: a rule of known operators is saved, and the refused updates left it as it was');
 
 -- =====================================================
 -- A rule is checked when the entity is saved

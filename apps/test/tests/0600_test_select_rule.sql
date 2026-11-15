@@ -12,9 +12,10 @@
 --      object with two keys are refused, the empty object is accepted
 --   6. A stored rule the save would refuse: it still builds, and what a reader
 --      sees under it
+--   7. The predicate handed no request context answers false
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(47);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -515,13 +516,30 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
+-- A rule that raises hides the row and says so once: a WARNING names the
+-- entity and the SQLSTATE the first time in a transaction that the entity's
+-- rule fails. pgTAP cannot capture a WARNING, so what is asserted here is the
+-- transaction-local setting that keeps the entities already warned,
+-- app.select_rule_warned, a comma-separated list of table names.
+CREATE FUNCTION pg_temp.sr_warned(p_table TEXT) RETURNS INT LANGUAGE sql AS $$
+    SELECT count(*)::int
+    FROM unnest(string_to_array(COALESCE(current_setting('app.select_rule_warned', true), ''), ',')) AS w(name)
+    WHERE w.name = p_table;
+$$;
+
 SELECT authenticate_as('user3');
 SELECT is(pg_temp.sr_read('sr_stored_op'), '0 rows',
-    'today: a stored rule with an unknown operator hides every row from an administrator, and the read raises nothing');
+    'stored rule: an unknown operator hides every row from an administrator, and the read raises nothing');
+
+SELECT is(pg_temp.sr_warned('sr_stored_op'), 1,
+    'stored rule: the read leaves the entity in app.select_rule_warned');
 
 SELECT authenticate_as('user1');
 SELECT is(pg_temp.sr_read('sr_stored_op'), '0 rows',
-    'today: a stored rule with an unknown operator hides every row from a plain reader as well');
+    'stored rule: an unknown operator hides every row from a plain reader as well');
+
+SELECT is(pg_temp.sr_warned('sr_stored_op'), 1,
+    'stored rule: a second read in the transaction does not name the entity again');
 
 SELECT is(pg_temp.sr_read('sr_stored_two_keys'), '0 rows',
     'stored rule: a rule with two keys hides every row, as a rule that is no single operator fails closed');
@@ -532,6 +550,52 @@ SELECT is(
                             WHERE table_name = 'sr_stored_op'$$) ->> 'code', 'no error'),
     '90909',
     'stored rule: a save of the entity that leaves the rule alone is refused all the same');
+
+-- =====================================================
+-- PART 7: The predicate without a request context
+-- =====================================================
+-- The two-argument predicate merges the context over the row. The request role
+-- holds EXECUTE on it, because a policy runs with the caller's privileges, so
+-- a caller can hand it NULL. Row and context are then both null, a rule such
+-- as "user_id == $user_id" compares null with null, and the answer would be
+-- true for any row. Without a context there is no caller to decide for: the
+-- answer is false, whoever the row belongs to.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+VALUES ('sr_no_ctx', 'sr_no_ctx_item', 'Sr No Ctx Item', 'Sr No Ctx Items', 'Rows of their assignee',
+        '{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}'::jsonb, 1);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('sr_no_ctx', 'assigned_to', 'Assigned To', 'reference', 20, 'users', 'clear');
+
+SELECT authenticate_as('user1');
+
+SELECT is(
+    public.select_rule_sr_no_ctx(
+        jsonb_populate_record(NULL::public.sr_no_ctx, '{"id": 1, "assigned_to": 1001}'::jsonb), NULL::jsonb),
+    FALSE,
+    'no context: a row assigned to the caller does not pass the rule of a test entity');
+
+SELECT is(
+    public.select_rule_sr_no_ctx(
+        jsonb_populate_record(NULL::public.sr_no_ctx, '{"id": 2, "assigned_to": 1002}'::jsonb), NULL::jsonb),
+    FALSE,
+    'no context: a row assigned to somebody else does not pass it either');
+
+SELECT is(
+    public.select_rule_user_bookmarks(
+        jsonb_populate_record(NULL::public.user_bookmarks, '{"id": 1, "user_id": 1001}'::jsonb), NULL::jsonb),
+    FALSE,
+    'no context: the caller''s own bookmark does not pass the rule of user_bookmarks');
+
+SELECT is(
+    public.select_rule_user_bookmarks(
+        jsonb_populate_record(NULL::public.user_bookmarks, '{"id": 2, "user_id": 1002}'::jsonb), NULL::jsonb),
+    FALSE,
+    'no context: somebody else''s bookmark does not pass it either');
 
 SELECT * FROM finish();
 ROLLBACK;

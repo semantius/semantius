@@ -10,7 +10,7 @@
 --   5. The time format
 BEGIN;
 
-SELECT plan(51);
+SELECT plan(61);
 
 -- =====================================================
 -- PART 1: The field format list
@@ -594,6 +594,108 @@ SELECT is(
     (SELECT string_agg(t_start::text, ', ' ORDER BY id) FROM tm_fmt_rows),
     '09:30:00, 09:30:00',
     'the rows that were there should take the default of a time field added later'
+);
+
+-- =====================================================
+-- PART 6: The duration, binary and uuid formats without a default_value
+-- =====================================================
+-- Every column that is NOT NULL has a default, or a row that leaves the field
+-- out fails on the column, and the field cannot be added to a table that has
+-- rows. A duration has an honest zero, no time at all, and a binary value has
+-- one too, no bytes. A UUID has none: every value of the type names something,
+-- so the column is nullable and NULL means that no UUID was given.
+--
+-- Fixtures: `zf_bare` with one field of each format, `zf_rows`, a table with
+-- rows that the same fields are added to, and `zf_req` with a required uuid;
+-- all created in-tx as user3.
+
+INSERT INTO entities (
+    table_name, singular, plural, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column, managed
+)
+VALUES
+    ('zf_bare', 'zf_bare', 'zf_bares', 'Zero Probe', 'Zero Probes',
+     'Ephemeral probe for formats without a default_value', 1, 'public:read', 'admin', 'id', 'label', TRUE),
+    ('zf_rows', 'zf_rows', 'zf_rowss', 'Rows Zero Probe', 'Rows Zero Probes',
+     'Ephemeral table with rows that fields are added to', 1, 'public:read', 'admin', 'id', 'label', TRUE),
+    ('zf_req', 'zf_req', 'zf_reqs', 'Required Uuid Probe', 'Required Uuid Probes',
+     'Ephemeral probe for a required uuid', 1, 'public:read', 'admin', 'id', 'label', TRUE);
+
+INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+VALUES ('zf_bare', 'dur', 'Duration', 'duration', 'default', 30),
+       ('zf_bare', 'bin', 'Binary',   'binary',   'default', 40),
+       ('zf_bare', 'uid', 'Uuid',     'uuid',     'default', 50);
+
+SELECT is(
+    (SELECT jsonb_object_agg(column_name, is_nullable)
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'zf_bare' AND column_name IN ('dur', 'bin', 'uid')),
+    '{"dur": "NO", "bin": "NO", "uid": "YES"}'::jsonb,
+    'a duration and a binary column should be NOT NULL, a uuid column nullable'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO zf_bare (label) VALUES ('bare')$$,
+    'a row that leaves out a duration, a binary and a uuid field should be stored'
+);
+
+SELECT is(
+    (SELECT dur = interval '0' AND bin = ''::bytea AND uid IS NULL FROM zf_bare WHERE label = 'bare'),
+    TRUE,
+    'and should hold no time, no bytes and no UUID'
+);
+
+INSERT INTO zf_rows (label) VALUES ('first'), ('second');
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+      VALUES ('zf_rows', 'dur', 'Duration', 'duration', 'default', 30)$$,
+    'a duration field without a default_value should be added to a table that has rows'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+      VALUES ('zf_rows', 'bin', 'Binary', 'binary', 'default', 40)$$,
+    'a binary field without a default_value should be added to a table that has rows'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+      VALUES ('zf_rows', 'uid', 'Uuid', 'uuid', 'default', 50)$$,
+    'a uuid field without a default_value should be added to a table that has rows'
+);
+
+SELECT is(
+    (SELECT count(*)::int FROM zf_rows r
+      WHERE (to_jsonb(r) ->> 'dur')::interval = interval '0'
+        AND to_jsonb(r) ->> 'bin' = '\x'
+        AND to_jsonb(r) -> 'uid' = 'null'::jsonb),
+    2,
+    'the rows that were there should hold no time, no bytes and no UUID'
+);
+
+-- A required uuid is one that has to be given: NULL is refused with the error
+-- of every required field, and the field cannot be added to a table that has
+-- rows, which would have no value for it.
+INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+VALUES ('zf_req', 'uid', 'Uuid', 'uuid', 'required', 30);
+
+SELECT is(
+    COALESCE(catch_error($$INSERT INTO zf_req (label) VALUES ('without')$$) ->> 'code', 'no error'),
+    '90258',
+    'a required uuid field should refuse a row that leaves it out with 90258'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO zf_req (label, uid) VALUES ('with', '00000000-0000-0000-0000-000000000001')$$,
+    'a required uuid field should take a row that gives one'
+);
+
+SELECT throws_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+      VALUES ('zf_rows', 'uid_req', 'Required Uuid', 'uuid', 'required', 60)$$,
+    '90259', NULL,
+    'a required uuid field without a default_value should be refused on a table that has rows'
 );
 
 SELECT * FROM finish();

@@ -20,7 +20,7 @@
 -- user1 (id 1001) is a plain user; user3 is admin (auto-granted every permission).
 BEGIN;
 
-SELECT plan(41);
+SELECT plan(51);
 
 -- =====================================================
 -- SETUP (as admin): entity whose rows are visible only to their owner (or admin),
@@ -450,6 +450,92 @@ SELECT is(
     FALSE,
     'the request role can execute none of the functions that read or use the secret');
 ROLLBACK TO sp_f4;
+
+-- =====================================================
+-- THE SAME MOVE IN A FAMILY
+-- =====================================================
+-- The record of an is_a or has_a entity is written through its view: an
+-- INSTEAD OF trigger hands it to the entity's write routine, which writes the
+-- base table and <entity>_ext. The rule and the two triggers that mark the row
+-- being written sit on <entity>_ext. A write that moves the record out of the
+-- writer's own rule must go through there as on a plain table, the record is
+-- hidden afterward, and a forged marker opens nothing.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+                      view_permission, edit_permission)
+VALUES ('rmf_parties', 'Rmf Party', 'Rmf Parties', 1, 'typeid', 'rmfp', 'id', 'public:read', 'nwind:manage');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+                      view_permission, edit_permission, select_rule)
+VALUES ('rmf_orgs', 'Rmf Org', 'Rmf Orgs', 1, 'is_a', 'rmfo', 'rmf_parties', 'public:read', 'nwind:manage',
+        '{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}'::jsonb);
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity,
+                      view_permission, edit_permission, select_rule)
+VALUES ('rmf_vendors', 'Rmf Vendor', 'Rmf Vendors', 1, 'has_a', 'rmf_parties', 'public:read', 'nwind:manage',
+        '{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}'::jsonb);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('rmf_orgs',    'assigned_to', 'Assigned To', 'reference', 30, 'users', 'clear'),
+       ('rmf_vendors', 'assigned_to', 'Assigned To', 'reference', 30, 'users', 'clear');
+
+-- The records, written by the owner: one of user2 and one of user1 per entity.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+INSERT INTO rmf_orgs (label, assigned_to) VALUES ('org-owned', 1002), ('org-hidden', 1001);
+INSERT INTO rmf_vendors (label, assigned_to) VALUES ('ven-owned', 1002), ('ven-hidden', 1001);
+
+SELECT authenticate_as('user2');
+SELECT is(
+    (SELECT string_agg(label, ',' ORDER BY label) FROM rmf_orgs),
+    'org-owned',
+    'family, is_a: the editor sees its own record and not the other');
+SELECT lives_ok(
+    $$ UPDATE rmf_orgs SET assigned_to = (SELECT id FROM users WHERE external_id = 'user1')
+        WHERE label = 'org-owned' $$,
+    'family, is_a: an editor may reassign its own record through the view');
+SELECT is(
+    (SELECT count(*)::int FROM rmf_orgs),
+    0,
+    'family, is_a: and no longer sees it');
+SELECT set_config('app.row_move', 'rmf_orgs_ext', true);
+SELECT is(
+    (SELECT count(*)::int FROM rmf_orgs WHERE label = 'org-hidden'),
+    0,
+    'family, is_a: a value the client wrote into app.row_move opens no hidden record');
+SELECT set_config('app.row_move', '', true);
+
+SELECT is(
+    (SELECT string_agg(label, ',' ORDER BY label) FROM rmf_vendors),
+    'ven-owned',
+    'family, has_a: the editor sees its own record and not the other');
+SELECT lives_ok(
+    $$ UPDATE rmf_vendors SET assigned_to = (SELECT id FROM users WHERE external_id = 'user1')
+        WHERE label = 'ven-owned' $$,
+    'family, has_a: an editor may reassign its own record through the view');
+SELECT is(
+    (SELECT count(*)::int FROM rmf_vendors),
+    0,
+    'family, has_a: and no longer sees it');
+SELECT set_config('app.row_move', 'rmf_vendors_ext', true);
+SELECT is(
+    (SELECT count(*)::int FROM rmf_vendors WHERE label = 'ven-hidden'),
+    0,
+    'family, has_a: a value the client wrote into app.row_move opens no hidden record');
+SELECT set_config('app.row_move', '', true);
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    (SELECT string_agg(label || ':' || assigned_to, ',' ORDER BY label) FROM rmf_orgs),
+    'org-hidden:1001,org-owned:1001',
+    'family, is_a: the owner finds the record reassigned and the other untouched');
+SELECT is(
+    (SELECT string_agg(label || ':' || assigned_to, ',' ORDER BY label) FROM rmf_vendors),
+    'ven-hidden:1001,ven-owned:1001',
+    'family, has_a: the owner finds the record reassigned and the other untouched');
 
 SELECT * FROM finish();
 ROLLBACK;

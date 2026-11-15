@@ -1,0 +1,533 @@
+# Dynamic SQL: how each value reaches a statement
+
+The dictionary builds SQL at run time from values administrators write into
+`entities`, `fields` and the other dictionary tables. The rule is that such a
+value reaches a statement only through `%I`, through `%L` or `quote_literal`,
+through a fixed allow-list, or from the catalog. This page lists every such
+value: where it comes from, how it is quoted and which test pins it. A new
+statement that builds SQL gets its row here in the commit that adds it.
+
+## How to read the table
+
+Each row is one value in one function. A function that splices the same value
+the same way into several statements has one row. The "How quoted" column
+holds one of these:
+
+- `%I`: the value is an identifier, quoted by `format('%I', ...)` or
+  `quote_ident`. Quoting does not limit the length: PostgreSQL cuts an
+  identifier at 63 bytes, so a row for a generated name states the length
+  limit of its parts where there is one.
+- `%L`: the value is a string literal, quoted by `format('%L', ...)` or
+  `quote_literal`.
+- `dd_dollar_quote`: the value is the body of a generated function. The helper
+  wraps it in a dollar tag derived from the md5 of the body and raises when
+  the body contains that tag.
+- allow-list: the value only selects one of the literals written in the
+  migration (a `CASE`, an `IF` chain or a literal array). The text in the
+  statement is the literal, never the value.
+- catalog: the text comes back from PostgreSQL (`pg_get_expr`, `format_type`,
+  `pg_get_serial_sequence`, the output of `regclass`, `regprocedure` or
+  `regtype`, a name column of a catalog table), not from a dictionary column.
+- helper `name`: the named helper builds the fragment and quotes inside it.
+  Its own rows say how.
+- typed integer, typed boolean: the value is an integer or a boolean and
+  cannot carry text.
+- raw: the function splices the value with `%s`, with `||` or through a cast
+  and quotes nothing. The "Source of the value" column says what restricts
+  the value.
+- `-`: the function builds no statement text at run time.
+
+Three kinds of value have no row: a value bound with `USING`, which never
+becomes statement text; a fragment that a function assembles from values it
+already lists; and a dictionary value that a function only hands on to a
+helper, which lists it under its own name.
+
+"Relation" is the result of `dd_relation`: the table name of a plain entity,
+the table name plus `_ext` for an is_a or has_a entity. In the "Test" column,
+`none` marks a row that no test pins.
+
+## Values
+
+### 0010_core.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (`GRANT semantius_user`) | role name | `current_user`, the session role of the installer | `%I` | not needed: no caller text reaches the statement |
+
+### 0020_settings.once.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (`ALTER DATABASE`) | database name | `current_database()` | catalog, `%I` | not needed: no caller text reaches the statement |
+| DO block (`ALTER DATABASE`) | setting values `UTC` and `iso_8601` | literals in the file | `%L` | not needed: no caller text reaches the statement |
+
+### 0040_cache.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (`GRANT USAGE ON SCHEMA common`) | role name | `current_user`, the session role of the installer | `%I` | not needed: no caller text reaches the statement |
+
+### 0045_typeid.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| top level (`EXECUTE` of a function definition) | the whole statement | one of two constant strings; the server version selects which | allow-list | not needed: no caller text reaches the statement |
+| `common.typeid_assign` | none | the statement is constant text; the row and the generated key are bound with `USING`, and the trigger arguments reach it only as a JSON key and a function argument | - | not needed: no caller text reaches the statement |
+
+### 0080_rbac_functions.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (`DROP FUNCTION`) | function signature | literal array in the file | allow-list | not needed: no caller text reaches the statement |
+
+### 0150_dd_bootstrap.once.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (eight `ADD CONSTRAINT valid_* CHECK`) | the value lists of format, input type, width, ctype, reference delete mode, edit mode, cube mode and cube type | text arrays built from literals in the block and from `json_object_keys(dd_formats())` | `%L` | not needed: no caller text reaches the statement |
+
+### 0160_dd_functions.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `format_to_data_type` | column type name | `fields.format` selects a branch of a `CASE` over literals (`ELSE 'TEXT'`); the format itself is never spliced | allow-list | not needed: no caller text reaches the statement |
+| `format_to_data_type` | numeric scale | `fields.precision` (SMALLINT, CHECK `valid_precision`) | typed integer | not needed: no caller text reaches the statement |
+| `dd_dollar_quote` | function body | the text a generator passes | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `dd_relation` (returns a name) | table name | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` by every caller | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_id_type_data_type` | key type name | `entities.id_type` (CHECK `valid_id_type`) selects a branch of a `CASE` over literals (`ELSE 'TEXT'`) | allow-list | not needed: no caller text reaches the statement |
+| `dd_id_column_ddl` | which key column definition is returned | `entities.id_type` (CHECK `valid_id_type`) selects a branch of a `CASE` over literals; any other value raises | allow-list | not needed: no caller text reaches the statement |
+| `dd_id_column_ddl` | key column name | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_id_column_ddl` | base relation of an is_a or has_a key | `entities.id_refentity` (foreign key to `entities.table_name`) through `dd_relation` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_check_id_column`, `field_data_type`, `dd_index_name_free`, `dd_drop_own_index`, `dd_constraint_exists`, `dd_sync_typeid_prefix`, `dd_family_columns`, `dd_check_family_dependents` (name lookup) | relation name inside `to_regclass(format('public.%I', ...))` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_id_triggers` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` (column of the trigger), `%L` (trigger argument) | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_id_triggers` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_id_triggers` | id prefixes (trigger arguments) | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_typeid_trigger_args` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_typeid_trigger_args` | id prefixes | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_install_key_rule_checks` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_key_rule_checks` | key column (trigger argument) | `entities.id_column` (CHECK `valid_id_column`) | `%L`, helper `dd_typeid_trigger_args` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_key_rule_checks` | id prefixes (trigger arguments) | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_install_key_rule_checks` | name of the trigger it drops | `pg_trigger.tgname`, filtered to `zz_key_check_insert` and `zz_key_check_update` | catalog, `%I` | not needed: no caller text reaches the statement |
+| `field_data_type` | column type | `pg_catalog.format_type` of the referenced entity's key column, upper-cased; otherwise the output of `dd_id_type_data_type` or `format_to_data_type` | catalog, allow-list | not needed: no caller text reaches the statement |
+| `dd_unique_predicate` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_drop_own_index` | index name | built by the callers as `idx_<relation>_<field>` or `<relation>_<field>_unique`; the cut name must belong to an index on the field's own table | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `quote_default_value` | default value | `fields.default_value` (CHECK `valid_default_value`) | allow-list (`NULL`, `TRUE`, `FALSE`, twelve keyword expressions, a plain number on a numeric type), otherwise `%L` | `0530_test_default_value_hardening.sql` |
+| `dd_column_default` | default expression | `fields.default_value` (CHECK `valid_default_value`), for an enum through `effective_enum_default` | helper `quote_default_value` | `0530_test_default_value_hardening.sql` |
+| `dd_column_default` | zero default of a column without a default | `fields.format` and the column type select a branch of a `CASE` over literals | allow-list | not needed: no caller text reaches the statement |
+| `dd_required_test` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_required_check_expr` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%L` (argument of `common.dd_raise_required`), helper `dd_required_test` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_relation_has_rows` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_field_has_missing` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_field_has_missing` | field name | `fields.field_name` (CHECK `valid_field_name`) | helper `dd_required_test` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_required_default_ok` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I`, helper `dd_required_test` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_required_default_ok` | default expression | `fields.default_value` (CHECK `valid_default_value`), `fields.enum_values`, `fields.input_type`, `fields.format`; the literal `NULL` when there is none | helper `dd_column_default` | `0530_test_default_value_hardening.sql` |
+| `dd_required_default_ok` | column type | `field_data_type(fields.format, fields.precision, fields.reference_table)` | helper `field_data_type` | not needed: no caller text reaches the statement |
+| `dd_add_required_check` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_add_required_check` | constraint name `<relation>_<field>_assert` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `dd_add_required_check` | field name inside the check expression | `fields.field_name` (CHECK `valid_field_name`) | helper `dd_required_check_expr` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_drop_required_check` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_drop_required_check` | constraint name `<relation>_<field>_assert` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `dd_check_enum_values_cover_rows` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_check_enum_values_cover_rows` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_check_enum_values_cover_rows` | enum values | `fields.enum_values` (plain values or the `value` key of objects) | `%L` per element | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_replace_enum_check` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_replace_enum_check` | constraint name `<relation>_<field>_check` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `dd_replace_enum_check` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_replace_enum_check` | enum values | `fields.enum_values` (plain values or the `value` key of objects) | `%L` per element | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_replace_enum_check` | `NOT VALID` suffix | `dd_relation_has_rows` selects one of two literals in a `CASE` | allow-list | not needed: no caller text reaches the statement |
+| `dd_table_comment` (builds the comment text) | plural label, description | `entities.plural_label`, `entities.description` (free text) | `%L` by every caller | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_field_comment` (builds the comment text) | title, format, description, enum values | `fields.title`, `fields.format`, `fields.description`, `fields.enum_values` (free text and JSON) | `%L` by every caller | `0535_test_identifier_hardening.sql` (part 5) |
+| `create_entity_policies` | policy names `<relation>_select_policy`, `_insert_policy`, `_update_policy`, `_delete_policy` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `create_entity_policies` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `create_entity_policies` | permission names | `entities.view_permission`, `entities.edit_permission` (foreign keys to `permissions.permission_name`, CHECK `permission_name_shape`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `create_dd_table` | relation and table name | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `create_dd_table` | key column definition | `entities.id_column` (CHECK `valid_id_column`), `entities.id_type`, `entities.id_refentity` | helper `dd_id_column_ddl` | `0535_test_identifier_hardening.sql` (part 1) |
+| `create_dd_table` | label column | `entities.label_column` (CHECK `valid_label_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `create_dd_table` | table comment | `entities.plural_label`, `entities.description` (free text) through `dd_table_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `create_dd_table` | trigger name `update_<relation>_updated_at` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `create_dd_table` | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
+| `update_dd_table_comment` | relation, and the view name of the entity | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_dd_table_comment` | table comment | `entities.plural_label`, `entities.description` (free text) through `dd_table_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `add_dd_field` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `add_dd_field` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I`, helper `dd_unique_predicate` | `0535_test_identifier_hardening.sql` (part 1) |
+| `add_dd_field` | column comment | `fields.title`, `fields.format`, `fields.description`, `fields.enum_values` (free text and JSON) through `dd_field_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `add_dd_field` | column type | `field_data_type(fields.format, fields.precision, fields.reference_table)` | helper `field_data_type` | not needed: no caller text reaches the statement |
+| `add_dd_field` | `NULL` or `NOT NULL` clause | `is_nullable(fields.format)` selects the literal `NULL` or `NOT NULL` | allow-list | not needed: no caller text reaches the statement |
+| `add_dd_field` | default clause | `fields.default_value` (CHECK `valid_default_value`), `fields.enum_values`, `fields.input_type`, `fields.format` | helper `dd_column_default` | `0530_test_default_value_hardening.sql` |
+| `add_dd_field` | primary key name `<relation>_pkey` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `add_dd_field` | foreign key name `<relation>_<field>_fkey` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `add_dd_field` | referenced relation | `fields.reference_table` (trigger `validate_reference_table` requires an existing `entities.table_name`) through `dd_relation` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `add_dd_field` | key column of the referenced entity | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `add_dd_field` | `ON DELETE` action | `fields.reference_delete_mode` selects `SET NULL`, `CASCADE` or `RESTRICT` in an `IF` chain over literals (`ELSE` gives `RESTRICT`); the column value is never spliced | allow-list | not needed: no caller text reaches the statement |
+| `add_dd_field` | index name `idx_<relation>_<field>` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`); `dd_index_name_free` refuses a taken or cut name first | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `add_dd_field` | unique index name `<relation>_<field>_unique` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`); `dd_index_name_free` refuses a taken or cut name first | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `update_dd_field` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_dd_field` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I`, helper `dd_unique_predicate` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_dd_field` | column comment | `fields.title`, `fields.format`, `fields.description`, `fields.enum_values` (free text and JSON) through `dd_field_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `update_dd_field` (`SET DEFAULT`) | default clause | `fields.default_value` (CHECK `valid_default_value`), `fields.enum_values`, `fields.input_type`, `fields.format` | helper `dd_column_default` | `0530_test_default_value_hardening.sql` |
+| `update_dd_field` | foreign key name `<relation>_<field>_fkey` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `update_dd_field` | referenced relation | `fields.reference_table` (trigger `validate_reference_table` requires an existing `entities.table_name`) through `dd_relation` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `update_dd_field` | key column of the referenced entity | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_dd_field` | `ON DELETE` action | `fields.reference_delete_mode` selects `SET NULL`, `CASCADE` or `RESTRICT` in an `IF` chain over literals (`ELSE` gives `RESTRICT`); the column value is never spliced | allow-list | not needed: no caller text reaches the statement |
+| `update_dd_field` | index name `idx_<relation>_<field>` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`); `dd_index_name_free` refuses a taken or cut name first | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `update_dd_field` | unique index name `<relation>_<field>_unique` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`); `dd_index_name_free` refuses a taken or cut name first | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `delete_dd_field` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `delete_dd_field` | foreign key name `<relation>_<field>_fkey` | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `delete_dd_field` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `delete_dd_table` | relation and table name | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `delete_dd_table` | function names `view_write_<table>`, `record_rules_<table>`, `is_a_dispatch_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `update_entity_policies` | policy name `<relation>_insert_policy` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `update_entity_policies` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_entity_policies` | permission name | `entities.edit_permission` (foreign key to `permissions.permission_name`, CHECK `permission_name_shape`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `update_search_vector_column` | relation | parameter `p_table_name` through `dd_relation`; the callers pass `fields.table_name`, `entities.table_name` or a literal (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_search_vector_column` | index name `<relation>_search_vector_idx` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); with 41 bytes and `_ext` the name is exactly 63 bytes | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `update_search_vector_column` | field names | `fields.field_name` (CHECK `valid_field_name`); the field must exist as a column of the table | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `update_search_vector_column` | weight letter | a `CASE` over the literals `A`, `B`, `C` | allow-list | not needed: no caller text reaches the statement |
+| `update_search_vector_column` | fingerprint comment | `fts:` plus the md5 of the search expression | `%L` | not needed: no caller text reaches the statement |
+| `check_entity_family` | root table | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) of the root of `entities.id_refentity`, found by `dd_ancestors` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `check_entity_family` | key column of the base | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_family_view` | view name and the relations of the family | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), for the entity and its ancestors from `dd_ancestors` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_family_view` | alias numbers | `dd_ancestors.depth` and its maximum | typed integer | not needed: no caller text reaches the statement |
+| `dd_build_family_view` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_family_view` | column names | `fields.field_name` (CHECK `valid_field_name`) from `dd_family_columns`, which keeps only names that match a physical column exactly; also the key column and the literals `created_at`, `updated_at` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_family_view` | column default | `pg_catalog.pg_get_expr` of the physical column's default, which `dd_column_default` installs from `fields.default_value` | catalog | `0530_test_default_value_hardening.sql` |
+| `dd_build_family_view` | column comment | `pg_catalog.col_description` of the physical column | catalog, `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_build_family_view` | view comment | `entities.plural_label`, `entities.description` (free text) through `dd_table_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_key_kept_sql` | key column | parameter `p_key`; the callers pass `entities.id_column` (CHECK `valid_id_column`) | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_key_kept_sql` | table name | parameter `p_table`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_key_kept_sql` | record variable `p_was` | parameter; every call site passes the source literal `v_base` or `p_old`, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
+| `dd_key_kept_sql` | condition prefix `p_when` | parameter; every call site passes the source literal `v_attach` or the default empty string, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
+| `dd_key_prefix_sql` | key column | parameter `p_key`; the callers pass `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_key_prefix_sql` | id prefix | parameter `p_prefix`; the callers pass `entities.id_prefix` (CHECK `valid_id_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_key_prefix_sql` | table name | parameter `p_table`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_key_prefix_sql` | condition prefix `p_when` | parameter; every call site passes the source literal `NOT v_attach` or the default empty string, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
+| `dd_build_record_write` | table names and relations of the family, and the row type `public.<table>` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), for the entity, its ancestors, its base and its subtypes | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_record_write` | routine names `record_write_<table>` and `record_rules_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `dd_build_record_write` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_record_write` | column names | `fields.field_name` (CHECK `valid_field_name`) from `dd_family_columns`, which keeps only names that match a physical column exactly | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_record_write` | id prefixes | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity, of its base and of its subtypes | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_build_record_write` | depth and subtype numbers | `dd_ancestors.depth`, its maximum and a PL/pgSQL counter | typed integer | not needed: no caller text reaches the statement |
+| `dd_build_record_write` | default of a has_a base column | `pg_catalog.pg_get_expr` of the base column's default; the literal `NULL` when there is none | catalog | `0535_test_identifier_hardening.sql` (part 6) |
+| `dd_build_record_write` | arguments `p_was` and `p_when` of `dd_key_kept_sql` and `dd_key_prefix_sql` | the source literals `v_base`, `p_old`, `v_attach`, `NOT v_attach` | allow-list | not needed: no caller text reaches the statement |
+| `dd_build_record_write` | exception message text | string constants in the migration | `%L` | not needed: no caller text reaches the statement |
+| `dd_build_record_write` | function body | the generated PL/pgSQL text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `dd_build_record_write` | function comment | constant text with `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_dispatch_case` | subtype table names | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_dispatch_case` | id prefix of each subtype | `entities.id_prefix` (CHECK `valid_id_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_dispatch_case` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_dispatch_case` | routine name `record_write_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `dd_dispatch_case` | column names | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_dispatch_case` | branch number | a PL/pgSQL counter | typed integer | not needed: no caller text reaches the statement |
+| `dd_dispatch_case` | `p_from_root` flag | BOOLEAN parameter; a `CASE` gives the literal `true` or `false` | typed boolean | not needed: no caller text reaches the statement |
+| `dd_build_view_write` | function names `view_write_<table>` and `record_write_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `dd_build_view_write` | view name | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_view_write` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_view_write` | function body | the generated PL/pgSQL text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `dd_build_view_write` | function comment | constant text with `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `dd_build_is_a_dispatch` | function name `is_a_dispatch_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `dd_build_is_a_dispatch` | root table | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_is_a_dispatch` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_is_a_dispatch` | function body | the generated PL/pgSQL text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `dd_build_is_a_dispatch` | function comment | constant text with `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `common.has_a_guard` | extension relation `<table>_ext` | trigger argument, written by `dd_refresh_family` from `entities.table_name` with `%L` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `common.has_a_guard` | key column | trigger argument, written by `dd_refresh_family` from `entities.id_column` with `%L` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `common.is_a_part_missing` | relations of the family | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), read from the `entities` rows of `dd_ancestors(p_table)`; the parameter is only a lookup key | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `common.is_a_part_missing` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_refresh_family` | view and root table names | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_refresh_family` | table names of the has_a extensions (trigger arguments) | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_refresh_family` | key column (trigger argument) | `entities.id_column` (CHECK `valid_id_column`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `get_record_by_id(TEXT, TEXT)` | entity name and the relations of its family | parameter `p_entity_name`, which must equal an existing `entities.table_name` before anything is built; `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `get_record_by_id(TEXT, TEXT)` | rule function name `select_rule_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `get_record_by_id(TEXT, TEXT)` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `get_record_by_id(TEXT, TEXT)` | key type | `pg_catalog.format_type` of the key column | catalog (`%L` in the validity test, `%s` in the cast) | not needed: no caller text reaches the statement |
+
+### 0170_dd_rename.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `rename_dd_table` | old and new relation, old and new table name | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); the new name is spliced before its CHECK runs, because the trigger is a BEFORE trigger | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rename_dd_table` | existing trigger, constraint and index names | `pg_trigger.tgname`, `pg_constraint.conname`, `pg_indexes.indexname` | catalog, `%I` | not needed: no caller text reaches the statement |
+| `rename_dd_table` | new trigger names `update_<relation>_updated_at` and `a_auto_order_<relation>`, cast to `name` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | policy names `<relation>_<suffix>` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); the suffix is an element of a literal array | `%I`, allow-list | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | index names `<relation>_search_vector_idx` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | sequence names `<relation>_<id column>_seq` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) and `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | primary key names `<relation>_pkey` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | new constraint and index names: the new relation name plus the rest of the existing name | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); `pg_constraint.conname`, `pg_indexes.indexname` | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | new queue trigger names: the existing name with the new table name as its ending | `pg_trigger.tgname`; `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rename_dd_table` | names of the functions it drops: `compute_validate_<table>`, `record_rules_<table>`, `select_rule_<table>`, `record_write_<table>`, `view_write_<table>`, `is_a_dispatch_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `validate_field_rename_and_format` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `validate_field_rename_and_format` | old and new field name | `fields.field_name` (CHECK `valid_field_name`); the new name is spliced before its CHECK runs, because the trigger is a BEFORE trigger | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `validate_field_rename_and_format` | old and new constraint names (foreign key, check, not-null) | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `validate_field_rename_and_format` | old and new index names (plain and unique) | `entities.table_name` through `dd_relation` and `fields.field_name` (CHECK `valid_table_name`, CHECK `valid_field_name`; the table name is at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+
+### 0180_managed_enable.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `apply_field_ddl` | table name | `fields.table_name` (foreign key to `entities.table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `apply_field_ddl` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I`, helper `dd_unique_predicate` | `0535_test_identifier_hardening.sql` (part 1) |
+| `apply_field_ddl` | column type | `field_data_type(fields.format, fields.precision, fields.reference_table)` | helper `field_data_type` | not needed: no caller text reaches the statement |
+| `apply_field_ddl` | `NULL` or `NOT NULL` clause | `is_nullable(fields.format)` selects the literal `NULL` or `NOT NULL` | allow-list | not needed: no caller text reaches the statement |
+| `apply_field_ddl` | default clause | `fields.default_value` (CHECK `valid_default_value`), `fields.enum_values`, `fields.input_type`, `fields.format` | helper `dd_column_default` | `0530_test_default_value_hardening.sql` |
+| `apply_field_ddl` | column comment | `fields.title`, `fields.format`, `fields.description`, `fields.enum_values` (free text and JSON) through `dd_field_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `apply_field_ddl` | foreign key name `<table>_<field>_fkey` | `fields.table_name` and `fields.field_name` (foreign key to `entities.table_name`, CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `apply_field_ddl` | referenced relation | `fields.reference_table` (trigger `validate_reference_table` requires an existing `entities.table_name`) through `dd_relation` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `apply_field_ddl` | key column of the referenced entity | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `apply_field_ddl` | `ON DELETE` action | `fields.reference_delete_mode` selects `SET NULL`, `CASCADE` or `RESTRICT` in an `IF` chain over literals (`ELSE` gives `RESTRICT`); the column value is never spliced | allow-list | not needed: no caller text reaches the statement |
+| `apply_field_ddl` | index name `idx_<table>_<field>` | `fields.table_name` and `fields.field_name` (foreign key to `entities.table_name`, CHECK `valid_field_name`); `dd_index_name_free` refuses a taken name first | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `apply_field_ddl` | unique index name `<table>_<field>_unique` | `fields.table_name` and `fields.field_name` (foreign key to `entities.table_name`, CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
+| `enable_dd_table` | table name | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `enable_dd_table` | key column definition | `entities.id_column` (CHECK `valid_id_column`), `entities.id_type`, `entities.id_refentity` | helper `dd_id_column_ddl` | `0535_test_identifier_hardening.sql` (part 1) |
+| `enable_dd_table` | label column | `entities.label_column` (CHECK `valid_label_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `enable_dd_table` | table comment | `entities.plural_label`, `entities.description` (free text) through `dd_table_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `enable_dd_table` | trigger name `update_<table>_updated_at` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `enable_dd_table` | policy names `<table>_select_policy`, `_insert_policy`, `_update_policy`, `_delete_policy` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `enable_dd_table` | permission names | `entities.view_permission`, `entities.edit_permission` (foreign keys to `permissions.permission_name`, CHECK `permission_name_shape`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `enable_dd_table` | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
+| `dd_install_missing_checks` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_missing_checks` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | row type `public.<table>` | parameter `p_table_name`; the function returns unless an `entities` row has this name, and the callers pass `entities.table_name` or `fields.table_name` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | signature of each function it drops | `p.oid::regprocedure` from `pg_proc` | catalog | not needed: no caller text reaches the statement |
+| `rebuild_entity_label_functions` | label column | `entities.label_column` (CHECK `valid_label_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | base table | `entities.id_refentity` (foreign key to `entities.table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | key columns of the entity, of its base and of the referenced entities | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | referenced tables | `fields.reference_table` (trigger `validate_reference_table` requires an existing `entities.table_name`) | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rebuild_entity_label_functions` | reference field names | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | label parent field | `entities.label_parent` (CHECK on the character class `^[a-z_][a-z0-9_]*$`, or empty) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rebuild_entity_label_functions` | separator and empty string | constants in the migration | `%L` | not needed: no caller text reaches the statement |
+| `rebuild_entity_label_functions` | function name `<field>_label` | `fields.field_name` (CHECK `valid_field_name`); a field name of 58 bytes or more gives a name over 63 bytes | `%I` | `0535_test_identifier_hardening.sql` (part 7) |
+| `rebuild_entity_label_functions` | function bodies | the generated SQL text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `rebuild_entity_label_functions` | function comments | constant text with `entities.table_name`, `fields.reference_table` and `fields.field_name` inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+
+### 0200_audit_log.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `audit.enable_tracking` | target table | `REGCLASS` parameter; the callers pass `format('public.%I', relation)::REGCLASS` | catalog (`regclass` output) | not needed: no caller text reaches the statement |
+| `audit.enable_tracking` | ignored columns (trigger arguments) | parameter `p_ignored_columns`; `dd_audit_ignored_columns` returns the literal `last_seen` and the `fields.field_name` (CHECK `valid_field_name`) of the rollup fields | `%L` per element | `0535_test_identifier_hardening.sql` (part 1) |
+| `audit.disable_tracking` | trigger name | literal array in the file | allow-list, `%I` | not needed: no caller text reaches the statement |
+| `audit.disable_tracking` | target table | `REGCLASS` parameter | catalog (`regclass` output) | not needed: no caller text reaches the statement |
+| `manage_audit_log` | relation, cast to `REGCLASS` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+
+### 0210_computed_validation.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `build_record_logic_trigger`, `manage_record_logic_trigger` | function names `compute_validate_<table>` and `record_rules_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `build_record_logic_trigger` | trigger name | the constant `compute_validate_trigger` | `%I` | not needed: no caller text reaches the statement |
+| `build_record_logic_trigger` | table name | parameter `p_table_name`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `build_record_logic_trigger` | computed field rule | `entities.computed_fields[].jsonlogic` (CHECK: array; trigger `check_entity_rules` refuses unknown operators) | `%L` | `0530_test_default_value_hardening.sql` |
+| `build_record_logic_trigger` | computed field name | `entities.computed_fields[].name`, split on `.` (the generator requires it not empty) | `%L` per part | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `build_record_logic_trigger` | validation rule | `entities.validation_rules[].jsonlogic` (CHECK: array; trigger `check_entity_rules` refuses unknown operators) | `%L` | `0530_test_default_value_hardening.sql` |
+| `build_record_logic_trigger` | validation rule code | `entities.validation_rules[].code` (the generator requires `^90[0-9]{3}$` or `^99[0-9]{3}$`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `build_record_logic_trigger` | validation message | `entities.validation_rules[].message` | `%L` | `0530_test_default_value_hardening.sql` |
+| `build_record_logic_trigger` | validation hint | `entities.validation_rules[].hint` | `%L` | `0530_test_default_value_hardening.sql` |
+| `build_record_logic_trigger` | extra context, write-back statement and `$old` argument | constants in the migration; the rule text only selects which one | allow-list | not needed: no caller text reaches the statement |
+| `build_record_logic_trigger` | function bodies | the generated PL/pgSQL text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `build_record_logic_trigger` | function comments | constant text with `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| generated `public.compute_validate_<table>` (at run time) | table of the trigger | `TG_TABLE_NAME` | `%I` | not needed: no caller text reaches the statement |
+| `dd_backfill_mute` | relation (name lookup) | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_backfill_mute` | relation and trigger names of the statements it returns | `pg_class.relname`, `pg_trigger.tgname` | catalog, `%I` | not needed: no caller text reaches the statement |
+| `computed_backfill` | table | parameter `p_table`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `computed_backfill` | column names | `pg_attribute.attname` of the table, kept only when a `computed_fields` name matches | catalog, `%I` | not needed: no caller text reaches the statement |
+| `computed_backfill` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `computed_backfill` | trigger statements it executes | the statements `dd_backfill_mute` returns | helper `dd_backfill_mute` | not needed: no caller text reaches the statement |
+| `common.row_move_mark` (at run time) | table of the trigger | `TG_TABLE_NAME` | `%I` | not needed: no caller text reaches the statement |
+| `common.row_move_mark` (at run time) | key column | trigger argument, written by `build_select_rule_policy` from `entities.id_column` with `%L` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `build_select_rule_policy`, `manage_select_rule_policy` | function name `select_rule_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `build_select_rule_policy`, `manage_select_rule_policy` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I`, `%L` (argument of `common.row_move_matches`) | `0535_test_identifier_hardening.sql` (part 1) |
+| `build_select_rule_policy` | policy names `<relation>_select_policy`, `_update_policy`, `_delete_policy` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `build_select_rule_policy` | permission names | `entities.view_permission`, `entities.edit_permission` (foreign keys to `permissions.permission_name`, CHECK `permission_name_shape`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `build_select_rule_policy` | select rule | `entities.select_rule` (CHECK: object; trigger `check_entity_rules` refuses unknown operators) | `%L` | `0530_test_default_value_hardening.sql` |
+| `build_select_rule_policy` | base table read for the row data | `entities.id_refentity` (foreign key to `entities.table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `build_select_rule_policy` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I`, `%L` (trigger argument and JSON key) | `0535_test_identifier_hardening.sql` (part 1) |
+| `build_select_rule_policy` | function bodies | the generated text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `build_select_rule_policy` | function comments | constant text with `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+
+### 0220_entity_insert_defaults.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `snake_to_label`, `dd_label_field_title`, `set_entity_defaults` | none | static SQL only; the regular expressions are constant patterns applied to the value | - | not needed: no caller text reaches the statement |
+
+### 0230_entity_order_column.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `auto_set_order_value` | order column | trigger argument, written by `handle_entity_order_column` from `entities.order_column` with `%L` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `auto_set_order_value` | schema and table of the trigger | `TG_TABLE_SCHEMA`, `TG_TABLE_NAME` | `%I` | not needed: no caller text reaches the statement |
+| `handle_entity_order_column` | table name | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `handle_entity_order_column` | trigger name `a_auto_order_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `handle_entity_order_column` | old and new order column | `entities.order_column` (CHECK on the character class `^[a-z_][a-z0-9_]*$`, or empty) | `%I`, `%L` (trigger argument) | `0535_test_identifier_hardening.sql` (part 1) |
+
+### 0240_dd_bootstrap_complete.once.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (comments) | table name | `entities.table_name` of the rows present at bootstrap | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| DO block (comments) | field name | `fields.field_name` of the rows present at bootstrap | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| DO block (comments) | table and column comments | `entities.plural_label`, `entities.description` (free text) through `dd_table_comment`; `fields.title`, `fields.format`, `fields.description`, `fields.enum_values` (free text and JSON) through `dd_field_comment` | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| DO block (`audit.enable_tracking`) | table name | `entities.table_name`, cast as it stands; an identifier only because of CHECK `valid_table_name` | raw (cast to `REGCLASS`) | `0535_test_identifier_hardening.sql` (part 1) |
+| top level (`update_search_vector_column`, `create_entity_policies`) | table names | literals in the file | allow-list | not needed: no caller text reaches the statement |
+
+### 0250_public_functions.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `fix_id_sequence` | table | parameter `p_table`, which must equal an `entities.table_name`; the caller must hold that entity's edit permission | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `fix_id_sequence` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `fix_id_sequence` | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
+
+### 0290_ensure_entities.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `ensure_entities_insert_rows` | target table and its row type | parameter `p_table`; every call site passes a string literal | `%I` | not needed: no caller text reaches the statement |
+| `ensure_entities_insert_rows` | row index | `WITH ORDINALITY` counter | typed integer | not needed: no caller text reaches the statement |
+| `ensure_entities_insert_rows` | column names | JSON object keys of the document (`module`, `permissions[]`, `roles[]`, `entities[].entity`, `entities[].entity.fields[]`); each key is checked against the catalog column names of the target table before any write | `%I` | none |
+| `ensure_entities_row` | target table and its row type | parameter `p_table`; every call site passes a string literal | `%I` | not needed: no caller text reaches the statement |
+| `ensure_entities_row` | key column names | keys of parameter `p_key`: literal key names at every call site but one, where the keys are limited to three literals | `%I` | not needed: no caller text reaches the statement |
+| `ensure_entities_row` | names of the changed columns | a subset of the keys of parameter `p_row` (document keys, checked against the catalog column names) | `%I` | none |
+| `ensure_entities` (records) | table | `entities[].entity.table_name` of the document, an `entities` row by then (CHECK `valid_table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `ensure_entities` (records) | column names | keys of the first object of `entities[].records`; every record must carry the same keys and each key must be a field of the entity | `%I` | none |
+| `ensure_entities` (records) | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `ensure_entities` (records) | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
+
+### 0310_pgmq.once.sql
+
+Vendored pgmq. Rows are grouped by function family. Semantius code calls
+only `create`, `drop_queue`, `send`, `send_batch`, `read`, `pop`, `archive`
+and `delete`, always with `queues.queue_name`.
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `pgmq.format_table_name` (returns a name) | queue name | parameter `queue_name`; in Semantius code always `queues.queue_name`; the helper refuses `$`, `;`, `--` and `'`, lower-cases the result and does not quote it | `%I` by the caller, except in the three raw rows below | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.send`, `pgmq._send_batch`, `pgmq.read`, `pgmq.read_with_poll`, `pgmq.read_grouped`, `pgmq.read_grouped_rr`, `pgmq.read_grouped_head`, `pgmq.pop`, `pgmq.archive`, `pgmq.delete`, `pgmq.set_vt`, `pgmq.purge_queue`, `pgmq.metrics` | queue and archive table | parameter `queue_name`; in Semantius code always `queues.queue_name` | helper `pgmq.format_table_name`, then `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.create_non_partitioned`, `pgmq.create_unlogged`, `pgmq.create_partitioned`, `pgmq.drop_queue` | queue and archive table | parameter `queue_name`; in Semantius code always `queues.queue_name` | helper `pgmq.format_table_name`, then `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq._create_fifo_index_if_not_exists`, `pgmq.enable_notify_insert`, `pgmq.disable_notify_insert` | queue table | parameter `queue_name`; in Semantius code always `queues.queue_name` | helper `pgmq.format_table_name`, then `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| create functions, `pgmq.metrics`, `pgmq._create_fifo_index_if_not_exists` | index and sequence names `<queue table>_vt_idx`, `<queue table>_part_idx`, `<queue table>_fifo_idx`, `archived_at_idx_<queue name>`, `<queue table>_msg_id_seq` | parameter `queue_name`; in Semantius code always `queues.queue_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| create functions, `pgmq.drop_queue`, `pgmq.metrics` | queue name as a value | parameter `queue_name`; in Semantius code always `queues.queue_name` | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| read functions | visibility timeout | INTEGER parameter `vt`, turned into an interval | typed integer, `%L` | not needed: no caller text reaches the statement |
+| `pgmq.read`, `pgmq.read_with_poll` | `conditional` | JSONB parameter; the Semantius wrapper `queue_read` never passes it | `%L` | none |
+| `pgmq.drop_queue`, `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | pg_partman schema | `pgmq._get_pg_partman_schema()`: `extnamespace::regnamespace::text` from `pg_extension` | catalog, `%I` | not needed: no caller text reaches the statement |
+| `pgmq.drop_queue`, `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partman parent table names `pgmq.<queue table>` | parameter `queue_name`; in Semantius code always `queues.queue_name` | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partition column | `pgmq._get_partition_col` returns `msg_id` or `enqueued_at`; `archived_at` is a literal | allow-list, `%I`, `%L` | not needed: no caller text reaches the statement |
+| `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partition interval, retention interval | TEXT parameters | `%L` | none |
+| `pgmq.convert_archive_partitioned` (`CREATE TABLE ... LIKE`) | archive table name and its `_old` name | `pgmq.format_table_name(table_name, 'a')`, plus `_old`; `table_name` is the function's TEXT parameter | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.convert_archive_partitioned` (`ALTER TABLE ... RENAME TO`) | new name `a_table_name_old` | `pgmq.format_table_name(table_name, 'a') \|\| '_old'`; `table_name` is the function's TEXT parameter | raw (`\|\|`) | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.convert_archive_partitioned` (`ALTER INDEX ... RENAME TO`) | `table_name`, twice | the function's TEXT parameter | raw (`\|\|`) | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.convert_archive_partitioned` (`CREATE INDEX`) | `table_name` | the function's TEXT parameter | raw (`\|\|`) | `0537_test_dynamic_sql_values.sql` (part 1) |
+
+### 0340_queue.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `queue_event_after_insert` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters), a literal event word and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `queue_event_after_insert` | table | `queue_table_events.table_name` (a reference field to `entities`) | `%I` | none |
+| `queue_event_after_insert` | event word | `event_handler` of the `queue_table_events` row selects a literal array in a `CASE` over five literals; the column value is never spliced | allow-list | not needed: no caller text reaches the statement |
+| `queue_event_after_insert` | `REFERENCING` clause | a `CASE` over two literals | allow-list | not needed: no caller text reaches the statement |
+| `queue_event_after_delete` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters), an element of a literal array and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `queue_event_after_delete` | table | `queue_table_events.table_name` (a reference field to `entities`) | `%I` | none |
+| `queue_after_insert`, `queue_before_delete`, `queue_build_record_json` | queue name | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters) | helper `pgmq.create`, `pgmq.drop_queue`, `pgmq.send`, `pgmq.send_batch` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `queue_read`, `queue_pop`, `queue_archive`, `queue_delete` | queue name | parameter `p_queue_name`; `queue_authorize` requires an exact match with a `queues.queue_name` row first | helper `pgmq.read`, `pgmq.pop`, `pgmq.archive`, `pgmq.delete` | `0537_test_dynamic_sql_values.sql` (part 1) |
+
+### 0370_raci.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `raci_sync_triggers` | entity table | `process_gates.entity`, or `entities.table_name` from `raci_entity_renamed` | `%I` | none |
+| `raci_sync_triggers` | name of the trigger it drops | `pg_trigger.tgname` matching the expected names | catalog, `%I` | not needed: no caller text reaches the statement |
+| `raci_sync_triggers` | trigger names `a_raci_gate_on_<entity>`, `raci_gate_on_<entity>`, `raci_emit_on_<entity>`, cast to `name` | `process_gates.entity`, or `entities.table_name` from `raci_entity_renamed` | `%I` | none |
+| `raci_sync_triggers` | trigger kind | the literals `gate`, `emit` or NULL at the three call sites; a `CASE` selects a constant statement and the value is never spliced | allow-list | not needed: no caller text reaches the statement |
+
+### 0420_module_version.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| all three functions | none | static SQL only | - | not needed: no caller text reaches the statement |
+
+### 0440_rollup.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `rollup_object_name` (returns a name) | child table and link field | child table and link column of a resolved definition, the parts of `fields.rollup ->> 'link_field'`, or the old `entities.table_name` and `fields.field_name`; over 59 characters the name is shortened with an md5 suffix | `%I` by every caller | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_guard_name` (returns a name) | parent table | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) of the rollup field's entity; over 59 characters the name is shortened with an md5 suffix | `%I` by every caller | `0535_test_identifier_hardening.sql` (part 2) |
+| `rollup_filter_column` | child relation (name lookup) | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_filter_column` | filter column | `fields.rollup -> 'filter'` (CHECK `rollup_is_object`), the string under `var`; it must match `^[a-z_][a-z0-9_]*$` and name a column of the child relation in `pg_attribute` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_filter_column` | column type | `pg_catalog.format_type` of that column; the type must be on a fixed list | catalog | not needed: no caller text reaches the statement |
+| `rollup_filter_literal` | date, string and number literals | `fields.rollup -> 'filter'` (CHECK `rollup_is_object`), a literal operand | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_filter_literal` | cast type | the catalog type of the anchor column, or a literal (`date`, `timestamp with time zone`, `text`, `numeric`) | catalog, allow-list | not needed: no caller text reaches the statement |
+| `rollup_filter_literal` | `TRUE`, `FALSE`, `NULL` | a `CASE` over literals | allow-list | not needed: no caller text reaches the statement |
+| `rollup_filter_date_arg` | date literal of a date operator | `fields.rollup -> 'filter'` (CHECK `rollup_is_object`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_filter_date_op` | unit, part, pattern and amount literals | `fields.rollup -> 'filter'` (CHECK `rollup_is_object`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_filter_date_op` | table and field name of the rollup field | `fields.table_name`, `fields.field_name`, as a JSON object | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_filter_date_op` | operator name | the operator key of the filter object; it must be on a fixed list | `%L`, allow-list | none |
+| `rollup_filter_date_op` | result cast type | a `CASE` over literals | allow-list | not needed: no caller text reaches the statement |
+| `rollup_filter_cond`, `rollup_filter_sql` | `AND` or `OR`, the `NOT` prefix, `TRUE`, `FALSE` | a `CASE` over literals on the operator key | allow-list | not needed: no caller text reaches the statement |
+| `rollup_filter_cond` | comparison operator | the operator key of the filter object, spliced only in the branch for `<`, `<=`, `>`, `>=` | allow-list | none |
+| `rollup_definition` | parent and child relation (name lookup) | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_value_sql` | value column | `fields.rollup ->> 'value_field'`, which must name a `fields` row of the child; `rollup_definition` validates the definition again at every build | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_value_sql` | aggregate function | `fields.rollup ->> 'function'`; `rollup_definition` validates the definition again at every build | allow-list in `rollup_definition` (`sum`, `min`, `max`, `avg`, `count`) | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_value_sql` | child relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) of the link field's entity | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_value_sql` | link column | `fields.field_name` of the `fields` row that `fields.rollup ->> 'link_field'` names | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_value_sql` | key expression `p_key_expr` | parameter; the three callers pass the constant `k.key` or a reference to `entities.id_column` built with `%I` | `%I` by the caller | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_value_sql` | empty value | `dd_column_default` called with a constant empty default: NULL or a branch of a `CASE` over literals | helper `dd_column_default` | not needed: no caller text reaches the statement |
+| `rollup_value_sql` | result cast type | `pg_catalog.format_type` of the parent column, otherwise `field_data_type` | catalog, helper `field_data_type` | not needed: no caller text reaches the statement |
+| `rollup_create_function` | function name | the output of `rollup_object_name` or `rollup_guard_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_create_function` | function body | the generated PL/pgSQL text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
+| `rollup_build_link` | function name `rollup_<child>_<link>` | the output of `rollup_object_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_build_link` | trigger names: the function name plus `_ins`, `_upd`, `_del`, `_trc` | the output of `rollup_object_name`, at most 59 characters | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_build_link` | rollup column names | `fields.field_name` (CHECK `valid_field_name`) of the rollup fields | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_link` | parent and child relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_link` | parent key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_link` | link column | parameter `p_link`: the link column of the definition, from `fields.rollup ->> 'link_field'` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_build_link` | function comment | constant text with the relations, the column names and the link inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `rollup_build_guard` | function name `rollup_guard_<parent>` | the output of `rollup_guard_name` | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rollup_build_guard` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_guard` | rollup column names | `fields.field_name` (CHECK `valid_field_name`) of the rollup fields | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_guard` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_guard` | empty value | the output of `dd_column_default` for a constant empty default, or the literal `NULL` | helper `dd_column_default` | not needed: no caller text reaches the statement |
+| `rollup_build_guard` | trigger name `update_<relation>_updated_at` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); with 41 bytes and `_ext` the name is exactly 63 bytes | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
+| `rollup_build_guard` | ignored columns (arguments of `common.update_updated_at_column`) | `dd_audit_ignored_columns`: the literal `last_seen` and the `fields.field_name` (CHECK `valid_field_name`) of the rollup fields | `%L` per element | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_build_guard` | function comment | constant text with the relation and the column names inside | `%L` | `0535_test_identifier_hardening.sql` (part 5) |
+| `rollup_backfill` | parent relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_backfill` | rollup field | parameter `p_field`; the caller passes a `fields.field_name` (CHECK `valid_field_name`) that exists in `fields` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_backfill` | parent key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_backfill` | trigger statements it executes | the statements `dd_backfill_mute` returns | helper `dd_backfill_mute` | not needed: no caller text reaches the statement |
+| `rollup_sync_field` (`EXPLAIN`) | child relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rollup_rename_field_refs`, `zz_rollup_entity_change`, `zz_rollup_entity_delete` (`DROP FUNCTION`) | name of the generated function | the output of `rollup_object_name` or `rollup_guard_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1), `0535_test_identifier_hardening.sql` (part 2) |
+
+### 9900_owner_hardening.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| DO block (`GRANT ... ON SCHEMA`) | schema name | `pg_namespace.nspname`, filtered to five literal names | catalog, `%I` | not needed: no caller text reaches the statement |
+| DO block (`ALTER ... OWNER`, relations) | object keyword | a `CASE` over `pg_class.relkind` | allow-list | not needed: no caller text reaches the statement |
+| DO block (`ALTER ... OWNER`, relations) | schema and relation name | `pg_namespace.nspname`, `pg_class.relname` | catalog, `%I` | not needed: no caller text reaches the statement |
+| DO blocks (`GRANT EXECUTE`, `ALTER ... OWNER`, routines) | routine keyword | a `CASE` over `pg_proc.prokind` | allow-list | not needed: no caller text reaches the statement |
+| DO blocks (`GRANT EXECUTE`, `ALTER ... OWNER`, routines) | routine signature | `p.oid::regprocedure` | catalog (`regprocedure` output) | not needed: no caller text reaches the statement |
+| DO block (`ALTER ... OWNER`, types) | type keyword | a `CASE` over `pg_type.typtype` | allow-list | not needed: no caller text reaches the statement |
+| DO block (`ALTER ... OWNER`, types) | type name | `t.oid::regtype` | catalog (`regtype` output) | not needed: no caller text reaches the statement |
+
+## Open findings
+
+Quoting keeps a value from being read as SQL. It does not keep a quoted name
+from reaching another object, and it does not say which schema a name is
+looked up in. Each row is a place where that is open, with the assertion in
+`0537_test_dynamic_sql_values.sql` that fails while it is. A fix removes its
+row.
+
+| Where | What is open | What it allows | Test |
+|---|---|---|---|
+| every function that sets `search_path` | `pg_temp` is not listed, so PostgreSQL searches the session's temporary schema first for a table name, and the request role may create temporary tables | a session that runs SQL as the request role creates a temporary table named `users` and is taken for the user its row names, an administrator included; not reachable through PostgREST | part 3 |
+| `handle_entity_order_column` | the column `order_column` named is dropped when the entity stops naming it, whether the dictionary added it or not | an administrator who names a field as `order_column` and clears that again loses the field's column and its data | part 2, `order_column` |
+| `rebuild_entity_label_functions` | the functions to replace are found by a name ending in `_label`, which `select_rule_<entity>` of an entity named `..._label` matches | `get_record_by_id` raises 42883 on that entity for every caller it applies the rule to | part 2, `_label` |
+| `raci_sync_triggers` | `process_gates.entity` only has to be an ordinary table in `public` | an administrator attaches the gate and emit triggers to an internal table such as `_settings` | part 2, process gate |
+| `create_dd_table`, `dd_install_id_triggers`, `handle_entity_order_column` | `entities.id_column`, `label_column` and `order_column` have no length limit | a name over 63 bytes is accepted, the column carries the cut name, and `pk_immutable` is handed a key the row does not have | part 2, 64 bytes |
+| `pgmq.format_table_name` under `queues.queue_name` | the tables of a queue are named by the lower-cased queue name, and the queue name is unique by its exact text | two queues whose names differ in case share their tables, and deleting one drops the tables of the other | part 2, queue names |
+| `rollup_object_name`, `rollup_guard_name` | `rollup_<child>_<link>` and `rollup_guard_<parent>` share a prefix, and the builders drop whatever carries the name with CASCADE | a rollup over a child entity named `guard` replaces the guard of another parent, whose rollup columns can then be written by hand | part 2, rollup guard |
+| `pgmq.convert_archive_partitioned` (vendored) | its argument is concatenated into three statements; `pgmq.format_table_name` refuses only `$`, `;`, `--` and `'` | nothing beyond the caller's own rights: the function is SECURITY INVOKER and nothing calls it | part 1, `pgmq` |
+| `queue_event_after_insert` | `queue_<queue>_<event>_on_<table>` can exceed 63 bytes | the trigger keeps a cut name that the rename and delete paths do not find | none |
+| `rename_dd_table`, `rollup_rename_field_refs` | a table or field name is spliced into a LIKE pattern, where its `_` matches any character | a hand-made constraint, index or trigger on the renamed table whose name differs in the place of an underscore is renamed as well | none |
+| `rename_dd_table`, `validate_field_rename_and_format` | an index or a sequence to rename is found by its name, which two tables can spell | the index of another table is renamed | `0535_test_identifier_hardening.sql` (part 3) |
+| `quote_default_value` | the pattern that lets a number through unquoted holds a backslash, which a session with `standard_conforming_strings = off` reads differently | a default of digits, one other character and digits reaches the statement unquoted in such a session | none |

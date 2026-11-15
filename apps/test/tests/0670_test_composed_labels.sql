@@ -4,7 +4,7 @@
 -- and the labels of is_a and has_a entities, which are functions of their views.
 BEGIN;
 
-SELECT plan(42);
+SELECT plan(46);
 
 -- =====================================================
 -- SETUP: build a candidate -> application -> interview -> scorecard identity chain
@@ -376,6 +376,48 @@ SELECT lives_ok($$SELECT public.rebuild_entity_label_functions('lb_contacts')$$,
     'family labels: the label functions of an extension are rebuilt while its base table is missing');
 SELECT is((SELECT public._label(c) FROM lb_contacts c), 'Ada',
     'family labels: and its _label is the record''s own label');
+
+-- =====================================================
+-- The field an entity names as its label_parent keeps a reference format
+-- =====================================================
+-- label_parent is checked when the entity is written: it has to name a
+-- reference or parent field. The field can change afterward, and a spine that
+-- is no reference any more composes nothing: the label would fall back to the
+-- record's own without a word. So the format change is refused while an entity
+-- names the field, and goes through once none does.
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('lpf_parents',  'Lpf Parent', 'Lpf Parents',  1, 'public:read', 'admin'),
+       ('lpf_children', 'Lpf Child',  'Lpf Children', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('lpf_children', 'parent_id', 'Parent', 'reference', 'lpf_parents', 'clear', 20);
+UPDATE entities SET label_parent = 'parent_id' WHERE table_name = 'lpf_children';
+
+SELECT is(
+    COALESCE(catch_error($$UPDATE fields SET format = 'int64', reference_table = '', reference_delete_mode = ''
+                            WHERE table_name = 'lpf_children' AND field_name = 'parent_id'$$) ->> 'code', 'no error'),
+    '90277',
+    'label_parent: the field an entity names as its spine cannot leave the reference format');
+
+SELECT ok(
+    catch_error_hint($$UPDATE fields SET format = 'int64', reference_table = '', reference_delete_mode = ''
+                        WHERE table_name = 'lpf_children' AND field_name = 'parent_id'$$)::text LIKE '%lpf_children%',
+    'label_parent: and the refusal names the entity');
+
+SELECT is(
+    (SELECT format FROM fields WHERE table_name = 'lpf_children' AND field_name = 'parent_id'),
+    'reference',
+    'label_parent: the field is still a reference');
+
+UPDATE fields SET format = 'reference', reference_table = 'lpf_parents', reference_delete_mode = 'clear'
+ WHERE table_name = 'lpf_children' AND field_name = 'parent_id' AND format <> 'reference';
+UPDATE entities SET label_parent = '' WHERE table_name = 'lpf_children';
+
+SELECT lives_ok(
+    $$UPDATE fields SET format = 'int64', reference_table = '', reference_delete_mode = ''
+       WHERE table_name = 'lpf_children' AND field_name = 'parent_id'$$,
+    'label_parent: the same change goes through once no entity names the field');
 
 SELECT * FROM finish();
 ROLLBACK;

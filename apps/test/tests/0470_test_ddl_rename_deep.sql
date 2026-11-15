@@ -17,7 +17,7 @@
 --   5. Insert a second record per table (proves triggers & policies still work)
 BEGIN;
 
-SELECT plan(46);
+SELECT plan(52);
 
 SELECT authenticate_as('user3');
 
@@ -504,6 +504,77 @@ SELECT is(
     'Jane (parent)',
     'nephews: set_record computed parent_title works after rename with new record'
 );
+
+-- =====================================================
+-- STEP 6: A rename rewrites the entity of a set_record and nothing else
+-- =====================================================
+-- The old table name can stand in a rule where it is not a table: as a text
+-- the rule compares or joins, as the name a let binds, as the message of a
+-- validation rule. Only the second argument of a set_record names an entity,
+-- at whatever depth it stands, and only that follows the rename.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column
+) VALUES (
+    'rnl_target', 'rnl_target', 'Rnl Target', 'Rnl Targets',
+    'Rename test: the entity a set_record names', 1, 'public:read', 'nwind:manage',
+    'id', 'label'
+);
+
+INSERT INTO entities (
+    table_name, singular, singular_label, plural_label,
+    description, module_id, view_permission, edit_permission,
+    id_column, label_column,
+    computed_fields, validation_rules
+) VALUES (
+    'rnl_user', 'rnl_user', 'Rnl User', 'Rnl Users',
+    'Rename test: rules that spell the name of rnl_target', 1, 'public:read', 'nwind:manage',
+    'id', 'label',
+    '[{"name":"note","jsonlogic":{"set_record":["t","rnl_target",{"var":"target_ref"},{"cat":["rnl_target",":",{"var":"t.label"}]}]}}]'::jsonb,
+    '[{"code":"99061","message":"rnl_target","jsonlogic":{"let":["rnl_target",1,{"set_record":["t","rnl_target",{"var":"target_ref"},{"==":[{"var":"rnl_target"},1]}]}]}}]'::jsonb
+);
+
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('rnl_user', 'target_ref', 'Target', 'reference', 'rnl_target', 'clear', 20);
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('rnl_user', 'note', 'Note', 'text', 30);
+
+UPDATE entities SET table_name = 'rnl_ziel' WHERE table_name = 'rnl_target';
+
+SELECT is(
+    (SELECT computed_fields #>> '{0,jsonlogic,set_record,1}' FROM entities WHERE table_name = 'rnl_user'),
+    'rnl_ziel',
+    'set_record: the entity argument carries the new table name');
+
+SELECT is(
+    (SELECT validation_rules #>> '{0,jsonlogic,let,2,set_record,1}' FROM entities WHERE table_name = 'rnl_user'),
+    'rnl_ziel',
+    'set_record: the entity argument of a set_record below the top carries it as well');
+
+SELECT is(
+    (SELECT computed_fields #>> '{0,jsonlogic,set_record,3,cat,0}' FROM entities WHERE table_name = 'rnl_user'),
+    'rnl_target',
+    'set_record: a text equal to the old table name is left as it was');
+
+SELECT is(
+    (SELECT validation_rules #>> '{0,jsonlogic,let,0}' FROM entities WHERE table_name = 'rnl_user'),
+    'rnl_target',
+    'set_record: the name a let binds, equal to the old table name, is left as it was');
+
+SELECT is(
+    (SELECT validation_rules #>> '{0,jsonlogic,let,2,set_record,3,==,0,var}' FROM entities WHERE table_name = 'rnl_user'),
+    'rnl_target',
+    'set_record: and so is the var that reads that name');
+
+SELECT is(
+    (SELECT validation_rules #>> '{0,message}' FROM entities WHERE table_name = 'rnl_user'),
+    'rnl_target',
+    'set_record: a message equal to the old table name is left as it was');
 
 SELECT * FROM finish();
 ROLLBACK;

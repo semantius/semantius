@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(170);
+SELECT plan(186);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1320,6 +1320,56 @@ SELECT is(evaluate_json_logic('{"to_date":["2026-11-18T23:30:00Z"]}'::jsonb, '{}
     '"2026-11-18"'::jsonb, 'dates at UTC-11: to_date is UTC');
 SELECT is(evaluate_json_logic('{"date_format":["2026-11-18T23:30:00Z","DD HH24"]}'::jsonb, '{}'::jsonb),
     '"18 23"'::jsonb, 'dates at UTC-11: date_format is UTC');
+
+-- =====================================================
+-- Arithmetic over text that carries no number
+-- =====================================================
+-- JavaScript computes with NaN and answers NaN, which JSON cannot hold, and a
+-- result that is not a finite number is an error here. Reading the text as 0
+-- instead would let a rule compute with a mistyped value as if nothing were
+-- wrong. Null and the empty string are no mistake: a field that was left
+-- empty counts as 0, as Number(null) and Number('') do.
+SELECT is(COALESCE(pg_temp.jl_eval('{"+":["abc",1]}') ->> 'raised', 'no error'), '90920',
+    'no number: + over text that carries no number raises');
+SELECT is(COALESCE(pg_temp.jl_eval('{"-":["abc",1]}') ->> 'raised', 'no error'), '90920',
+    'no number: - over text that carries no number raises');
+SELECT is(COALESCE(pg_temp.jl_eval('{"*":["abc",2]}') ->> 'raised', 'no error'), '90920',
+    'no number: * over text that carries no number raises');
+SELECT is(COALESCE(pg_temp.jl_eval('{"/":["abc",2]}') ->> 'raised', 'no error'), '90920',
+    'no number: / over text that carries no number raises');
+SELECT is(COALESCE(pg_temp.jl_eval('{"%":["abc",2]}') ->> 'raised', 'no error'), '90920',
+    'no number: % over text that carries no number raises');
+SELECT is(COALESCE(pg_temp.jl_eval('{"max":["abc",1]}') ->> 'raised', 'no error'), '90920',
+    'no number: max over text that carries no number raises');
+SELECT is(COALESCE(pg_temp.jl_eval('{"min":["abc",1]}') ->> 'raised', 'no error'), '90920',
+    'no number: min over text that carries no number raises');
+SELECT is(pg_temp.jl_eval('{"+":[null,1]}'), '1'::jsonb,
+    'no number: null still counts as 0');
+SELECT is(pg_temp.jl_eval('{"+":["",1]}'), '1'::jsonb,
+    'no number: the empty string still counts as 0');
+
+-- =====================================================
+-- Number text in the forms JavaScript reads
+-- =====================================================
+-- Number() reads a hexadecimal, an octal and a binary integer, none of them
+-- with a sign, and it has no range error: an exponent beyond what a double
+-- holds is Infinity, and one below it is 0. numeric raises 22003 for both, so
+-- the interpreter answers by the sign of the exponent itself. Infinity orders
+-- above every number and is no finite result in arithmetic.
+SELECT is(pg_temp.jl_eval('{"==":["0x10",16]}'), 'true'::jsonb,
+    'number text: a hexadecimal integer is its value');
+SELECT is(pg_temp.jl_eval('{"==":["0o17",15]}'), 'true'::jsonb,
+    'number text: an octal integer is its value');
+SELECT is(pg_temp.jl_eval('{"==":["0b11",3]}'), 'true'::jsonb,
+    'number text: a binary integer is its value');
+SELECT is(pg_temp.jl_eval('{"==":["-0x10",-16]}'), 'false'::jsonb,
+    'number text: a hexadecimal integer with a sign is no number');
+SELECT is(pg_temp.jl_eval('{">":["1e200000",0]}'), 'true'::jsonb,
+    'number text: an exponent beyond the range is Infinity, above every number');
+SELECT is(COALESCE(pg_temp.jl_eval('{"+":["1e200000",1]}') ->> 'raised', 'no error'), '90920',
+    'number text: and arithmetic over it has no finite result');
+SELECT is(pg_temp.jl_eval('{"==":["1e-200000",0]}'), 'true'::jsonb,
+    'number text: an exponent below the range is 0');
 
 -- =====================================================
 -- The operator list a rule is checked against when it is saved
