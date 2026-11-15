@@ -311,7 +311,8 @@ BEGIN
     -- PostgreSQL has no CREATE POLICY IF NOT EXISTS; a policy that already
     -- carries one of the four names keeps its own definition. Predicates use the
     -- (SELECT rbac.has_permission(...)) InitPlan form, see the note in
-    -- create_dd_table; test 0445 fails on the bare per-row form.
+    -- create_dd_table; 0940_test_policy_subselect_form.sql fails on the bare
+    -- per-row form.
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
     IF NOT EXISTS (

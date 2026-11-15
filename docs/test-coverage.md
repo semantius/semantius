@@ -125,12 +125,11 @@ any caller without JWT claims, which is why nothing had ever called it.
 These are absent from the suite by construction, not by oversight. They change
 slowly, which is why they are written down here rather than regenerated:
 
-- **Identifier hardening.** No entity or field is ever created with a name
-  containing `"`, `;`, `--`, spaces, 63+ bytes or non-ASCII, while the dictionary
-  builds DDL dynamically (`create_dd_table`, `apply_field_ddl`,
-  `rename_dd_table`, `build_select_rule_policy`).
-- **Event triggers** (`pgrst_ddl_watch`, `pgrst_drop_watch`,
-  `track_ddl_changes`) fire during the suite but are never asserted on.
+- **The NOTIFY of the event triggers** `pgrst_ddl_watch` and
+  `pgrst_drop_watch`. A notification is queued at COMMIT and a pgTAP file
+  rolls back, so there is nothing to observe; `pgdocker/pg-ext-lifecycle.sh`
+  asserts it, where sessions commit. What `track_ddl_changes` and
+  `track_ddl_drops` record is asserted in `0800` and `0810`.
 - **Scope-confined sessions** (`app.oauth_scopes`) and `anon` / no-role sessions
   beyond `0270_test_unauthenticated_access.sql`.
 - **Large inputs**: deep JsonLogic, huge enum sets, long text, a dictionary

@@ -1369,7 +1369,7 @@ BEGIN
 
     -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
     -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
-    -- Test 0445 fails on the bare per-row form.
+    -- 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     EXECUTE format(
         'CREATE POLICY %I ON %I
             FOR SELECT

@@ -1238,7 +1238,8 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
-    -- statement (InitPlan), not per row; see the note in create_dd_table. Test 0445 pins it.
+    -- statement (InitPlan), not per row; see the note in create_dd_table.
+    -- 0940_test_policy_subselect_form.sql pins it.
     -- If select_rule is empty, restore the default permission-only policies (read = view
     -- permission, writes = edit permission, no per-row rule).
     IF v_entity.select_rule = '{}'::jsonb THEN
