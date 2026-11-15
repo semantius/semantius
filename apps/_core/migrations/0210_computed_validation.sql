@@ -55,7 +55,7 @@ BEGIN
     END IF;
     RETURN (p_add || v_obj)::text;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
@@ -111,7 +111,7 @@ BEGIN
                   HINT = jsonb_build_object('rule', p_rule, 'table', p_table, 'op', v_op)::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) IS
 'Raises 90919 when a rule that has to be one JsonLogic operation is not, and 90909 when a rule names an operator the evaluator does not implement. p_rule is the rule''s place in the entity, such as validation_rules[0].';
@@ -148,7 +148,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
 'BEFORE INSERT OR UPDATE trigger on entities: refuses a select_rule, validation rule or computed field that names an unknown operator (90909), and a select_rule or validation rule that is not one JsonLogic operation (90919). Runs on every write of the entity.';
@@ -178,6 +178,35 @@ CREATE OR REPLACE TRIGGER check_entity_rules_trigger
 COMMENT ON TRIGGER check_entity_rules_trigger ON entities IS
 'Refuses an entity whose rules name an unknown operator or whose select_rule or validation rules are not single JsonLogic operations.';
 
+-- The input_type_rule of a field is a rule as well, evaluated by the client
+-- for every record it shows. A client falls back to the static input_type
+-- when the rule raises, so a misspelled operator would turn a required or
+-- hidden field into an ordinary one without a word. It is refused when the
+-- field is saved, like the rules of an entity. The rule yields an input type,
+-- so it may be a literal, and the empty object means that there is no rule.
+CREATE OR REPLACE FUNCTION check_field_rules()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.input_type_rule IS NOT NULL AND NEW.input_type_rule <> '{}'::jsonb THEN
+        PERFORM dd_check_rule(NEW.table_name, NEW.field_name || '.input_type_rule', NEW.input_type_rule, FALSE);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION check_field_rules() IS
+'BEFORE INSERT OR UPDATE trigger on fields: refuses an input_type_rule that names an unknown operator (90909), under the rule name <field>.input_type_rule. Runs on every write of the field.';
+
+REVOKE EXECUTE ON FUNCTION check_field_rules() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER check_field_rules_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION check_field_rules();
+
+COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
+'Refuses a field whose input_type_rule names an unknown operator.';
+
 -- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
@@ -201,7 +230,6 @@ DECLARE
     v_has_computed BOOLEAN;
     v_needs_old BOOLEAN := FALSE;
     v_writeback TEXT;
-    v_all_logic TEXT;
     v_extra_ctx TEXT := '';
     v_derived BOOLEAN;
     v_had_rules BOOLEAN;
@@ -264,26 +292,26 @@ BEGIN
     -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
     -- blocking the delete.
     --
-    -- The $old test is a substring search over the raw rule text rather than a
-    -- lookup of a "$old" key, because a reference is usually a path -
-    -- {"var":"$old.label"} - and an exact-key test would miss it and drop the
-    -- value the rule needs. Three forms count as a reference:
-    --   * the name appearing anywhere, which covers every literal path;
+    -- Whether a rule reads $old is found by walking it, as the evaluator would,
+    -- for the keys it reads (jl_row_keys). Three kinds count:
+    --   * a key that is $old or a path below it, {"var":"$old.label"};
     --   * value_changed, which never names $old but reads the key itself and
     --     returns true whenever it is absent, so an entity using it would
     --     silently start reporting every field as changed;
-    --   * a var whose argument is an object rather than a string. The
-    --     interpreter evaluates that argument as JsonLogic, so {"var":{"cat":
+    --   * a key that is not written out. The interpreter evaluates the key of a
+    --     var, of missing and of missing_some as JsonLogic, so {"var":{"cat":
     --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
-    --     the text. Such a rule cannot be searched, so any entity using one gets
-    --     the full context.
-    v_all_logic := COALESCE(v_entity.computed_fields::text, '') ||
-                   COALESCE(v_entity.validation_rules::text, '');
+    --     the rule. What such a key will be cannot be known here, so any entity
+    --     using one gets the full context.
+    SELECT EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(COALESCE(v_entity.computed_fields, '[]'::jsonb)
+                                    || COALESCE(v_entity.validation_rules, '[]'::jsonb)) AS r(item)
+         CROSS JOIN LATERAL jl_row_keys(r.item -> 'jsonlogic') AS k(key)
+         WHERE k.key IS NULL OR k.key = '$old' OR starts_with(k.key, '$old.'))
+      INTO v_needs_old;
 
-    IF v_all_logic LIKE '%$old%'
-       OR v_all_logic LIKE '%value_changed%'
-       OR v_all_logic LIKE '%"var": {%' THEN
-        v_needs_old := TRUE;
+    IF v_needs_old THEN
         v_extra_ctx := v_extra_ctx || $CTX$,
         '$old',     COALESCE(p_old, 'null'::jsonb)$CTX$;
     END IF;
@@ -472,7 +500,7 @@ $BLOCK$,
     -- compares must not depend on who wrote the row. The same two settings are on
     -- every other function that turns a row into rule data.
     v_body := format($FUNC$
-CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_rules_name, dd_dollar_quote(format($RULES$
 DECLARE
     v_data jsonb;
@@ -540,7 +568,7 @@ $WB$;
     -- On DELETE there is no NEW row; the rules evaluate against the row being
     -- removed (OLD), which is also $old.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, dd_dollar_quote(format($TRIG$
 DECLARE
     v_data jsonb;
@@ -613,7 +641,7 @@ $TRIG$, v_rules_name,
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
         v_trg_name, p_table_name, v_fn_name);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_record_logic_trigger IS
 'Generates (or drops) the rule function common.record_rules_<entity> evaluating an entity''s computed_fields and validation_rules over a record, and for an entity with a table of its own the per-table BEFORE INSERT OR UPDATE OR DELETE trigger wrapping it. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete. An is_a or has_a entity gets no trigger: its write routine calls the rule function.';
@@ -677,7 +705,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_record_logic_trigger IS
 'Trigger function on entities that creates/updates/drops the rule function and the per-table BEFORE row trigger for computed_fields and validation_rules.';
@@ -741,7 +769,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
 'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
@@ -814,7 +842,7 @@ BEGIN
     END LOOP;
     RETURN v_undo;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_backfill_mute(TEXT) IS
 'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write, and returns the statements that enable them again.';
@@ -835,7 +863,7 @@ BEGIN
     END LOOP;
     RETURN v_data;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION computed_values(JSONB, JSONB) IS
 'Evaluates a computed_fields array over a record and returns the record with the values applied.';
@@ -955,7 +983,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION computed_backfill(TEXT) IS
 'Applies an entity''s computed_fields to its existing records, writing only those whose value moves, without touching updated_at, the audit log, queues or RACI events. A record that cannot take its new value refuses the change (90908).';
@@ -975,7 +1003,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_computed_field_added() IS
 'AFTER INSERT trigger function on fields: applies the rule to existing records when a field arrives that a computed rule already names.';
@@ -1034,7 +1062,7 @@ BEGIN
         '$user_id', to_jsonb(v_uid)
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION public.jl_request_context() IS
 'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
@@ -1080,7 +1108,7 @@ GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 CREATE OR REPLACE FUNCTION common.row_move_token(p_secret TEXT, p_xid TEXT, p_rel TEXT, p_key TEXT)
 RETURNS TEXT AS $$
     SELECT encode(sha256(convert_to(p_secret || '|' || p_xid || '|' || p_rel || '|' || p_key, 'UTF8')), 'hex');
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) IS
 'The token that lets one row pass its entity''s select_rule while it is being written: the SHA-256 of the secret, the transaction id, the table and the key. NULL when any of them is.';
@@ -1102,7 +1130,7 @@ BEGIN
     END IF;
     RETURN v_secret;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_secret() IS
 'The secret the row move tokens are made with, created on first use: a random value in _settings that the request role cannot read.';
@@ -1132,7 +1160,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_mark() IS
 'BEFORE INSERT OR UPDATE row trigger zz_row_move of an entity with a select_rule: leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the rule when PostgreSQL holds the new row to the read policy. An INSERT whose key is already stored is not marked.';
@@ -1145,7 +1173,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_clear() IS
 'AFTER INSERT OR UPDATE statement trigger zz_row_move_clear of an entity with a select_rule: empties app.row_move, so a row the statement moved out of the writer''s rule is hidden again.';
@@ -1168,7 +1196,7 @@ BEGIN
     SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
     RETURN COALESCE(v_token = common.row_move_token(v_secret, v_xid::text, p_rel, p_key), FALSE);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 'Whether app.row_move holds the token of the given row for the current transaction, that is, whether this row is the one the running statement is writing. Called by the generated select_rule predicates.';
@@ -1312,11 +1340,29 @@ DECLARE
     v_data jsonb;
     v_result jsonb;
 BEGIN
+    -- Without a context there is no caller to decide for. Row and context
+    -- merge to NULL, a rule such as "user_id == $user_id" then compares null
+    -- with null, and the answer would be true for any row.
+    IF p_ctx IS NULL THEN
+        RETURN FALSE;
+    END IF;
+
     v_data := %s || p_ctx;
 
     BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
     EXCEPTION WHEN OTHERS THEN
+        -- A rule that raises hides the row, and says so once per transaction
+        -- and entity: with the SQLSTATE, and without the message, which can
+        -- quote a value of the very row being hidden. The entities already
+        -- named are kept in a transaction-local setting.
+        IF NOT (%3$L = ANY(string_to_array(
+                    COALESCE(current_setting('app.select_rule_warned', true), ''), ','))) THEN
+            RAISE WARNING 'select_rule of %% raised %%: the rows it raises on are hidden', %3$L, SQLSTATE;
+            PERFORM set_config('app.select_rule_warned',
+                               concat_ws(',', NULLIF(current_setting('app.select_rule_warned', true), ''), %3$L),
+                               true);
+        END IF;
         RETURN FALSE;
     END;
 
@@ -1331,7 +1377,7 @@ BEGIN
     END IF;
     RETURN common.row_move_matches(%L, to_jsonb(p_row) ->> %L);
 END;
-$SEL$, v_row_data, v_logic_lit, v_rel, v_entity.id_column);
+$SEL$, v_row_data, v_logic_lit, p_table_name, v_rel, v_entity.id_column);
     ELSE
         v_predicate := $SEL$
 BEGIN
@@ -1341,9 +1387,9 @@ $SEL$;
     END IF;
 
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, v_rel,
         dd_dollar_quote(v_predicate),
         v_fn_name, v_rel,
@@ -1403,7 +1449,7 @@ $SEL$, v_fn_name)));
         'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
         v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
 'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, the three policies are the permission-only form instead and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
@@ -1451,7 +1497,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
 'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';

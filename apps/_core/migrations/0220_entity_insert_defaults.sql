@@ -18,7 +18,7 @@ CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
 RETURNS TEXT
 LANGUAGE sql
 IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
     SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
 $$;
@@ -46,7 +46,7 @@ CREATE OR REPLACE FUNCTION public.dd_label_field_title(
 RETURNS TEXT
 LANGUAGE plpgsql
 IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_prefix TEXT;
@@ -86,7 +86,7 @@ GRANT EXECUTE ON FUNCTION public.dd_label_field_title(TEXT, TEXT, TEXT) TO seman
 CREATE OR REPLACE FUNCTION public.set_entity_defaults()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_title TEXT;

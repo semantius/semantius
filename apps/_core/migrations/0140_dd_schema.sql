@@ -38,7 +38,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_reference_table IS
 'Trigger function that rejects a field being pointed at a reference_table that does not match any entities.table_name, and holds that entity''s row until the field commits, so a concurrent delete of the entity cannot miss the field. A reference that is not changing is not checked again. Enforced via trigger (not a CHECK) so it can run a subquery.';
@@ -80,7 +80,7 @@ BEGIN
     NEW.plural := NEW.table_name;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_plural IS 
 'Trigger function that automatically sets plural column to match table_name, ignoring user input';
@@ -122,7 +122,7 @@ CREATE OR REPLACE TRIGGER update_fields_updated_at
 CREATE OR REPLACE FUNCTION enforce_catalog_aliases_append_only()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT (NEW.catalog_entity_aliases @> OLD.catalog_entity_aliases) THEN

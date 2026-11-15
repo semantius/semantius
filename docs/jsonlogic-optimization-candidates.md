@@ -355,9 +355,12 @@ same shape, not a novel construct — with the `entities.select_rule <> '{}'` ga
   or `rename_dd_reference_tables` (`0170_dd_rename.sql`) rebuilds a policy for every
   referencing entity on every table rename.
 
-Renaming a column named by an operator is **not** covered by this: nothing
-rewrites `entities.select_rule` on a field rename. Assert the accepted
-behavior — the comparison fails closed — rather than pretending it round-trips.
+Renaming a column that a rule reads needs no arm: a field that the entity's
+`select_rule` names cannot be renamed (90275), so the rule is changed first and
+that save rebuilds the policy. The check finds a column through `var`,
+`missing`, `missing_some` and `value_changed` only (`jl_row_keys` in
+`0050_jsonlogic.sql`). A named operator that takes a column name as a plain
+argument has to be added to it, with a test that the rename is refused.
 
 Budget about ten extra DDL events per field on rule-bearing entities, and note
 that the base it lands on has moved. Adding a plain scalar field used to trigger
@@ -410,9 +413,11 @@ rules above and is held to a different standard, which is what makes it
 acceptable next to §4:
 
 - **It is a closed subset, not a translator.** `and`, `or`, `!`, `!!`, `==`,
-  `===`, `!=`, `!==`, `<`, `<=`, `>`, `>=` (the last two also with three
+  `===`, `!=`, `!==`, `<`, `<=`, `>`, `>=` (`<` and `<=` also with three
   operands), `in` with a list of literals, `var` naming a plain column of the
-  child record, and the date operators as values. Every other operator, every
+  child record, and the date operators as values. `===` and `!==` between a
+  column and a literal of another JSON type are refused, because the answer is
+  the same for every row. Every other operator, every
   request variable (`$user_id`,
   `$now`, `$today`, ...), every path and every default is refused with 90265
   naming what was refused. Nothing is approximated.
@@ -420,7 +425,11 @@ acceptable next to §4:
   `IS [NOT] DISTINCT FROM`, so `null` compares as JsonLogic expects; an ordering
   comparison against a NULL column excludes the row where
   `evaluate_json_logic` would have read NULL as 0; a string meets a number only
-  through an explicit cast to the column's type. The same rule text can
+  through an explicit cast to the column's type. Two points follow the
+  interpreter instead: text is ordered by code point (`COLLATE "C"`), whatever
+  the collation of the column, and a literal compared with a `number` column
+  is cast to plain `numeric`, so it is compared as written and not rounded to
+  the column's decimals. The same rule text can
   therefore mean something slightly different in a validation rule and in a
   rollup filter, and the documentation of rollups says so instead of promising
   parity.
@@ -430,7 +439,8 @@ acceptable next to §4:
   objects from AFTER triggers on `fields` and `entities`.
 - **Nothing admin-written reaches the SQL text unquoted.** Identifiers through
   `%I` after the catalog lookup, literals through `%L` with a cast to a type
-  name taken from `format_type`, the compiled text probed with `EXPLAIN` when
+  name taken from `format_type` (plain `numeric` for a `number` column), the
+  compiled text probed with `EXPLAIN` when
   the definition is saved, and the generated body wrapped in a dollar tag
   derived from the body itself.
 
@@ -443,5 +453,9 @@ The date operators are in the subset because they need no such proof: they
 compile to calls of the same `jl_date_*` functions the interpreter runs, so there
 is no native emission to compare. `0555_test_rollup.sql` still runs each of them
 both ways over the same rows. Their arguments are limited to columns of a date,
-date-time, integer or duration type, literals and other date operators, so nothing
-that could fail at run time on valid data gets past the save.
+date-time, integer or duration type, literals and other date operators, and the
+operator is run once with sample values when the definition is saved, so a
+filter that could never work is refused there (90265). A column can still hold
+a value no sample stands for: a date of `infinity`, a year beyond 9999, an
+amount beyond the integer range. The write of such a child is refused with
+90272, which names the rollup.

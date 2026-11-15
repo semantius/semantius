@@ -75,7 +75,7 @@ BEGIN
 
     RETURN jsonb_build_object('api_key', v_full_api_key, 'key_id', v_new_key_id);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.generate_api_key IS
 'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
@@ -144,6 +144,14 @@ BEGIN
 
     -- Verify the secret against the stored bcrypt hash
     IF v_record.secret_hash = crypt(v_secret, v_record.secret_hash) THEN
+        -- The key of a disabled user is no credential. The token it would
+        -- mint is refused when the user is resolved, but a key that validates
+        -- also records a use that never happened. The test stands after the
+        -- comparison, so a wrong secret costs the same whoever owns the key.
+        IF EXISTS (SELECT 1 FROM users u WHERE u.id = v_record.user_id AND u.is_disabled) THEN
+            RETURN NULL;
+        END IF;
+
         -- Update last_used_at on successful validation
         UPDATE _apikeys SET last_used_at = CURRENT_TIMESTAMP WHERE key_id = v_key_id;
         RETURN v_record.user_id;
@@ -151,10 +159,10 @@ BEGIN
         RETURN NULL;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.validate_api_key IS
-'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
+'Validates an API key and returns the user_id if valid, NULL otherwise; the key of a disabled user is not valid. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
 
 -- Reachable from the auth tier over a direct owner connection, and from nothing
 -- else. That is the only caller shape that can work: the API-key exchange
@@ -224,7 +232,7 @@ BEGIN
     );
 END;
 -- STABLE: writes nothing, so PostgREST serves it over GET.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.list_api_keys IS
 'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
@@ -258,24 +266,23 @@ BEGIN
     FROM _apikeys
     WHERE key_id = p_key_id;
 
-    IF NOT FOUND THEN
+    -- A key of another user is one only an administrator may delete. Anyone
+    -- else gets the answer of a key that does not exist: a refusal of its own
+    -- would tell the caller that the key id is in use.
+    IF NOT FOUND
+       OR (v_record.user_id <> v_current_user_id AND NOT rbac.has_permission('admin')) THEN
         RAISE EXCEPTION 'API key not found'
             USING ERRCODE = '90402';
-    END IF;
-
-    -- If the key belongs to another user, require admin permission
-    IF v_record.user_id <> v_current_user_id THEN
-        PERFORM rbac.require_permission('admin');
     END IF;
 
     DELETE FROM _apikeys WHERE key_id = p_key_id;
 
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.delete_api_key IS
-'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user.';
+'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user. A caller without admin gets 90402 for a key of another user, as for a key that does not exist.';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
 REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;

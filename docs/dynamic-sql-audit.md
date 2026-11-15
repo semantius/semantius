@@ -513,21 +513,12 @@ and `delete`, always with `queues.queue_name`.
 
 Quoting keeps a value from being read as SQL. It does not keep a quoted name
 from reaching another object, and it does not say which schema a name is
-looked up in. Each row is a place where that is open, with the assertion in
-`0537_test_dynamic_sql_values.sql` that fails while it is. A fix removes its
-row.
+looked up in. Two tests assert what closes those gaps.
+`0537_test_dynamic_sql_values.sql` shows that no name the dictionary generates
+or matches by pattern reaches an object of another entity (part 2), and that a
+temporary table named like a dictionary table does not stand in for it (part
+3). `0900_test_security.sql` asserts the rule behind the second: every
+function that pins a `search_path` lists `pg_temp` last.
 
-| Where | What is open | What it allows | Test |
-|---|---|---|---|
-| every function that sets `search_path` | `pg_temp` is not listed, so PostgreSQL searches the session's temporary schema first for a table name, and the request role may create temporary tables | a session that runs SQL as the request role creates a temporary table named `users` and is taken for the user its row names, an administrator included; not reachable through PostgREST | part 3 |
-| `handle_entity_order_column` | the column `order_column` named is dropped when the entity stops naming it, whether the dictionary added it or not | an administrator who names a field as `order_column` and clears that again loses the field's column and its data | part 2, `order_column` |
-| `rebuild_entity_label_functions` | the functions to replace are found by a name ending in `_label`, which `select_rule_<entity>` of an entity named `..._label` matches | `get_record_by_id` raises 42883 on that entity for every caller it applies the rule to | part 2, `_label` |
-| `raci_sync_triggers` | `process_gates.entity` only has to be an ordinary table in `public` | an administrator attaches the gate and emit triggers to an internal table such as `_settings` | part 2, process gate |
-| `create_dd_table`, `dd_install_id_triggers`, `handle_entity_order_column` | `entities.id_column`, `label_column` and `order_column` have no length limit | a name over 63 bytes is accepted, the column carries the cut name, and `pk_immutable` is handed a key the row does not have | part 2, 64 bytes |
-| `pgmq.format_table_name` under `queues.queue_name` | the tables of a queue are named by the lower-cased queue name, and the queue name is unique by its exact text | two queues whose names differ in case share their tables, and deleting one drops the tables of the other | part 2, queue names |
-| `rollup_object_name`, `rollup_guard_name` | `rollup_<child>_<link>` and `rollup_guard_<parent>` share a prefix, and the builders drop whatever carries the name with CASCADE | a rollup over a child entity named `guard` replaces the guard of another parent, whose rollup columns can then be written by hand | part 2, rollup guard |
-| `pgmq.convert_archive_partitioned` (vendored) | its argument is concatenated into three statements; `pgmq.format_table_name` refuses only `$`, `;`, `--` and `'` | nothing beyond the caller's own rights: the function is SECURITY INVOKER and nothing calls it | part 1, `pgmq` |
-| `queue_event_after_insert` | `queue_<queue>_<event>_on_<table>` can exceed 63 bytes | the trigger keeps a cut name that the rename and delete paths do not find | none |
-| `rename_dd_table`, `rollup_rename_field_refs` | a table or field name is spliced into a LIKE pattern, where its `_` matches any character | a hand-made constraint, index or trigger on the renamed table whose name differs in the place of an underscore is renamed as well | none |
-| `rename_dd_table`, `validate_field_rename_and_format` | an index or a sequence to rename is found by its name, which two tables can spell | the index of another table is renamed | `0535_test_identifier_hardening.sql` (part 3) |
-| `quote_default_value` | the pattern that lets a number through unquoted holds a backslash, which a session with `standard_conforming_strings = off` reads differently | a default of digits, one other character and digits reaches the statement unquoted in such a session | none |
+None is open. A finding gets a row here, with what it allows and the
+assertion that fails while it is open, and the fix removes the row.

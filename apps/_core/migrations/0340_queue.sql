@@ -20,6 +20,12 @@
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
 
+-- pgmq.convert_archive_partitioned builds three statements by concatenating
+-- its argument, which pgmq.format_table_name keeps only `$`, `;`, `--` and `'`
+-- out of. It runs with its caller's rights and nothing here calls it, so the
+-- request role, which reaches pgmq through the usage above, does not need it.
+REVOKE EXECUTE ON FUNCTION pgmq.convert_archive_partitioned(TEXT, TEXT, TEXT, INTEGER) FROM PUBLIC;
+
 -- =====================================================
 -- STEP 2: Triggers on queues table
 -- =====================================================
@@ -30,9 +36,19 @@ GRANT USAGE ON SCHEMA pgmq TO semantius_user;
 CREATE OR REPLACE FUNCTION queue_after_insert()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- pgmq names the tables of a queue q_<name> and a_<name>, in lower case,
+    -- and counts the 47 it allows in characters. Two names that differ in case
+    -- only would share their tables, and so would two long names of
+    -- multi-byte characters once PostgreSQL cuts the table name at 63 bytes.
+    IF NEW.queue_name <> lower(NEW.queue_name) OR octet_length(NEW.queue_name) > 47 THEN
+        RAISE EXCEPTION 'Queue name ${queue} has to be lower case and at most 47 bytes long'
+            USING ERRCODE = '90505',
+                  HINT = jsonb_build_object('queue', NEW.queue_name)::text;
+    END IF;
+
     PERFORM pgmq.create(NEW.queue_name);
     RETURN NEW;
 END;
@@ -49,7 +65,7 @@ CREATE OR REPLACE TRIGGER queue_after_insert_trigger
 CREATE OR REPLACE FUNCTION queue_before_update()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.queue_name IS DISTINCT FROM NEW.queue_name THEN
@@ -70,7 +86,7 @@ CREATE OR REPLACE TRIGGER queue_before_update_trigger
 CREATE OR REPLACE FUNCTION queue_before_delete()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     -- The mappings go first, while this row still exists: queue_event_after_delete
@@ -100,7 +116,7 @@ CREATE OR REPLACE TRIGGER queue_before_delete_trigger
 CREATE OR REPLACE FUNCTION queue_event_before_update()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
@@ -130,7 +146,7 @@ CREATE OR REPLACE TRIGGER queue_event_before_update_trigger
 CREATE OR REPLACE FUNCTION queue_build_record_json()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     -- Messages are flushed in fixed windows rather than one array per statement.
@@ -241,7 +257,7 @@ COMMENT ON FUNCTION queue_build_record_json() IS
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_trigger_name TEXT;
@@ -290,6 +306,16 @@ BEGIN
     LOOP
         v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || NEW.table_name;
 
+        -- A trigger name is cut at 63 bytes like any identifier, and a cut
+        -- name is one the rename of the table and the removal of the mapping
+        -- no longer find.
+        IF octet_length(v_trigger_name) > 63 THEN
+            RAISE EXCEPTION 'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes'
+                USING ERRCODE = '90506',
+                      HINT = jsonb_build_object('queue', v_queue_name, 'table', NEW.table_name,
+                                                'name', v_trigger_name)::text;
+        END IF;
+
         -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
         -- survive an aborted install, and dropping first makes the install
         -- idempotent for the events this handler covers. It cannot repair a
@@ -326,7 +352,7 @@ CREATE OR REPLACE TRIGGER queue_event_after_insert_trigger
 CREATE OR REPLACE FUNCTION queue_event_after_delete()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_queue_name TEXT;
@@ -397,7 +423,7 @@ CREATE OR REPLACE FUNCTION public.queue_authorize(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_view_permission TEXT;
@@ -444,7 +470,7 @@ CREATE OR REPLACE FUNCTION public.queue_read(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result JSONB;
@@ -475,7 +501,7 @@ CREATE OR REPLACE FUNCTION public.queue_pop(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result JSONB;
@@ -505,7 +531,7 @@ CREATE OR REPLACE FUNCTION public.queue_archive(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result BOOLEAN;
@@ -533,7 +559,7 @@ CREATE OR REPLACE FUNCTION public.queue_delete(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result BOOLEAN;

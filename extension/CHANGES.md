@@ -352,6 +352,91 @@ installs the core schema as ordinary objects.
   and nothing under a parent the caller may not view.
 - A role moved from a module to no module bumps the version of the module it
   left.
+- **The API key of a disabled user does not validate.** `validate_api_key()`
+  returns NULL for it and records no use; the key works again once the user
+  is enabled.
+- **The last-Administrator guard covers every route.** Besides the deletes
+  and the disable, it refuses an UPDATE that points the last Administrator's
+  `user_roles` row at another role or user, removing or re-pointing the grant
+  of `admin` to role 2, and deleting or renaming the permission `admin`
+  (42501, `hint.code` `90104`).
+- The generated `select_rule_<entity>(row, context)` answers false when it
+  is handed no context. It answered true for any row under a rule such as
+  `user_id == $user_id`, because null equals null.
+- A `select_rule` that raises on a row still hides the row, and now says
+  so: a WARNING names the entity and the SQLSTATE, once per transaction and
+  entity. The message of the error is not repeated, because it can quote a
+  value of the hidden row.
+- A computed field or validation rule sees `$old` whenever it can read
+  it: also when the key of a `var`, `missing` or `missing_some` is computed,
+  as in `{"var": [{"cat": ["$ol", "d.label"]}, "none"]}`, which read null
+  before.
+- **A field's `input_type_rule` is checked when the field is saved**, as
+  the rules of an entity are: one that names an unknown operator is refused
+  (`90909`), under the rule name `<field>.input_type_rule`.
+- **`duration`, `binary` and `uuid` fields work without a `default_value`.**
+  A `duration` column defaults to no time and a `binary` column to no bytes;
+  a `uuid` field is nullable, like `date`, and a required one refuses a
+  missing value with `90258`. A row that left such a field out, and adding
+  one to a table that has rows, failed with 23502 before.
+- **A changed `precision` of a `number` field alters the column.** It was
+  recorded in the dictionary only, and `get_schema()` reported a scale the
+  column did not have. Lowering it rounds the values the column holds, and
+  any change of scale rewrites the table under an exclusive lock.
+- **A field name whose generated names would be cut is refused** (`90276`):
+  the relation name, the field name and 10 bytes have to fit 63, on insert
+  and on a rename, and a table cannot be renamed to a longer name under
+  which one of its fields would no longer fit. Two long field names of one
+  table could share a constraint before.
+- A rename of a field or of a table whose new generated index name is
+  already carried by the index of another table is refused with `90274`, as
+  creating such a field is; it failed with 42P07 before. A field rename also
+  no longer renames an index of another table that spells the old name.
+- A table rename rewrites only the entity argument of `set_record` in the
+  rules of other entities. It replaced every text equal to the old table
+  name before: a compared value, the name a `let` binds, a message.
+- **A field that a rule names cannot be renamed** (`90275`). A rename
+  rewrote no computed field, validation rule, `select_rule` or
+  `input_type_rule`, which then read a name that was gone. The rules of the
+  entity and of every is_a or has_a entity below it count, and the error
+  names the rule to change first.
+- A field that its entity names as `label_parent` keeps a reference
+  format: changing it away from `reference` or `parent` is refused
+  (`90277`). The composed label fell back to the record's own before.
+- **The JsonLogic interpreter, four more answers of the reference.**
+  `{"var": "a.-1"}` finds nothing, where it returned the last element of the
+  array. An array compared with `==` or `!=` against a number or a string is
+  joined with commas first, so `[] == 0` and `[5] == 5` are true. `+`, `-`,
+  `*`, `/`, `%`, `max` and `min` over text that carries no number raise
+  `90920`, where they computed with 0; null and the empty string stay 0.
+  Number text with an exponent beyond what `numeric` holds is `Infinity`, or
+  0 for a negative exponent, where it raised 22003.
+- **Rollup filters, three places where the compiled filter answered
+  otherwise than a validation rule.** Text is ordered by code point
+  (`COLLATE "C"`), not by the column's collation. `===` and `!==` between a
+  column and a literal of another JSON type are refused when the definition
+  is saved (`90265`). A number is compared with a `number` column as it is
+  written, not rounded to the column's decimals.
+- **Every function lists `pg_temp` last in its `search_path`.** PostgreSQL
+  looks a table name up in the session's temporary schema first unless the
+  path says otherwise, and the request role may create temporary tables: a
+  session that runs SQL as the request role could create a temporary table
+  named `users` and be taken for any user, an administrator included. Not
+  reachable through PostgREST.
+- **Names the dictionary generates or matches by pattern.** An
+  `order_column` that names a column the table already has is refused
+  (`90278`); clearing it dropped that column with its data. A process gate on
+  a table that exists and is no entity, such as `_settings`, is refused
+  (`90279`). The rule predicate of an entity whose
+  name ends in `_label` is no longer dropped with its label functions. A
+  rollup whose function would carry the name of another parent's guard is
+  refused (`90280`). A queue name has to be lower case and at most 47 bytes
+  (`90505`), and a queue mapping whose trigger name would not fit 63 bytes is
+  refused (`90506`). An `order_column` longer than 63 bytes is refused. The
+  request role may no longer execute `pgmq.convert_archive_partitioned`.
+- `delete_api_key()` answers `90402` to a caller without `admin` who names
+  a key of another user, as for a key that does not exist; it answered 42501
+  before, which told the caller that the key id is in use.
 - No generator wraps a generated function body in a fixed dollar tag; a
   column default containing such a tag used to end the body early.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore

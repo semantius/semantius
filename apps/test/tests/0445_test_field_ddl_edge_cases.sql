@@ -165,8 +165,9 @@ ALTER TABLE fields ENABLE TRIGGER validate_field_rename_and_format_trigger;
 SELECT authenticate_as('user3');
 
 -- A reference to a text key becomes a plain text field: the column keeps its
--- type, loses its foreign key and the index built for it, and a label spine
--- that named it no longer resolves, so the label is the record's own.
+-- type and loses its foreign key and the index built for it. While the entity
+-- names the field as its label spine the change is refused, because a spine
+-- that is no reference composes nothing; label_parent is cleared first.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type) VALUES ('fd_keyed', 'Keyed', 'Keyed', 1, 'text');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fd_child', 'Child', 'Children', 1);
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode)
@@ -178,6 +179,13 @@ INSERT INTO fd_child (label, keyed_id) VALUES ('child', 'k1');
 SELECT is((SELECT public._label(c) FROM fd_child c), 'Parent One › child',
     'a child is labeled with its parent through the label spine');
 
+SELECT is(
+    catch_error($$UPDATE fields SET format = 'text', reference_table = '', reference_delete_mode = ''
+                   WHERE table_name = 'fd_child' AND field_name = 'keyed_id'$$) ->> 'code',
+    '90277',
+    'a reference that is the label spine of its entity cannot become text');
+
+UPDATE entities SET label_parent = '' WHERE table_name = 'fd_child';
 UPDATE fields SET format = 'text', reference_table = '', reference_delete_mode = ''
  WHERE table_name = 'fd_child' AND field_name = 'keyed_id';
 
@@ -186,8 +194,6 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fd_child_keye
 SELECT ok(NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_fd_child_keyed_id'),
     'and the index built for it');
 SELECT is((SELECT keyed_id FROM fd_child), 'k1', 'and keeps its values');
-SELECT is((SELECT public._label(c) FROM fd_child c), 'child',
-    'and a label spine that named it degrades to the record''s own label');
 
 -- unique_value turned on for a field that already exists
 INSERT INTO fields (table_name, field_name, title, format) VALUES

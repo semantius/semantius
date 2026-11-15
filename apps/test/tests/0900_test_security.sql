@@ -26,7 +26,7 @@
 --       exclusion list, which is the thing 2.3 exists to avoid.
 BEGIN;
 
-SELECT plan(9);
+SELECT plan(10);
 
 -- =====================================================
 -- TEST 2.1: Check for tables not using RLS
@@ -180,6 +180,39 @@ SELECT ok(
     NOT pg_catalog.has_table_privilege('semantius_user', 'public.audit_ddl_logs', 'INSERT')
     AND NOT pg_catalog.has_table_privilege('semantius_user', 'public.audit_ddl_logs', 'UPDATE'),
     'the request role can neither insert nor update audit_ddl_logs'
+);
+
+-- =====================================================
+-- TEST 2.5: Every pinned search_path ends in pg_temp
+-- =====================================================
+-- PostgreSQL looks a table name up in the session's temporary schema before
+-- any other, unless the path names pg_temp itself, and the request role may
+-- create temporary tables. A function whose path leaves pg_temp out reads the
+-- caller's temporary table in place of the dictionary's: rbac's own lookup of
+-- `users` would take the caller for whoever a temporary `users` says, an
+-- administrator included (0537_test_dynamic_sql_values.sql shows it). Listed
+-- last, pg_temp is searched only after every schema of the dictionary.
+-- 0910_test_no_unsafe_functions.sql asserts that every function pins a path;
+-- this asserts what the path has to end in. The empty path belongs to the
+-- functions that qualify every name. Extension-owned functions are excluded.
+
+SELECT is(
+    (
+        SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
+        FROM pg_proc p
+        JOIN pg_namespace n ON p.pronamespace = n.oid
+        CROSS JOIN LATERAL (
+            SELECT substring(c FROM 'search_path=(.*)') AS path
+            FROM unnest(coalesce(p.proconfig, '{}')) AS c
+            WHERE c LIKE 'search_path=%'
+        ) s
+        WHERE n.nspname IN ('public', 'rbac', 'common', 'audit')
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+        AND s.path NOT IN ('', '""')                    -- the empty path: every name is qualified
+        AND s.path !~ '(^|, )pg_temp$'                  -- pg_temp, and last
+    ),
+    NULL::text,
+    'Every function that pins a search_path lists pg_temp last'
 );
 
 SELECT * FROM finish();

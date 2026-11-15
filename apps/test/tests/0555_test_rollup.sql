@@ -21,7 +21,7 @@
 --  15. Values a filter meets when a child is written
 BEGIN;
 
-SELECT plan(368);
+SELECT plan(371);
 
 SELECT authenticate_as('user3');
 
@@ -1759,6 +1759,56 @@ SELECT is(
     'a child whose amount carries the date past the last timestamp is refused under the same filter, with the same kind of error');
 SELECT is(pg_temp.rt('long'), '[2, 1, 2, 1]'::jsonb,
     'and the refused child is counted nowhere');
+
+-- =====================================================
+-- PART 16: A changed precision of the value field
+-- =====================================================
+-- A rollup field copies the precision of its value field when it is saved. A
+-- later precision change of the value field alters the child's column and
+-- leaves the rollup field alone: it keeps the precision it copied, its column
+-- the scale, and the totals stay right at that scale. The rollup takes the new
+-- precision when it is saved again with a change of its own.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('rp_parent', 'rp_parent', 'RP Parent', 'RP Parents', 'precision parent', 1, 'public:read', 'admin', 'id', 'label'),
+       ('rp_child',  'rp_child',  'RP Child',  'RP Children', 'precision child', 1, 'public:read', 'admin', 'id', 'label');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('rp_child', 'parent_id', 'Parent', 'parent', 10, 'rp_parent', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order, "precision")
+VALUES ('rp_child', 'amount', 'Amount', 'number', 20, 3);
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('rp_parent', 'total', 'Total', 'number', 10,
+        '{"link_field": "rp_child.parent_id", "function": "sum", "value_field": "amount"}');
+INSERT INTO rp_parent (label) VALUES ('p');
+INSERT INTO rp_child (label, parent_id, amount) SELECT 'a', id, 1.234 FROM rp_parent;
+
+UPDATE fields SET "precision" = 1 WHERE table_name = 'rp_child' AND field_name = 'amount';
+
+SELECT is(
+    (SELECT jsonb_build_array(
+                (SELECT "precision" FROM fields WHERE table_name = 'rp_parent' AND field_name = 'total'),
+                (SELECT format_type(atttypid, atttypmod) FROM pg_attribute
+                  WHERE attrelid = 'public.rp_parent'::regclass AND attname = 'total'))),
+    '[3, "numeric(18,3)"]'::jsonb,
+    'a precision change of the value field leaves the rollup field its precision and its column the scale');
+
+INSERT INTO rp_child (label, parent_id, amount) SELECT 'b', id, 1.26 FROM rp_parent;
+
+SELECT is(
+    (SELECT total::text FROM rp_parent),
+    '2.500',
+    'and the total is kept, over the values as the child''s column now holds them');
+
+UPDATE fields SET title = 'Total amount', "precision" = 0 WHERE table_name = 'rp_parent' AND field_name = 'total';
+
+SELECT is(
+    (SELECT jsonb_build_array(
+                (SELECT "precision" FROM fields WHERE table_name = 'rp_parent' AND field_name = 'total'),
+                (SELECT format_type(atttypid, atttypmod) FROM pg_attribute
+                  WHERE attrelid = 'public.rp_parent'::regclass AND attname = 'total'),
+                (SELECT total::text FROM rp_parent))),
+    '[1, "numeric(18,1)", "2.5"]'::jsonb,
+    'a rollup saved again with a precision of its own takes the value field''s, and its column follows');
 
 SELECT * FROM finish();
 ROLLBACK;

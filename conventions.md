@@ -4,6 +4,7 @@
 
 ### Tables
 - **Use plural nouns**: `customers`, `orders`, `users`, `products`, `deals`, `contacts`
+- A table name does not start with `_` (reserved for internal tables, 90271) and is at most 41 bytes (90273)
 - Avoids SQL reserved words (`user` → `users`, `order` → `orders`)
 
 ### Primary Keys
@@ -33,6 +34,7 @@ order_items.product_id → products.id
 ### Regular Columns
 - **Use singular form** when prefixing with table entity name
 - Use descriptive, unambiguous names
+- The table name, the field name and 10 bytes fit in 63 bytes (90276), and the index name `idx_<table>_<field>` is not one another table's field spells: table `a_b` with field `c` and table `a` with field `b_c` collide (90274)
 
 ```sql
 products.product_name (or products.name if context is clear)

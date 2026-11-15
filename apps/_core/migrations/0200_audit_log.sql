@@ -38,7 +38,7 @@ CREATE OR REPLACE FUNCTION audit.to_record_id(entity_oid OID, pkey_cols TEXT[], 
     RETURNS UUID
     VOLATILE
     LANGUAGE sql
-    SET search_path = public
+    SET search_path = public, pg_temp
 AS $$
     SELECT
         CASE
@@ -64,7 +64,7 @@ CREATE OR REPLACE FUNCTION audit.extract_record_pk(pkey_cols TEXT[], rec JSONB)
     RETURNS TEXT
     STABLE
     LANGUAGE sql
-    SET search_path = public
+    SET search_path = public, pg_temp
 AS $$
     SELECT
         CASE
@@ -100,7 +100,7 @@ CREATE OR REPLACE FUNCTION audit.current_user_id()
     RETURNS BIGINT
     STABLE
     LANGUAGE plpgsql
-    SET search_path = public
+    SET search_path = public, pg_temp
 AS $$
 BEGIN
     -- Derived through rbac (lazy context initialization), never read raw from
@@ -732,7 +732,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = audit, public;
+$$ LANGUAGE plpgsql SET search_path = audit, public, pg_temp;
 
 COMMENT ON FUNCTION audit.assert_audit_entity_stays_unmanaged IS
 'BEFORE UPDATE trigger on entities: refuses managed FALSE -> TRUE for audit_record_logs and audit_ddl_logs, whose append-only protection adoption would remove.';
@@ -775,7 +775,7 @@ RETURNS TEXT[] AS $$
                          WHERE f.table_name = p_table_name
                            AND f.rollup <> '{}'::jsonb),
                        ARRAY[]::TEXT[]);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_audit_ignored_columns(TEXT) IS
 'The columns audit_i_u_d ignores on an entity''s table: users.last_seen, and every rollup column of the entity. Shared by manage_audit_log and the rollup builder so the two never install different lists.';
@@ -840,7 +840,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_audit_log IS
 'AFTER INSERT/UPDATE trigger on entities: manages audit trigger lifecycle.

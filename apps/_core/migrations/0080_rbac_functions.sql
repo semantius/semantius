@@ -92,7 +92,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.check_permission_hierarchy_cycle IS 
 'Trigger function to prevent cycles and enforce 11-level depth limit in permission hierarchy.';
@@ -350,7 +350,7 @@ BEGIN
 
     RETURN sub_value;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.uid IS
 'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. A token whose iss is a Microsoft Entra ID issuer returns entra.<tid>.<oid> instead of sub (Entra sub differs per app registration), written back into request.jwt.claim.sub; such a token without tid or oid is refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
@@ -435,7 +435,7 @@ BEGIN
 
     RETURN v_user_id;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_user_by_external_id IS
 'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Self-or-admin: asking about another principal requires admin. Reachable over PostgREST RPC; no policy or function in the database calls it.';
@@ -505,7 +505,7 @@ BEGIN
     RETURNING id INTO v_id;
     RETURN v_id;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. A repeat call within five minutes of the stored last_seen, with claims that match the stored values, writes nothing at all - not even last_seen - so a heartbeat login costs one indexed SELECT. Called by get_userinfo().';
@@ -536,7 +536,7 @@ REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEX
 CREATE OR REPLACE FUNCTION rbac.is_bearer_session()
 RETURNS BOOLEAN AS $$
     SELECT system_user LIKE 'oauth:%';
-$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+$$ LANGUAGE sql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.is_bearer_session IS
 'True when the session authenticated with a PostgreSQL 18 OAuth bearer token (system_user = oauth:<sub>). Such clients run SQL directly as the request role, so the app.* context cache is not trusted for them.';
@@ -636,7 +636,7 @@ BEGIN
     
     -- Note: OAuth scopes handled separately if needed
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.ensure_context_initialized IS
 'Lazy initialization of request context. Called automatically on first permission check. In OAuth bearer sessions the cached context is not trusted and is re-derived on every call.';
@@ -728,7 +728,7 @@ BEGIN
 
     RETURN position(',' || p_permission_name || ',' IN ',' || v_scope_closure || ',') > 0;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.user_has_permission IS 
 'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
@@ -778,7 +778,7 @@ RETURNS TEXT AS $$
         JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
     )
     SELECT string_agg(permission_name, ',' ORDER BY permission_name) FROM permission_tree;
-$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+$$ LANGUAGE sql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.expand_scopes IS
 'The permissions a scope list confines a session to: the names it carries plus everything those names include through permission_hierarchy, as a comma-separated list. NULL when the list names no registered permission.';
@@ -834,7 +834,7 @@ BEGIN
 
     RETURN v_expanded;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.scope_closure IS
 'The expanded scope list confining this session, or NULL when it is not confined. Memoized per transaction against the raw app.oauth_scopes it was built from; never memoized in an OAuth bearer session, where app.* is client-writable.';
@@ -962,7 +962,7 @@ BEGIN
     -- Should never reach here after initialization, but safety fallback
     RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.has_permission IS 
 'Checks if current user has permission. Auto-initializes context and uses cached permissions.';
@@ -985,7 +985,7 @@ BEGIN
     END IF;
 END;
 -- STABLE so PostgREST serves it over GET; raising is not a side effect.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
@@ -1074,7 +1074,7 @@ BEGIN
 
     RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.has_any_permission IS 
 'Returns true if current user has at least one of the specified permissions.';
@@ -1096,7 +1096,7 @@ BEGIN
     END IF;
 END;
 -- STABLE, as rbac.require_permission.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
 'Raises exception if current user lacks all specified permissions.';
@@ -1153,7 +1153,7 @@ BEGIN
     )
     SELECT pt.permission_name FROM permission_tree pt ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_user_permissions_by_id IS
 'Returns all effective permissions for an already-resolved internal user id:
@@ -1201,7 +1201,7 @@ BEGIN
     RETURN QUERY SELECT * FROM rbac.get_user_permissions_by_id(v_user_id);
 END;
 -- STABLE: reads only.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Self-or-admin wrapper: resolves the subject external_id to its internal id and
@@ -1226,7 +1226,7 @@ BEGIN
     WHERE current_setting('app.user_permissions', true) IS NOT NULL 
       AND current_setting('app.user_permissions', true) != '';
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_current_user_permissions IS 
 'Returns all permissions for current user from cache. Auto-initializes if needed.';
@@ -1284,7 +1284,7 @@ BEGIN
         array_remove(regexp_split_to_array(p_requested_scopes, '[,[:space:]]+'), '')
     ) AS s(scope);
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
@@ -1326,7 +1326,7 @@ BEGIN
     END IF;
     RETURN current_setting('app.current_user_id', true)::BIGINT;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
@@ -1347,7 +1347,7 @@ EXCEPTION
     WHEN insufficient_privilege OR invalid_authorization_specification THEN
         RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.user_id_or_null IS
 'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
@@ -1449,7 +1449,7 @@ BEGIN
     
     RETURN;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.whoami IS 
 'Returns all context information: app session variables, JWT claims, and cached permissions. Requires authentication.';
@@ -1480,7 +1480,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS 
 'Automatically grants newly created permissions to the Administrator role';

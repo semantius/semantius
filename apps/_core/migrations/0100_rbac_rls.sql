@@ -140,7 +140,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS
 'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first principal to arrive with a last_seen while no user holds role 2, under an advisory lock.';
@@ -176,7 +176,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
 'Trigger function to prevent deletion of role 1 (User) from any user.';
@@ -246,7 +246,7 @@ RETURNS INTEGER AS $$
     JOIN users u ON u.id = ur.user_id
     WHERE ur.role_id = 2
       AND u.is_disabled = FALSE;
-$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 -- The invoker trigger above has to be able to call this, so semantius_user keeps
 -- the EXECUTE that the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql
@@ -275,7 +275,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 -- Created after the blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac at the end of
 -- 0080_rbac_functions.sql, so it
@@ -323,6 +323,80 @@ COMMENT ON TRIGGER assert_administrator_remains_on_disable ON users IS
 'Refuses an UPDATE that disables the last enabled Administrator.';
 COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
 'Refuses a DELETE of the Administrator role while it is the only source of an enabled administrator.';
+
+-- An UPDATE reaches the same state as a DELETE: the last Administrator's
+-- assignment pointed at another role, or at a user who is disabled. The count
+-- runs after the statement, so an UPDATE that leaves an enabled holder of
+-- role 2 is ordinary.
+CREATE OR REPLACE TRIGGER assert_administrator_remains_on_user_roles_update
+    AFTER UPDATE ON user_roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+COMMENT ON TRIGGER assert_administrator_remains_on_user_roles_update ON user_roles IS
+'Refuses an UPDATE that points the last enabled Administrator''s assignment at another role or user.';
+
+-- An Administrator is a holder of role 2, and role 2 is what it is because it
+-- grants `admin`. The count above looks at who holds the role. This guard
+-- keeps the grant: with it gone every holder of role 2 is counted and none
+-- can administer anything. It watches the grant row itself and the permission
+-- the row names, because role_permissions follows a delete and a rename of
+-- the permission by cascade, and a cascade runs as the table's owner, who is
+-- exempt like every BYPASSRLS connection.
+--
+-- BEFORE and per row, not after the statement: the foreign keys from entities
+-- to permissions refuse the delete of `admin` as well, and they answer before
+-- a statement trigger would, with an error that does not say why.
+CREATE OR REPLACE FUNCTION rbac.assert_administrator_grant_remains()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_lost BOOLEAN;
+BEGIN
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_TABLE_NAME = 'role_permissions' THEN
+        v_lost := OLD.role_id = 2 AND OLD.permission_name = 'admin'
+                  AND (TG_OP = 'DELETE' OR NEW.role_id <> 2 OR NEW.permission_name <> 'admin');
+    ELSE
+        v_lost := OLD.permission_name = 'admin'
+                  AND (TG_OP = 'DELETE' OR NEW.permission_name <> 'admin');
+    END IF;
+
+    IF v_lost THEN
+        RAISE EXCEPTION 'The Administrator role has to keep the admin permission'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code', '90104',
+                      'hint', 'Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.')::text;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_grant_remains() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.assert_administrator_grant_remains IS
+'Row-level guard on role_permissions and permissions: refuses removing or re-pointing the grant of admin to role 2, and deleting or renaming the permission admin (42501, hint.code 90104). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+
+CREATE OR REPLACE TRIGGER assert_administrator_grant_remains
+    BEFORE DELETE OR UPDATE OF role_id, permission_name ON role_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.assert_administrator_grant_remains();
+
+CREATE OR REPLACE TRIGGER assert_administrator_permission_remains
+    BEFORE DELETE OR UPDATE OF permission_name ON permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.assert_administrator_grant_remains();
+
+COMMENT ON TRIGGER assert_administrator_grant_remains ON role_permissions IS
+'Refuses a DELETE or UPDATE that takes admin from the Administrator role.';
+COMMENT ON TRIGGER assert_administrator_permission_remains ON permissions IS
+'Refuses a DELETE or rename of the permission admin, which would take it from the Administrator role by cascade.';
 
 -- =====================================================
 -- GUARD: external_id is written by an administrator only
@@ -373,7 +447,7 @@ BEGIN
                   'code', '90107',
                   'hint', 'external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.')::text;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 -- The request role keeps EXECUTE: it is the invoker, and the trigger is
 -- useless if the caller cannot run it.
@@ -416,7 +490,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.default_assigned_by IS
 'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
@@ -450,7 +524,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.default_granted_by IS
 'Trigger function to default granted_by to the current user ID when not explicitly provided.';

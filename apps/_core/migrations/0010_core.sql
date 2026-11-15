@@ -76,7 +76,7 @@ BEGIN
     NEW.updated_at := CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = common;
+$$ LANGUAGE plpgsql SET search_path = common, pg_temp;
 
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification. Given trigger arguments, first compares NEW and OLD ignoring updated_at, any generated column and the named arguments; a row that agrees outside those columns leaves updated_at untouched rather than bumping it, so a client cannot move it by resubmitting one either, and tables that pass no arguments keep the unconditional bump.';
 

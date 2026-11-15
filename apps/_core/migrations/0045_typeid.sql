@@ -48,7 +48,7 @@ BEGIN
             RETURNS uuid
             LANGUAGE sql
             VOLATILE PARALLEL SAFE
-            SET search_path = common, pg_catalog
+            SET search_path = common, pg_catalog, pg_temp
             AS $body$ SELECT pg_catalog.uuidv7() $body$
         $fn$;
     ELSE
@@ -57,7 +57,7 @@ BEGIN
             RETURNS uuid
             LANGUAGE plpgsql
             VOLATILE PARALLEL SAFE
-            SET search_path = common, pg_catalog
+            SET search_path = common, pg_catalog, pg_temp
             AS $body$
             DECLARE
               unix_ts_ms bytea;
@@ -89,7 +89,7 @@ CREATE OR REPLACE FUNCTION common.base32_encode(id uuid)
 RETURNS text
 LANGUAGE plpgsql
 IMMUTABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
   bytes bytea;
@@ -145,7 +145,7 @@ CREATE OR REPLACE FUNCTION common.base32_decode(s text)
 RETURNS uuid
 LANGUAGE plpgsql
 STABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
   dec bytea = '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
@@ -262,7 +262,7 @@ CREATE OR REPLACE FUNCTION common.typeid_check_text(typeid_str text)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
     SELECT typeid_str ~ '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0-9abcdefghjkmnpqrstvwxyz]{25}$'
 $$;
@@ -280,7 +280,7 @@ CREATE OR REPLACE FUNCTION common.typeid_prefix(typeid_str text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
     SELECT coalesce(substring(typeid_str FROM '^(.*)_[^_]*$'), '')
 $$;
@@ -300,7 +300,7 @@ CREATE OR REPLACE FUNCTION common.typeid_generate_text(prefix text)
 RETURNS text
 LANGUAGE plpgsql
 VOLATILE PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 BEGIN
   IF (prefix IS NULL) OR NOT (prefix ~ '^([a-z]([a-z_]{0,61}[a-z])?)?$') THEN
@@ -355,7 +355,7 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 CREATE OR REPLACE FUNCTION common.typeid_assign()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_column TEXT := TG_ARGV[0];
@@ -408,7 +408,7 @@ COMMENT ON FUNCTION common.typeid_assign() IS
 CREATE OR REPLACE FUNCTION common.ext_write_guard()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 BEGIN
     IF pg_trigger_depth() < 2 THEN
@@ -443,7 +443,7 @@ COMMENT ON FUNCTION common.ext_write_guard() IS
 CREATE OR REPLACE FUNCTION common.reject_pk_change()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 BEGIN
     IF (to_jsonb(NEW) -> TG_ARGV[0]) IS DISTINCT FROM (to_jsonb(OLD) -> TG_ARGV[0]) THEN

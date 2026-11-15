@@ -106,7 +106,9 @@ CREATE TABLE IF NOT EXISTS entities (
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
     CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
-    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$'),
+    -- At most 63 bytes: a longer name is not the name the column would carry.
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR (order_column ~ '^[a-z_][a-z0-9_]*$'
+                                                               AND octet_length(order_column) <= 63)),
     -- Inline, like valid_entity_type and for the same reason: the id_type
     -- field row is seeded before the dictionary's enum trigger exists.
     CONSTRAINT valid_id_type CHECK (id_type IN

@@ -64,7 +64,7 @@ RETURNS JSONB
 LANGUAGE sql
 IMMUTABLE STRICT
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
     WITH tokens AS (
         SELECT t.i, t.m[1] AS tok
@@ -115,7 +115,7 @@ CREATE OR REPLACE FUNCTION public.ensure_entities_insert_rows(p_table TEXT, p_ro
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
 DECLARE
     v_rel    TEXT := format('public.%I', p_table);
@@ -169,7 +169,7 @@ CREATE OR REPLACE FUNCTION public.ensure_entities_row(
 RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
 DECLARE
     v_rel     TEXT := format('public.%I', p_table);
@@ -242,7 +242,7 @@ CREATE OR REPLACE FUNCTION public.ensure_entities(definition JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
 DECLARE
     -- Keys the export carries but nothing writes: computed by the platform or

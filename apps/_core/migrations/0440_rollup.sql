@@ -45,7 +45,7 @@ RETURNS VOID AS $fn$
 BEGIN
     RAISE EXCEPTION USING ERRCODE = p_code, MESSAGE = p_message, HINT = p_hint::text;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_refuse(TEXT, TEXT, JSONB) IS
 'Raises a rollup error of the given code with the error contract''s message template and a JSON hint.';
@@ -61,7 +61,7 @@ REVOKE EXECUTE ON FUNCTION rollup_refuse(TEXT, TEXT, JSONB) FROM PUBLIC;
 -- and given 8 characters of the md5 of what it names instead.
 CREATE OR REPLACE FUNCTION rollup_object_name(p_child TEXT, p_link TEXT)
 RETURNS TEXT
-LANGUAGE sql IMMUTABLE SET search_path = public
+LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp
 AS $fn$
     SELECT CASE WHEN length('rollup_' || p_child || '_' || p_link) <= 59
                 THEN 'rollup_' || p_child || '_' || p_link
@@ -74,7 +74,7 @@ COMMENT ON FUNCTION rollup_object_name(TEXT, TEXT) IS
 
 CREATE OR REPLACE FUNCTION rollup_guard_name(p_parent TEXT)
 RETURNS TEXT
-LANGUAGE sql IMMUTABLE SET search_path = public
+LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp
 AS $fn$
     SELECT CASE WHEN length('rollup_guard_' || p_parent) <= 59
                 THEN 'rollup_guard_' || p_parent
@@ -125,7 +125,7 @@ BEGIN
         'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
         jsonb_build_object('problem', p_problem));
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_problem(TEXT) IS
 'Raises 90265 for a filter the rollup compiler refuses; rollup_definition adds the field''s table and name to the hint.';
@@ -182,7 +182,7 @@ BEGIN
                        ELSE 'other' END,
         'is_var', TRUE);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) IS
 'Resolves a var of a rollup filter against pg_attribute of the child relation and returns its SQL reference and catalog type, or raises 90265.';
@@ -201,6 +201,11 @@ RETURNS TEXT AS $fn$
 DECLARE
     v_text   TEXT := p_node #>> '{}';
     v_moment TIMESTAMP;
+    -- A literal is cast to the type of its column, with one exception: the
+    -- cast to numeric(p, s) rounds to the scale, and 1.501 would then equal a
+    -- stored 1.50, which the interpreter never says. Against a numeric column
+    -- the literal is a plain numeric and is compared as it is written.
+    v_cast   TEXT := CASE WHEN p_type LIKE 'numeric%' THEN 'numeric' ELSE p_type END;
 BEGIN
     CASE jsonb_typeof(p_node)
         WHEN 'string' THEN
@@ -220,12 +225,12 @@ BEGIN
                               to_char(v_moment, CASE p_type WHEN 'date' THEN 'YYYY-MM-DD' ELSE 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"' END),
                               p_type);
             END IF;
-            RETURN format('%L::%s', v_text, COALESCE(p_type, 'text'));
+            RETURN format('%L::%s', v_text, COALESCE(v_cast, 'text'));
         WHEN 'number' THEN
             IF p_kind IN ('bool', 'typeid') THEN
                 PERFORM rollup_filter_problem(format('number %s compared with a column of type %s', v_text, p_type));
             END IF;
-            RETURN format('%L::%s', v_text, COALESCE(p_type, 'numeric'));
+            RETURN format('%L::%s', v_text, COALESCE(v_cast, 'numeric'));
         WHEN 'boolean' THEN
             IF p_type IS NOT NULL AND p_kind <> 'bool' THEN
                 PERFORM rollup_filter_problem(format('boolean %s compared with a column of type %s', v_text, p_type));
@@ -238,7 +243,7 @@ BEGIN
     END CASE;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) IS
 'Emits a scalar JSON literal of a rollup filter as a quoted SQL literal cast to the given catalog type (its natural type when none), or raises 90265.';
@@ -251,7 +256,7 @@ RETURNS JSONB AS $fn$
 BEGIN
     RETURN to_jsonb(p_value);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public SET intervalstyle = 'iso_8601';
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION rollup_interval_iso(INTERVAL) IS
 'An interval as a JSON string in ISO 8601, whatever the session''s interval style. Used by compiled rollup filters.';
@@ -289,7 +294,7 @@ EXCEPTION
                   HINT = jsonb_build_object('table', p_rollup ->> 'table', 'field_name', p_rollup ->> 'field_name',
                                             'operator', p_op, 'cause_code', SQLSTATE)::text;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB) IS
 'A date operator of a compiled rollup filter, evaluated for one child through the interpreter''s jl_date_* function. Raises 90272, naming the rollup, when the child holds a value the operator cannot read.';
@@ -321,7 +326,7 @@ BEGIN
         'sample',   CASE v_arg ->> 'type' WHEN 'date' THEN '"2000-01-31"'::jsonb
                                           ELSE '"2000-01-31T00:00:00+00:00"'::jsonb END);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles the date argument of a date operator in a rollup filter to SQL yielding jsonb, or raises 90265.';
@@ -436,7 +441,7 @@ BEGIN
         'is_var',   TRUE,
         'sample',   v_result);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB) IS
 'Compiles a date operator used as a value in a rollup filter to a typed call of rollup_date_value, which runs the interpreter''s jl_date_* function for each child, or raises 90265.';
@@ -471,7 +476,7 @@ BEGIN
     PERFORM rollup_filter_problem('an operand must be a column (var), a literal or null');
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) IS
 'Classifies an operand of a rollup filter comparison as a column or a literal, or raises 90265.';
@@ -512,7 +517,7 @@ BEGIN
     END LOOP;
     RETURN v_out;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) IS
 'Compiles the operands of one rollup filter comparison to SQL, casting every literal to the type of the first column among them.';
@@ -528,6 +533,10 @@ DECLARE
     v_parts TEXT[];
     v_item  JSONB;
     v_col   JSONB;
+    v_var   JSONB;
+    v_lit   JSONB;
+    v_json  TEXT;
+    v_coll  TEXT := '';
 BEGIN
     IF jsonb_typeof(p_node) = 'boolean' THEN
         RETURN CASE WHEN (p_node #>> '{}') = 'true' THEN 'TRUE' ELSE 'FALSE' END;
@@ -568,19 +577,57 @@ BEGIN
             IF v_n <> 2 THEN
                 PERFORM rollup_filter_problem(format('%s takes exactly two operands', v_op));
             END IF;
+            -- === and !== compare the types first, and a column has one type:
+            -- against a literal of another JSON type the answer is the same
+            -- for every row, which is never what the author meant. The
+            -- compiled comparison casts the literal, so it would answer
+            -- otherwise than the interpreter. null is of every type here.
+            IF v_op IN ('===', '!==') THEN
+                FOR v_item IN SELECT rollup_filter_operand(a, p_rel, p_alias, p_rollup)
+                                FROM jsonb_array_elements(v_args) a LOOP
+                    IF (v_item ->> 'is_var')::boolean THEN
+                        v_var := COALESCE(v_var, v_item);
+                    ELSIF v_item ? 'literal' THEN
+                        v_lit := v_item -> 'literal';
+                    END IF;
+                END LOOP;
+                IF v_var IS NOT NULL AND v_lit IS NOT NULL AND jsonb_typeof(v_lit) <> 'null' THEN
+                    v_json := CASE
+                        WHEN v_var ->> 'kind' = 'bool' THEN 'boolean'
+                        WHEN v_var ->> 'type' LIKE 'numeric%'
+                          OR v_var ->> 'type' IN ('smallint', 'integer', 'bigint', 'real', 'double precision') THEN 'number'
+                        ELSE 'string' END;
+                    IF jsonb_typeof(v_lit) <> v_json THEN
+                        PERFORM rollup_filter_problem(format(
+                            '%s compares the types first: the column holds a %s and %s is a %s',
+                            v_op, v_json, v_lit::text, jsonb_typeof(v_lit)));
+                    END IF;
+                END IF;
+            END IF;
             v_parts := rollup_filter_operands(v_args, p_rel, p_alias, TRUE, p_rollup);
             RETURN format('(%s IS %sDISTINCT FROM %s)',
                           v_parts[1], CASE WHEN v_op IN ('==', '===') THEN 'NOT ' ELSE '' END, v_parts[2]);
         WHEN '<', '<=', '>', '>=' THEN
-            IF v_n = 3 AND v_op IN ('<', '<=') THEN
-                v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE, p_rollup);
-                RETURN format('(%s %s %s AND %s %s %s)', v_parts[1], v_op, v_parts[2], v_parts[2], v_op, v_parts[3]);
-            END IF;
-            IF v_n <> 2 THEN
+            IF v_n NOT IN (2, 3) OR (v_n = 3 AND v_op NOT IN ('<', '<=')) THEN
                 PERFORM rollup_filter_problem(format('%s takes two operands (three for < and <=)', v_op));
             END IF;
+            -- Text is ordered by code point, as the interpreter orders it,
+            -- whatever the collation of the column or of the database: under a
+            -- linguistic collation the same rule would count other rows here
+            -- than in a validation rule. The collation of one operand decides
+            -- for the comparison.
+            IF EXISTS (SELECT 1
+                         FROM jsonb_array_elements(v_args) a
+                        CROSS JOIN LATERAL rollup_filter_operand(a, p_rel, p_alias, p_rollup) o
+                        WHERE (o ->> 'is_var')::boolean AND o ->> 'type' = 'text') THEN
+                v_coll := ' COLLATE "C"';
+            END IF;
             v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE, p_rollup);
-            RETURN format('(%s %s %s)', v_parts[1], v_op, v_parts[2]);
+            IF v_n = 3 THEN
+                RETURN format('(%s %s %s%s AND %s %s %s%s)',
+                              v_parts[1], v_op, v_parts[2], v_coll, v_parts[2], v_op, v_parts[3], v_coll);
+            END IF;
+            RETURN format('(%s %s %s%s)', v_parts[1], v_op, v_parts[2], v_coll);
         WHEN 'in' THEN
             IF v_n <> 2 OR jsonb_typeof(v_args -> 1) <> 'array' THEN
                 PERFORM rollup_filter_problem('in takes a value and a list of literals');
@@ -607,7 +654,7 @@ BEGIN
     END CASE;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles one JsonLogic condition of the rollup subset to a parenthesized SQL boolean expression over the child alias, or raises 90265.';
@@ -621,7 +668,7 @@ BEGIN
     END IF;
     RETURN rollup_filter_cond(p_filter, p_rel, p_alias, p_rollup);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles a rollup filter (the JsonLogic subset and, or, !, !!, comparisons, in and var) to a SQL boolean over the given child relation and alias. Identifiers through %I after a catalog lookup, literals through %L cast to the column''s catalog type, every other operator refused with 90265. An empty filter is TRUE.';
@@ -636,6 +683,28 @@ REVOKE EXECUTE ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) FROM 
 REVOKE EXECUTE ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function that is new in this file, or has a new parameter list,
+-- stays owned by the installer until 9900_owner_hardening.sql runs last. A
+-- module applied in between writes fields through that code, which compiles
+-- the filter of a rollup with the functions below, and a write to a child
+-- under a filter with a date operator calls rollup_date_value from the
+-- generated maintenance function.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB),
+            rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_operand(JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB),
+            rollup_filter_cond(JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_sql(JSONB, TEXT, TEXT, JSONB)
+        TO semantius_owner;
+    END IF;
+END $$;
 
 -- =====================================================
 -- The definition, resolved and validated
@@ -780,6 +849,24 @@ BEGIN
             jsonb_build_object('feature', 'rollup', 'id_type', v_parent.id_type, 'table', v_parent.table_name));
     END IF;
     v_child_rel  := dd_relation(v_child.table_name, v_child.id_type);
+
+    -- The maintenance function of a link is common.rollup_<child>_<link> and
+    -- the guard of a parent common.rollup_guard_<parent>. A child entity named
+    -- guard spells, with its link field, the guard of the entity named like
+    -- that field, and the builders replace whatever carries a name. So a
+    -- definition whose function would take the name of a guard, or whose
+    -- parent's guard would take the name of a function, is refused.
+    IF EXISTS (SELECT 1 FROM entities e
+                WHERE rollup_guard_name(e.table_name) = rollup_object_name(v_lf.table_name, v_lf.field_name))
+       OR EXISTS (SELECT 1 FROM fields f
+                   WHERE f.rollup <> '{}'::jsonb
+                     AND rollup_object_name(split_part(f.rollup ->> 'link_field', '.', 1),
+                                            split_part(f.rollup ->> 'link_field', '.', 2))
+                         = rollup_guard_name(p_field.table_name)) THEN
+        PERFORM rollup_refuse('90280',
+            'Rollup ${field_name} on ${table}: the function of link_field ${link_field} and the guard of a rollup parent would carry one name',
+            v_ctx || jsonb_build_object('link_field', v_link));
+    END IF;
     v_parent_rel := dd_relation(v_parent.table_name, v_parent.id_type);
 
     IF v_function NOT IN ('sum', 'min', 'max', 'avg', 'count') THEN
@@ -948,7 +1035,7 @@ BEGIN
         'filter_sql',       v_filter_sql,
         'hidden',           v_hidden);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_definition(fields) IS
 'Validates a field''s rollup definition (90261-90269, 90249) and resolves it: child and parent relations, link and value columns, function, result type, empty value, copied precision and the compiled filter. NULL for a field without a definition. The one authority for both the fields trigger and the builders.';
@@ -967,7 +1054,7 @@ EXCEPTION
     WHEN SQLSTATE '90000' THEN
         RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_definition_or_null(fields) IS
 'rollup_definition for the builders: NULL instead of a rollup error, for a definition that no longer resolves while a cascade removes what it names.';
@@ -1007,7 +1094,7 @@ BEGIN
     END IF;
     RETURN format('(%s)::%s', v_inner, p_def ->> 'result_cast_type');
 END;
-$fn$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_value_sql(JSONB, TEXT) IS
 'The SQL expression that computes a rollup''s value for the parent key p_key_expr yields: the aggregate over the child records with the compiled filter, the empty value for no records, cast to the parent column''s type.';
@@ -1020,11 +1107,11 @@ REVOKE EXECUTE ON FUNCTION rollup_value_sql(JSONB, TEXT) FROM PUBLIC;
 CREATE OR REPLACE FUNCTION rollup_create_function(p_name TEXT, p_body TEXT)
 RETURNS VOID AS $fn$
 BEGIN
-    EXECUTE format('CREATE FUNCTION common.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS %s',
+    EXECUTE format('CREATE FUNCTION common.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %s',
                    p_name, dd_dollar_quote(p_body));
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', p_name);
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_create_function(TEXT, TEXT) IS
 'Creates a generated SECURITY DEFINER trigger function in common from its PL/pgSQL body, wrapped by dd_dollar_quote so no literal in it can end the body early.';
@@ -1165,7 +1252,7 @@ $B$, v_lock_head || v_ins || v_lock_tail, v_head || v_ins || v_tail,
     EXECUTE format('CREATE TRIGGER %I AFTER TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION common.%I()',
                    v_fn || '_trc', v_rel, v_fn);
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_build_link(TEXT, TEXT) IS
 'Drops and, when any rollup still aggregates through the link field p_child.p_link between managed tables, regenerates common.rollup_<child>_<link>() and its four statement-level triggers on the child table.';
@@ -1265,7 +1352,7 @@ $B$, v_ins, v_upd));
         PERFORM audit.enable_tracking(format('public.%I', v_rel)::regclass, dd_audit_ignored_columns(p_parent));
     END IF;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_build_guard(TEXT) IS
 'Drops and, when the managed entity has rollup columns over existing child tables, regenerates common.rollup_guard_<parent>() with its a_rollup_guard trigger; in every case re-creates the entity''s updated_at trigger and audit UPDATE trigger with the rollup columns as ignored columns.';
@@ -1317,7 +1404,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_backfill(TEXT, TEXT) IS
 'Recomputes one rollup column for every parent record whose stored value differs from the aggregate. Run when a rollup is created or its definition changes.';
@@ -1358,7 +1445,7 @@ BEGIN
         PERFORM rollup_backfill(p_field.table_name, p_field.field_name);
     END IF;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_sync_field(fields, BOOLEAN) IS
 'Probes the compiled filter of a rollup field with EXPLAIN (90265), then rebuilds the maintenance function of its link and the guard of its entity, and backfills the column when asked.';
@@ -1391,9 +1478,9 @@ BEGIN
        SET rollup = jsonb_set(rollup, '{filter}', replace((rollup -> 'filter')::text, v_old_var, v_new_var)::jsonb)
      WHERE rollup <> '{}'::jsonb
        AND split_part(rollup ->> 'link_field', '.', 1) = p_table
-       AND (rollup -> 'filter')::text LIKE '%' || v_old_var || '%';
+       AND position(v_old_var IN (rollup -> 'filter')::text) > 0;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_rename_field_refs(TEXT, TEXT, TEXT) IS
 'After a field rename, rewrites every rollup definition that names the field as link_field, value_field or a filter var, which rebuilds those rollups.';
@@ -1418,7 +1505,7 @@ BEGIN
         PERFORM rollup_build_guard(r.table_name);
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_rebuild_all() IS
 'Regenerates every rollup maintenance function and guard from the current fields rows. For the .once. file that accompanies a change to the builders in 0440_rollup.sql.';
@@ -1491,7 +1578,7 @@ BEGIN
     NEW."precision" := (v_def ->> 'precision')::smallint;
     RETURN NEW;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_validate_rollup_field() IS
 'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
@@ -1527,7 +1614,7 @@ BEGIN
     END IF;
     RETURN OLD;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION a_rollup_field_delete_guard() IS
 'BEFORE DELETE trigger function on fields: refuses (90266) deleting a field that a rollup of another entity names as its link or value field, unless that entity or its module is already being deleted.';
@@ -1594,7 +1681,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_rollup_field_change() IS
 'AFTER INSERT OR UPDATE OR DELETE trigger function on fields: builds, rebuilds, backfills or drops the generated objects of a rollup field, and rewrites the rollups that name a renamed field.';
@@ -1630,7 +1717,7 @@ BEGIN
     END IF;
     RETURN OLD;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION a_rollup_entity_delete_guard() IS
 'BEFORE DELETE trigger function on entities: refuses (90266) deleting an entity whose fields another entity''s rollups aggregate through or over, unless that entity or its module is already being deleted.';
@@ -1698,7 +1785,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_rollup_entity_change() IS
 'AFTER UPDATE trigger function on entities: on a rename rewrites the rollups that name the entity and regenerates their objects, on a managed change builds or drops them, and on a select_rule or view_permission change re-validates the rollups that involve the entity.';
@@ -1717,7 +1804,7 @@ BEGIN
     EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', rollup_guard_name(OLD.table_name));
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_rollup_entity_delete() IS
 'AFTER DELETE trigger function on entities: drops the guard function the deleted entity''s table left behind.';

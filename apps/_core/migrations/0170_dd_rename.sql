@@ -101,6 +101,7 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
                 WHERE schemaname = 'public'
+                  AND tablename = v_new_rel
                   AND indexname = v_old_rel || '_search_vector_idx'
             ) THEN
                 EXECUTE format(
@@ -112,10 +113,16 @@ BEGIN
 
             -- Rename id sequence (<table>_<id_col>_seq)
             IF EXISTS (
-                SELECT 1 FROM pg_class
-                WHERE relname = v_old_rel || '_' || OLD.id_column || '_seq'
-                  AND relnamespace = 'public'::regnamespace
-                  AND relkind = 'S'
+                SELECT 1 FROM pg_class c
+                WHERE c.relname = v_old_rel || '_' || OLD.id_column || '_seq'
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND c.relkind = 'S'
+                  -- The table's own: table a with key b_c and table a_b with
+                  -- key c spell one sequence name.
+                  AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend d
+                               WHERE d.objid = c.oid
+                                 AND d.refobjid = pg_catalog.to_regclass(format('public.%I', v_new_rel))
+                                 AND d.deptype IN ('a', 'i'))
             ) THEN
                 EXECUTE format(
                     'ALTER SEQUENCE %I RENAME TO %I',
@@ -149,7 +156,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_fkey') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_fkey') ESCAPE '\'
                   AND c.contype = 'f'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -163,9 +170,15 @@ BEGIN
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = v_new_rel
-                  AND indexname LIKE ('idx\_' || v_old_rel || '\_%') ESCAPE '\'
+                  AND indexname LIKE ('idx\_' || replace(v_old_rel, '_', '\_') || '\_%') ESCAPE '\'
             LOOP
                 v_new_name := 'idx_' || v_new_rel || substring(v_old_name FROM length('idx_' || v_old_rel) + 1);
+                -- An index name is unique in the schema, and the new table
+                -- name can spell, with this field, the name the index of
+                -- another table carries (dd_index_name_free). The field is
+                -- what follows idx_<table>_ in the name.
+                PERFORM dd_index_name_free(NEW.table_name, v_new_rel,
+                                           substring(v_old_name FROM length('idx_' || v_old_rel) + 2), v_new_name);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
@@ -176,7 +189,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_check') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_check') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -193,7 +206,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_assert') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_assert') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -214,7 +227,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_not\_null') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_not\_null') ESCAPE '\'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
@@ -227,9 +240,16 @@ BEGIN
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = v_new_rel
-                  AND indexname LIKE (v_old_rel || '\_%\_unique') ESCAPE '\'
+                  AND indexname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_unique') ESCAPE '\'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
+                -- As for the reference indexes above; the field stands
+                -- between <table>_ and _unique.
+                PERFORM dd_index_name_free(
+                    NEW.table_name, v_new_rel,
+                    substring(v_old_name FROM length(v_old_rel) + 2
+                                         FOR length(v_old_name) - length(v_old_rel) - 1 - length('_unique')),
+                    v_new_name);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
@@ -273,7 +293,7 @@ BEGIN
                 JOIN pg_class c ON t.tgrelid = c.oid
                 WHERE c.relname = NEW.table_name
                   AND c.relnamespace = 'public'::regnamespace
-                  AND t.tgname LIKE ('%\_on\_' || OLD.table_name) ESCAPE '\'
+                  AND t.tgname LIKE ('%\_on\_' || replace(OLD.table_name, '_', '\_')) ESCAPE '\'
                   AND t.tgname LIKE 'queue\_%' ESCAPE '\'
             LOOP
                 v_new_name := substring(v_old_name FROM 1 FOR length(v_old_name) - length(OLD.table_name))
@@ -287,7 +307,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
@@ -332,7 +352,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rename_dd_reference_tables IS
 'AFTER UPDATE trigger on entities: when table_name changes, updates fields.reference_table
@@ -351,46 +371,135 @@ COMMENT ON TRIGGER rename_reference_tables_trigger ON entities IS
 -- =====================================================
 -- STEP 1c: TRIGGER FUNCTION: CASCADE set_record entity refs ON entities.table_name UPDATE
 -- =====================================================
--- Fires AFTER UPDATE on entities when table_name changes.
--- Scans all entities for JsonLogic set_record references to the old table name
--- in computed_fields, validation_rules, and select_rule, and replaces them with
--- the new name via simple text replacement on the JSONB.
+-- Fires AFTER UPDATE on entities when table_name changes, and gives the rules
+-- of every entity the new name wherever a set_record names the old one.
+--
+-- Only the second argument of a set_record names an entity. The same text can
+-- stand in a rule where it is no table: a value the rule compares or joins,
+-- the name a let binds, the message of a validation rule. So the rule is
+-- walked the way the evaluator reads it and that one argument is replaced; a
+-- replace over the rule's text would rename all of them.
+
+-- p_rule with p_new in place of p_old as the entity of every set_record. An
+-- array is a list of rules and an object with one key an operation whose
+-- arguments are rules; anything else is a value and comes back as it is. The
+-- name of a let and the name of a set_record are names, not rules.
+CREATE OR REPLACE FUNCTION jl_rename_set_record_entity(p_rule JSONB, p_old TEXT, p_new TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    v_op    TEXT;
+    v_args  JSONB;
+    v_out   JSONB := '[]'::jsonb;
+    v_arg   JSONB;
+    v_list  BOOLEAN;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            v_out := v_out || jsonb_build_array(jl_rename_set_record_entity(p_rule -> i, p_old, p_new));
+        END LOOP;
+        RETURN v_out;
+    END IF;
+
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN p_rule;
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    v_args := p_rule -> v_op;
+    v_list := jsonb_typeof(v_args) = 'array';
+    IF NOT v_list THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+
+    FOR i IN 0 .. jsonb_array_length(v_args) - 1 LOOP
+        v_arg := v_args -> i;
+        IF v_op = 'set_record' AND i = 1 THEN
+            IF jsonb_typeof(v_arg) = 'string' AND v_arg #>> '{}' = p_old THEN
+                v_arg := to_jsonb(p_new);
+            END IF;
+        ELSIF NOT (i = 0 AND v_op IN ('let', 'set_record')) THEN
+            v_arg := jl_rename_set_record_entity(v_arg, p_old, p_new);
+        END IF;
+        v_out := v_out || jsonb_build_array(v_arg);
+    END LOOP;
+
+    RETURN jsonb_build_object(v_op, CASE WHEN v_list THEN v_out ELSE v_out -> 0 END);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION jl_rename_set_record_entity(JSONB, TEXT, TEXT) IS
+'A JsonLogic rule with p_new in place of p_old as the entity argument of every set_record in it, at any depth. Nothing else in the rule is changed: a text, a let name or a var equal to p_old stays.';
+
+REVOKE EXECUTE ON FUNCTION jl_rename_set_record_entity(JSONB, TEXT, TEXT) FROM PUBLIC;
+
+-- The list of rules of an entity, computed_fields or validation_rules, with
+-- the "jsonlogic" of every entry rewritten. An entry that is no object, or has
+-- no rule, stays as it is, and so does everything else in an entry.
+CREATE OR REPLACE FUNCTION jl_rename_set_record_entities(p_rules JSONB, p_old TEXT, p_new TEXT)
+RETURNS JSONB AS $$
+    SELECT COALESCE(jsonb_agg(
+               CASE WHEN jsonb_typeof(t.item) = 'object' AND t.item ? 'jsonlogic'
+                    THEN jsonb_set(t.item, '{jsonlogic}',
+                                   jl_rename_set_record_entity(t.item -> 'jsonlogic', p_old, p_new))
+                    ELSE t.item END
+               ORDER BY t.ord), '[]'::jsonb)
+      FROM jsonb_array_elements(p_rules) WITH ORDINALITY AS t(item, ord);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION jl_rename_set_record_entities(JSONB, TEXT, TEXT) IS
+'A list of computed fields or validation rules with jl_rename_set_record_entity applied to the jsonlogic of every entry.';
+
+REVOKE EXECUTE ON FUNCTION jl_rename_set_record_entities(JSONB, TEXT, TEXT) FROM PUBLIC;
+
+-- The two helpers are new objects of this file, and on an upgrade the trigger
+-- function below already runs as semantius_owner, while they stay owned by
+-- the installer until 9900_owner_hardening.sql runs last.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            jl_rename_set_record_entity(JSONB, TEXT, TEXT),
+            jl_rename_set_record_entities(JSONB, TEXT, TEXT)
+        TO semantius_owner;
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION rename_dd_jsonlogic_refs()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_old_quoted TEXT;
-    v_new_quoted TEXT;
+    -- The name as it stands in the text of a rule. It only narrows the rows
+    -- the rewrite visits; the rewrite itself looks at the argument.
+    v_old_quoted TEXT := to_jsonb(OLD.table_name)::text;
 BEGIN
-    v_old_quoted := '"' || OLD.table_name || '"';
-    v_new_quoted := '"' || NEW.table_name || '"';
-
-    -- Update set_record entity name references in computed_fields
     UPDATE entities
-    SET computed_fields = replace(computed_fields::text, v_old_quoted, v_new_quoted)::jsonb
-    WHERE computed_fields::text LIKE '%set_record%'
-      AND computed_fields::text LIKE '%' || v_old_quoted || '%';
+    SET computed_fields = jl_rename_set_record_entities(computed_fields, OLD.table_name, NEW.table_name)
+    WHERE jsonb_typeof(computed_fields) = 'array'
+      AND position('set_record' IN computed_fields::text) > 0
+      AND position(v_old_quoted IN computed_fields::text) > 0;
 
-    -- Update set_record entity name references in validation_rules
     UPDATE entities
-    SET validation_rules = replace(validation_rules::text, v_old_quoted, v_new_quoted)::jsonb
-    WHERE validation_rules::text LIKE '%set_record%'
-      AND validation_rules::text LIKE '%' || v_old_quoted || '%';
+    SET validation_rules = jl_rename_set_record_entities(validation_rules, OLD.table_name, NEW.table_name)
+    WHERE jsonb_typeof(validation_rules) = 'array'
+      AND position('set_record' IN validation_rules::text) > 0
+      AND position(v_old_quoted IN validation_rules::text) > 0;
 
-    -- Update set_record entity name references in select_rule
     UPDATE entities
-    SET select_rule = replace(select_rule::text, v_old_quoted, v_new_quoted)::jsonb
-    WHERE select_rule::text LIKE '%set_record%'
-      AND select_rule::text LIKE '%' || v_old_quoted || '%';
+    SET select_rule = jl_rename_set_record_entity(select_rule, OLD.table_name, NEW.table_name)
+    WHERE position('set_record' IN select_rule::text) > 0
+      AND position(v_old_quoted IN select_rule::text) > 0;
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rename_dd_jsonlogic_refs IS
-'AFTER UPDATE trigger on entities: when table_name changes, updates set_record entity
-name references in computed_fields, validation_rules, and select_rule across ALL entities
-that contain the old table name.';
+'AFTER UPDATE trigger on entities: when table_name changes, gives every set_record that names the
+old table the new name, in the computed_fields, validation_rules and select_rule of ALL entities.
+Only the entity argument of a set_record is rewritten.';
 
 REVOKE EXECUTE ON FUNCTION rename_dd_jsonlogic_refs() FROM PUBLIC;
 
@@ -412,9 +521,84 @@ COMMENT ON TRIGGER rename_jsonlogic_refs_trigger ON entities IS
 --      Also renames associated FK constraints, indexes, and check constraints.
 --   B) format validation  → reject if the new format maps to a different data type.
 
+-- A rule reads a field by its name, and a rename rewrites no rule: the rule
+-- would go on reading the old name, find nothing there, and decide on null
+-- without a word. So a field that a rule names is not renamed, and the error
+-- names the rule to change first.
+--
+-- The rules that count are the computed fields, the validation rules and the
+-- select_rule of the entity and the input_type_rule of its fields, and the
+-- same rules of every is_a or has_a entity below it: their records include
+-- the field, and no entity of a family repeats a field name of another (90243),
+-- so a name in such a rule is this field. A rule names the field when it reads
+-- it (jl_row_keys: the field itself or a path below it, also behind $old), and
+-- a computed field names the one it writes. What is not found: a field read
+-- through the alias of a set_record in another entity's rule.
+CREATE OR REPLACE FUNCTION dd_rule_naming_field(p_table TEXT, p_field TEXT, OUT p_entity TEXT, OUT p_rule TEXT)
+AS $fn$
+    WITH members AS (
+        SELECT p_table AS table_name, 0 AS depth
+        UNION ALL
+        SELECT d.table_name, d.depth FROM dd_descendants(p_table) d
+    ),
+    rules AS (
+        SELECT m.depth, e.table_name, 1 AS kind, c.ord, format('computed_fields[%s]', c.ord - 1) AS rule,
+               c.item -> 'jsonlogic' AS logic, split_part(c.item ->> 'name', '.', 1) AS writes
+          FROM members m
+          JOIN entities e ON e.table_name = m.table_name
+         CROSS JOIN LATERAL jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(e.computed_fields) = 'array' THEN e.computed_fields ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS c(item, ord)
+        UNION ALL
+        SELECT m.depth, e.table_name, 2, v.ord, format('validation_rules[%s]', v.ord - 1),
+               v.item -> 'jsonlogic', NULL
+          FROM members m
+          JOIN entities e ON e.table_name = m.table_name
+         CROSS JOIN LATERAL jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(e.validation_rules) = 'array' THEN e.validation_rules ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS v(item, ord)
+        UNION ALL
+        SELECT m.depth, e.table_name, 3, 1, 'select_rule', e.select_rule, NULL
+          FROM members m
+          JOIN entities e ON e.table_name = m.table_name
+        UNION ALL
+        SELECT m.depth, f.table_name, 4, f.field_order, f.field_name || '.input_type_rule', f.input_type_rule, NULL
+          FROM members m
+          JOIN fields f ON f.table_name = m.table_name
+    )
+    SELECT r.table_name, r.rule
+      FROM rules r
+     WHERE r.writes = p_field
+        OR EXISTS (SELECT 1
+                     FROM jl_row_keys(r.logic) AS k(key)
+                    WHERE k.key = p_field
+                       OR starts_with(k.key, p_field || '.')
+                       OR k.key = '$old.' || p_field
+                       OR starts_with(k.key, '$old.' || p_field || '.'))
+     ORDER BY r.depth, r.table_name, r.kind, r.ord, r.rule
+     LIMIT 1;
+$fn$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_naming_field(TEXT, TEXT) IS
+'The first rule that names a field of an entity: the entity the rule belongs to and its place there (computed_fields[0], validation_rules[2], select_rule, <field>.input_type_rule). Looks at the entity and at every is_a or has_a entity below it. No row when no rule names the field.';
+
+REVOKE EXECUTE ON FUNCTION dd_rule_naming_field(TEXT, TEXT) FROM PUBLIC;
+
+-- New in this file and called by the definer trigger function below, which on
+-- an upgrade already runs as semantius_owner while this function stays owned
+-- by the installer until 9900_owner_hardening.sql runs last.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION dd_rule_naming_field(TEXT, TEXT) TO semantius_owner;
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION validate_field_rename_and_format()
 RETURNS TRIGGER AS $$
 DECLARE
+    v_rule_entity TEXT;
+    v_rule_name   TEXT;
     v_is_managed  BOOLEAN;
     v_old_type    TEXT;
     v_new_type    TEXT;
@@ -459,6 +643,15 @@ BEGIN
             END IF;
         END IF;
 
+        SELECT n.p_entity, n.p_rule INTO v_rule_entity, v_rule_name
+          FROM dd_rule_naming_field(OLD.table_name, OLD.field_name) n;
+        IF v_rule_name IS NOT NULL THEN
+            RAISE EXCEPTION 'Field ${field_name} cannot be renamed while ${rule} on ${table} names it'
+                USING ERRCODE = '90275',
+                      HINT = jsonb_build_object('field_name', OLD.field_name, 'table', v_rule_entity,
+                                                'rule', v_rule_name)::text;
+        END IF;
+
         IF v_is_managed THEN
             -- Rename the physical column
             EXECUTE format(
@@ -493,11 +686,14 @@ BEGIN
                 RAISE NOTICE 'Renamed FK constraint "%" to "%"', v_old_fk, v_new_fk;
             END IF;
 
-            -- Rename FK index if it exists
+            -- Rename FK index if it exists. The index has to be this table's:
+            -- table a with field b_c and table a_b with field c spell one
+            -- name, and the new name must not be one another index carries.
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
-                WHERE schemaname = 'public' AND indexname = v_old_idx
+                WHERE schemaname = 'public' AND tablename = v_rel AND indexname = v_old_idx
             ) THEN
+                PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_new_idx);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_idx, v_new_idx);
                 RAISE NOTICE 'Renamed index "%" to "%"', v_old_idx, v_new_idx;
             END IF;
@@ -515,11 +711,12 @@ BEGIN
                 RAISE NOTICE 'Renamed check constraint "%" to "%"', v_old_check, v_new_check;
             END IF;
 
-            -- Rename unique index if it exists
+            -- Rename unique index if it exists, under the same two conditions.
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
-                WHERE schemaname = 'public' AND indexname = v_old_unique
+                WHERE schemaname = 'public' AND tablename = v_rel AND indexname = v_old_unique
             ) THEN
+                PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_new_unique);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_unique, v_new_unique);
                 RAISE NOTICE 'Renamed unique index "%" to "%"', v_old_unique, v_new_unique;
             END IF;
@@ -582,7 +779,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_field_rename_and_format IS
 'BEFORE UPDATE trigger on fields.

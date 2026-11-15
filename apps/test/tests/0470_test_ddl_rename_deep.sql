@@ -17,7 +17,7 @@
 --   5. Insert a second record per table (proves triggers & policies still work)
 BEGIN;
 
-SELECT plan(52);
+SELECT plan(54);
 
 SELECT authenticate_as('user3');
 
@@ -575,6 +575,21 @@ SELECT is(
     (SELECT validation_rules #>> '{0,message}' FROM entities WHERE table_name = 'rnl_user'),
     'rnl_target',
     'set_record: a message equal to the old table name is left as it was');
+
+-- The rewrite itself, on the two shapes no rule above has: no rule at all,
+-- and a rule that is a list of rules. It is the owner's helper.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+SELECT is(jl_rename_set_record_entity(NULL, 'rnl_target', 'rnl_ziel'), NULL,
+    'set_record: no rule is rewritten to no rule');
+
+SELECT is(
+    jl_rename_set_record_entity(
+        '[{"set_record":["t","rnl_target",1,{"var":"t.label"}]}, "rnl_target", {"var":"rnl_target"}]'::jsonb,
+        'rnl_target', 'rnl_ziel'),
+    '[{"set_record":["t","rnl_ziel",1,{"var":"t.label"}]}, "rnl_target", {"var":"rnl_target"}]'::jsonb,
+    'set_record: in a list of rules the entity of each set_record is rewritten and nothing else');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -31,7 +31,7 @@ BEGIN
     -- Notify PostgREST to reload its schema cache
     NOTIFY pgrst, 'reload schema';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common, pg_temp;
 
 COMMENT ON FUNCTION common.refresh_schema_cache() IS
 'Notifies PostgREST to reload its schema cache and updates the db_version timestamp in _settings.';
@@ -57,7 +57,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common, pg_temp;
 
 COMMENT ON FUNCTION notify_pgrst_tables IS
 'Trigger function that notifies PostgREST to reload schema when entities are modified.';
@@ -83,7 +83,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common, pg_temp;
 
 COMMENT ON FUNCTION notify_pgrst_fields IS
 'Trigger function that notifies PostgREST to reload schema when fields are modified.';
@@ -131,7 +131,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 -- Watch DROP commands
 CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
@@ -163,7 +163,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION pgrst_ddl_watch() IS
 'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';

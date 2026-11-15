@@ -85,7 +85,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_order_value IS
 'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 900000 (or 10 for the first record). On the fields table the max is scoped per table_name. Installed per entity by handle_entity_order_column().';
@@ -117,6 +117,19 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- The order column is the dictionary's own: it adds the column and, when
+    -- the entity stops naming it, drops it. A name the table already carries is
+    -- a field or a core column of the entity, with data that is not the
+    -- dictionary's to drop, so it is refused where the name is newly given.
+    IF v_new <> '' AND v_new <> v_old
+       AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                    WHERE a.attrelid = to_regclass(format('public.%I', NEW.table_name))
+                      AND a.attname = v_new AND a.attnum > 0 AND NOT a.attisdropped) THEN
+        RAISE EXCEPTION 'order_column ${order_column} of ${table} names a column the table already has'
+            USING ERRCODE = '90278',
+                  HINT = jsonb_build_object('order_column', v_new, 'table', NEW.table_name)::text;
+    END IF;
+
     -- Remove the previous order column + its trigger when the name changed or cleared.
     IF v_old <> '' AND v_old <> v_new THEN
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
@@ -144,7 +157,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION handle_entity_order_column IS
 'AFTER INSERT/UPDATE trigger on entities: provisions or drops the physical order column named by entities.order_column and installs/removes the auto_set_order_value BEFORE INSERT trigger on the entity''s table.';

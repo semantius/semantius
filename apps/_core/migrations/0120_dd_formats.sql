@@ -12,7 +12,7 @@
 -- order, and the key order is the order the fields.format enum offers.
 
 CREATE OR REPLACE FUNCTION dd_formats()
-RETURNS json LANGUAGE sql IMMUTABLE SET search_path = public
+RETURNS json LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp
 AS $f$ SELECT $formats${
   "json": {
     "type": [

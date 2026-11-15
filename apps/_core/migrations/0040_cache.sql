@@ -33,7 +33,7 @@ BEGIN
         LIMIT 1
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to set cached value with expiration in minutes
 CREATE OR REPLACE FUNCTION common.cache_set(ckey TEXT, cvalue TEXT, expires_minutes INTEGER)
@@ -47,7 +47,7 @@ BEGIN
         expires_at = EXCLUDED.expires_at,
         updated_at = NOW();
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to delete a cached value
 CREATE OR REPLACE FUNCTION common.cache_delete(ckey TEXT)
@@ -59,7 +59,7 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     RETURN deleted_count > 0;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to clean up expired entries (returns count of deleted entries)
 CREATE OR REPLACE FUNCTION common.cache_cleanup()
@@ -71,7 +71,7 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     RETURN deleted_count;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to get cache statistics
 CREATE OR REPLACE FUNCTION common.cache_stats()
@@ -92,7 +92,7 @@ BEGIN
         MAX(created_at) as newest_entry
     FROM common._cache;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Grant schema usage to the installing role (database owner) for testing.
 -- Skipped for a superuser: it needs no grant and the ACL entry is a test

@@ -234,7 +234,7 @@ BEGIN
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0010_core.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0010_core.sql';
       EXECUTE $pgsem__core_0010_core_sql$-- =====================================================
@@ -315,7 +315,7 @@ BEGIN
     NEW.updated_at := CURRENT_TIMESTAMP;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = common;
+$$ LANGUAGE plpgsql SET search_path = common, pg_temp;
 
 COMMENT ON FUNCTION common.update_updated_at_column() IS 'Trigger function to automatically update updated_at column on row modification. Given trigger arguments, first compares NEW and OLD ignoring updated_at, any generated column and the named arguments; a row that agrees outside those columns leaves updated_at untouched rather than bumping it, so a client cannot move it by resubmitting one either, and tables that pass no arguments keep the unconditional bump.';
 
@@ -332,7 +332,7 @@ REVOKE EXECUTE ON FUNCTION common.update_updated_at_column() FROM PUBLIC;
 $pgsem__core_0010_core_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0010_core.sql', '114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5')
+        VALUES ('_core.0010_core.sql', '3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -606,7 +606,7 @@ $pgsem__core_0030_session_authenticator_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0040_cache.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0040_cache.sql';
       EXECUTE $pgsem__core_0040_cache_sql$-- Create generic cache table for storing key-value pairs with expiration
@@ -644,7 +644,7 @@ BEGIN
         LIMIT 1
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to set cached value with expiration in minutes
 CREATE OR REPLACE FUNCTION common.cache_set(ckey TEXT, cvalue TEXT, expires_minutes INTEGER)
@@ -658,7 +658,7 @@ BEGIN
         expires_at = EXCLUDED.expires_at,
         updated_at = NOW();
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to delete a cached value
 CREATE OR REPLACE FUNCTION common.cache_delete(ckey TEXT)
@@ -670,7 +670,7 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     RETURN deleted_count > 0;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to clean up expired entries (returns count of deleted entries)
 CREATE OR REPLACE FUNCTION common.cache_cleanup()
@@ -682,7 +682,7 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
     RETURN deleted_count;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Function to get cache statistics
 CREATE OR REPLACE FUNCTION common.cache_stats()
@@ -703,7 +703,7 @@ BEGIN
         MAX(created_at) as newest_entry
     FROM common._cache;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Grant schema usage to the installing role (database owner) for testing.
 -- Skipped for a superuser: it needs no grant and the ACL entry is a test
@@ -748,7 +748,7 @@ COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including tota
 $pgsem__core_0040_cache_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0040_cache.sql', 'd262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9')
+        VALUES ('_core.0040_cache.sql', 'd36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -785,7 +785,7 @@ $pgsem__core_0040_cache_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0045_typeid.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0045_typeid.sql';
       EXECUTE $pgsem__core_0045_typeid_sql$-- =====================================================
@@ -838,7 +838,7 @@ BEGIN
             RETURNS uuid
             LANGUAGE sql
             VOLATILE PARALLEL SAFE
-            SET search_path = common, pg_catalog
+            SET search_path = common, pg_catalog, pg_temp
             AS $body$ SELECT pg_catalog.uuidv7() $body$
         $fn$;
     ELSE
@@ -847,7 +847,7 @@ BEGIN
             RETURNS uuid
             LANGUAGE plpgsql
             VOLATILE PARALLEL SAFE
-            SET search_path = common, pg_catalog
+            SET search_path = common, pg_catalog, pg_temp
             AS $body$
             DECLARE
               unix_ts_ms bytea;
@@ -879,7 +879,7 @@ CREATE OR REPLACE FUNCTION common.base32_encode(id uuid)
 RETURNS text
 LANGUAGE plpgsql
 IMMUTABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
   bytes bytea;
@@ -935,7 +935,7 @@ CREATE OR REPLACE FUNCTION common.base32_decode(s text)
 RETURNS uuid
 LANGUAGE plpgsql
 STABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
   dec bytea = '\xFF FF FF FF FF FF FF FF FF FF'::bytea ||
@@ -1052,7 +1052,7 @@ CREATE OR REPLACE FUNCTION common.typeid_check_text(typeid_str text)
 RETURNS boolean
 LANGUAGE sql
 IMMUTABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
     SELECT typeid_str ~ '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0-9abcdefghjkmnpqrstvwxyz]{25}$'
 $$;
@@ -1070,7 +1070,7 @@ CREATE OR REPLACE FUNCTION common.typeid_prefix(typeid_str text)
 RETURNS text
 LANGUAGE sql
 IMMUTABLE STRICT PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
     SELECT coalesce(substring(typeid_str FROM '^(.*)_[^_]*$'), '')
 $$;
@@ -1090,7 +1090,7 @@ CREATE OR REPLACE FUNCTION common.typeid_generate_text(prefix text)
 RETURNS text
 LANGUAGE plpgsql
 VOLATILE PARALLEL SAFE
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 BEGIN
   IF (prefix IS NULL) OR NOT (prefix ~ '^([a-z]([a-z_]{0,61}[a-z])?)?$') THEN
@@ -1145,7 +1145,7 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 CREATE OR REPLACE FUNCTION common.typeid_assign()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_column TEXT := TG_ARGV[0];
@@ -1198,7 +1198,7 @@ COMMENT ON FUNCTION common.typeid_assign() IS
 CREATE OR REPLACE FUNCTION common.ext_write_guard()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 BEGIN
     IF pg_trigger_depth() < 2 THEN
@@ -1233,7 +1233,7 @@ COMMENT ON FUNCTION common.ext_write_guard() IS
 CREATE OR REPLACE FUNCTION common.reject_pk_change()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 BEGIN
     IF (to_jsonb(NEW) -> TG_ARGV[0]) IS DISTINCT FROM (to_jsonb(OLD) -> TG_ARGV[0]) THEN
@@ -1267,7 +1267,7 @@ GRANT EXECUTE ON FUNCTION common.typeid_generate_text(text) TO semantius_user;
 $pgsem__core_0045_typeid_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0045_typeid.sql', '64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741')
+        VALUES ('_core.0045_typeid.sql', 'cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -1376,7 +1376,7 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -1394,7 +1394,7 @@ BEGIN
         ELSE RETURN true; -- objects are truthy
     END CASE;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
 -- The numeric value of a jsonb, or SQL NULL where there is none. This is
@@ -1447,6 +1447,22 @@ BEGIN
                           || '|[+-]?Infinity'
                           || '|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+'
                           || ')[[:space:]]*$') THEN
+                -- Number() has no range error: an exponent beyond what it
+                -- holds is Infinity, with the sign of the number, and one
+                -- below it is 0. numeric raises 22003 for both. Only a number
+                -- written with an exponent can get there, so only that form
+                -- pays for the subtransaction of the EXCEPTION block.
+                IF txt_val ~ '[0-9.][eE]' THEN
+                    BEGIN
+                        RETURN txt_val::numeric;
+                    EXCEPTION WHEN numeric_value_out_of_range THEN
+                        IF txt_val ~ '[eE]-' OR txt_val !~ '[1-9].*[eE]' THEN
+                            RETURN 0::numeric;
+                        END IF;
+                        RETURN CASE WHEN txt_val ~ '^[[:space:]]*-' THEN '-Infinity'::numeric
+                                    ELSE 'Infinity'::numeric END;
+                    END;
+                END IF;
                 RETURN txt_val::numeric;
             END IF;
 
@@ -1474,13 +1490,13 @@ BEGIN
         ELSE RETURN NULL;
     END CASE;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
 BEGIN
     RETURN COALESCE(jl_try_number(val), 0::numeric);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- What an arithmetic operator returns for the number it computed.
 --
@@ -1499,7 +1515,25 @@ BEGIN
         USING ERRCODE = '90920',
               HINT = jsonb_build_object('operator', p_op)::text;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The number an arithmetic operator computes with. Null, the empty string
+-- and a missing argument count as 0, as Number(null) and Number('') do: a
+-- field left empty is no mistake. Text that carries no number is one.
+-- JavaScript computes with NaN there and answers NaN, which is no finite
+-- result, so the operator raises as it does for a division by zero; reading
+-- the text as 0 would let a rule compute with a mistyped value as if nothing
+-- were wrong. An array or an object counts as 0.
+CREATE OR REPLACE FUNCTION jl_operand(p_op text, val jsonb) RETURNS numeric AS $$
+DECLARE
+    v_number numeric := jl_try_number(val);
+BEGIN
+    IF v_number IS NULL AND jsonb_typeof(val) = 'string' THEN
+        PERFORM jl_no_finite_result(p_op);
+    END IF;
+    RETURN COALESCE(v_number, 0::numeric);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_number_result(p_op text, p_value numeric) RETURNS jsonb AS $$
 BEGIN
@@ -1511,7 +1545,7 @@ BEGIN
     END IF;
     RETURN to_jsonb(p_value);
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Helper: coerce jsonb value to text (for cat, substr, in-string)
 CREATE OR REPLACE FUNCTION jl_to_text(val jsonb) RETURNS text AS $$
@@ -1523,7 +1557,21 @@ BEGIN
         ELSE RETURN val::text;
     END CASE;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- Helper: an array as the text JavaScript makes of it, Array.prototype.join:
+-- the elements joined by commas, null as nothing, a nested array the same way.
+CREATE OR REPLACE FUNCTION jl_array_text(a jsonb) RETURNS text AS $$
+    SELECT COALESCE(string_agg(
+               CASE jsonb_typeof(t.e)
+                    WHEN 'null'   THEN ''
+                    WHEN 'string' THEN t.e #>> '{}'
+                    WHEN 'array'  THEN jl_array_text(t.e)
+                    WHEN 'object' THEN '[object Object]'
+                    ELSE t.e::text
+               END, ',' ORDER BY t.ord), '')
+      FROM jsonb_array_elements(a) WITH ORDINALITY AS t(e, ord);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Helper: loose equality (==) mimicking JS type coercion
 -- Numbers are compared as numbers; if either side is a number and the other a string, coerce string to number.
@@ -1558,10 +1606,19 @@ BEGIN
         END IF;
         RETURN jl_to_number(a) = jl_to_number(b);
     END IF;
+    -- array vs number or string: JavaScript turns the array into text first,
+    -- its elements joined by commas, and compares that. So [] is the empty
+    -- string and equals 0, and [5] equals 5 and '5'.
+    IF ta = 'array' AND tb IN ('number', 'string') THEN
+        RETURN jl_loose_eq(to_jsonb(jl_array_text(a)), b);
+    END IF;
+    IF tb = 'array' AND ta IN ('number', 'string') THEN
+        RETURN jl_loose_eq(a, to_jsonb(jl_array_text(b)));
+    END IF;
     RETURN a = b;
 END;
 -- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- =====================================================
 -- Date operators
@@ -1580,14 +1637,14 @@ CREATE OR REPLACE FUNCTION jl_date_is_blank(p_value jsonb) RETURNS boolean AS $$
 BEGIN
     RETURN p_value IS NULL OR jsonb_typeof(p_value) = 'null' OR p_value = '""'::jsonb;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_date_is_date_only(p_value jsonb) RETURNS boolean AS $$
 BEGIN
     RETURN jsonb_typeof(p_value) = 'string'
        AND (p_value #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- The regular expressions are what keep this strict. The casts alone also accept
 -- 'today', 'infinity', 'J2461406' and, depending on DateStyle, '01/02/2026', and a
@@ -1622,7 +1679,7 @@ BEGIN
         USING ERRCODE = '90915',
               HINT = jsonb_build_object('operator', p_op, 'value', p_value)::text;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- The offset is written out rather than left to to_jsonb, which would render the
 -- session's zone, and the seconds carry no fraction, as jl_date_utc promises.
@@ -1633,7 +1690,7 @@ BEGIN
     END IF;
     RETURN to_jsonb(to_char(p_moment, 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"'));
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_date_bad_unit(p_op text, p_unit jsonb) RETURNS void AS $$
 BEGIN
@@ -1641,7 +1698,7 @@ BEGIN
         USING ERRCODE = '90916',
               HINT = jsonb_build_object('operator', p_op, 'unit', p_unit)::text;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- A date-only value has no time of day to move or read, and answering as though
 -- it were midnight would silently invent one.
@@ -1662,7 +1719,7 @@ BEGIN
     END IF;
     RETURN v_unit;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_add":[date, amount, unit]} or {"date_add":[date, duration]}.
 --
@@ -1727,7 +1784,7 @@ BEGIN
     END;
     RETURN jl_date_render(v_moment + v_span, v_date_only);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_diff":[end, start, unit]}: whole elapsed units, truncated toward zero, in
 -- the argument order of "-". Calendar units go through age(), so a month has
@@ -1760,7 +1817,7 @@ BEGIN
                       WHEN 'hour' THEN 3600 WHEN 'minute' THEN 60 ELSE 1 END
     )::bigint);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_part":[date, part]}. v_parts is checked by the same sync test as v_units.
 CREATE OR REPLACE FUNCTION jl_date_part(p_date jsonb, p_part jsonb) RETURNS jsonb AS $$
@@ -1795,7 +1852,7 @@ BEGIN
         ELSE                    extract(epoch   FROM v_moment)
     END)::bigint);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_trunc":[date, unit]}: the start of the period; a week starts on Monday.
 CREATE OR REPLACE FUNCTION jl_date_trunc(p_date jsonb, p_unit jsonb) RETURNS jsonb AS $$
@@ -1809,7 +1866,7 @@ BEGIN
     v_moment := jl_date_utc('date_trunc', p_date);
     RETURN jl_date_render(date_trunc(jl_date_unit('date_trunc', p_unit, v_date_only), v_moment), v_date_only);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"to_date":[value]}. A number is read as UTC because that exactly reverses the
 -- epoch conversion in jl_try_number, which is what lets the epoch integers that
@@ -1824,7 +1881,7 @@ BEGIN
     END IF;
     RETURN to_jsonb(jl_date_utc('to_date', p_value)::date);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_format":[date, pattern]}.
 --
@@ -1869,7 +1926,7 @@ BEGIN
     END LOOP;
     RETURN to_jsonb(v_out);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- is_raci_actor and has_consultation call functions defined in 0370_raci.sql; no rule
 -- evaluated during install uses those operators.
@@ -2188,6 +2245,12 @@ BEGIN
             END IF;
             -- Try object key or array index
             IF jsonb_typeof(nav) = 'array' THEN
+                -- Only digits are an index. PostgreSQL counts a negative one
+                -- from the end; JavaScript reads a[-1] as a property that is
+                -- not there, and so does this.
+                IF sub_props[i] !~ '^[0-9]+$' THEN
+                    IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
+                END IF;
                 BEGIN
                     nav := nav -> sub_props[i]::int;
                 EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
@@ -2324,25 +2387,25 @@ BEGIN
     -- ===================== % =====================
     -- A zero divisor is an error of the evaluator's own (jl_number_result).
     IF op = '%' THEN
-        num_b := jl_to_number(b);
+        num_b := jl_operand(op, b);
         IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
-        RETURN jl_number_result(op, jl_to_number(a) % num_b);
+        RETURN jl_number_result(op, jl_operand(op, a) % num_b);
     END IF;
 
     -- ===================== + =====================
     IF op = '+' THEN
         num_a := 0;
         FOR i IN 0 .. arr_len - 1 LOOP
-            num_a := num_a + jl_to_number(vals -> i);
+            num_a := num_a + jl_operand(op, vals -> i);
         END LOOP;
         RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== * =====================
     IF op = '*' THEN
-        num_a := jl_to_number(vals -> 0);
+        num_a := jl_operand(op, vals -> 0);
         FOR i IN 1 .. arr_len - 1 LOOP
-            num_a := num_a * jl_to_number(vals -> i);
+            num_a := num_a * jl_operand(op, vals -> i);
         END LOOP;
         RETURN jl_number_result(op, num_a);
     END IF;
@@ -2350,26 +2413,26 @@ BEGIN
     -- ===================== - =====================
     IF op = '-' THEN
         IF arr_len = 1 THEN
-            num_a := -jl_to_number(a);
+            num_a := -jl_operand(op, a);
         ELSE
-            num_a := jl_to_number(a) - jl_to_number(b);
+            num_a := jl_operand(op, a) - jl_operand(op, b);
         END IF;
         RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== / =====================
     IF op = '/' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
+        num_a := jl_operand(op, a);
+        num_b := jl_operand(op, b);
         IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
         RETURN jl_number_result(op, num_a / num_b);
     END IF;
 
     -- ===================== max =====================
     IF op = 'max' THEN
-        num_a := jl_to_number(vals -> 0);
+        num_a := jl_operand(op, vals -> 0);
         FOR i IN 1 .. arr_len - 1 LOOP
-            num_b := jl_to_number(vals -> i);
+            num_b := jl_operand(op, vals -> i);
             IF num_b > num_a THEN num_a := num_b; END IF;
         END LOOP;
         RETURN jl_number_result(op, num_a);
@@ -2377,9 +2440,9 @@ BEGIN
 
     -- ===================== min =====================
     IF op = 'min' THEN
-        num_a := jl_to_number(vals -> 0);
+        num_a := jl_operand(op, vals -> 0);
         FOR i IN 1 .. arr_len - 1 LOOP
-            num_b := jl_to_number(vals -> i);
+            num_b := jl_operand(op, vals -> i);
             IF num_b < num_a THEN num_a := num_b; END IF;
         END LOOP;
         RETURN jl_number_result(op, num_a);
@@ -2647,7 +2710,7 @@ BEGIN
         USING ERRCODE = '90910',
               HINT = jsonb_build_object('op', op)::text;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- =====================================================
 -- Checking a rule without running it
@@ -2675,7 +2738,7 @@ CREATE OR REPLACE FUNCTION jl_operators() RETURNS text[] AS $$
         'throw_error', 'is_raci_actor', 'has_consultation',
         'date_add', 'date_diff', 'date_part', 'date_trunc', 'to_date', 'date_format'
     ];
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 -- An object with exactly one key is an operation; everything else is a value.
 -- The same test evaluate_json_logic makes before it dispatches.
@@ -2689,7 +2752,7 @@ BEGIN
     v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
     RETURN v_op IS NOT NULL AND p_rule - v_op = '{}'::jsonb;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Walks a rule the way evaluate_json_logic reads it: an array is a list of
 -- rules, an object with one key is an operation whose arguments are rules, and
@@ -2742,7 +2805,114 @@ BEGIN
     END LOOP;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The keys a rule reads from the data it is evaluated on: the key of every
+-- var, missing and missing_some, and the field of every value_changed, which
+-- reads the same field of $old as well. A key that is not written out comes
+-- back as NULL: one that is computed, and the empty key, which stands for the
+-- whole data. Such a rule can read anything, and its caller has to assume so.
+--
+-- The walk follows the evaluator, as jl_unknown_operator does, with two more
+-- things it has to know. A name bound by `let` or `set_record` is no key of
+-- the data inside the body that binds it, so a path that starts with one is
+-- left out. And the second argument of filter, map, all, none and some, and
+-- of reduce, is evaluated on an element of the list, not on the data: a key
+-- read there is a key of the element.
+CREATE OR REPLACE FUNCTION jl_row_keys(p_rule jsonb, p_bound text[] DEFAULT '{}') RETURNS SETOF text AS $$
+DECLARE
+    v_op   text;
+    v_args jsonb;
+    v_keys jsonb;
+    v_key  jsonb;
+    v_text text;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            RETURN QUERY SELECT jl_row_keys(p_rule -> i, p_bound);
+        END LOOP;
+        RETURN;
+    END IF;
+
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN;
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    v_args := p_rule -> v_op;
+    IF jsonb_typeof(v_args) <> 'array' THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+
+    IF v_op IN ('var', 'missing', 'missing_some', 'value_changed') THEN
+        -- The keys of the operation, as a list: the one of var and of
+        -- value_changed, every argument of missing or the one list it is
+        -- given, and the list that is the second argument of missing_some.
+        v_keys := CASE
+            WHEN v_op IN ('var', 'value_changed') THEN jsonb_build_array(COALESCE(v_args -> 0, 'null'::jsonb))
+            WHEN v_op = 'missing_some' THEN
+                CASE WHEN jsonb_typeof(v_args -> 1) = 'array' THEN v_args -> 1
+                     ELSE jsonb_build_array(COALESCE(v_args -> 1, 'null'::jsonb)) END
+            WHEN jsonb_array_length(v_args) = 1 AND jsonb_typeof(v_args -> 0) = 'array' THEN v_args -> 0
+            ELSE v_args
+        END;
+
+        FOR i IN 0 .. jsonb_array_length(v_keys) - 1 LOOP
+            v_key := v_keys -> i;
+            IF jsonb_typeof(v_key) IN ('string', 'number') AND v_key #>> '{}' <> '' THEN
+                v_text := v_key #>> '{}';
+                IF NOT (split_part(v_text, '.', 1) = ANY(p_bound)) THEN
+                    RETURN NEXT v_text;
+                END IF;
+            ELSE
+                RETURN NEXT NULL;
+                RETURN QUERY SELECT jl_row_keys(v_key, p_bound);
+            END IF;
+        END LOOP;
+
+        IF v_op = 'value_changed' THEN
+            RETURN NEXT '$old';
+        ELSIF v_op = 'var' THEN
+            -- The default of a var is a rule.
+            RETURN QUERY SELECT jl_row_keys(v_args -> 1, p_bound);
+        ELSIF v_op = 'missing_some' THEN
+            RETURN QUERY SELECT jl_row_keys(v_args -> 0, p_bound);
+        END IF;
+        RETURN;
+    END IF;
+
+    IF v_op = 'let' THEN
+        RETURN QUERY SELECT jl_row_keys(v_args -> 1, p_bound);
+        RETURN QUERY SELECT jl_row_keys(v_args -> 2, p_bound || (v_args ->> 0));
+        RETURN;
+    END IF;
+
+    IF v_op = 'set_record' THEN
+        RETURN QUERY SELECT jl_row_keys(v_args -> 2, p_bound);
+        RETURN QUERY SELECT jl_row_keys(v_args -> 3, p_bound || (v_args ->> 0));
+        RETURN;
+    END IF;
+
+    IF v_op IN ('filter', 'map', 'all', 'none', 'some', 'reduce') THEN
+        RETURN QUERY SELECT jl_row_keys(v_args -> 0, p_bound);
+        IF v_op = 'reduce' THEN
+            RETURN QUERY SELECT jl_row_keys(v_args -> 2, p_bound);
+        END IF;
+        RETURN;
+    END IF;
+
+    FOR i IN 0 .. jsonb_array_length(v_args) - 1 LOOP
+        RETURN QUERY SELECT jl_row_keys(v_args -> i, p_bound);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION jl_row_keys(jsonb, text[]) IS
+'The keys a JsonLogic rule reads from its data: those of var, missing, missing_some and value_changed, wherever the evaluator would evaluate them on the data itself. NULL for a key that is computed or empty, which can read anything; $old for a value_changed. p_bound holds the names bound by an enclosing let or set_record.';
 
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
 'JsonLogic truthiness of a JSONB value: false for null, false, 0, "" and an empty array; true otherwise, an empty object included.';
@@ -2750,6 +2920,10 @@ COMMENT ON FUNCTION jl_try_number(jsonb) IS
 'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. A string counts when JavaScript''s Number() reads it, or when it is an ISO 8601 date or date-time, whose number is its epoch seconds in UTC. Used by jl_loose_eq and the ordering operators, which must not read a non-numeric string as 0.';
 COMMENT ON FUNCTION jl_to_number(jsonb) IS
 'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by the arithmetic operators). Reads anything without a numeric value as 0.';
+COMMENT ON FUNCTION jl_operand(text, jsonb) IS
+'The number an arithmetic operator computes with: jl_try_number of the value, 0 for null, the empty string, an array and an object, and error 90920 for text that carries no number.';
+COMMENT ON FUNCTION jl_array_text(jsonb) IS
+'A JSON array as the text JavaScript makes of it: its elements joined by commas, null as nothing. Used by jl_loose_eq to compare an array with a number or a string.';
 COMMENT ON FUNCTION jl_no_finite_result(text) IS
 'Raises 90920 for an arithmetic operator whose result is not a finite number: a zero divisor, or a result of Infinity or NaN.';
 COMMENT ON FUNCTION jl_number_result(text, numeric) IS
@@ -2796,6 +2970,8 @@ REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_no_finite_result(text) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_operand(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_array_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_number_result(text, numeric) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
@@ -2815,6 +2991,7 @@ REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_operators() FROM public;
 REVOKE EXECUTE ON FUNCTION jl_is_operation(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_row_keys(jsonb, text[]) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
@@ -2822,6 +2999,8 @@ GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_no_finite_result(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_operand(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_array_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_number_result(text, numeric) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
@@ -2847,23 +3026,27 @@ GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
 -- through that code, which checks their rules with jl_operators,
--- jl_is_operation and jl_unknown_operator and evaluates them with the rest.
+-- jl_is_operation and jl_unknown_operator, reads what they name with
+-- jl_row_keys and evaluates them with the rest.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
         GRANT EXECUTE ON FUNCTION
             jl_no_finite_result(text),
             jl_number_result(text, numeric),
+            jl_operand(text, jsonb),
+            jl_array_text(jsonb),
             jl_operators(),
             jl_is_operation(jsonb),
-            jl_unknown_operator(jsonb)
+            jl_unknown_operator(jsonb),
+            jl_row_keys(jsonb, text[])
         TO semantius_owner;
     END IF;
 END $$;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', '522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef')
+        VALUES ('_core.0050_jsonlogic.sql', 'b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -3207,7 +3390,7 @@ $pgsem__core_0060_rbac_schema_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0070_rbac_schema.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0070_rbac_schema.sql';
       EXECUTE $pgsem__core_0070_rbac_schema_sql$-- =====================================================
@@ -3235,7 +3418,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_module_slug IS
 'Trigger function that derives module_slug from module_name when it is empty';
@@ -3267,7 +3450,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_role_slug IS
 'Trigger function that auto-generates slug from role_name when not provided';
@@ -3341,7 +3524,7 @@ CREATE OR REPLACE TRIGGER pk_immutable
 $pgsem__core_0070_rbac_schema_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0070_rbac_schema.sql', 'f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc')
+        VALUES ('_core.0070_rbac_schema.sql', 'c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -3378,7 +3561,7 @@ $pgsem__core_0070_rbac_schema_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
       EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
@@ -3475,7 +3658,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.check_permission_hierarchy_cycle IS 
 'Trigger function to prevent cycles and enforce 11-level depth limit in permission hierarchy.';
@@ -3733,7 +3916,7 @@ BEGIN
 
     RETURN sub_value;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.uid IS
 'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. A token whose iss is a Microsoft Entra ID issuer returns entra.<tid>.<oid> instead of sub (Entra sub differs per app registration), written back into request.jwt.claim.sub; such a token without tid or oid is refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
@@ -3818,7 +4001,7 @@ BEGIN
 
     RETURN v_user_id;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_user_by_external_id IS
 'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Self-or-admin: asking about another principal requires admin. Reachable over PostgREST RPC; no policy or function in the database calls it.';
@@ -3888,7 +4071,7 @@ BEGIN
     RETURNING id INTO v_id;
     RETURN v_id;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.upsert_user_from_jwt IS
 'Creates or updates user record from JWT claims. Stores name as display_name, given_name as first_name, family_name as last_name. A repeat call within five minutes of the stored last_seen, with claims that match the stored values, writes nothing at all - not even last_seen - so a heartbeat login costs one indexed SELECT. Called by get_userinfo().';
@@ -3919,7 +4102,7 @@ REVOKE EXECUTE ON FUNCTION rbac.upsert_user_from_jwt(TEXT, TEXT, TEXT, TEXT, TEX
 CREATE OR REPLACE FUNCTION rbac.is_bearer_session()
 RETURNS BOOLEAN AS $$
     SELECT system_user LIKE 'oauth:%';
-$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+$$ LANGUAGE sql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.is_bearer_session IS
 'True when the session authenticated with a PostgreSQL 18 OAuth bearer token (system_user = oauth:<sub>). Such clients run SQL directly as the request role, so the app.* context cache is not trusted for them.';
@@ -4019,7 +4202,7 @@ BEGIN
     
     -- Note: OAuth scopes handled separately if needed
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.ensure_context_initialized IS
 'Lazy initialization of request context. Called automatically on first permission check. In OAuth bearer sessions the cached context is not trusted and is re-derived on every call.';
@@ -4111,7 +4294,7 @@ BEGIN
 
     RETURN position(',' || p_permission_name || ',' IN ',' || v_scope_closure || ',') > 0;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.user_has_permission IS 
 'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
@@ -4161,7 +4344,7 @@ RETURNS TEXT AS $$
         JOIN permission_hierarchy ph ON pt.permission_name = ph.including_permission_name
     )
     SELECT string_agg(permission_name, ',' ORDER BY permission_name) FROM permission_tree;
-$$ LANGUAGE sql STABLE SET search_path = rbac, public;
+$$ LANGUAGE sql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.expand_scopes IS
 'The permissions a scope list confines a session to: the names it carries plus everything those names include through permission_hierarchy, as a comma-separated list. NULL when the list names no registered permission.';
@@ -4217,7 +4400,7 @@ BEGIN
 
     RETURN v_expanded;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.scope_closure IS
 'The expanded scope list confining this session, or NULL when it is not confined. Memoized per transaction against the raw app.oauth_scopes it was built from; never memoized in an OAuth bearer session, where app.* is client-writable.';
@@ -4345,7 +4528,7 @@ BEGIN
     -- Should never reach here after initialization, but safety fallback
     RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.has_permission IS 
 'Checks if current user has permission. Auto-initializes context and uses cached permissions.';
@@ -4368,7 +4551,7 @@ BEGIN
     END IF;
 END;
 -- STABLE so PostgREST serves it over GET; raising is not a side effect.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
@@ -4457,7 +4640,7 @@ BEGIN
 
     RETURN FALSE;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.has_any_permission IS 
 'Returns true if current user has at least one of the specified permissions.';
@@ -4479,7 +4662,7 @@ BEGIN
     END IF;
 END;
 -- STABLE, as rbac.require_permission.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
 'Raises exception if current user lacks all specified permissions.';
@@ -4536,7 +4719,7 @@ BEGIN
     )
     SELECT pt.permission_name FROM permission_tree pt ORDER BY pt.permission_name;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_user_permissions_by_id IS
 'Returns all effective permissions for an already-resolved internal user id:
@@ -4584,7 +4767,7 @@ BEGIN
     RETURN QUERY SELECT * FROM rbac.get_user_permissions_by_id(v_user_id);
 END;
 -- STABLE: reads only.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Self-or-admin wrapper: resolves the subject external_id to its internal id and
@@ -4609,7 +4792,7 @@ BEGIN
     WHERE current_setting('app.user_permissions', true) IS NOT NULL 
       AND current_setting('app.user_permissions', true) != '';
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.get_current_user_permissions IS 
 'Returns all permissions for current user from cache. Auto-initializes if needed.';
@@ -4667,7 +4850,7 @@ BEGIN
         array_remove(regexp_split_to_array(p_requested_scopes, '[,[:space:]]+'), '')
     ) AS s(scope);
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
@@ -4709,7 +4892,7 @@ BEGIN
     END IF;
     RETURN current_setting('app.current_user_id', true)::BIGINT;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
@@ -4730,7 +4913,7 @@ EXCEPTION
     WHEN insufficient_privilege OR invalid_authorization_specification THEN
         RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.user_id_or_null IS
 'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
@@ -4832,7 +5015,7 @@ BEGIN
     
     RETURN;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.whoami IS 
 'Returns all context information: app session variables, JWT claims, and cached permissions. Requires authentication.';
@@ -4863,7 +5046,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS 
 'Automatically grants newly created permissions to the Administrator role';
@@ -4889,7 +5072,7 @@ REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
 $pgsem__core_0080_rbac_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0080_rbac_functions.sql', '807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88')
+        VALUES ('_core.0080_rbac_functions.sql', '9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5068,7 +5251,7 @@ $pgsem__core_0090_rbac_seed_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
       EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
@@ -5213,7 +5396,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS
 'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first principal to arrive with a last_seen while no user holds role 2, under an advisory lock.';
@@ -5249,7 +5432,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
 'Trigger function to prevent deletion of role 1 (User) from any user.';
@@ -5319,7 +5502,7 @@ RETURNS INTEGER AS $$
     JOIN users u ON u.id = ur.user_id
     WHERE ur.role_id = 2
       AND u.is_disabled = FALSE;
-$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 -- The invoker trigger above has to be able to call this, so semantius_user keeps
 -- the EXECUTE that the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql
@@ -5348,7 +5531,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 -- Created after the blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac at the end of
 -- 0080_rbac_functions.sql, so it
@@ -5396,6 +5579,80 @@ COMMENT ON TRIGGER assert_administrator_remains_on_disable ON users IS
 'Refuses an UPDATE that disables the last enabled Administrator.';
 COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
 'Refuses a DELETE of the Administrator role while it is the only source of an enabled administrator.';
+
+-- An UPDATE reaches the same state as a DELETE: the last Administrator's
+-- assignment pointed at another role, or at a user who is disabled. The count
+-- runs after the statement, so an UPDATE that leaves an enabled holder of
+-- role 2 is ordinary.
+CREATE OR REPLACE TRIGGER assert_administrator_remains_on_user_roles_update
+    AFTER UPDATE ON user_roles
+    FOR EACH STATEMENT
+    EXECUTE FUNCTION rbac.assert_administrator_remains();
+
+COMMENT ON TRIGGER assert_administrator_remains_on_user_roles_update ON user_roles IS
+'Refuses an UPDATE that points the last enabled Administrator''s assignment at another role or user.';
+
+-- An Administrator is a holder of role 2, and role 2 is what it is because it
+-- grants `admin`. The count above looks at who holds the role. This guard
+-- keeps the grant: with it gone every holder of role 2 is counted and none
+-- can administer anything. It watches the grant row itself and the permission
+-- the row names, because role_permissions follows a delete and a rename of
+-- the permission by cascade, and a cascade runs as the table's owner, who is
+-- exempt like every BYPASSRLS connection.
+--
+-- BEFORE and per row, not after the statement: the foreign keys from entities
+-- to permissions refuse the delete of `admin` as well, and they answer before
+-- a statement trigger would, with an error that does not say why.
+CREATE OR REPLACE FUNCTION rbac.assert_administrator_grant_remains()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_lost BOOLEAN;
+BEGIN
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+    END IF;
+
+    IF TG_TABLE_NAME = 'role_permissions' THEN
+        v_lost := OLD.role_id = 2 AND OLD.permission_name = 'admin'
+                  AND (TG_OP = 'DELETE' OR NEW.role_id <> 2 OR NEW.permission_name <> 'admin');
+    ELSE
+        v_lost := OLD.permission_name = 'admin'
+                  AND (TG_OP = 'DELETE' OR NEW.permission_name <> 'admin');
+    END IF;
+
+    IF v_lost THEN
+        RAISE EXCEPTION 'The Administrator role has to keep the admin permission'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object(
+                      'code', '90104',
+                      'hint', 'Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.')::text;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+
+REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_grant_remains() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.assert_administrator_grant_remains IS
+'Row-level guard on role_permissions and permissions: refuses removing or re-pointing the grant of admin to role 2, and deleting or renaming the permission admin (42501, hint.code 90104). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+
+CREATE OR REPLACE TRIGGER assert_administrator_grant_remains
+    BEFORE DELETE OR UPDATE OF role_id, permission_name ON role_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.assert_administrator_grant_remains();
+
+CREATE OR REPLACE TRIGGER assert_administrator_permission_remains
+    BEFORE DELETE OR UPDATE OF permission_name ON permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.assert_administrator_grant_remains();
+
+COMMENT ON TRIGGER assert_administrator_grant_remains ON role_permissions IS
+'Refuses a DELETE or UPDATE that takes admin from the Administrator role.';
+COMMENT ON TRIGGER assert_administrator_permission_remains ON permissions IS
+'Refuses a DELETE or rename of the permission admin, which would take it from the Administrator role by cascade.';
 
 -- =====================================================
 -- GUARD: external_id is written by an administrator only
@@ -5446,7 +5703,7 @@ BEGIN
                   'code', '90107',
                   'hint', 'external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.')::text;
 END;
-$$ LANGUAGE plpgsql SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
 -- The request role keeps EXECUTE: it is the invoker, and the trigger is
 -- useless if the caller cannot run it.
@@ -5489,7 +5746,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.default_assigned_by IS
 'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
@@ -5523,7 +5780,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
 COMMENT ON FUNCTION rbac.default_granted_by IS
 'Trigger function to default granted_by to the current user ID when not explicitly provided.';
@@ -5544,7 +5801,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
 $pgsem__core_0100_rbac_rls_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0100_rbac_rls.sql', '14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca')
+        VALUES ('_core.0100_rbac_rls.sql', '42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5655,7 +5912,7 @@ $pgsem__core_0110_rbac_grants_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0120_dd_formats.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0120_dd_formats.sql';
       EXECUTE $pgsem__core_0120_dd_formats_sql$-- =====================================================
@@ -5672,7 +5929,7 @@ $pgsem__core_0110_rbac_grants_once_sql$;
 -- order, and the key order is the order the fields.format enum offers.
 
 CREATE OR REPLACE FUNCTION dd_formats()
-RETURNS json LANGUAGE sql IMMUTABLE SET search_path = public
+RETURNS json LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp
 AS $f$ SELECT $formats${
   "json": {
     "type": [
@@ -5887,7 +6144,7 @@ REVOKE EXECUTE ON FUNCTION dd_formats() FROM PUBLIC;
 $pgsem__core_0120_dd_formats_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0120_dd_formats.sql', '2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722')
+        VALUES ('_core.0120_dd_formats.sql', '910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6035,7 +6292,9 @@ CREATE TABLE IF NOT EXISTS entities (
     CONSTRAINT valid_entity_type CHECK (entity_type IN
         ('operational_workflow', 'operational_record', 'catalog', 'junction', 'computed', 'unclassified')),
     CONSTRAINT catalog_entity_aliases_is_array CHECK (jsonb_typeof(catalog_entity_aliases) = 'array'),
-    CONSTRAINT valid_order_column CHECK (order_column = '' OR order_column ~ '^[a-z_][a-z0-9_]*$'),
+    -- At most 63 bytes: a longer name is not the name the column would carry.
+    CONSTRAINT valid_order_column CHECK (order_column = '' OR (order_column ~ '^[a-z_][a-z0-9_]*$'
+                                                               AND octet_length(order_column) <= 63)),
     -- Inline, like valid_entity_type and for the same reason: the id_type
     -- field row is seeded before the dictionary's enum trigger exists.
     CONSTRAINT valid_id_type CHECK (id_type IN
@@ -6172,7 +6431,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', 'a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0')
+        VALUES ('_core.0130_dd_schema.once.sql', '7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6209,7 +6468,7 @@ $pgsem__core_0130_dd_schema_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0140_dd_schema.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0140_dd_schema.sql';
       EXECUTE $pgsem__core_0140_dd_schema_sql$-- =====================================================
@@ -6252,7 +6511,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_reference_table IS
 'Trigger function that rejects a field being pointed at a reference_table that does not match any entities.table_name, and holds that entity''s row until the field commits, so a concurrent delete of the entity cannot miss the field. A reference that is not changing is not checked again. Enforced via trigger (not a CHECK) so it can run a subquery.';
@@ -6294,7 +6553,7 @@ BEGIN
     NEW.plural := NEW.table_name;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_plural IS 
 'Trigger function that automatically sets plural column to match table_name, ignoring user input';
@@ -6336,7 +6595,7 @@ CREATE OR REPLACE TRIGGER update_fields_updated_at
 CREATE OR REPLACE FUNCTION enforce_catalog_aliases_append_only()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT (NEW.catalog_entity_aliases @> OLD.catalog_entity_aliases) THEN
@@ -6364,7 +6623,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;
 $pgsem__core_0140_dd_schema_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0140_dd_schema.sql', 'b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016')
+        VALUES ('_core.0140_dd_schema.sql', '54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6783,7 +7042,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3331946fe9a6508b76f8462403a5563fffb3e1f7793ce61339a0b714be7f0497') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -6845,7 +7104,7 @@ BEGIN
         ELSE 'TEXT'
     END;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
@@ -6874,7 +7133,7 @@ BEGIN
     END IF;
     RETURN v_tag || p_body || v_tag;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
 'Wraps a generated function body in a dollar tag derived from the body, so no quoted literal inside it can end the body early when the CREATE FUNCTION is executed. Used by every dictionary generator.';
@@ -6903,7 +7162,7 @@ COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_relation(p_table_name TEXT, p_id_type TEXT)
 RETURNS TEXT AS $$
     SELECT CASE WHEN p_id_type IN ('is_a', 'has_a') THEN p_table_name || '_ext' ELSE p_table_name END;
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_relation(TEXT, TEXT) IS
 'Name of the physical table that holds an entity''s own columns: <entity>_ext for id_type is_a and has_a, the entity name for every other key type.';
@@ -6911,7 +7170,7 @@ COMMENT ON FUNCTION dd_relation(TEXT, TEXT) IS
 CREATE OR REPLACE FUNCTION dd_relation(p_table_name TEXT)
 RETURNS TEXT AS $$
     SELECT dd_relation(p_table_name, (SELECT e.id_type FROM entities e WHERE e.table_name = p_table_name));
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_relation(TEXT) IS
 'Name of the physical table that holds an entity''s own columns, looked up by the entity''s key type. The entity name itself for an unknown entity.';
@@ -6936,7 +7195,7 @@ RETURNS TABLE (table_name TEXT, depth INTEGER) AS $$
     SELECT up.table_name, (max(up.hops) OVER () - up.hops)::integer
       FROM up
      ORDER BY 2;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_ancestors(TEXT) IS
 'The chain of an entity: its root at depth 0, then each is_a/has_a level, the entity itself last. A plain entity returns itself alone. Empty for an unknown entity.';
@@ -6958,7 +7217,7 @@ RETURNS TABLE (table_name TEXT, depth INTEGER) AS $$
     SELECT down.table_name, down.depth
       FROM down
      ORDER BY down.depth, down.table_name;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_descendants(TEXT) IS
 'Every is_a and has_a entity based on the given entity, directly or through other is_a entities, with its distance (1 = direct).';
@@ -6993,7 +7252,7 @@ RETURNS SETOF fields AS $$
                    ELSE chain.depth
               END,
               f.field_order, f.field_name;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_fields(TEXT) IS
 'The fields rows that make up a record of the entity, in order: for an is_a/has_a entity its key, the fields of its root and of each level (without their key and audit fields), its own fields, then its audit fields; for a plain entity its own fields in field_order. table_name names the entity that owns each field.';
@@ -7006,7 +7265,7 @@ RETURNS BOOLEAN AS $$
     SELECT COALESCE(bool_and(rbac.has_permission(e.view_permission)), FALSE)
       FROM dd_ancestors(p_table_name) a
       JOIN entities e ON e.table_name = a.table_name;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 'TRUE when the current user holds the view_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
@@ -7017,7 +7276,7 @@ COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_entity_searchable(p_table_name TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.searchable);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
 'The value of entities.searchable: TRUE when any field of the entity''s record (dd_family_fields) is searchable.';
@@ -7029,7 +7288,7 @@ COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_entity_is_child(p_table_name TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.format = 'parent');
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_entity_is_child(TEXT) IS
 'The value of entities.is_child: TRUE when any field of the entity''s record (dd_family_fields) has format parent.';
@@ -7070,7 +7329,7 @@ RETURNS TEXT AS $$
         WHEN 'has_a'          THEN 'COMMON.TYPEID'
         ELSE 'TEXT'  -- text, and computed, whose system keys are generated TEXT
     END;
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_id_type_data_type(TEXT) IS
 'Column type of an entity key for a given id_type (BIGINT, TEXT, UUID or COMMON.TYPEID), upper-cased like field_data_type.';
@@ -7148,7 +7407,7 @@ BEGIN
     END IF;
 END;
 -- STABLE, not IMMUTABLE: format() is STABLE.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) IS
 'Key column DDL and id field row values (format, input_type, input_type_rule) for an entity''s id_type. Used by create_dd_table and enable_dd_table so both paths build the same key. For is_a/has_a the key of <entity>_ext, referencing the base''s relation. Raises 90234 for computed.';
@@ -7217,7 +7476,7 @@ BEGIN
                       'hint', 'Change the table''s key column to ${expected_type}, or declare the entity with the id_type that matches it.')::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) IS
 'Raises 90235 when an existing table''s key column does not match the entity''s id_type (or is missing). auto_increment accepts a BIGINT identity or bigserial.';
@@ -7267,7 +7526,7 @@ END;
 -- SECURITY INVOKER: its callers (create_dd_table, enable_dd_table,
 -- dd_sync_typeid_prefix, dd_refresh_family) are SECURITY DEFINER and already
 -- run as the owner.
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) IS
 'Creates the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid keys, the a_typeid_assign insert trigger carrying the current prefix and the prefixes of the entity''s is_a subtypes, then brings the late key checks up to date (dd_install_key_rule_checks). a_typeid_assign sorts before compute_validate_trigger, so computed fields and validation rules see the generated id. For tables whose key the dictionary builds only.';
@@ -7282,7 +7541,7 @@ RETURNS TEXT AS $$
       FROM dd_descendants(p_table_name) d
       JOIN entities e ON e.table_name = d.table_name
      WHERE e.id_type = 'is_a';
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) IS
 'The quoted argument list of a typeid table''s a_typeid_assign trigger: key column, current prefix, then the prefixes of the entity''s is_a subtypes.';
@@ -7361,7 +7620,7 @@ BEGIN
 END;
 -- SECURITY INVOKER: its callers (dd_install_id_triggers and
 -- build_record_logic_trigger) already run as the owner.
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_key_rule_checks(TEXT, TEXT, TEXT, TEXT) IS
 'When a computed field of a plain or root entity names the key column, creates zz_key_check_insert (where the table has a_typeid_assign) and zz_key_check_update (where it has pk_immutable), which repeat those key checks after the rules; otherwise drops them.';
@@ -7425,7 +7684,7 @@ RETURNS TEXT AS $$
         END,
         format_to_data_type(p_format, p_precision)
     );
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION field_data_type IS
 'PostgreSQL type for a field''s column. Same as format_to_data_type except for reference/parent, which take the type of the referenced entity''s key column so the foreign key can be created: the catalog type when the table exists, else the type the entity''s id_type gives its key. Falls back to the format (BIGINT) when the referenced entity is unknown.';
@@ -7442,7 +7701,7 @@ RETURNS JSONB AS $$
 BEGIN
     RETURN dd_formats()::jsonb -> p_format -> 'type';
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION format_to_json_type IS 
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
@@ -7476,7 +7735,7 @@ RETURNS JSONB AS $$
         END,
         format_to_json_type(p_format)
     );
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION field_json_type IS
 'JSON Schema type for a field''s property. Same as format_to_json_type except for reference/parent, which take the type of the referenced entity''s key field. Falls back to the format when the referenced entity is unknown.';
@@ -7486,20 +7745,21 @@ COMMENT ON FUNCTION field_json_type IS
 -- =====================================================
 -- Determines whether a column should allow NULL values based on its format.
 -- Nullable formats: reference (optional FK), date (unknown date), time (no time
--- given), date-time (not-yet timestamps). None of the three temporal formats
--- has a zero value: a default of midnight or of today would be indistinguishable
--- from a value somebody entered.
+-- given), date-time (not-yet timestamps), uuid (no UUID given). None of the
+-- three temporal formats has a zero value: a default of midnight or of today
+-- would be indistinguishable from a value somebody entered. A UUID has none
+-- either: every value of the type names something.
 -- All other formats use NOT NULL with appropriate defaults.
 
 CREATE OR REPLACE FUNCTION is_nullable(p_format TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN p_format IN ('reference', 'date', 'time', 'date-time');
+    RETURN p_format IN ('reference', 'date', 'time', 'date-time', 'uuid');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION is_nullable IS
-'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, time, and date-time formats.';
+'Determines whether a column should allow NULL values based on its format. Returns TRUE for the reference, date, time, date-time and uuid formats.';
 
 -- =====================================================
 -- UNIQUE VALUE PREDICATE
@@ -7517,7 +7777,7 @@ RETURNS TEXT AS $$
                 THEN format('%I IS NOT NULL AND %I != ''''', p_field.field_name, p_field.field_name)
                 ELSE format('%I IS NOT NULL', p_field.field_name)
            END;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_unique_predicate(fields) IS
 'The WHERE clause of a unique_value field''s partial unique index: NULL is left out for every column type, and the empty string as well for a TEXT column.';
@@ -7568,7 +7828,7 @@ BEGIN
                                             'name', p_index::name::text, 'used_by', v_used_by)::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) IS
 'Raises 90274 when the generated index name of a field is carried by anything other than that field''s own index. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
@@ -7588,7 +7848,7 @@ BEGIN
     EXECUTE format('DROP INDEX public.%I', p_index);
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_drop_own_index(TEXT, TEXT) IS
 'Drops a generated index when it is an index of the given table, and leaves a relation of that name on any other table alone. Returns whether it dropped one.';
@@ -7611,7 +7871,7 @@ CREATE OR REPLACE FUNCTION enum_value_list(p_enum_values JSONB)
 RETURNS JSONB AS $$
     SELECT jsonb_agg(CASE WHEN jsonb_typeof(e) = 'object' THEN e -> 'value' ELSE e END ORDER BY n)
       FROM jsonb_array_elements(p_enum_values) WITH ORDINALITY AS t(e, n);
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enum_value_list IS
 'Returns the values of an enum_values array in order, taking the "value" of an entry that is a {value, label, ...} object. NULL for an empty array.';
@@ -7629,7 +7889,7 @@ BEGIN
     END IF;
     RETURN p_enum_values;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION effective_enum_values IS
 'Returns the effective list of allowed enum entries, values and {value, label} objects as stored: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
@@ -7650,7 +7910,7 @@ BEGIN
     END IF;
     RETURN '';
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION effective_enum_default IS
 'Computes the effective default for an enum field: explicit default_value if set, else empty string, which the required check of a required enum refuses.';
@@ -7698,7 +7958,7 @@ BEGIN
 
     -- Plain numeric constants for numeric columns (NUMERIC(18, n) included)
     IF p_data_type ~ '^(INTEGER|BIGINT|SMALLINT|NUMERIC|DECIMAL|REAL|DOUBLE PRECISION)'
-       AND v_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+       AND v_value ~ '^-?[0-9]+([.][0-9]+)?$' THEN
         RETURN v_value;
     END IF;
 
@@ -7717,7 +7977,7 @@ BEGIN
     -- (so '[]' works for JSONB, '2026-01-01' for DATE, '1e3' for NUMERIC, ...).
     RETURN quote_literal(p_default_value);
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION quote_default_value IS
 'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
@@ -7751,9 +8011,14 @@ BEGIN
         WHEN p_data_type = 'BOOLEAN' THEN 'FALSE'
         WHEN p_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ') THEN 'CURRENT_TIMESTAMP'
         WHEN p_data_type = 'DATE' THEN 'CURRENT_DATE'
+        -- No time at all and no bytes are the zero values of a duration and
+        -- of a binary field. An empty binary value is also what a required
+        -- binary field refuses (dd_required_test).
+        WHEN p_data_type = 'INTERVAL' THEN '''0''::interval'
+        WHEN p_data_type = 'BYTEA' THEN '''''::bytea'
     END;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_column_default IS
 'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
@@ -7817,7 +8082,7 @@ BEGIN
         WHEN 'BYTEA' THEN 'octet_length(' || v_col || ') > 0'
     END;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_test(fields) IS
 'The SQL condition a value of a required field must meet, or NULL when the field gets no required check.';
@@ -7841,7 +8106,7 @@ BEGIN
         USING ERRCODE = '90258',
               HINT = jsonb_build_object('table', v_table, 'field_name', p_field)::text;
 END;
-$$ LANGUAGE plpgsql VOLATILE SET search_path = public;
+$$ LANGUAGE plpgsql VOLATILE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.dd_raise_required(OID, TEXT) IS
 'Raises 90258 for a missing value on a required field. Called from the required check of the field, only when the value is missing.';
@@ -7853,7 +8118,7 @@ RETURNS TEXT AS $$
     SELECT format('CASE WHEN %s THEN TRUE ELSE common.dd_raise_required(tableoid, %L) END',
                   dd_required_test(p_field), p_field.field_name)
      WHERE dd_required_test(p_field) IS NOT NULL;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_check_expr(fields) IS
 'The expression of a required field''s check, or NULL when the field gets none.';
@@ -7864,7 +8129,7 @@ RETURNS BOOLEAN AS $$
         SELECT 1 FROM pg_catalog.pg_constraint c
          WHERE c.conrelid = pg_catalog.to_regclass(format('public.%I', p_rel))
            AND c.conname = p_name::name);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_constraint_exists(TEXT, TEXT) IS
 'Whether a table has a constraint of this name. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
@@ -7877,7 +8142,7 @@ BEGIN
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)', p_rel) INTO v_found;
     RETURN v_found;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_relation_has_rows(TEXT) IS
 'Whether a table has any row. Reads at most one row, so it is safe under a lock.';
@@ -7897,7 +8162,7 @@ BEGIN
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE (%s) IS NOT TRUE)', p_rel, v_test) INTO v_found;
     RETURN v_found;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_field_has_missing(fields, TEXT) IS
 'Whether any row is missing a value for a required field. A plain read: call it before the transaction locks the table.';
@@ -7922,7 +8187,7 @@ BEGIN
         p_field.field_name) INTO v_ok;
     RETURN v_ok;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_default_ok(fields) IS
 'Whether the column default of a required field meets the field''s condition.';
@@ -7941,7 +8206,7 @@ BEGIN
     END IF;
     EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%s) NOT VALID', p_rel, v_name, v_expr);
 END;
-$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_add_required_check(fields, TEXT) IS
 'Adds the required check of a field NOT VALID, unless it has one or gets none. Takes its lock for a moment and gives up after 2 s.';
@@ -7959,7 +8224,7 @@ BEGIN
     EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', p_rel, v_name);
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_drop_required_check(TEXT, TEXT) IS
 'Drops the required check of a field if it has one, and returns whether it did.';
@@ -7983,7 +8248,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_skip_reason(fields, TEXT) IS
 'Why an existing required field must not get its check yet, or NULL when it may. Reads the table, so call it before locking it.';
@@ -8006,7 +8271,7 @@ BEGIN
             USING ERRCODE = '23514', CONSTRAINT = v_name, TABLE = p_rel;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) IS
 'Raises 23514 when a row holds a value outside the enum values of a field. A plain read: call it before locking the table.';
@@ -8034,7 +8299,7 @@ BEGIN
         p_rel, v_name, p_field.field_name, v_list,
         CASE WHEN dd_relation_has_rows(p_rel) THEN ' NOT VALID' ELSE '' END);
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_replace_enum_check(fields, TEXT) IS
 'Replaces the CHECK listing the allowed values of an enum field, or drops it when the field is no longer an enum with values.';
@@ -8057,7 +8322,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_required_delete_mode() IS
 'BEFORE INSERT/UPDATE guard on fields: refuses a required reference whose delete mode is clear, because ON DELETE SET NULL would make every delete of its parent fail.';
@@ -8089,7 +8354,7 @@ BEGIN
     END IF;
     RETURN NULLIF(v_body, '');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_table_comment IS
 'Builds the COMMENT ON TABLE body for an entity: the plural label as a summary line, followed by a blank line and the description when one is set. Returns NULL when both are empty. Used by the entity create and update DDL triggers so both paths stay in sync.';
@@ -8117,7 +8382,7 @@ BEGIN
     END IF;
     RETURN NULLIF(v_body, '');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_field_comment IS
 'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
@@ -8200,7 +8465,7 @@ BEGIN
         v_edit_permission
     );
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION create_entity_policies(TEXT) IS
 'Creates the four RLS policies of a managed entity on its physical relation from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
@@ -8376,7 +8641,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION create_dd_table IS
 'Trigger function that creates a table with RLS policies when a row is inserted into entities table. For an is_a or has_a entity it creates <entity>_ext with its write guard; its view comes from the family refresh the field rows trigger.';
@@ -8421,7 +8686,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_dd_table_comment IS
 'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata. An is_a or has_a entity''s view gets the same comment as its <entity>_ext table.';
@@ -8451,7 +8716,7 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
 CREATE OR REPLACE FUNCTION dd_ctype_is_core(p_ctype TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
@@ -8469,7 +8734,7 @@ GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
 CREATE OR REPLACE FUNCTION dd_ctype_is_label(p_ctype TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_label(TEXT) IS
@@ -8515,7 +8780,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION lock_field_ctype IS
 'BEFORE INSERT/UPDATE guard on fields: only a BYPASSRLS (DD/migration) caller may set or change ctype. Non-privileged users get ctype forced to '''' on INSERT and a rejection on any UPDATE that changes ctype. Keeps ctype (the core marker that "core = ctype <> ''" depends on) un-tamperable.';
@@ -8763,7 +9028,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION add_dd_field IS 
 'Trigger function that adds a column to a table when a row is inserted into fields table.';
@@ -8798,6 +9063,7 @@ DECLARE
     v_old_as_renamed fields;
     v_required_changed BOOLEAN;
     v_enum_changed   BOOLEAN;
+    v_view           TEXT;
 BEGIN
     -- Check if the parent table is managed. The DDL below goes to the entity's
     -- physical relation, <entity>_ext for an is_a or has_a entity.
@@ -8952,6 +9218,34 @@ BEGIN
             NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
     END IF;
 
+    -- A changed precision of a number field. The scale is part of the column's
+    -- type, so the column follows the field: raised, the stored values keep
+    -- their value; lowered, PostgreSQL rounds them, which whoever lowers it
+    -- accepts. Any change of scale rewrites the table under an exclusive lock.
+    --
+    -- PostgreSQL does not alter a column a view shows. The view of an is_a or
+    -- has_a entity shows the columns of its own table and of every base, so
+    -- the views of this entity and of the entities below it go first, the
+    -- lowest first; the family refresh at the end of the statement builds
+    -- them again. Objects somebody else built on them would go with them,
+    -- which is refused as for every change that drops a family view (90256).
+    IF OLD.format = 'number' AND NEW.format = 'number' AND OLD."precision" IS DISTINCT FROM NEW."precision" THEN
+        PERFORM dd_check_family_dependents(ARRAY[NEW.table_name]);
+        FOR v_view IN
+            SELECT e.table_name
+              FROM (SELECT NEW.table_name::text AS table_name, 0 AS depth
+                    UNION ALL
+                    SELECT d.table_name, d.depth FROM dd_descendants(NEW.table_name) d) t
+              JOIN entities e ON e.table_name = t.table_name
+             WHERE e.id_type IN ('is_a', 'has_a')
+             ORDER BY t.depth DESC
+        LOOP
+            EXECUTE format('DROP VIEW IF EXISTS public.%I CASCADE', v_view);
+        END LOOP;
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE %s',
+                       v_rel, NEW.field_name, field_data_type(NEW.format, NEW."precision", NEW.reference_table));
+    END IF;
+
     -- Allow updating nullable constraint (derived from format)
     IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
         IF is_nullable(NEW.format) THEN
@@ -9095,7 +9389,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_dd_field IS
 'Trigger function that updates column properties when a field is updated.
@@ -9189,7 +9483,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION delete_dd_field IS 
 'Trigger function that drops a column when a field is deleted.';
@@ -9311,7 +9605,7 @@ BEGIN
 
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION delete_dd_table IS
 'Trigger function that drops a table when a row is deleted from entities table. Refuses first when entities are still based on it (90248), when fields of other entities reference it (90260) or when an is_a/has_a family entity still has records (90247); for an is_a or has_a entity it drops the view, its generated routines and <entity>_ext.';
@@ -9358,7 +9652,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_entity_policies IS
 'AFTER UPDATE trigger on entities: drops and recreates INSERT, UPDATE, and DELETE
@@ -9402,7 +9696,7 @@ BEGIN
     PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_sync_typeid_prefix() IS
 'AFTER UPDATE OF id_prefix trigger on entities: recreates the a_typeid_assign trigger of a managed typeid entity''s table with the new prefix (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix.';
@@ -9609,7 +9903,7 @@ BEGIN
     );
 
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_search_vector_column IS 
 'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Works for both managed and core tables as long as the physical table exists. Rebuilding is a full table rewrite under ACCESS EXCLUSIVE (~650 ms per 100k rows) that also rebuilds every index on the table, so it is skipped when the generated expression is unchanged; the check is a fingerprint stored in the column comment.';
@@ -9636,7 +9930,7 @@ BEGIN
       AND e.searchable IS DISTINCT FROM dd_entity_searchable(e.table_name);
 
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_table_searchable_flag IS 
 'Auto-maintains the searchable flag of an entity and of the entities based on it (dd_entity_searchable).';
@@ -9672,7 +9966,7 @@ BEGIN
     -- have dropped with CASCADE. Reads and returns when no family is touched.
     PERFORM dd_refresh_family(p_touched);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION apply_field_searchable_change IS
 'Rebuilds search_vector for every table in p_rebuild, recomputes entities.searchable for every table in p_touched and rebuilds the is_a/has_a families among them. Called once per statement by the handle_field_searchable_* triggers.';
@@ -9707,7 +10001,7 @@ BEGIN
     PERFORM apply_field_searchable_change(v_rebuild, v_touched);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION handle_field_searchable_update()
 RETURNS TRIGGER AS $$
@@ -9741,7 +10035,7 @@ BEGIN
     PERFORM apply_field_searchable_change(v_rebuild, v_touched);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION handle_field_searchable_delete()
 RETURNS TRIGGER AS $$
@@ -9757,7 +10051,7 @@ BEGIN
     PERFORM apply_field_searchable_change(v_rebuild, v_touched);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION handle_field_searchable_insert IS
 'Statement-level trigger function: rebuilds search_vector once per table for the fields inserted by one statement.';
@@ -9821,7 +10115,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_title_to_field() IS
 'AFTER UPDATE trigger on entities: writes a changed label_column_label to the title of the entity''s label field.';
@@ -9846,7 +10140,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_title_from_field() IS
 'AFTER INSERT OR UPDATE trigger on fields: copies the title of an entity''s label field into entities.label_column_label; family_label_column_trigger carries it to the is_a and has_a entities based on it.';
@@ -9920,7 +10214,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_marker_follow() IS
 'AFTER UPDATE trigger on entities: moves the label marker (ctype label or computed_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
@@ -9956,7 +10250,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enforce_table_searchable_consistency IS 
 'Trigger function that ensures entities.searchable always reflects the status of related fields, preventing manual overrides.';
@@ -9994,7 +10288,7 @@ BEGIN
             OR e.table_name IN (SELECT d.table_name FROM dd_descendants(p_table_name) d))
        AND e.is_child IS DISTINCT FROM dd_entity_is_child(e.table_name);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_table_is_child_flag IS
 'Auto-maintains the is_child flag of an entity and of the entities based on it: TRUE when any field of the record has format=''parent'' (dd_entity_is_child).';
@@ -10030,7 +10324,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION handle_field_parent_format_change IS 
 'Trigger function that updates entities.is_child when fields with format=''parent'' are created, updated, or deleted.';
@@ -10065,7 +10359,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enforce_table_is_child_consistency IS 
 'Trigger function that ensures entities.is_child always reflects the status of related fields, preventing manual overrides.';
@@ -10213,7 +10507,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_family() IS
 'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
@@ -10242,7 +10536,7 @@ BEGIN
             OR label_column_label IS DISTINCT FROM NEW.label_column_label);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_label_column_changed() IS
 'AFTER UPDATE trigger on entities: carries a changed label_column or label_column_label to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
@@ -10307,7 +10601,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_family_field() IS
 'BEFORE INSERT OR UPDATE trigger on fields: refuses a field name that an ancestor or descendant of the entity already uses (90243), and a cascading reference field on an is_a entity (90249).';
@@ -10368,7 +10662,7 @@ RETURNS TABLE (ord BIGINT, depth INTEGER, rel TEXT, column_name TEXT) AS $$
                       AND att.attnum > 0
                       AND NOT att.attisdropped)
      ORDER BY f.ordinality;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_columns(TEXT) IS
 'The data columns of an entity''s record (dd_family_fields without the key and audit fields) that exist physically, with the depth and physical relation of the level that stores each. Used by the family view and write-routine generators.';
@@ -10470,7 +10764,7 @@ BEGIN
     EXECUTE format('COMMENT ON VIEW public.%I IS %L', p_table_name, v_comment);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user', p_table_name);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 'Creates the security_invoker view of an is_a/has_a entity over its <entity>_ext table and the relations of its bases, with the column defaults and comments of the physical columns, its comment and the request-role grant. Called by dd_refresh_family.';
@@ -10491,7 +10785,7 @@ RETURNS TEXT AS $$
                   || E'\n                      HINT = jsonb_build_object(''column'', %1$L, ''table'', %3$L)::text;'
                   || E'\n        END IF;',
                   p_key, p_was, p_table, CASE WHEN p_when = '' THEN '' ELSE p_when || ' AND ' END);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) IS
 'PL/pgSQL text for a generated write routine: raises 90236 when the key of v_new differs from that of the named record variable, optionally only under a condition.';
@@ -10504,7 +10798,7 @@ RETURNS TEXT AS $$
                   || E'\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %2$L, ''table'', %3$L)::text;'
                   || E'\n        END IF;',
                   p_key, p_prefix, p_table, CASE WHEN p_when = '' THEN '' ELSE p_when || ' AND ' END);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) IS
 'PL/pgSQL text for a generated write routine: raises 90237 when the key of v_new does not carry the given TypeID prefix, optionally only under a condition.';
@@ -10909,7 +11203,7 @@ $BODY$,
     EXECUTE format($FUNC$
 CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
 RETURNS %2$s
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
 AS %3$s;
 $FUNC$, v_fn, v_type, dd_dollar_quote(v_body));
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
@@ -10917,7 +11211,7 @@ $FUNC$, v_fn, v_type, dd_dollar_quote(v_body));
     EXECUTE format('COMMENT ON FUNCTION common.%I(text, %s, %s, boolean) IS %L', v_fn, v_type, v_type,
         format('Writes (insert/update/delete) one record whose own type is "%s": every part of it, the rules of every derived level, locking every written level first. Returns the stored record, or NULL when the caller may not write a part. Generated by dd_refresh_family.', p_table_name));
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_record_write(TEXT) IS
 'Generates common.record_write_<entity>, the one routine that writes a record of an is_a/has_a entity. Called by dd_refresh_family.';
@@ -10995,7 +11289,7 @@ BEGIN
             p_table_name);
     END LOOP;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) IS
 'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id; a record the caller cannot read through the descendant''s view is skipped, one missing a part raises 90255. Shared by the view triggers and the root''s dispatch trigger.';
@@ -11029,7 +11323,7 @@ BEGIN
     EXECUTE format($FUNC$
 CREATE OR REPLACE FUNCTION common.%I()
 RETURNS trigger
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog, pg_temp
 AS %s;
 $FUNC$, v_fn, dd_dollar_quote(format($BODY$
 #variable_conflict use_variable
@@ -11068,7 +11362,7 @@ $BODY$,
             FOR EACH ROW EXECUTE FUNCTION common.%I()',
         p_table_name, v_fn);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_view_write(TEXT) IS
 'Generates the INSTEAD OF trigger common.view_write_<entity> of an is_a/has_a entity''s view and installs it. Called by dd_refresh_family.';
@@ -11102,7 +11396,7 @@ BEGIN
     EXECUTE format($FUNC$
 CREATE OR REPLACE FUNCTION common.%I()
 RETURNS trigger
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog, pg_temp
 AS %s;
 $FUNC$, v_fn, dd_dollar_quote(format($BODY$
 #variable_conflict use_variable
@@ -11132,7 +11426,7 @@ $BODY$,
             FOR EACH ROW EXECUTE FUNCTION common.%I()',
         p_root, v_fn);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_is_a_dispatch(TEXT) IS
 'Generates and installs the dispatch trigger of an is_a root (common.is_a_dispatch_<root>), or drops it when the root has no is_a subtype left. Called by dd_refresh_family.';
@@ -11149,7 +11443,7 @@ CREATE OR REPLACE FUNCTION common.has_a_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_found BOOLEAN;
@@ -11188,7 +11482,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_key     TEXT;
@@ -11266,7 +11560,7 @@ RETURNS BOOLEAN AS $$
                                          AND (p.proname = '_label' OR p.proname LIKE '%\_label'))))))
         ELSE FALSE
     END;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_generated_view_dependent(OID, OID, OID[]) IS
 'TRUE when the object (pg_depend classid, objid) that depends on one of the family views p_views is one the dictionary generates for them: a view''s rule, column default, row or array type, view_write trigger, write/view-trigger/dispatch routine, _label or <fk>_label function, or select_rule function.';
@@ -11304,7 +11598,7 @@ RETURNS TABLE (view_name TEXT, dependent TEXT) AS $$
            END
       FROM dep
      WHERE NOT dep.generated;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_view_dependents(OID[]) IS
 'The objects built on the family views p_views, directly or through a generated object, that the dictionary did not generate (dd_generated_view_dependent), each with the view it depends on.';
@@ -11347,7 +11641,7 @@ BEGIN
                       'hint', 'Drop those objects, make the change, then create them again.')::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_family_dependents(TEXT[]) IS
 'Raises 90256 when objects the dictionary did not generate depend on a view of a family containing any of the given entities, before a change drops those views. Returns at once for entities outside every family.';
@@ -11462,7 +11756,7 @@ BEGIN
         DELETE FROM audit.generated_ddl WHERE transaction_id = pg_current_xact_id();
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_refresh_family(TEXT[]) IS
 'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s a_typeid_assign and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
@@ -11480,7 +11774,7 @@ BEGIN
     PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_member_changed() IS
 'AFTER UPDATE (rename) and AFTER DELETE trigger on entities: rebuilds the family of a renamed entity, or of a deleted is_a/has_a entity''s base.';
@@ -11654,7 +11948,7 @@ BEGIN
 
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
 'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
@@ -11669,7 +11963,7 @@ COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
 CREATE OR REPLACE FUNCTION get_record_by_id(p_entity TEXT, p_record_id BIGINT)
 RETURNS JSONB AS $$
     SELECT public.get_record_by_id(p_entity, p_record_id::text);
-$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, BIGINT) IS
 'Numeric-key convenience overload of get_record_by_id(TEXT, TEXT): same result, same access checks.';
@@ -11815,7 +12109,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '3331946fe9a6508b76f8462403a5563fffb3e1f7793ce61339a0b714be7f0497')
+        VALUES ('_core.0160_dd_functions.sql', '6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -11852,7 +12146,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -11958,6 +12252,7 @@ BEGIN
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
                 WHERE schemaname = 'public'
+                  AND tablename = v_new_rel
                   AND indexname = v_old_rel || '_search_vector_idx'
             ) THEN
                 EXECUTE format(
@@ -11969,10 +12264,16 @@ BEGIN
 
             -- Rename id sequence (<table>_<id_col>_seq)
             IF EXISTS (
-                SELECT 1 FROM pg_class
-                WHERE relname = v_old_rel || '_' || OLD.id_column || '_seq'
-                  AND relnamespace = 'public'::regnamespace
-                  AND relkind = 'S'
+                SELECT 1 FROM pg_class c
+                WHERE c.relname = v_old_rel || '_' || OLD.id_column || '_seq'
+                  AND c.relnamespace = 'public'::regnamespace
+                  AND c.relkind = 'S'
+                  -- The table's own: table a with key b_c and table a_b with
+                  -- key c spell one sequence name.
+                  AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend d
+                               WHERE d.objid = c.oid
+                                 AND d.refobjid = pg_catalog.to_regclass(format('public.%I', v_new_rel))
+                                 AND d.deptype IN ('a', 'i'))
             ) THEN
                 EXECUTE format(
                     'ALTER SEQUENCE %I RENAME TO %I',
@@ -12006,7 +12307,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_fkey') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_fkey') ESCAPE '\'
                   AND c.contype = 'f'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -12020,9 +12321,15 @@ BEGIN
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = v_new_rel
-                  AND indexname LIKE ('idx\_' || v_old_rel || '\_%') ESCAPE '\'
+                  AND indexname LIKE ('idx\_' || replace(v_old_rel, '_', '\_') || '\_%') ESCAPE '\'
             LOOP
                 v_new_name := 'idx_' || v_new_rel || substring(v_old_name FROM length('idx_' || v_old_rel) + 1);
+                -- An index name is unique in the schema, and the new table
+                -- name can spell, with this field, the name the index of
+                -- another table carries (dd_index_name_free). The field is
+                -- what follows idx_<table>_ in the name.
+                PERFORM dd_index_name_free(NEW.table_name, v_new_rel,
+                                           substring(v_old_name FROM length('idx_' || v_old_rel) + 2), v_new_name);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
@@ -12033,7 +12340,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_check') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_check') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -12050,7 +12357,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_assert') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_assert') ESCAPE '\'
                   AND c.contype = 'c'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
@@ -12071,7 +12378,7 @@ BEGIN
                 JOIN pg_class t ON c.conrelid = t.oid
                 WHERE t.relname = v_new_rel
                   AND t.relnamespace = 'public'::regnamespace
-                  AND c.conname LIKE (v_old_rel || '\_%\_not\_null') ESCAPE '\'
+                  AND c.conname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_not\_null') ESCAPE '\'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
                 EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
@@ -12084,9 +12391,16 @@ BEGIN
                 FROM pg_indexes
                 WHERE schemaname = 'public'
                   AND tablename = v_new_rel
-                  AND indexname LIKE (v_old_rel || '\_%\_unique') ESCAPE '\'
+                  AND indexname LIKE (replace(v_old_rel, '_', '\_') || '\_%\_unique') ESCAPE '\'
             LOOP
                 v_new_name := v_new_rel || substring(v_old_name FROM length(v_old_rel) + 1);
+                -- As for the reference indexes above; the field stands
+                -- between <table>_ and _unique.
+                PERFORM dd_index_name_free(
+                    NEW.table_name, v_new_rel,
+                    substring(v_old_name FROM length(v_old_rel) + 2
+                                         FOR length(v_old_name) - length(v_old_rel) - 1 - length('_unique')),
+                    v_new_name);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_name, v_new_name);
             END LOOP;
 
@@ -12130,7 +12444,7 @@ BEGIN
                 JOIN pg_class c ON t.tgrelid = c.oid
                 WHERE c.relname = NEW.table_name
                   AND c.relnamespace = 'public'::regnamespace
-                  AND t.tgname LIKE ('%\_on\_' || OLD.table_name) ESCAPE '\'
+                  AND t.tgname LIKE ('%\_on\_' || replace(OLD.table_name, '_', '\_')) ESCAPE '\'
                   AND t.tgname LIKE 'queue\_%' ESCAPE '\'
             LOOP
                 v_new_name := substring(v_old_name FROM 1 FOR length(v_old_name) - length(OLD.table_name))
@@ -12144,7 +12458,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
@@ -12189,7 +12503,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rename_dd_reference_tables IS
 'AFTER UPDATE trigger on entities: when table_name changes, updates fields.reference_table
@@ -12208,46 +12522,135 @@ COMMENT ON TRIGGER rename_reference_tables_trigger ON entities IS
 -- =====================================================
 -- STEP 1c: TRIGGER FUNCTION: CASCADE set_record entity refs ON entities.table_name UPDATE
 -- =====================================================
--- Fires AFTER UPDATE on entities when table_name changes.
--- Scans all entities for JsonLogic set_record references to the old table name
--- in computed_fields, validation_rules, and select_rule, and replaces them with
--- the new name via simple text replacement on the JSONB.
+-- Fires AFTER UPDATE on entities when table_name changes, and gives the rules
+-- of every entity the new name wherever a set_record names the old one.
+--
+-- Only the second argument of a set_record names an entity. The same text can
+-- stand in a rule where it is no table: a value the rule compares or joins,
+-- the name a let binds, the message of a validation rule. So the rule is
+-- walked the way the evaluator reads it and that one argument is replaced; a
+-- replace over the rule's text would rename all of them.
+
+-- p_rule with p_new in place of p_old as the entity of every set_record. An
+-- array is a list of rules and an object with one key an operation whose
+-- arguments are rules; anything else is a value and comes back as it is. The
+-- name of a let and the name of a set_record are names, not rules.
+CREATE OR REPLACE FUNCTION jl_rename_set_record_entity(p_rule JSONB, p_old TEXT, p_new TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    v_op    TEXT;
+    v_args  JSONB;
+    v_out   JSONB := '[]'::jsonb;
+    v_arg   JSONB;
+    v_list  BOOLEAN;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            v_out := v_out || jsonb_build_array(jl_rename_set_record_entity(p_rule -> i, p_old, p_new));
+        END LOOP;
+        RETURN v_out;
+    END IF;
+
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN p_rule;
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    v_args := p_rule -> v_op;
+    v_list := jsonb_typeof(v_args) = 'array';
+    IF NOT v_list THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+
+    FOR i IN 0 .. jsonb_array_length(v_args) - 1 LOOP
+        v_arg := v_args -> i;
+        IF v_op = 'set_record' AND i = 1 THEN
+            IF jsonb_typeof(v_arg) = 'string' AND v_arg #>> '{}' = p_old THEN
+                v_arg := to_jsonb(p_new);
+            END IF;
+        ELSIF NOT (i = 0 AND v_op IN ('let', 'set_record')) THEN
+            v_arg := jl_rename_set_record_entity(v_arg, p_old, p_new);
+        END IF;
+        v_out := v_out || jsonb_build_array(v_arg);
+    END LOOP;
+
+    RETURN jsonb_build_object(v_op, CASE WHEN v_list THEN v_out ELSE v_out -> 0 END);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION jl_rename_set_record_entity(JSONB, TEXT, TEXT) IS
+'A JsonLogic rule with p_new in place of p_old as the entity argument of every set_record in it, at any depth. Nothing else in the rule is changed: a text, a let name or a var equal to p_old stays.';
+
+REVOKE EXECUTE ON FUNCTION jl_rename_set_record_entity(JSONB, TEXT, TEXT) FROM PUBLIC;
+
+-- The list of rules of an entity, computed_fields or validation_rules, with
+-- the "jsonlogic" of every entry rewritten. An entry that is no object, or has
+-- no rule, stays as it is, and so does everything else in an entry.
+CREATE OR REPLACE FUNCTION jl_rename_set_record_entities(p_rules JSONB, p_old TEXT, p_new TEXT)
+RETURNS JSONB AS $$
+    SELECT COALESCE(jsonb_agg(
+               CASE WHEN jsonb_typeof(t.item) = 'object' AND t.item ? 'jsonlogic'
+                    THEN jsonb_set(t.item, '{jsonlogic}',
+                                   jl_rename_set_record_entity(t.item -> 'jsonlogic', p_old, p_new))
+                    ELSE t.item END
+               ORDER BY t.ord), '[]'::jsonb)
+      FROM jsonb_array_elements(p_rules) WITH ORDINALITY AS t(item, ord);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION jl_rename_set_record_entities(JSONB, TEXT, TEXT) IS
+'A list of computed fields or validation rules with jl_rename_set_record_entity applied to the jsonlogic of every entry.';
+
+REVOKE EXECUTE ON FUNCTION jl_rename_set_record_entities(JSONB, TEXT, TEXT) FROM PUBLIC;
+
+-- The two helpers are new objects of this file, and on an upgrade the trigger
+-- function below already runs as semantius_owner, while they stay owned by
+-- the installer until 9900_owner_hardening.sql runs last.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            jl_rename_set_record_entity(JSONB, TEXT, TEXT),
+            jl_rename_set_record_entities(JSONB, TEXT, TEXT)
+        TO semantius_owner;
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION rename_dd_jsonlogic_refs()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_old_quoted TEXT;
-    v_new_quoted TEXT;
+    -- The name as it stands in the text of a rule. It only narrows the rows
+    -- the rewrite visits; the rewrite itself looks at the argument.
+    v_old_quoted TEXT := to_jsonb(OLD.table_name)::text;
 BEGIN
-    v_old_quoted := '"' || OLD.table_name || '"';
-    v_new_quoted := '"' || NEW.table_name || '"';
-
-    -- Update set_record entity name references in computed_fields
     UPDATE entities
-    SET computed_fields = replace(computed_fields::text, v_old_quoted, v_new_quoted)::jsonb
-    WHERE computed_fields::text LIKE '%set_record%'
-      AND computed_fields::text LIKE '%' || v_old_quoted || '%';
+    SET computed_fields = jl_rename_set_record_entities(computed_fields, OLD.table_name, NEW.table_name)
+    WHERE jsonb_typeof(computed_fields) = 'array'
+      AND position('set_record' IN computed_fields::text) > 0
+      AND position(v_old_quoted IN computed_fields::text) > 0;
 
-    -- Update set_record entity name references in validation_rules
     UPDATE entities
-    SET validation_rules = replace(validation_rules::text, v_old_quoted, v_new_quoted)::jsonb
-    WHERE validation_rules::text LIKE '%set_record%'
-      AND validation_rules::text LIKE '%' || v_old_quoted || '%';
+    SET validation_rules = jl_rename_set_record_entities(validation_rules, OLD.table_name, NEW.table_name)
+    WHERE jsonb_typeof(validation_rules) = 'array'
+      AND position('set_record' IN validation_rules::text) > 0
+      AND position(v_old_quoted IN validation_rules::text) > 0;
 
-    -- Update set_record entity name references in select_rule
     UPDATE entities
-    SET select_rule = replace(select_rule::text, v_old_quoted, v_new_quoted)::jsonb
-    WHERE select_rule::text LIKE '%set_record%'
-      AND select_rule::text LIKE '%' || v_old_quoted || '%';
+    SET select_rule = jl_rename_set_record_entity(select_rule, OLD.table_name, NEW.table_name)
+    WHERE position('set_record' IN select_rule::text) > 0
+      AND position(v_old_quoted IN select_rule::text) > 0;
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rename_dd_jsonlogic_refs IS
-'AFTER UPDATE trigger on entities: when table_name changes, updates set_record entity
-name references in computed_fields, validation_rules, and select_rule across ALL entities
-that contain the old table name.';
+'AFTER UPDATE trigger on entities: when table_name changes, gives every set_record that names the
+old table the new name, in the computed_fields, validation_rules and select_rule of ALL entities.
+Only the entity argument of a set_record is rewritten.';
 
 REVOKE EXECUTE ON FUNCTION rename_dd_jsonlogic_refs() FROM PUBLIC;
 
@@ -12269,9 +12672,84 @@ COMMENT ON TRIGGER rename_jsonlogic_refs_trigger ON entities IS
 --      Also renames associated FK constraints, indexes, and check constraints.
 --   B) format validation  → reject if the new format maps to a different data type.
 
+-- A rule reads a field by its name, and a rename rewrites no rule: the rule
+-- would go on reading the old name, find nothing there, and decide on null
+-- without a word. So a field that a rule names is not renamed, and the error
+-- names the rule to change first.
+--
+-- The rules that count are the computed fields, the validation rules and the
+-- select_rule of the entity and the input_type_rule of its fields, and the
+-- same rules of every is_a or has_a entity below it: their records include
+-- the field, and no entity of a family repeats a field name of another (90243),
+-- so a name in such a rule is this field. A rule names the field when it reads
+-- it (jl_row_keys: the field itself or a path below it, also behind $old), and
+-- a computed field names the one it writes. What is not found: a field read
+-- through the alias of a set_record in another entity's rule.
+CREATE OR REPLACE FUNCTION dd_rule_naming_field(p_table TEXT, p_field TEXT, OUT p_entity TEXT, OUT p_rule TEXT)
+AS $fn$
+    WITH members AS (
+        SELECT p_table AS table_name, 0 AS depth
+        UNION ALL
+        SELECT d.table_name, d.depth FROM dd_descendants(p_table) d
+    ),
+    rules AS (
+        SELECT m.depth, e.table_name, 1 AS kind, c.ord, format('computed_fields[%s]', c.ord - 1) AS rule,
+               c.item -> 'jsonlogic' AS logic, split_part(c.item ->> 'name', '.', 1) AS writes
+          FROM members m
+          JOIN entities e ON e.table_name = m.table_name
+         CROSS JOIN LATERAL jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(e.computed_fields) = 'array' THEN e.computed_fields ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS c(item, ord)
+        UNION ALL
+        SELECT m.depth, e.table_name, 2, v.ord, format('validation_rules[%s]', v.ord - 1),
+               v.item -> 'jsonlogic', NULL
+          FROM members m
+          JOIN entities e ON e.table_name = m.table_name
+         CROSS JOIN LATERAL jsonb_array_elements(
+                   CASE WHEN jsonb_typeof(e.validation_rules) = 'array' THEN e.validation_rules ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS v(item, ord)
+        UNION ALL
+        SELECT m.depth, e.table_name, 3, 1, 'select_rule', e.select_rule, NULL
+          FROM members m
+          JOIN entities e ON e.table_name = m.table_name
+        UNION ALL
+        SELECT m.depth, f.table_name, 4, f.field_order, f.field_name || '.input_type_rule', f.input_type_rule, NULL
+          FROM members m
+          JOIN fields f ON f.table_name = m.table_name
+    )
+    SELECT r.table_name, r.rule
+      FROM rules r
+     WHERE r.writes = p_field
+        OR EXISTS (SELECT 1
+                     FROM jl_row_keys(r.logic) AS k(key)
+                    WHERE k.key = p_field
+                       OR starts_with(k.key, p_field || '.')
+                       OR k.key = '$old.' || p_field
+                       OR starts_with(k.key, '$old.' || p_field || '.'))
+     ORDER BY r.depth, r.table_name, r.kind, r.ord, r.rule
+     LIMIT 1;
+$fn$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_naming_field(TEXT, TEXT) IS
+'The first rule that names a field of an entity: the entity the rule belongs to and its place there (computed_fields[0], validation_rules[2], select_rule, <field>.input_type_rule). Looks at the entity and at every is_a or has_a entity below it. No row when no rule names the field.';
+
+REVOKE EXECUTE ON FUNCTION dd_rule_naming_field(TEXT, TEXT) FROM PUBLIC;
+
+-- New in this file and called by the definer trigger function below, which on
+-- an upgrade already runs as semantius_owner while this function stays owned
+-- by the installer until 9900_owner_hardening.sql runs last.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION dd_rule_naming_field(TEXT, TEXT) TO semantius_owner;
+    END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION validate_field_rename_and_format()
 RETURNS TRIGGER AS $$
 DECLARE
+    v_rule_entity TEXT;
+    v_rule_name   TEXT;
     v_is_managed  BOOLEAN;
     v_old_type    TEXT;
     v_new_type    TEXT;
@@ -12316,6 +12794,15 @@ BEGIN
             END IF;
         END IF;
 
+        SELECT n.p_entity, n.p_rule INTO v_rule_entity, v_rule_name
+          FROM dd_rule_naming_field(OLD.table_name, OLD.field_name) n;
+        IF v_rule_name IS NOT NULL THEN
+            RAISE EXCEPTION 'Field ${field_name} cannot be renamed while ${rule} on ${table} names it'
+                USING ERRCODE = '90275',
+                      HINT = jsonb_build_object('field_name', OLD.field_name, 'table', v_rule_entity,
+                                                'rule', v_rule_name)::text;
+        END IF;
+
         IF v_is_managed THEN
             -- Rename the physical column
             EXECUTE format(
@@ -12350,11 +12837,14 @@ BEGIN
                 RAISE NOTICE 'Renamed FK constraint "%" to "%"', v_old_fk, v_new_fk;
             END IF;
 
-            -- Rename FK index if it exists
+            -- Rename FK index if it exists. The index has to be this table's:
+            -- table a with field b_c and table a_b with field c spell one
+            -- name, and the new name must not be one another index carries.
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
-                WHERE schemaname = 'public' AND indexname = v_old_idx
+                WHERE schemaname = 'public' AND tablename = v_rel AND indexname = v_old_idx
             ) THEN
+                PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_new_idx);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_idx, v_new_idx);
                 RAISE NOTICE 'Renamed index "%" to "%"', v_old_idx, v_new_idx;
             END IF;
@@ -12372,11 +12862,12 @@ BEGIN
                 RAISE NOTICE 'Renamed check constraint "%" to "%"', v_old_check, v_new_check;
             END IF;
 
-            -- Rename unique index if it exists
+            -- Rename unique index if it exists, under the same two conditions.
             IF EXISTS (
                 SELECT 1 FROM pg_indexes
-                WHERE schemaname = 'public' AND indexname = v_old_unique
+                WHERE schemaname = 'public' AND tablename = v_rel AND indexname = v_old_unique
             ) THEN
+                PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_new_unique);
                 EXECUTE format('ALTER INDEX %I RENAME TO %I', v_old_unique, v_new_unique);
                 RAISE NOTICE 'Renamed unique index "%" to "%"', v_old_unique, v_new_unique;
             END IF;
@@ -12439,7 +12930,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_field_rename_and_format IS
 'BEFORE UPDATE trigger on fields.
@@ -12462,7 +12953,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', '35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4')
+        VALUES ('_core.0170_dd_rename.sql', 'cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12499,7 +12990,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6b3066aef57d22b1c8b7f213a304c9465267792877499e2b815d3ac32f92ac00') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -12639,7 +13130,7 @@ BEGIN
         END;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION apply_field_ddl(fields) IS
 'Idempotent helper: applies ADD COLUMN + FK + CHECK + unique-index DDL for a
@@ -12677,7 +13168,7 @@ BEGIN
                       'hint', 'Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.')::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) IS
 'Raises 90239 when an entity about to become managed has an id field row whose format differs from the one its id_type gives the key. Called by enable_dd_table before it changes anything.';
@@ -12964,7 +13455,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
@@ -13096,7 +13587,7 @@ BEGIN
             p_skipped := p_skipped || jsonb_build_object('table', p_table, 'reason', SQLERRM);
     END;
 END;
-$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_missing_checks(TEXT) IS
 'Adds the missing required checks of one table, the next managed entity after p_after, and resets the column default of its required enums without an explicit default. Reads first, locks for a moment, and skips what must wait, reporting it in p_skipped. Called in a loop by the migration runners, one transaction per table.';
@@ -13134,7 +13625,7 @@ REVOKE EXECUTE ON FUNCTION dd_check_id_field(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC
 CREATE OR REPLACE FUNCTION dd_is_fk_format(p_format TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$ SELECT p_format IN ('reference', 'parent') $$;
 
 COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
@@ -13147,7 +13638,7 @@ COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_is_junction(p_table_name TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT CASE
     WHEN NOT EXISTS (SELECT 1 FROM entities WHERE table_name = p_table_name) THEN FALSE
@@ -13177,7 +13668,7 @@ COMMENT ON FUNCTION dd_is_junction(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_spine_parent(p_table_name TEXT)
 RETURNS TEXT
 LANGUAGE sql STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
   SELECT COALESCE((
     SELECT f.reference_table
@@ -13199,7 +13690,7 @@ CREATE OR REPLACE FUNCTION rebuild_entity_label_functions(p_table_name TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $fn$
 DECLARE
     v_label_col   TEXT;
@@ -13238,7 +13729,10 @@ BEGIN
     PERFORM set_config('check_function_bodies', 'off', true);
 
     -- Drop every label function currently bound to this row type (clears stale companions after a
-    -- field rename / drop / format change before recreating the live set).
+    -- field rename / drop / format change before recreating the live set). A name ending in
+    -- _label is not enough to tell one: select_rule_<entity> of an entity named ..._label ends
+    -- in it too, and takes the same one argument. What this function generated says so in
+    -- its comment.
     FOR r IN
         SELECT p.oid::regprocedure AS sig
         FROM pg_proc p
@@ -13247,6 +13741,7 @@ BEGIN
           AND (p.proname = '_label' OR p.proname LIKE '%\_label')
           AND p.pronargs = 1
           AND p.proargtypes[0] = to_regtype(v_rowtype)::oid
+          AND pg_catalog.obj_description(p.oid, 'pg_proc') LIKE '%Generated by rebuild_entity_label_functions%'
     LOOP
         -- Build the statement first, then EXECUTE the variable: the plpgsql_check
         -- profiler re-evaluates an EXECUTE's string expression after the statement
@@ -13336,7 +13831,7 @@ BEGIN
     -- generated function, so nothing spliced into the body can end it.
     EXECUTE format(
         'CREATE OR REPLACE FUNCTION public._label(rec %s) RETURNS text '
-        'LANGUAGE sql STABLE SET search_path = public AS %s',
+        'LANGUAGE sql STABLE SET search_path = public, pg_temp AS %s',
         v_rowtype, dd_dollar_quote(' ' || v_body || ' '));
     -- Computed-label functions are SECURITY INVOKER (default): keep them off PUBLIC but executable
     -- by the request role so they work as PostgREST computed columns and in nested _label calls.
@@ -13369,7 +13864,7 @@ BEGIN
             WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
         EXECUTE format(
             'CREATE OR REPLACE FUNCTION public.%I(rec %s) RETURNS text '
-            'LANGUAGE sql STABLE SET search_path = public AS %s',
+            'LANGUAGE sql STABLE SET search_path = public, pg_temp AS %s',
             r.field_name || '_label', v_rowtype,
             dd_dollar_quote(format(' SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I ',
                                    r.reference_table, v_parent_id, r.field_name)));
@@ -13404,7 +13899,7 @@ every reference field of the record gets its <fk>_label. The family refresh call
 CREATE OR REPLACE FUNCTION reserve_field_namespace()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE v_priv BOOLEAN;
 BEGIN
@@ -13428,6 +13923,48 @@ CREATE OR REPLACE TRIGGER fields_reserve_namespace_trigger
     BEFORE INSERT OR UPDATE OF field_name ON fields
     FOR EACH ROW
     EXECUTE FUNCTION reserve_field_namespace();
+
+-- The names generated from a field carry the name of its relation and its
+-- own: idx_<rel>_<field>, <rel>_<field>_fkey, _check, _unique, _assert and,
+-- the longest, <rel>_<field>_not_null, which PostgreSQL gives the NOT NULL
+-- constraint of the column and which puts 10 bytes around the two. PostgreSQL
+-- cuts an identifier at 63 bytes without an error, and a cut name can be the
+-- name of another field's constraint: the second field's check is then
+-- skipped as already there, and dropping it drops the first field's. So a
+-- field whose longest generated name would not fit is refused, when it is
+-- created and when it is renamed. A field that is there already is left
+-- alone. The relation of an is_a or has_a entity is <entity>_ext.
+CREATE OR REPLACE FUNCTION reserve_field_name_length()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_max INT := 63 - 10 - octet_length(dd_relation(NEW.table_name));
+BEGIN
+    IF octet_length(NEW.field_name) > v_max
+       AND (TG_OP = 'INSERT' OR NEW.field_name <> OLD.field_name) THEN
+        RAISE EXCEPTION 'Field name ${field_name} on ${table} is ${length} bytes long: the names generated from it fit only up to ${max} bytes'
+            USING ERRCODE = '90276',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'length', octet_length(NEW.field_name), 'max', v_max)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION reserve_field_name_length() IS
+'Trigger function that refuses a field whose longest generated name, <relation>_<field>_not_null, would be longer than 63 bytes (90276): on INSERT and on a rename. Nobody is exempt.';
+
+REVOKE EXECUTE ON FUNCTION reserve_field_name_length() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER a_field_name_length_trigger
+    BEFORE INSERT OR UPDATE OF field_name ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION reserve_field_name_length();
+
+COMMENT ON TRIGGER a_field_name_length_trigger ON fields IS
+'Refuses creating a field, or renaming one, under a name whose generated names would be cut at 63 bytes.';
 
 -- =====================================================
 -- §9b TABLE NAMES AN ENTITY CANNOT TAKE
@@ -13467,8 +14004,10 @@ CREATE OR REPLACE TRIGGER fields_reserve_namespace_trigger
 CREATE OR REPLACE FUNCTION reserve_table_namespace()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY INVOKER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_field TEXT;
 BEGIN
     IF NEW.table_name ~ '^_'
        AND (TG_OP = 'INSERT'
@@ -13488,12 +14027,32 @@ BEGIN
                   HINT = jsonb_build_object('table', NEW.table_name,
                                             'length', octet_length(NEW.table_name), 'max', 41)::text;
     END IF;
+
+    -- A longer table name leaves less room for the names generated from the
+    -- fields the entity has (reserve_field_name_length): a rename under which
+    -- one of them would no longer fit is refused, naming the longest.
+    IF TG_OP = 'UPDATE' AND octet_length(NEW.table_name) > octet_length(OLD.table_name) THEN
+        SELECT f.field_name INTO v_field
+          FROM fields f
+         WHERE f.table_name = OLD.table_name
+           AND octet_length(dd_relation(NEW.table_name, NEW.id_type)) + octet_length(f.field_name) + 10 > 63
+         ORDER BY octet_length(f.field_name) DESC, f.field_name
+         LIMIT 1;
+        IF v_field IS NOT NULL THEN
+            RAISE EXCEPTION 'Field name ${field_name} on ${table} is ${length} bytes long: the names generated from it fit only up to ${max} bytes'
+                USING ERRCODE = '90276',
+                      HINT = jsonb_build_object(
+                          'table', NEW.table_name, 'field_name', v_field,
+                          'length', octet_length(v_field),
+                          'max', 63 - 10 - octet_length(dd_relation(NEW.table_name, NEW.id_type)))::text;
+        END IF;
+    END IF;
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION reserve_table_namespace() IS
-'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
+'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. A rename to a longer name is also refused while a field of the entity would no longer fit under it (90276). Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
 
 REVOKE EXECUTE ON FUNCTION reserve_table_namespace() FROM PUBLIC;
 
@@ -13503,7 +14062,7 @@ CREATE OR REPLACE TRIGGER a_reserve_table_namespace_trigger
     EXECUTE FUNCTION reserve_table_namespace();
 
 COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
-'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes.';
+'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes, and a rename under which a field''s generated names would be cut.';
 
 -- =====================================================
 -- §10 label_parent VALIDATION  (+ §2/§11 acyclic, no self-reference)
@@ -13511,7 +14070,7 @@ COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
 CREATE OR REPLACE FUNCTION validate_label_parent()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_fmt  TEXT;
@@ -13583,6 +14142,41 @@ CREATE OR REPLACE TRIGGER validate_label_parent_trigger
     FOR EACH ROW
     EXECUTE FUNCTION validate_label_parent();
 
+-- The other side of the same rule. label_parent is checked when the entity is
+-- written, and the field it names can change afterward: a spine that is no
+-- reference any more composes nothing, and the label would fall back to the
+-- record's own without a word. So the field keeps a reference format while
+-- its entity names it; label_parent is cleared first.
+CREATE OR REPLACE FUNCTION keep_label_parent_format()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF dd_is_fk_format(OLD.format) AND NOT dd_is_fk_format(NEW.format)
+       AND EXISTS (SELECT 1 FROM entities e
+                    WHERE e.table_name = OLD.table_name AND e.label_parent = OLD.field_name) THEN
+        RAISE EXCEPTION 'Field ${field_name} is the label_parent of ${table} and has to stay a reference or parent field'
+            USING ERRCODE = '90277',
+                  HINT = jsonb_build_object('field_name', OLD.field_name, 'table', OLD.table_name)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION keep_label_parent_format() IS
+'Trigger function that refuses changing the format of a field away from reference or parent while its entity names it as label_parent (90277).';
+
+REVOKE EXECUTE ON FUNCTION keep_label_parent_format() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER a_keep_label_parent_format_trigger
+    BEFORE UPDATE OF format ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION keep_label_parent_format();
+
+COMMENT ON TRIGGER a_keep_label_parent_format_trigger ON fields IS
+'Refuses a format change that would leave an entity''s label_parent naming a field that is no reference.';
+
 -- =====================================================
 -- LIFECYCLE WIRING  (zzz_ names → fire AFTER the structural DD triggers)
 -- =====================================================
@@ -13591,7 +14185,7 @@ CREATE OR REPLACE TRIGGER validate_label_parent_trigger
 CREATE OR REPLACE FUNCTION dd_label_fn_sync_entity()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 BEGIN
     IF TG_OP = 'UPDATE' AND OLD.table_name IS DISTINCT FROM NEW.table_name THEN
@@ -13610,7 +14204,7 @@ $$;
 CREATE OR REPLACE FUNCTION dd_label_fn_sync_field()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 BEGIN
     -- Skip the rebuild when the new field cannot change a generated body: it
@@ -13694,7 +14288,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '6b3066aef57d22b1c8b7f213a304c9465267792877499e2b815d3ac32f92ac00')
+        VALUES ('_core.0180_managed_enable.sql', '492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13969,7 +14563,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -14012,7 +14606,7 @@ CREATE OR REPLACE FUNCTION audit.to_record_id(entity_oid OID, pkey_cols TEXT[], 
     RETURNS UUID
     VOLATILE
     LANGUAGE sql
-    SET search_path = public
+    SET search_path = public, pg_temp
 AS $$
     SELECT
         CASE
@@ -14038,7 +14632,7 @@ CREATE OR REPLACE FUNCTION audit.extract_record_pk(pkey_cols TEXT[], rec JSONB)
     RETURNS TEXT
     STABLE
     LANGUAGE sql
-    SET search_path = public
+    SET search_path = public, pg_temp
 AS $$
     SELECT
         CASE
@@ -14074,7 +14668,7 @@ CREATE OR REPLACE FUNCTION audit.current_user_id()
     RETURNS BIGINT
     STABLE
     LANGUAGE plpgsql
-    SET search_path = public
+    SET search_path = public, pg_temp
 AS $$
 BEGIN
     -- Derived through rbac (lazy context initialization), never read raw from
@@ -14706,7 +15300,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = audit, public;
+$$ LANGUAGE plpgsql SET search_path = audit, public, pg_temp;
 
 COMMENT ON FUNCTION audit.assert_audit_entity_stays_unmanaged IS
 'BEFORE UPDATE trigger on entities: refuses managed FALSE -> TRUE for audit_record_logs and audit_ddl_logs, whose append-only protection adoption would remove.';
@@ -14749,7 +15343,7 @@ RETURNS TEXT[] AS $$
                          WHERE f.table_name = p_table_name
                            AND f.rollup <> '{}'::jsonb),
                        ARRAY[]::TEXT[]);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_audit_ignored_columns(TEXT) IS
 'The columns audit_i_u_d ignores on an entity''s table: users.last_seen, and every rollup column of the entity. Shared by manage_audit_log and the rollup builder so the two never install different lists.';
@@ -14814,7 +15408,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_audit_log IS
 'AFTER INSERT/UPDATE trigger on entities: manages audit trigger lifecycle.
@@ -14897,7 +15491,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', '5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f')
+        VALUES ('_core.0200_audit_log.sql', '493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14934,7 +15528,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cd8c0168744bdd5ec22f082c9885e0c14503a0fee696c672affb67f1ee325a8f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -14994,7 +15588,7 @@ BEGIN
     END IF;
     RETURN (p_add || v_obj)::text;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
@@ -15050,7 +15644,7 @@ BEGIN
                   HINT = jsonb_build_object('rule', p_rule, 'table', p_table, 'op', v_op)::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) IS
 'Raises 90919 when a rule that has to be one JsonLogic operation is not, and 90909 when a rule names an operator the evaluator does not implement. p_rule is the rule''s place in the entity, such as validation_rules[0].';
@@ -15087,7 +15681,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
 'BEFORE INSERT OR UPDATE trigger on entities: refuses a select_rule, validation rule or computed field that names an unknown operator (90909), and a select_rule or validation rule that is not one JsonLogic operation (90919). Runs on every write of the entity.';
@@ -15117,6 +15711,35 @@ CREATE OR REPLACE TRIGGER check_entity_rules_trigger
 COMMENT ON TRIGGER check_entity_rules_trigger ON entities IS
 'Refuses an entity whose rules name an unknown operator or whose select_rule or validation rules are not single JsonLogic operations.';
 
+-- The input_type_rule of a field is a rule as well, evaluated by the client
+-- for every record it shows. A client falls back to the static input_type
+-- when the rule raises, so a misspelled operator would turn a required or
+-- hidden field into an ordinary one without a word. It is refused when the
+-- field is saved, like the rules of an entity. The rule yields an input type,
+-- so it may be a literal, and the empty object means that there is no rule.
+CREATE OR REPLACE FUNCTION check_field_rules()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.input_type_rule IS NOT NULL AND NEW.input_type_rule <> '{}'::jsonb THEN
+        PERFORM dd_check_rule(NEW.table_name, NEW.field_name || '.input_type_rule', NEW.input_type_rule, FALSE);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION check_field_rules() IS
+'BEFORE INSERT OR UPDATE trigger on fields: refuses an input_type_rule that names an unknown operator (90909), under the rule name <field>.input_type_rule. Runs on every write of the field.';
+
+REVOKE EXECUTE ON FUNCTION check_field_rules() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER check_field_rules_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION check_field_rules();
+
+COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
+'Refuses a field whose input_type_rule names an unknown operator.';
+
 -- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
@@ -15140,7 +15763,6 @@ DECLARE
     v_has_computed BOOLEAN;
     v_needs_old BOOLEAN := FALSE;
     v_writeback TEXT;
-    v_all_logic TEXT;
     v_extra_ctx TEXT := '';
     v_derived BOOLEAN;
     v_had_rules BOOLEAN;
@@ -15203,26 +15825,26 @@ BEGIN
     -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
     -- blocking the delete.
     --
-    -- The $old test is a substring search over the raw rule text rather than a
-    -- lookup of a "$old" key, because a reference is usually a path -
-    -- {"var":"$old.label"} - and an exact-key test would miss it and drop the
-    -- value the rule needs. Three forms count as a reference:
-    --   * the name appearing anywhere, which covers every literal path;
+    -- Whether a rule reads $old is found by walking it, as the evaluator would,
+    -- for the keys it reads (jl_row_keys). Three kinds count:
+    --   * a key that is $old or a path below it, {"var":"$old.label"};
     --   * value_changed, which never names $old but reads the key itself and
     --     returns true whenever it is absent, so an entity using it would
     --     silently start reporting every field as changed;
-    --   * a var whose argument is an object rather than a string. The
-    --     interpreter evaluates that argument as JsonLogic, so {"var":{"cat":
+    --   * a key that is not written out. The interpreter evaluates the key of a
+    --     var, of missing and of missing_some as JsonLogic, so {"var":{"cat":
     --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
-    --     the text. Such a rule cannot be searched, so any entity using one gets
-    --     the full context.
-    v_all_logic := COALESCE(v_entity.computed_fields::text, '') ||
-                   COALESCE(v_entity.validation_rules::text, '');
+    --     the rule. What such a key will be cannot be known here, so any entity
+    --     using one gets the full context.
+    SELECT EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(COALESCE(v_entity.computed_fields, '[]'::jsonb)
+                                    || COALESCE(v_entity.validation_rules, '[]'::jsonb)) AS r(item)
+         CROSS JOIN LATERAL jl_row_keys(r.item -> 'jsonlogic') AS k(key)
+         WHERE k.key IS NULL OR k.key = '$old' OR starts_with(k.key, '$old.'))
+      INTO v_needs_old;
 
-    IF v_all_logic LIKE '%$old%'
-       OR v_all_logic LIKE '%value_changed%'
-       OR v_all_logic LIKE '%"var": {%' THEN
-        v_needs_old := TRUE;
+    IF v_needs_old THEN
         v_extra_ctx := v_extra_ctx || $CTX$,
         '$old',     COALESCE(p_old, 'null'::jsonb)$CTX$;
     END IF;
@@ -15411,7 +16033,7 @@ $BLOCK$,
     -- compares must not depend on who wrote the row. The same two settings are on
     -- every other function that turns a row into rule data.
     v_body := format($FUNC$
-CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE OR REPLACE FUNCTION common.%I(p_mode text, p_old jsonb, p_data jsonb) RETURNS jsonb AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_rules_name, dd_dollar_quote(format($RULES$
 DECLARE
     v_data jsonb;
@@ -15479,7 +16101,7 @@ $WB$;
     -- On DELETE there is no NEW row; the rules evaluate against the row being
     -- removed (OLD), which is also $old.
     v_body := format($FUNC$
-CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE FUNCTION public.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, dd_dollar_quote(format($TRIG$
 DECLARE
     v_data jsonb;
@@ -15552,7 +16174,7 @@ $TRIG$, v_rules_name,
         'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION public.%I()',
         v_trg_name, p_table_name, v_fn_name);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_record_logic_trigger IS
 'Generates (or drops) the rule function common.record_rules_<entity> evaluating an entity''s computed_fields and validation_rules over a record, and for an entity with a table of its own the per-table BEFORE INSERT OR UPDATE OR DELETE trigger wrapping it. On DELETE the rules evaluate against OLD with $mode=delete; computed output is discarded but validation_rules can abort the delete. An is_a or has_a entity gets no trigger: its write routine calls the rule function.';
@@ -15616,7 +16238,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_record_logic_trigger IS
 'Trigger function on entities that creates/updates/drops the rule function and the per-table BEFORE row trigger for computed_fields and validation_rules.';
@@ -15680,7 +16302,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
 'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
@@ -15753,7 +16375,7 @@ BEGIN
     END LOOP;
     RETURN v_undo;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_backfill_mute(TEXT) IS
 'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write, and returns the statements that enable them again.';
@@ -15774,7 +16396,7 @@ BEGIN
     END LOOP;
     RETURN v_data;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION computed_values(JSONB, JSONB) IS
 'Evaluates a computed_fields array over a record and returns the record with the values applied.';
@@ -15894,7 +16516,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION computed_backfill(TEXT) IS
 'Applies an entity''s computed_fields to its existing records, writing only those whose value moves, without touching updated_at, the audit log, queues or RACI events. A record that cannot take its new value refuses the change (90908).';
@@ -15914,7 +16536,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_computed_field_added() IS
 'AFTER INSERT trigger function on fields: applies the rule to existing records when a field arrives that a computed rule already names.';
@@ -15973,7 +16595,7 @@ BEGIN
         '$user_id', to_jsonb(v_uid)
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION public.jl_request_context() IS
 'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
@@ -16019,7 +16641,7 @@ GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 CREATE OR REPLACE FUNCTION common.row_move_token(p_secret TEXT, p_xid TEXT, p_rel TEXT, p_key TEXT)
 RETURNS TEXT AS $$
     SELECT encode(sha256(convert_to(p_secret || '|' || p_xid || '|' || p_rel || '|' || p_key, 'UTF8')), 'hex');
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) IS
 'The token that lets one row pass its entity''s select_rule while it is being written: the SHA-256 of the secret, the transaction id, the table and the key. NULL when any of them is.';
@@ -16041,7 +16663,7 @@ BEGIN
     END IF;
     RETURN v_secret;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_secret() IS
 'The secret the row move tokens are made with, created on first use: a random value in _settings that the request role cannot read.';
@@ -16071,7 +16693,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_mark() IS
 'BEFORE INSERT OR UPDATE row trigger zz_row_move of an entity with a select_rule: leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the rule when PostgreSQL holds the new row to the read policy. An INSERT whose key is already stored is not marked.';
@@ -16084,7 +16706,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_clear() IS
 'AFTER INSERT OR UPDATE statement trigger zz_row_move_clear of an entity with a select_rule: empties app.row_move, so a row the statement moved out of the writer''s rule is hidden again.';
@@ -16107,7 +16729,7 @@ BEGIN
     SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
     RETURN COALESCE(v_token = common.row_move_token(v_secret, v_xid::text, p_rel, p_key), FALSE);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 'Whether app.row_move holds the token of the given row for the current transaction, that is, whether this row is the one the running statement is writing. Called by the generated select_rule predicates.';
@@ -16251,11 +16873,29 @@ DECLARE
     v_data jsonb;
     v_result jsonb;
 BEGIN
+    -- Without a context there is no caller to decide for. Row and context
+    -- merge to NULL, a rule such as "user_id == $user_id" then compares null
+    -- with null, and the answer would be true for any row.
+    IF p_ctx IS NULL THEN
+        RETURN FALSE;
+    END IF;
+
     v_data := %s || p_ctx;
 
     BEGIN
         v_result := evaluate_json_logic(%s::jsonb, v_data);
     EXCEPTION WHEN OTHERS THEN
+        -- A rule that raises hides the row, and says so once per transaction
+        -- and entity: with the SQLSTATE, and without the message, which can
+        -- quote a value of the very row being hidden. The entities already
+        -- named are kept in a transaction-local setting.
+        IF NOT (%3$L = ANY(string_to_array(
+                    COALESCE(current_setting('app.select_rule_warned', true), ''), ','))) THEN
+            RAISE WARNING 'select_rule of %% raised %%: the rows it raises on are hidden', %3$L, SQLSTATE;
+            PERFORM set_config('app.select_rule_warned',
+                               concat_ws(',', NULLIF(current_setting('app.select_rule_warned', true), ''), %3$L),
+                               true);
+        END IF;
         RETURN FALSE;
     END;
 
@@ -16270,7 +16910,7 @@ BEGIN
     END IF;
     RETURN common.row_move_matches(%L, to_jsonb(p_row) ->> %L);
 END;
-$SEL$, v_row_data, v_logic_lit, v_rel, v_entity.id_column);
+$SEL$, v_row_data, v_logic_lit, p_table_name, v_rel, v_entity.id_column);
     ELSE
         v_predicate := $SEL$
 BEGIN
@@ -16280,9 +16920,9 @@ $SEL$;
     END IF;
 
     v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 $FUNC$, v_fn_name, v_rel,
         dd_dollar_quote(v_predicate),
         v_fn_name, v_rel,
@@ -16342,7 +16982,7 @@ $SEL$, v_fn_name)));
         'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
         v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
 'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, the three policies are the permission-only form instead and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
@@ -16390,7 +17030,7 @@ BEGIN
 
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
 'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
@@ -16404,7 +17044,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'cd8c0168744bdd5ec22f082c9885e0c14503a0fee696c672affb67f1ee325a8f')
+        VALUES ('_core.0210_computed_validation.sql', 'f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -16441,7 +17081,7 @@ $pgsem__core_0210_computed_validation_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0220_entity_insert_defaults.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0220_entity_insert_defaults.sql';
       EXECUTE $pgsem__core_0220_entity_insert_defaults_sql$-- =====================================================
@@ -16464,7 +17104,7 @@ CREATE OR REPLACE FUNCTION public.snake_to_label(p_input TEXT)
 RETURNS TEXT
 LANGUAGE sql
 IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
     SELECT initcap(trim(regexp_replace(coalesce(p_input, ''), '_+', ' ', 'g')));
 $$;
@@ -16492,7 +17132,7 @@ CREATE OR REPLACE FUNCTION public.dd_label_field_title(
 RETURNS TEXT
 LANGUAGE plpgsql
 IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_prefix TEXT;
@@ -16532,7 +17172,7 @@ GRANT EXECUTE ON FUNCTION public.dd_label_field_title(TEXT, TEXT, TEXT) TO seman
 CREATE OR REPLACE FUNCTION public.set_entity_defaults()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_title TEXT;
@@ -16599,7 +17239,7 @@ COMMENT ON TRIGGER set_entity_defaults_trigger ON entities IS
 $pgsem__core_0220_entity_insert_defaults_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0220_entity_insert_defaults.sql', '530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63')
+        VALUES ('_core.0220_entity_insert_defaults.sql', 'bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -16636,7 +17276,7 @@ $pgsem__core_0220_entity_insert_defaults_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0230_entity_order_column.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0230_entity_order_column.sql';
       EXECUTE $pgsem__core_0230_entity_order_column_sql$-- =====================================================
@@ -16726,7 +17366,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_order_value IS
 'Generic BEFORE INSERT trigger: when the order column (TG_ARGV[0]) is unset (0/NULL), assigns MAX(order_column)+10 over rows below 900000 (or 10 for the first record). On the fields table the max is scoped per table_name. Installed per entity by handle_entity_order_column().';
@@ -16758,6 +17398,19 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- The order column is the dictionary's own: it adds the column and, when
+    -- the entity stops naming it, drops it. A name the table already carries is
+    -- a field or a core column of the entity, with data that is not the
+    -- dictionary's to drop, so it is refused where the name is newly given.
+    IF v_new <> '' AND v_new <> v_old
+       AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                    WHERE a.attrelid = to_regclass(format('public.%I', NEW.table_name))
+                      AND a.attname = v_new AND a.attnum > 0 AND NOT a.attisdropped) THEN
+        RAISE EXCEPTION 'order_column ${order_column} of ${table} names a column the table already has'
+            USING ERRCODE = '90278',
+                  HINT = jsonb_build_object('order_column', v_new, 'table', NEW.table_name)::text;
+    END IF;
+
     -- Remove the previous order column + its trigger when the name changed or cleared.
     IF v_old <> '' AND v_old <> v_new THEN
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trigger_name, NEW.table_name);
@@ -16785,7 +17438,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION handle_entity_order_column IS
 'AFTER INSERT/UPDATE trigger on entities: provisions or drops the physical order column named by entities.order_column and installs/removes the auto_set_order_value BEFORE INSERT trigger on the entity''s table.';
@@ -16823,7 +17476,7 @@ CREATE OR REPLACE TRIGGER a_auto_order_fields
 $pgsem__core_0230_entity_order_column_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0230_entity_order_column.sql', 'd01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d')
+        VALUES ('_core.0230_entity_order_column.sql', '875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17091,7 +17744,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -17119,7 +17772,7 @@ BEGIN
     );
 END;
 -- STABLE: writes no row, so PostgREST serves it over GET.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_user_modules IS 
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';
@@ -17252,7 +17905,7 @@ BEGIN
     
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_userinfo IS
 'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
@@ -17311,7 +17964,7 @@ BEGIN
 
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema_children IS 
 'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller may view; empty when the caller may not view the table itself. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
@@ -17524,7 +18177,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
              AND format NOT IN ('json', 'jsonlogic'))) AS is_required
     FROM ordered_fields
     ORDER BY ord;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) IS
 'The JSON Schema property and the required flag of every field of an entity''s record (dd_family_fields), in order; inherited fields carry inherited_from. With p_own_only, the entity''s own fields without its key. Used by build_schema_for_table.';
@@ -17713,7 +18366,7 @@ END;
 -- STABLE: it only reads the dictionary, and its callers get_schema, get_schemas,
 -- get_module_cubes and get_user_cubes are STABLE already. Raising is not a side
 -- effect, and PostgREST serves a STABLE function over GET.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
 'Builds a schema JSON for a single table. Self-gating: applies the view_permission check (of every level an is_a/has_a entity is stored in) with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a has_a base lists its extensions. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
@@ -17766,7 +18419,7 @@ BEGIN
     RETURN public.build_schema_for_table(p_table_name);
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema IS 
 'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
@@ -17827,7 +18480,7 @@ BEGIN
     RETURN array_to_json(v_schemas);
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schemas IS 
 'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
@@ -17854,7 +18507,7 @@ BEGIN
         current_role::TEXT as current_role_name,
         session_user::TEXT as session_user_name;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.ping IS 
 'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
@@ -17888,7 +18541,7 @@ BEGIN
     PERFORM rbac.uid();
     RETURN rbac.has_permission(p_permission_name);
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.has_permission IS
 'Public RPC wrapper over rbac.has_permission(). Returns TRUE when the current authenticated user holds the named permission. Exposed in the public schema so PostgREST can serve it as /rpc/has_permission, since the rbac schema is not exposed.';
@@ -17954,7 +18607,7 @@ BEGIN
     END LOOP;
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
@@ -17993,7 +18646,7 @@ BEGIN
     END LOOP;
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_user_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
@@ -18081,7 +18734,7 @@ BEGIN
     PERFORM setval(v_sequence, v_next, false);
     RETURN v_next;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET lock_timeout = '2s';
 
 COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
 'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
@@ -18091,7 +18744,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8')
+        VALUES ('_core.0250_public_functions.sql', '6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18128,7 +18781,7 @@ $pgsem__core_0250_public_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0260_notify_triggers.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0260_notify_triggers.sql';
       EXECUTE $pgsem__core_0260_notify_triggers_sql$-- =====================================================
@@ -18164,7 +18817,7 @@ BEGIN
     -- Notify PostgREST to reload its schema cache
     NOTIFY pgrst, 'reload schema';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common, pg_temp;
 
 COMMENT ON FUNCTION common.refresh_schema_cache() IS
 'Notifies PostgREST to reload its schema cache and updates the db_version timestamp in _settings.';
@@ -18190,7 +18843,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common, pg_temp;
 
 COMMENT ON FUNCTION notify_pgrst_tables IS
 'Trigger function that notifies PostgREST to reload schema when entities are modified.';
@@ -18216,7 +18869,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, common, pg_temp;
 
 COMMENT ON FUNCTION notify_pgrst_fields IS
 'Trigger function that notifies PostgREST to reload schema when fields are modified.';
@@ -18264,7 +18917,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 -- Watch DROP commands
 CREATE OR REPLACE FUNCTION pgrst_drop_watch() RETURNS event_trigger AS $$
@@ -18296,7 +18949,7 @@ BEGIN
         END IF;
     END LOOP;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION pgrst_ddl_watch() IS
 'Event-trigger function (ddl_command_end) that refreshes the PostgREST schema cache when a relevant CREATE/ALTER/COMMENT DDL command runs.';
@@ -18348,7 +19001,7 @@ GRANT USAGE ON SCHEMA common TO semantius_user;
 $pgsem__core_0260_notify_triggers_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0260_notify_triggers.sql', '64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f')
+        VALUES ('_core.0260_notify_triggers.sql', '8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18467,7 +19120,7 @@ $pgsem__core_0270_apikeys_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0280_apikeys.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0280_apikeys.sql';
       EXECUTE $pgsem__core_0280_apikeys_sql$-- =====================================================
@@ -18547,7 +19200,7 @@ BEGIN
 
     RETURN jsonb_build_object('api_key', v_full_api_key, 'key_id', v_new_key_id);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.generate_api_key IS
 'Generates a new API key. Pass 0 to generate for current user (uk- prefix), or a user id for admin-generated keys (sk- prefix). Optionally pass a description. Returns a JSON object with an "api_key" field containing the full key (only time the secret is visible in plaintext).';
@@ -18616,6 +19269,14 @@ BEGIN
 
     -- Verify the secret against the stored bcrypt hash
     IF v_record.secret_hash = crypt(v_secret, v_record.secret_hash) THEN
+        -- The key of a disabled user is no credential. The token it would
+        -- mint is refused when the user is resolved, but a key that validates
+        -- also records a use that never happened. The test stands after the
+        -- comparison, so a wrong secret costs the same whoever owns the key.
+        IF EXISTS (SELECT 1 FROM users u WHERE u.id = v_record.user_id AND u.is_disabled) THEN
+            RETURN NULL;
+        END IF;
+
         -- Update last_used_at on successful validation
         UPDATE _apikeys SET last_used_at = CURRENT_TIMESTAMP WHERE key_id = v_key_id;
         RETURN v_record.user_id;
@@ -18623,10 +19284,10 @@ BEGIN
         RETURN NULL;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.validate_api_key IS
-'Validates an API key and returns the user_id if valid, NULL otherwise. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
+'Validates an API key and returns the user_id if valid, NULL otherwise; the key of a disabled user is not valid. Updates last_used_at on successful validation. Internal authentication primitive: reachable only from code that already runs as the owner, never by the request role.';
 
 -- Reachable from the auth tier over a direct owner connection, and from nothing
 -- else. That is the only caller shape that can work: the API-key exchange
@@ -18696,7 +19357,7 @@ BEGIN
     );
 END;
 -- STABLE: writes nothing, so PostgREST serves it over GET.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.list_api_keys IS
 'Returns a JSON array of API keys for the current user (p_user_id=0) or a specific user (admin only). Does not include the secret hash.';
@@ -18730,24 +19391,23 @@ BEGIN
     FROM _apikeys
     WHERE key_id = p_key_id;
 
-    IF NOT FOUND THEN
+    -- A key of another user is one only an administrator may delete. Anyone
+    -- else gets the answer of a key that does not exist: a refusal of its own
+    -- would tell the caller that the key id is in use.
+    IF NOT FOUND
+       OR (v_record.user_id <> v_current_user_id AND NOT rbac.has_permission('admin')) THEN
         RAISE EXCEPTION 'API key not found'
             USING ERRCODE = '90402';
-    END IF;
-
-    -- If the key belongs to another user, require admin permission
-    IF v_record.user_id <> v_current_user_id THEN
-        PERFORM rbac.require_permission('admin');
     END IF;
 
     DELETE FROM _apikeys WHERE key_id = p_key_id;
 
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.delete_api_key IS
-'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user.';
+'Deletes an API key by its public key_id. Users may delete their own keys; admins may delete keys for any user. A caller without admin gets 90402 for a key of another user, as for a key that does not exist.';
 
 -- Grant execute to semantius_user (accessible via PostgREST RPC)
 REVOKE EXECUTE ON FUNCTION public.delete_api_key(TEXT) FROM PUBLIC;
@@ -18762,7 +19422,7 @@ CREATE OR REPLACE TRIGGER pk_immutable
 $pgsem__core_0280_apikeys_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0280_apikeys.sql', 'e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732')
+        VALUES ('_core.0280_apikeys.sql', 'bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18799,7 +19459,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -18868,7 +19528,7 @@ RETURNS JSONB
 LANGUAGE sql
 IMMUTABLE STRICT
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
     WITH tokens AS (
         SELECT t.i, t.m[1] AS tok
@@ -18919,7 +19579,7 @@ CREATE OR REPLACE FUNCTION public.ensure_entities_insert_rows(p_table TEXT, p_ro
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
 DECLARE
     v_rel    TEXT := format('public.%I', p_table);
@@ -18973,7 +19633,7 @@ CREATE OR REPLACE FUNCTION public.ensure_entities_row(
 RETURNS TEXT
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
 DECLARE
     v_rel     TEXT := format('public.%I', p_table);
@@ -19046,7 +19706,7 @@ CREATE OR REPLACE FUNCTION public.ensure_entities(definition JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY INVOKER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $fn$
 DECLARE
     -- Keys the export carries but nothing writes: computed by the platform or
@@ -19823,7 +20483,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', '95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e')
+        VALUES ('_core.0290_ensure_entities.sql', '999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -22388,7 +23048,7 @@ $pgsem__core_0330_queue_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0340_queue.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0340_queue.sql';
       EXECUTE $pgsem__core_0340_queue_sql$-- =====================================================
@@ -22413,6 +23073,12 @@ $pgsem__core_0330_queue_setup_once_sql$;
 -- Grant semantius_user access to pgmq schema (needed for RPC wrappers)
 GRANT USAGE ON SCHEMA pgmq TO semantius_user;
 
+-- pgmq.convert_archive_partitioned builds three statements by concatenating
+-- its argument, which pgmq.format_table_name keeps only `$`, `;`, `--` and `'`
+-- out of. It runs with its caller's rights and nothing here calls it, so the
+-- request role, which reaches pgmq through the usage above, does not need it.
+REVOKE EXECUTE ON FUNCTION pgmq.convert_archive_partitioned(TEXT, TEXT, TEXT, INTEGER) FROM PUBLIC;
+
 -- =====================================================
 -- STEP 2: Triggers on queues table
 -- =====================================================
@@ -22423,9 +23089,19 @@ GRANT USAGE ON SCHEMA pgmq TO semantius_user;
 CREATE OR REPLACE FUNCTION queue_after_insert()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
+    -- pgmq names the tables of a queue q_<name> and a_<name>, in lower case,
+    -- and counts the 47 it allows in characters. Two names that differ in case
+    -- only would share their tables, and so would two long names of
+    -- multi-byte characters once PostgreSQL cuts the table name at 63 bytes.
+    IF NEW.queue_name <> lower(NEW.queue_name) OR octet_length(NEW.queue_name) > 47 THEN
+        RAISE EXCEPTION 'Queue name ${queue} has to be lower case and at most 47 bytes long'
+            USING ERRCODE = '90505',
+                  HINT = jsonb_build_object('queue', NEW.queue_name)::text;
+    END IF;
+
     PERFORM pgmq.create(NEW.queue_name);
     RETURN NEW;
 END;
@@ -22442,7 +23118,7 @@ CREATE OR REPLACE TRIGGER queue_after_insert_trigger
 CREATE OR REPLACE FUNCTION queue_before_update()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.queue_name IS DISTINCT FROM NEW.queue_name THEN
@@ -22463,7 +23139,7 @@ CREATE OR REPLACE TRIGGER queue_before_update_trigger
 CREATE OR REPLACE FUNCTION queue_before_delete()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     -- The mappings go first, while this row still exists: queue_event_after_delete
@@ -22493,7 +23169,7 @@ CREATE OR REPLACE TRIGGER queue_before_delete_trigger
 CREATE OR REPLACE FUNCTION queue_event_before_update()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     IF OLD.table_name IS DISTINCT FROM NEW.table_name THEN
@@ -22523,7 +23199,7 @@ CREATE OR REPLACE TRIGGER queue_event_before_update_trigger
 CREATE OR REPLACE FUNCTION queue_build_record_json()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     -- Messages are flushed in fixed windows rather than one array per statement.
@@ -22634,7 +23310,7 @@ COMMENT ON FUNCTION queue_build_record_json() IS
 CREATE OR REPLACE FUNCTION queue_event_after_insert()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_trigger_name TEXT;
@@ -22683,6 +23359,16 @@ BEGIN
     LOOP
         v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || NEW.table_name;
 
+        -- A trigger name is cut at 63 bytes like any identifier, and a cut
+        -- name is one the rename of the table and the removal of the mapping
+        -- no longer find.
+        IF octet_length(v_trigger_name) > 63 THEN
+            RAISE EXCEPTION 'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes'
+                USING ERRCODE = '90506',
+                      HINT = jsonb_build_object('queue', v_queue_name, 'table', NEW.table_name,
+                                                'name', v_trigger_name)::text;
+        END IF;
+
         -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
         -- survive an aborted install, and dropping first makes the install
         -- idempotent for the events this handler covers. It cannot repair a
@@ -22719,7 +23405,7 @@ CREATE OR REPLACE TRIGGER queue_event_after_insert_trigger
 CREATE OR REPLACE FUNCTION queue_event_after_delete()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_queue_name TEXT;
@@ -22790,7 +23476,7 @@ CREATE OR REPLACE FUNCTION public.queue_authorize(
 RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_view_permission TEXT;
@@ -22837,7 +23523,7 @@ CREATE OR REPLACE FUNCTION public.queue_read(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result JSONB;
@@ -22868,7 +23554,7 @@ CREATE OR REPLACE FUNCTION public.queue_pop(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result JSONB;
@@ -22898,7 +23584,7 @@ CREATE OR REPLACE FUNCTION public.queue_archive(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result BOOLEAN;
@@ -22926,7 +23612,7 @@ CREATE OR REPLACE FUNCTION public.queue_delete(
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_result BOOLEAN;
@@ -22948,7 +23634,7 @@ GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
 $pgsem__core_0340_queue_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0340_queue.sql', '6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8')
+        VALUES ('_core.0340_queue.sql', '69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -23315,7 +24001,7 @@ $pgsem__core_0360_raci_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0370_raci.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4d09bf831f7d7235facafb853debb6b56ff51359ac170797420c4eb5441dea6e') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0370_raci.sql';
       EXECUTE $pgsem__core_0370_raci_sql$-- =====================================================
@@ -23360,7 +24046,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION assign_agent_external_id IS
 'Trigger function: gives an agent (is_agent) inserted without an external_id, or with an empty one, a generated agent:<uuid>. Users are left alone and refused by the column constraints.';
@@ -23395,7 +24081,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_user_id BIGINT;
@@ -23438,7 +24124,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_user_id BIGINT;
@@ -23527,7 +24213,7 @@ GRANT  SELECT ON user_process_raci TO semantius_user;
 CREATE OR REPLACE FUNCTION raci_emit_trigger_fn()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_gate       RECORD;
@@ -23635,7 +24321,7 @@ CREATE OR REPLACE FUNCTION raci_blocking_consultation_pending(
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
     SELECT EXISTS (
         SELECT 1
@@ -23683,7 +24369,7 @@ RETURNS JSONB
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_id_col TEXT;
@@ -23722,7 +24408,7 @@ GRANT EXECUTE ON FUNCTION common.raci_held_state(TEXT, JSONB, JSONB) TO semantiu
 CREATE OR REPLACE FUNCTION raci_gate_trigger_fn()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_held JSONB;
@@ -23765,7 +24451,7 @@ REVOKE EXECUTE ON FUNCTION raci_gate_trigger_fn() FROM PUBLIC;
 CREATE OR REPLACE FUNCTION raci_install_or_drop_gate_trigger(p_entity TEXT)
 RETURNS VOID
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM raci_sync_triggers(
@@ -23789,7 +24475,7 @@ REVOKE EXECUTE ON FUNCTION raci_install_or_drop_gate_trigger(TEXT) FROM PUBLIC;
 CREATE OR REPLACE FUNCTION raci_gates_manage_emit_trigger()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_entity       TEXT;
@@ -23798,8 +24484,18 @@ BEGIN
     -- A gate holds a state column of the entity's table in place and emits per
     -- row written; an is_a or has_a entity is a view whose records span
     -- several tables, so neither trigger would see a whole record.
+    --
+    -- A gate may be written before its entity exists: the name is a plain
+    -- key, and the triggers are installed once the table is there. But a
+    -- table that is there and is no entity, an internal one such as _settings
+    -- among them, is not the dictionary's to put a gate's triggers on.
     IF TG_OP <> 'DELETE' THEN
         SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.entity;
+        IF NOT FOUND AND pg_catalog.to_regclass(format('public.%I', NEW.entity)) IS NOT NULL THEN
+            RAISE EXCEPTION 'Process gate: ${entity} is not an entity'
+                USING ERRCODE = '90279',
+                      HINT = jsonb_build_object('entity', NEW.entity)::text;
+        END IF;
         IF v_id_type IN ('is_a', 'has_a') THEN
             RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
                 USING ERRCODE = '90249',
@@ -23834,7 +24530,7 @@ REVOKE EXECUTE ON FUNCTION raci_gates_manage_emit_trigger() FROM PUBLIC;
 CREATE OR REPLACE FUNCTION raci_install_or_drop_emit_trigger(p_entity TEXT)
 RETURNS VOID
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM raci_sync_triggers(
@@ -23857,7 +24553,7 @@ $$;
 -- name still finds its trigger.
 CREATE OR REPLACE FUNCTION raci_sync_triggers(p_entity TEXT, p_names NAME[], p_needs BOOLEAN, p_kind TEXT)
 RETURNS VOID
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_rel     REGCLASS := pg_catalog.to_regclass(format('public.%I', p_entity));
@@ -23923,7 +24619,7 @@ CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
 CREATE OR REPLACE FUNCTION raci_entity_renamed()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM raci_sync_triggers(
@@ -23952,7 +24648,7 @@ CREATE OR REPLACE TRIGGER raci_entity_renamed_trigger
 $pgsem__core_0370_raci_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0370_raci.sql', '69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2')
+        VALUES ('_core.0370_raci.sql', '4d09bf831f7d7235facafb853debb6b56ff51359ac170797420c4eb5441dea6e')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24393,7 +25089,7 @@ $pgsem__core_0410_user_bookmarks_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0420_module_version.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0420_module_version.sql';
       EXECUTE $pgsem__core_0420_module_version_sql$-- =====================================================
@@ -24435,7 +25131,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- =====================================================
 -- TRIGGER FUNCTION: bump_module_version_from_related
@@ -24482,7 +25178,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- =====================================================
 -- TRIGGER FUNCTION: bump_module_version_from_fields
@@ -24524,7 +25220,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION bump_module_version() IS
 'Trigger function on modules that increments the module version when a version-relevant column changes, unless a related-table bump is already in progress (guarded by app.bumping_module_version).';
@@ -24578,7 +25274,7 @@ REVOKE EXECUTE ON FUNCTION bump_module_version_from_fields() FROM PUBLIC;
 $pgsem__core_0420_module_version_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0420_module_version.sql', 'a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee')
+        VALUES ('_core.0420_module_version.sql', 'c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24667,7 +25363,7 @@ $pgsem__core_0430_required_field_description_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '830a5a5af1a61e539a13769555028878c9a05abe5afa247479ad99669e67ea65') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
       EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
@@ -24717,7 +25413,7 @@ RETURNS VOID AS $fn$
 BEGIN
     RAISE EXCEPTION USING ERRCODE = p_code, MESSAGE = p_message, HINT = p_hint::text;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_refuse(TEXT, TEXT, JSONB) IS
 'Raises a rollup error of the given code with the error contract''s message template and a JSON hint.';
@@ -24733,7 +25429,7 @@ REVOKE EXECUTE ON FUNCTION rollup_refuse(TEXT, TEXT, JSONB) FROM PUBLIC;
 -- and given 8 characters of the md5 of what it names instead.
 CREATE OR REPLACE FUNCTION rollup_object_name(p_child TEXT, p_link TEXT)
 RETURNS TEXT
-LANGUAGE sql IMMUTABLE SET search_path = public
+LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp
 AS $fn$
     SELECT CASE WHEN length('rollup_' || p_child || '_' || p_link) <= 59
                 THEN 'rollup_' || p_child || '_' || p_link
@@ -24746,7 +25442,7 @@ COMMENT ON FUNCTION rollup_object_name(TEXT, TEXT) IS
 
 CREATE OR REPLACE FUNCTION rollup_guard_name(p_parent TEXT)
 RETURNS TEXT
-LANGUAGE sql IMMUTABLE SET search_path = public
+LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp
 AS $fn$
     SELECT CASE WHEN length('rollup_guard_' || p_parent) <= 59
                 THEN 'rollup_guard_' || p_parent
@@ -24797,7 +25493,7 @@ BEGIN
         'Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}',
         jsonb_build_object('problem', p_problem));
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_problem(TEXT) IS
 'Raises 90265 for a filter the rollup compiler refuses; rollup_definition adds the field''s table and name to the hint.';
@@ -24854,7 +25550,7 @@ BEGIN
                        ELSE 'other' END,
         'is_var', TRUE);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) IS
 'Resolves a var of a rollup filter against pg_attribute of the child relation and returns its SQL reference and catalog type, or raises 90265.';
@@ -24873,6 +25569,11 @@ RETURNS TEXT AS $fn$
 DECLARE
     v_text   TEXT := p_node #>> '{}';
     v_moment TIMESTAMP;
+    -- A literal is cast to the type of its column, with one exception: the
+    -- cast to numeric(p, s) rounds to the scale, and 1.501 would then equal a
+    -- stored 1.50, which the interpreter never says. Against a numeric column
+    -- the literal is a plain numeric and is compared as it is written.
+    v_cast   TEXT := CASE WHEN p_type LIKE 'numeric%' THEN 'numeric' ELSE p_type END;
 BEGIN
     CASE jsonb_typeof(p_node)
         WHEN 'string' THEN
@@ -24892,12 +25593,12 @@ BEGIN
                               to_char(v_moment, CASE p_type WHEN 'date' THEN 'YYYY-MM-DD' ELSE 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"' END),
                               p_type);
             END IF;
-            RETURN format('%L::%s', v_text, COALESCE(p_type, 'text'));
+            RETURN format('%L::%s', v_text, COALESCE(v_cast, 'text'));
         WHEN 'number' THEN
             IF p_kind IN ('bool', 'typeid') THEN
                 PERFORM rollup_filter_problem(format('number %s compared with a column of type %s', v_text, p_type));
             END IF;
-            RETURN format('%L::%s', v_text, COALESCE(p_type, 'numeric'));
+            RETURN format('%L::%s', v_text, COALESCE(v_cast, 'numeric'));
         WHEN 'boolean' THEN
             IF p_type IS NOT NULL AND p_kind <> 'bool' THEN
                 PERFORM rollup_filter_problem(format('boolean %s compared with a column of type %s', v_text, p_type));
@@ -24910,7 +25611,7 @@ BEGIN
     END CASE;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) IS
 'Emits a scalar JSON literal of a rollup filter as a quoted SQL literal cast to the given catalog type (its natural type when none), or raises 90265.';
@@ -24923,7 +25624,7 @@ RETURNS JSONB AS $fn$
 BEGIN
     RETURN to_jsonb(p_value);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public SET intervalstyle = 'iso_8601';
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION rollup_interval_iso(INTERVAL) IS
 'An interval as a JSON string in ISO 8601, whatever the session''s interval style. Used by compiled rollup filters.';
@@ -24961,7 +25662,7 @@ EXCEPTION
                   HINT = jsonb_build_object('table', p_rollup ->> 'table', 'field_name', p_rollup ->> 'field_name',
                                             'operator', p_op, 'cause_code', SQLSTATE)::text;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB) IS
 'A date operator of a compiled rollup filter, evaluated for one child through the interpreter''s jl_date_* function. Raises 90272, naming the rollup, when the child holds a value the operator cannot read.';
@@ -24993,7 +25694,7 @@ BEGIN
         'sample',   CASE v_arg ->> 'type' WHEN 'date' THEN '"2000-01-31"'::jsonb
                                           ELSE '"2000-01-31T00:00:00+00:00"'::jsonb END);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles the date argument of a date operator in a rollup filter to SQL yielding jsonb, or raises 90265.';
@@ -25108,7 +25809,7 @@ BEGIN
         'is_var',   TRUE,
         'sample',   v_result);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB) IS
 'Compiles a date operator used as a value in a rollup filter to a typed call of rollup_date_value, which runs the interpreter''s jl_date_* function for each child, or raises 90265.';
@@ -25143,7 +25844,7 @@ BEGIN
     PERFORM rollup_filter_problem('an operand must be a column (var), a literal or null');
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) IS
 'Classifies an operand of a rollup filter comparison as a column or a literal, or raises 90265.';
@@ -25184,7 +25885,7 @@ BEGIN
     END LOOP;
     RETURN v_out;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) IS
 'Compiles the operands of one rollup filter comparison to SQL, casting every literal to the type of the first column among them.';
@@ -25200,6 +25901,10 @@ DECLARE
     v_parts TEXT[];
     v_item  JSONB;
     v_col   JSONB;
+    v_var   JSONB;
+    v_lit   JSONB;
+    v_json  TEXT;
+    v_coll  TEXT := '';
 BEGIN
     IF jsonb_typeof(p_node) = 'boolean' THEN
         RETURN CASE WHEN (p_node #>> '{}') = 'true' THEN 'TRUE' ELSE 'FALSE' END;
@@ -25240,19 +25945,57 @@ BEGIN
             IF v_n <> 2 THEN
                 PERFORM rollup_filter_problem(format('%s takes exactly two operands', v_op));
             END IF;
+            -- === and !== compare the types first, and a column has one type:
+            -- against a literal of another JSON type the answer is the same
+            -- for every row, which is never what the author meant. The
+            -- compiled comparison casts the literal, so it would answer
+            -- otherwise than the interpreter. null is of every type here.
+            IF v_op IN ('===', '!==') THEN
+                FOR v_item IN SELECT rollup_filter_operand(a, p_rel, p_alias, p_rollup)
+                                FROM jsonb_array_elements(v_args) a LOOP
+                    IF (v_item ->> 'is_var')::boolean THEN
+                        v_var := COALESCE(v_var, v_item);
+                    ELSIF v_item ? 'literal' THEN
+                        v_lit := v_item -> 'literal';
+                    END IF;
+                END LOOP;
+                IF v_var IS NOT NULL AND v_lit IS NOT NULL AND jsonb_typeof(v_lit) <> 'null' THEN
+                    v_json := CASE
+                        WHEN v_var ->> 'kind' = 'bool' THEN 'boolean'
+                        WHEN v_var ->> 'type' LIKE 'numeric%'
+                          OR v_var ->> 'type' IN ('smallint', 'integer', 'bigint', 'real', 'double precision') THEN 'number'
+                        ELSE 'string' END;
+                    IF jsonb_typeof(v_lit) <> v_json THEN
+                        PERFORM rollup_filter_problem(format(
+                            '%s compares the types first: the column holds a %s and %s is a %s',
+                            v_op, v_json, v_lit::text, jsonb_typeof(v_lit)));
+                    END IF;
+                END IF;
+            END IF;
             v_parts := rollup_filter_operands(v_args, p_rel, p_alias, TRUE, p_rollup);
             RETURN format('(%s IS %sDISTINCT FROM %s)',
                           v_parts[1], CASE WHEN v_op IN ('==', '===') THEN 'NOT ' ELSE '' END, v_parts[2]);
         WHEN '<', '<=', '>', '>=' THEN
-            IF v_n = 3 AND v_op IN ('<', '<=') THEN
-                v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE, p_rollup);
-                RETURN format('(%s %s %s AND %s %s %s)', v_parts[1], v_op, v_parts[2], v_parts[2], v_op, v_parts[3]);
-            END IF;
-            IF v_n <> 2 THEN
+            IF v_n NOT IN (2, 3) OR (v_n = 3 AND v_op NOT IN ('<', '<=')) THEN
                 PERFORM rollup_filter_problem(format('%s takes two operands (three for < and <=)', v_op));
             END IF;
+            -- Text is ordered by code point, as the interpreter orders it,
+            -- whatever the collation of the column or of the database: under a
+            -- linguistic collation the same rule would count other rows here
+            -- than in a validation rule. The collation of one operand decides
+            -- for the comparison.
+            IF EXISTS (SELECT 1
+                         FROM jsonb_array_elements(v_args) a
+                        CROSS JOIN LATERAL rollup_filter_operand(a, p_rel, p_alias, p_rollup) o
+                        WHERE (o ->> 'is_var')::boolean AND o ->> 'type' = 'text') THEN
+                v_coll := ' COLLATE "C"';
+            END IF;
             v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE, p_rollup);
-            RETURN format('(%s %s %s)', v_parts[1], v_op, v_parts[2]);
+            IF v_n = 3 THEN
+                RETURN format('(%s %s %s%s AND %s %s %s%s)',
+                              v_parts[1], v_op, v_parts[2], v_coll, v_parts[2], v_op, v_parts[3], v_coll);
+            END IF;
+            RETURN format('(%s %s %s%s)', v_parts[1], v_op, v_parts[2], v_coll);
         WHEN 'in' THEN
             IF v_n <> 2 OR jsonb_typeof(v_args -> 1) <> 'array' THEN
                 PERFORM rollup_filter_problem('in takes a value and a list of literals');
@@ -25279,7 +26022,7 @@ BEGIN
     END CASE;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles one JsonLogic condition of the rollup subset to a parenthesized SQL boolean expression over the child alias, or raises 90265.';
@@ -25293,7 +26036,7 @@ BEGIN
     END IF;
     RETURN rollup_filter_cond(p_filter, p_rel, p_alias, p_rollup);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles a rollup filter (the JsonLogic subset and, or, !, !!, comparisons, in and var) to a SQL boolean over the given child relation and alias. Identifiers through %I after a catalog lookup, literals through %L cast to the column''s catalog type, every other operator refused with 90265. An empty filter is TRUE.';
@@ -25308,6 +26051,28 @@ REVOKE EXECUTE ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) FROM 
 REVOKE EXECUTE ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function that is new in this file, or has a new parameter list,
+-- stays owned by the installer until 9900_owner_hardening.sql runs last. A
+-- module applied in between writes fields through that code, which compiles
+-- the filter of a rollup with the functions below, and a write to a child
+-- under a filter with a date operator calls rollup_date_value from the
+-- generated maintenance function.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB),
+            rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_operand(JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB),
+            rollup_filter_cond(JSONB, TEXT, TEXT, JSONB),
+            rollup_filter_sql(JSONB, TEXT, TEXT, JSONB)
+        TO semantius_owner;
+    END IF;
+END $$;
 
 -- =====================================================
 -- The definition, resolved and validated
@@ -25452,6 +26217,24 @@ BEGIN
             jsonb_build_object('feature', 'rollup', 'id_type', v_parent.id_type, 'table', v_parent.table_name));
     END IF;
     v_child_rel  := dd_relation(v_child.table_name, v_child.id_type);
+
+    -- The maintenance function of a link is common.rollup_<child>_<link> and
+    -- the guard of a parent common.rollup_guard_<parent>. A child entity named
+    -- guard spells, with its link field, the guard of the entity named like
+    -- that field, and the builders replace whatever carries a name. So a
+    -- definition whose function would take the name of a guard, or whose
+    -- parent's guard would take the name of a function, is refused.
+    IF EXISTS (SELECT 1 FROM entities e
+                WHERE rollup_guard_name(e.table_name) = rollup_object_name(v_lf.table_name, v_lf.field_name))
+       OR EXISTS (SELECT 1 FROM fields f
+                   WHERE f.rollup <> '{}'::jsonb
+                     AND rollup_object_name(split_part(f.rollup ->> 'link_field', '.', 1),
+                                            split_part(f.rollup ->> 'link_field', '.', 2))
+                         = rollup_guard_name(p_field.table_name)) THEN
+        PERFORM rollup_refuse('90280',
+            'Rollup ${field_name} on ${table}: the function of link_field ${link_field} and the guard of a rollup parent would carry one name',
+            v_ctx || jsonb_build_object('link_field', v_link));
+    END IF;
     v_parent_rel := dd_relation(v_parent.table_name, v_parent.id_type);
 
     IF v_function NOT IN ('sum', 'min', 'max', 'avg', 'count') THEN
@@ -25620,7 +26403,7 @@ BEGIN
         'filter_sql',       v_filter_sql,
         'hidden',           v_hidden);
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_definition(fields) IS
 'Validates a field''s rollup definition (90261-90269, 90249) and resolves it: child and parent relations, link and value columns, function, result type, empty value, copied precision and the compiled filter. NULL for a field without a definition. The one authority for both the fields trigger and the builders.';
@@ -25639,7 +26422,7 @@ EXCEPTION
     WHEN SQLSTATE '90000' THEN
         RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_definition_or_null(fields) IS
 'rollup_definition for the builders: NULL instead of a rollup error, for a definition that no longer resolves while a cascade removes what it names.';
@@ -25679,7 +26462,7 @@ BEGIN
     END IF;
     RETURN format('(%s)::%s', v_inner, p_def ->> 'result_cast_type');
 END;
-$fn$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$fn$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_value_sql(JSONB, TEXT) IS
 'The SQL expression that computes a rollup''s value for the parent key p_key_expr yields: the aggregate over the child records with the compiled filter, the empty value for no records, cast to the parent column''s type.';
@@ -25692,11 +26475,11 @@ REVOKE EXECUTE ON FUNCTION rollup_value_sql(JSONB, TEXT) FROM PUBLIC;
 CREATE OR REPLACE FUNCTION rollup_create_function(p_name TEXT, p_body TEXT)
 RETURNS VOID AS $fn$
 BEGIN
-    EXECUTE format('CREATE FUNCTION common.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS %s',
+    EXECUTE format('CREATE FUNCTION common.%I() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %s',
                    p_name, dd_dollar_quote(p_body));
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', p_name);
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_create_function(TEXT, TEXT) IS
 'Creates a generated SECURITY DEFINER trigger function in common from its PL/pgSQL body, wrapped by dd_dollar_quote so no literal in it can end the body early.';
@@ -25837,7 +26620,7 @@ $B$, v_lock_head || v_ins || v_lock_tail, v_head || v_ins || v_tail,
     EXECUTE format('CREATE TRIGGER %I AFTER TRUNCATE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION common.%I()',
                    v_fn || '_trc', v_rel, v_fn);
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_build_link(TEXT, TEXT) IS
 'Drops and, when any rollup still aggregates through the link field p_child.p_link between managed tables, regenerates common.rollup_<child>_<link>() and its four statement-level triggers on the child table.';
@@ -25937,7 +26720,7 @@ $B$, v_ins, v_upd));
         PERFORM audit.enable_tracking(format('public.%I', v_rel)::regclass, dd_audit_ignored_columns(p_parent));
     END IF;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_build_guard(TEXT) IS
 'Drops and, when the managed entity has rollup columns over existing child tables, regenerates common.rollup_guard_<parent>() with its a_rollup_guard trigger; in every case re-creates the entity''s updated_at trigger and audit UPDATE trigger with the rollup columns as ignored columns.';
@@ -25989,7 +26772,7 @@ BEGIN
         EXECUTE v_stmt;
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_backfill(TEXT, TEXT) IS
 'Recomputes one rollup column for every parent record whose stored value differs from the aggregate. Run when a rollup is created or its definition changes.';
@@ -26030,7 +26813,7 @@ BEGIN
         PERFORM rollup_backfill(p_field.table_name, p_field.field_name);
     END IF;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_sync_field(fields, BOOLEAN) IS
 'Probes the compiled filter of a rollup field with EXPLAIN (90265), then rebuilds the maintenance function of its link and the guard of its entity, and backfills the column when asked.';
@@ -26063,9 +26846,9 @@ BEGIN
        SET rollup = jsonb_set(rollup, '{filter}', replace((rollup -> 'filter')::text, v_old_var, v_new_var)::jsonb)
      WHERE rollup <> '{}'::jsonb
        AND split_part(rollup ->> 'link_field', '.', 1) = p_table
-       AND (rollup -> 'filter')::text LIKE '%' || v_old_var || '%';
+       AND position(v_old_var IN (rollup -> 'filter')::text) > 0;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_rename_field_refs(TEXT, TEXT, TEXT) IS
 'After a field rename, rewrites every rollup definition that names the field as link_field, value_field or a filter var, which rebuilds those rollups.';
@@ -26090,7 +26873,7 @@ BEGIN
         PERFORM rollup_build_guard(r.table_name);
     END LOOP;
 END;
-$fn$ LANGUAGE plpgsql SET search_path = public;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_rebuild_all() IS
 'Regenerates every rollup maintenance function and guard from the current fields rows. For the .once. file that accompanies a change to the builders in 0440_rollup.sql.';
@@ -26163,7 +26946,7 @@ BEGIN
     NEW."precision" := (v_def ->> 'precision')::smallint;
     RETURN NEW;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_validate_rollup_field() IS
 'BEFORE INSERT OR UPDATE trigger function on fields: validates a rollup definition through rollup_definition, derives ctype rollup, copies the value field''s precision, and refuses required, searchable and unique rollups. The filter of a new field is compiled and probed later, by zz_rollup_field_change.';
@@ -26199,7 +26982,7 @@ BEGIN
     END IF;
     RETURN OLD;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION a_rollup_field_delete_guard() IS
 'BEFORE DELETE trigger function on fields: refuses (90266) deleting a field that a rollup of another entity names as its link or value field, unless that entity or its module is already being deleted.';
@@ -26266,7 +27049,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_rollup_field_change() IS
 'AFTER INSERT OR UPDATE OR DELETE trigger function on fields: builds, rebuilds, backfills or drops the generated objects of a rollup field, and rewrites the rollups that name a renamed field.';
@@ -26302,7 +27085,7 @@ BEGIN
     END IF;
     RETURN OLD;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION a_rollup_entity_delete_guard() IS
 'BEFORE DELETE trigger function on entities: refuses (90266) deleting an entity whose fields another entity''s rollups aggregate through or over, unless that entity or its module is already being deleted.';
@@ -26370,7 +27153,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_rollup_entity_change() IS
 'AFTER UPDATE trigger function on entities: on a rename rewrites the rollups that name the entity and regenerates their objects, on a managed change builds or drops them, and on a select_rule or view_permission change re-validates the rollups that involve the entity.';
@@ -26389,7 +27172,7 @@ BEGIN
     EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', rollup_guard_name(OLD.table_name));
     RETURN NULL;
 END;
-$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$fn$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_rollup_entity_delete() IS
 'AFTER DELETE trigger function on entities: drops the guard function the deleted entity''s table left behind.';
@@ -26408,7 +27191,7 @@ REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
 $pgsem__core_0440_rollup_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0440_rollup.sql', '830a5a5af1a61e539a13769555028878c9a05abe5afa247479ad99669e67ea65')
+        VALUES ('_core.0440_rollup.sql', 'a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26796,7 +27579,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"3331946fe9a6508b76f8462403a5563fffb3e1f7793ce61339a0b714be7f0497","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"6b3066aef57d22b1c8b7f213a304c9465267792877499e2b815d3ac32f92ac00","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"cd8c0168744bdd5ec22f082c9885e0c14503a0fee696c672affb67f1ee325a8f","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"830a5a5af1a61e539a13769555028878c9a05abe5afa247479ad99669e67ea65","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"4d09bf831f7d7235facafb853debb6b56ff51359ac170797420c4eb5441dea6e","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -26860,7 +27643,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"3331946fe9a6508b76f8462403a5563fffb3e1f7793ce61339a0b714be7f0497","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"6b3066aef57d22b1c8b7f213a304c9465267792877499e2b815d3ac32f92ac00","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"cd8c0168744bdd5ec22f082c9885e0c14503a0fee696c672affb67f1ee325a8f","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"79e2518b21297b04eb690caef451411a53548b00cee3f639ceec7e896077edc8","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"830a5a5af1a61e539a13769555028878c9a05abe5afa247479ad99669e67ea65","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42","_core.0210_computed_validation.sql":"f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"4d09bf831f7d7235facafb853debb6b56ff51359ac170797420c4eb5441dea6e","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

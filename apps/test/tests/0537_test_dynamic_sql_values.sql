@@ -23,7 +23,7 @@
 -- write the dictionary. Everything is rolled back.
 BEGIN;
 
-SELECT plan(103);
+SELECT plan(104);
 
 -- =====================================================
 -- Helpers
@@ -156,7 +156,7 @@ INSERT INTO s1_cases VALUES
     (3,  'vcode',  'the code of a validation rule',        '90905', '42501'),
     (4,  'cname',  'the name of a computed field',         'accepted', '42501'),
     (5,  'reft',   'fields.reference_table',               '90212', '90212'),
-    (6,  'queue',  'queues.queue_name',                    'P0001', '42501'),
+    (6,  'queue',  'queues.queue_name',                    '90505', '42501'),
     (7,  'rlink',  'the link_field of a rollup',           '90262', '90262'),
     (8,  'rfunc',  'the function of a rollup',             '90263', '90263'),
     (9,  'rvalue', 'the value_field of a rollup',          '90264', '90264'),
@@ -165,7 +165,7 @@ INSERT INTO s1_cases VALUES
     (12, 'mname',  'modules.module_name',                  'accepted', '42501'),
     (13, 'mslug',  'modules.module_slug',                  '90702', '90702'),
     (14, 'rname',  'roles.role_name',                      'accepted', '42501'),
-    (15, 'pgmq',   'pgmq.convert_archive_partitioned',     'P0001', 'P0001');
+    (15, 'pgmq',   'pgmq.convert_archive_partitioned',     '42501', '42501');
 
 -- =====================================================
 -- PART 1: hostile values, as an administrator and as a plain user
@@ -282,8 +282,8 @@ SELECT pg_temp.s1_try($$UPDATE entities SET order_column = '' WHERE table_name =
 SELECT is(pg_temp.s1_value($$SELECT note FROM s1_ord$$), 'kept',
     'an order_column that names a field of the entity does not cost the field its column');
 
--- A gate is installed as a trigger on the table its row names. That table has
--- to be an entity: an internal table is not one.
+-- A gate is installed as a trigger on the table its row names. A table that
+-- exists has to be an entity for that: an internal table is not one.
 INSERT INTO processes (module_id, process_key, name, description, ordering)
 VALUES (1, 's1_process', 'S1 Process', 'probe', 10);
 SELECT isnt(
@@ -323,6 +323,20 @@ SELECT ok(
     NOT (current_setting('test.s1_queue_upper') = 'accepted' AND current_setting('test.s1_queue_lower') = 'accepted'),
     'two queue names that differ in case only are not both accepted');
 
+-- A table mapped to a queue gets triggers named queue_<queue>_<event>_on_
+-- <table>. A name cut at 63 bytes is one the rename of the table and the
+-- removal of the mapping no longer find, so the mapping is refused.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('s1_mapped_' || repeat('t', 30), 'Mapped', 'Mappeds', 1, 'public:read', 'admin');
+INSERT INTO queues (queue_name) VALUES ('s1_queue_' || repeat('q', 30));
+SELECT is(
+    pg_temp.s1_outcome(format(
+        $q$INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+           SELECT id, 'too long together', %L, 'insert' FROM queues WHERE queue_name = %L$q$,
+        's1_mapped_' || repeat('t', 30), 's1_queue_' || repeat('q', 30))),
+    '90506',
+    'a queue mapping whose trigger name would not fit 63 bytes is refused');
+
 -- =====================================================
 -- PART 3: a temporary table under the name of a dictionary table
 -- =====================================================
@@ -350,6 +364,10 @@ SELECT is(rbac.has_permission('admin'), FALSE,
 
 SELECT pg_temp.s1_try($$DROP TABLE IF EXISTS pg_temp.users$$);
 DISCARD PLANS;
+
+-- What keeps it that way is asserted with the other security facts, in
+-- 0900_test_security.sql: every function that pins a search_path lists
+-- pg_temp last.
 
 SELECT * FROM finish();
 ROLLBACK;

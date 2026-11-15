@@ -40,7 +40,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION assign_agent_external_id IS
 'Trigger function: gives an agent (is_agent) inserted without an external_id, or with an empty one, a generated agent:<uuid>. Users are left alone and refused by the column constraints.';
@@ -75,7 +75,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_user_id BIGINT;
@@ -118,7 +118,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_user_id BIGINT;
@@ -207,7 +207,7 @@ GRANT  SELECT ON user_process_raci TO semantius_user;
 CREATE OR REPLACE FUNCTION raci_emit_trigger_fn()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_gate       RECORD;
@@ -315,7 +315,7 @@ CREATE OR REPLACE FUNCTION raci_blocking_consultation_pending(
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
     SELECT EXISTS (
         SELECT 1
@@ -363,7 +363,7 @@ RETURNS JSONB
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_id_col TEXT;
@@ -402,7 +402,7 @@ GRANT EXECUTE ON FUNCTION common.raci_held_state(TEXT, JSONB, JSONB) TO semantiu
 CREATE OR REPLACE FUNCTION raci_gate_trigger_fn()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_held JSONB;
@@ -445,7 +445,7 @@ REVOKE EXECUTE ON FUNCTION raci_gate_trigger_fn() FROM PUBLIC;
 CREATE OR REPLACE FUNCTION raci_install_or_drop_gate_trigger(p_entity TEXT)
 RETURNS VOID
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM raci_sync_triggers(
@@ -469,7 +469,7 @@ REVOKE EXECUTE ON FUNCTION raci_install_or_drop_gate_trigger(TEXT) FROM PUBLIC;
 CREATE OR REPLACE FUNCTION raci_gates_manage_emit_trigger()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_entity       TEXT;
@@ -478,8 +478,18 @@ BEGIN
     -- A gate holds a state column of the entity's table in place and emits per
     -- row written; an is_a or has_a entity is a view whose records span
     -- several tables, so neither trigger would see a whole record.
+    --
+    -- A gate may be written before its entity exists: the name is a plain
+    -- key, and the triggers are installed once the table is there. But a
+    -- table that is there and is no entity, an internal one such as _settings
+    -- among them, is not the dictionary's to put a gate's triggers on.
     IF TG_OP <> 'DELETE' THEN
         SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.entity;
+        IF NOT FOUND AND pg_catalog.to_regclass(format('public.%I', NEW.entity)) IS NOT NULL THEN
+            RAISE EXCEPTION 'Process gate: ${entity} is not an entity'
+                USING ERRCODE = '90279',
+                      HINT = jsonb_build_object('entity', NEW.entity)::text;
+        END IF;
         IF v_id_type IN ('is_a', 'has_a') THEN
             RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
                 USING ERRCODE = '90249',
@@ -514,7 +524,7 @@ REVOKE EXECUTE ON FUNCTION raci_gates_manage_emit_trigger() FROM PUBLIC;
 CREATE OR REPLACE FUNCTION raci_install_or_drop_emit_trigger(p_entity TEXT)
 RETURNS VOID
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM raci_sync_triggers(
@@ -537,7 +547,7 @@ $$;
 -- name still finds its trigger.
 CREATE OR REPLACE FUNCTION raci_sync_triggers(p_entity TEXT, p_names NAME[], p_needs BOOLEAN, p_kind TEXT)
 RETURNS VOID
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
     v_rel     REGCLASS := pg_catalog.to_regclass(format('public.%I', p_entity));
@@ -603,7 +613,7 @@ CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
 CREATE OR REPLACE FUNCTION raci_entity_renamed()
 RETURNS TRIGGER
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
     PERFORM raci_sync_triggers(

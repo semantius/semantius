@@ -23,7 +23,7 @@ BEGIN
     );
 END;
 -- STABLE: writes no row, so PostgREST serves it over GET.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_user_modules IS 
 'Returns modules array filtered by RLS. Used internally by get_userinfo().';
@@ -156,7 +156,7 @@ BEGIN
     
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_userinfo IS
 'Returns complete user profile with roles, permissions, and modules. Creates/updates user from JWT claims (email, name, given_name, family_name). Call on login.';
@@ -215,7 +215,7 @@ BEGIN
 
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema_children IS 
 'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller may view; empty when the caller may not view the table itself. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
@@ -428,7 +428,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
              AND format NOT IN ('json', 'jsonlogic'))) AS is_required
     FROM ordered_fields
     ORDER BY ord;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) IS
 'The JSON Schema property and the required flag of every field of an entity''s record (dd_family_fields), in order; inherited fields carry inherited_from. With p_own_only, the entity''s own fields without its key. Used by build_schema_for_table.';
@@ -617,7 +617,7 @@ END;
 -- STABLE: it only reads the dictionary, and its callers get_schema, get_schemas,
 -- get_module_cubes and get_user_cubes are STABLE already. Raising is not a side
 -- effect, and PostgREST serves a STABLE function over GET.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
 'Builds a schema JSON for a single table. Self-gating: applies the view_permission check (of every level an is_a/has_a entity is stored in) with existence-hiding (raises the same undefined_table error for a missing table and for a permission-denied table), matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a has_a base lists its extensions. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
@@ -670,7 +670,7 @@ BEGIN
     RETURN public.build_schema_for_table(p_table_name);
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema IS 
 'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
@@ -731,7 +731,7 @@ BEGIN
     RETURN array_to_json(v_schemas);
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schemas IS 
 'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
@@ -758,7 +758,7 @@ BEGIN
         current_role::TEXT as current_role_name,
         session_user::TEXT as session_user_name;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.ping IS 
 'Returns the current server timestamp and user information as a table. Useful for testing connectivity and server time.';
@@ -792,7 +792,7 @@ BEGIN
     PERFORM rbac.uid();
     RETURN rbac.has_permission(p_permission_name);
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.has_permission IS
 'Public RPC wrapper over rbac.has_permission(). Returns TRUE when the current authenticated user holds the named permission. Exposed in the public schema so PostgREST can serve it as /rpc/has_permission, since the rbac schema is not exposed.';
@@ -858,7 +858,7 @@ BEGIN
     END LOOP;
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
@@ -897,7 +897,7 @@ BEGIN
     END LOOP;
 END;
 -- STABLE: writes no row.
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_user_cubes IS
 'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
@@ -985,7 +985,7 @@ BEGIN
     PERFORM setval(v_sequence, v_next, false);
     RETURN v_next;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public SET lock_timeout = '2s';
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET lock_timeout = '2s';
 
 COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
 'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';

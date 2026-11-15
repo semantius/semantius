@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(186);
+SELECT plan(192);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1405,6 +1405,43 @@ SELECT is(
     ],
     ARRAY['nope', 'nope', NULL, NULL, 'nope', 'an_id_rule', NULL, NULL],
     'jl_unknown_operator finds an unknown operator wherever the evaluator would evaluate it, and nowhere else');
+
+-- =====================================================
+-- The keys a rule reads from its data
+-- =====================================================
+-- jl_row_keys is what decides whether a rule gets $old and whether a field a
+-- rule names may be renamed. It follows the evaluator: the key of a var, of
+-- missing, of missing_some and of value_changed is a key of the data where
+-- the evaluator would read the data; a key that is computed, or empty, comes
+-- back as NULL; a name bound by let or set_record is no key inside the body
+-- that binds it; and the second argument of filter, map, all, none, some and
+-- reduce is read on an element of the list, not on the data. It is the
+-- owner's helper, so the assertions run as the owner.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.jl_keys(p_rule TEXT) RETURNS TEXT[] LANGUAGE sql AS $$
+    SELECT array_agg(COALESCE(k, '(any)') ORDER BY k) FROM jl_row_keys(p_rule::jsonb) AS k;
+$$;
+
+SELECT is(pg_temp.jl_keys('{"and":[{"var":"a.b"},{"var":["c",{"var":"d"}]},{"missing":["e","f"]},{"value_changed":"g"}]}'),
+    ARRAY['$old', 'a.b', 'c', 'd', 'e', 'f', 'g'],
+    'jl_row_keys: var, the default of a var, missing and value_changed, which reads $old as well');
+SELECT is(pg_temp.jl_keys('{"missing_some":[{"var":"need"},["a","b"]]}'),
+    ARRAY['a', 'b', 'need'],
+    'jl_row_keys: the keys of missing_some, and what its count reads');
+SELECT is(pg_temp.jl_keys('{"or":[{"var":{"cat":["x",{"var":"y"}]}},{"var":""},{"missing":[{"var":"z"}]}]}'),
+    ARRAY['y', 'z', '(any)', '(any)', '(any)'],
+    'jl_row_keys: a computed key and the empty key can read anything, and what computes a key is read too');
+SELECT is(pg_temp.jl_keys('{"let":["x",{"var":"a"},{"set_record":["p","some_entity",{"var":"b"},{"cat":[{"var":"x.y"},{"var":"p.q"},{"var":"c"}]}]}]}'),
+    ARRAY['a', 'b', 'c'],
+    'jl_row_keys: a path below a name that let or set_record binds is no key of the data');
+SELECT is(pg_temp.jl_keys('{"reduce":[{"filter":[{"var":"rows"},{"var":"qty"}]},{"+":[{"var":"current"},{"var":"accumulator"}]},{"var":"start"}]}'),
+    ARRAY['rows', 'start'],
+    'jl_row_keys: what filter and reduce evaluate on an element of the list is not read from the data');
+SELECT is(pg_temp.jl_keys('{"map":[[{"var":"m"}],{"var":"inner"}]}') || pg_temp.jl_keys('{"cat":["a",1,null,{"k":1,"l":2}]}'),
+    ARRAY['m'],
+    'jl_row_keys: a list of rules is walked, and a value reads nothing');
 
 SELECT * FROM finish();
 ROLLBACK;

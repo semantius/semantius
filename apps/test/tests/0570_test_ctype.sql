@@ -167,8 +167,9 @@ SELECT lives_ok(
 -- and the label column 'computed_label' (zz_derive_computed_ctype,
 -- 0210_computed_validation.sql). Every way into and out of the two markers:
 -- the field created after its rule, the rule added after the field, the rule
--- removed, one rule change that moves several fields at once, a rename away
--- from the rule and back onto it, for a plain field and for the label column.
+-- removed, one rule change that moves several fields at once, a rename onto
+-- a rule, and the refused rename away from one, for a plain field and for the
+-- label column.
 -- The marker is never set or cleared by hand, computed is not core,
 -- computed_label keeps the label's protection, and input_type stays what the
 -- author set.
@@ -226,34 +227,38 @@ SELECT is(
     'label:computed_label:required, qty::default, total:computed:readonly',
     'adding the rules back marks label and total again; qty, whose rule is gone, is plain with its input_type as before');
 
--- computed -> '' (renamed away from the rule), '' -> computed (renamed onto it).
-UPDATE fields SET field_name = 'sum_total' WHERE table_name = 'cc_probe' AND field_name = 'total';
+-- A rename rewrites no rule, so a field a rule names keeps its name (90275):
+-- the computed field cannot be renamed away from the rule that writes it, and
+-- keeps its marker. The other direction is open: '' -> computed for a field
+-- no rule names that is renamed to a name a rule writes.
 SELECT is(
-    (SELECT ctype FROM fields WHERE table_name = 'cc_probe' AND field_name = 'sum_total'),
-    '',
-    'a field renamed away from its rule loses the marker (nothing rewrites computed_fields on a rename)');
-UPDATE fields SET field_name = 'total' WHERE table_name = 'cc_probe' AND field_name = 'sum_total';
+    catch_error($$UPDATE fields SET field_name = 'sum_total' WHERE table_name = 'cc_probe' AND field_name = 'total'$$) ->> 'code',
+    '90275',
+    'a computed field is not renamed away from the rule that writes it');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('cc_probe', 'spare', 'Spare', 'int32', 30);
+UPDATE entities
+   SET computed_fields = computed_fields || '[{"name": "bonus", "jsonlogic": {"+": [{"var": "qty"}, 1]}}]'::jsonb
+ WHERE table_name = 'cc_probe';
+UPDATE fields SET field_name = 'bonus' WHERE table_name = 'cc_probe' AND field_name = 'spare';
 SELECT is(
-    (SELECT ctype FROM fields WHERE table_name = 'cc_probe' AND field_name = 'total'),
+    (SELECT ctype FROM fields WHERE table_name = 'cc_probe' AND field_name = 'bonus'),
     'computed',
     'a field renamed to a name a rule writes gains the marker');
 
--- computed_label -> label (the label renamed away from its rule), label ->
--- computed_label (renamed back onto it). label_column follows each rename.
-UPDATE fields SET field_name = 'caption' WHERE table_name = 'cc_probe' AND field_name = 'label';
+-- The same for the label column: its rule writes it, so it keeps its name,
+-- and with it the marker and its place as the label.
 SELECT is(
-    (SELECT e.label_column || ':' || f.ctype FROM entities e
-       JOIN fields f ON f.table_name = e.table_name AND f.field_name = e.label_column
-      WHERE e.table_name = 'cc_probe'),
-    'caption:label',
-    'a computed label renamed away from its rule stays the label, as label');
-UPDATE fields SET field_name = 'label' WHERE table_name = 'cc_probe' AND field_name = 'caption';
+    catch_error($$UPDATE fields SET field_name = 'caption' WHERE table_name = 'cc_probe' AND field_name = 'label'$$) ->> 'code',
+    '90275',
+    'a computed label is not renamed away from its rule either');
 SELECT is(
     (SELECT e.label_column || ':' || f.ctype FROM entities e
        JOIN fields f ON f.table_name = e.table_name AND f.field_name = e.label_column
       WHERE e.table_name = 'cc_probe'),
     'label:computed_label',
-    'a label renamed to the name its rule writes becomes computed_label again');
+    'and stays the label, marked computed_label');
 
 -- Never by hand: not set on a plain field, not cleared, not swapped.
 SELECT throws_ok(

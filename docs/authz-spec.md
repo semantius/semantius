@@ -33,6 +33,17 @@ including the client-artifact regeneration (drizzle, kysely and docgen rebuilt f
 `_core`-only database, and the extension reissued as a fresh-install-only build because the
 generated upgrade script was a no-op). Pinned by tests `0930` (b8), `0660` (b5), `0630` (b3),
 `0570` (b6, the b7 audit and the b7 ctype lock and protection) and `0620` (b9).
+**Amended 2026-11-15 (the last Administrator):** decided by the maintainer. I5: the guard that
+keeps an enabled holder of role 2 also refuses an UPDATE of the last one's `user_roles` row, and
+role 2 keeps its grant of `admin`: the grant row and the permission itself can be neither removed
+nor renamed (`90104`, test `0370`). A direct owner connection stays exempt.
+**Amended 2026-11-15 (the rule predicate):** decided by the maintainer. I1: the two-argument
+`select_rule_<entity>` answers false for every row when it is handed no context; the request
+role holds EXECUTE on it and could pass NULL (test `0600`).
+**Amended 2026-11-15 (API keys):** decided by the maintainer. I5: the API key of a disabled
+user is no credential; `validate_api_key` answers NULL for it and records no use. I1: a caller without `admin` who
+names a key of another user in `delete_api_key` gets the answer of a key that does not exist
+(`90402`). Test `0260`.
 **Amended 2026-11-15 (the row being written, identity, read helpers):** four changes, decided by
 the maintainer. (1) I1 and I3: a write may move a row out of the writer's own `select_rule`, and
 `RETURNING` hands back the row the statement wrote; the path table and I1 say how. Reading the
@@ -102,8 +113,12 @@ access(row) =  select_rule(row)                    when select_rule is non-empty
   ReBAC model: one check expression; roles are just terms in it.
 - **`is_raci_actor`** (caller-scoped) is the RACI visibility grant. **`has_consultation`**
   is record-scoped (ignores the caller) and MUST NOT be used as a per-user visibility grant.
-- **Forgetting a grant fails CLOSED** (denies) — the safe direction. The only hazard is an
-  accidentally always-true rule; mitigated by author-time validation + tests.
+- **Forgetting a grant fails CLOSED** (denies) — the safe direction. So does a rule that
+  cannot decide: a rule that raises on a row hides that row and raises a WARNING naming the
+  entity and the SQLSTATE, once per transaction and entity; a stored rule that is not one
+  JsonLogic operation hides every row. The remaining hazard is an accidentally always-true
+  rule. The save refuses a rule that is not one operation (`90919`) or that names an unknown
+  operator (`90909`); tests cover the rest.
 
 **This single predicate MUST be enforced identically in every access path** (this is the
 core of the remediation — today it is not):
@@ -130,6 +145,8 @@ core of the remediation — today it is not):
   (`processes`,`raci_assignments`,`process_gates`,`raci_events`) · system (`_apikeys`,
   `audit_record_logs`,`audit_ddl_logs`,`webhook_*`,`queues`,`modules`,`_settings`) · derived
   (views incl. `user_process_raci`, `search_vector`, cubes, `get_schema`/`build_schema_for_table`).
+  A table named with a leading `_` (`_apikeys`, `_settings`) is internal and is never an
+  entity: registering or adopting one is refused (`90271`).
 - **A3 · Operation** — SELECT · INSERT · UPDATE · DELETE · DD-ops (create/alter/drop/rename).
 - **A4 · Statement shape** — qualified-reading-a-column · **bare/`WHERE TRUE`/`SET=const`
   (reads no column)** · RETURNING · writable CTE · `ON CONFLICT DO UPDATE`/`DO NOTHING` ·
@@ -159,7 +176,12 @@ core of the remediation — today it is not):
 
 - **I1 · Read confinement** — no subject reads a row outside `access(row)` (the canonical
   predicate) via ANY path: SELECT, RETURNING, sub-select, **`get_record_by_id`/`set_record`/
-  `build_schema_for_table`**, view, search, FK-label join, cube, or error message. One
+  `build_schema_for_table`/`get_schema_children`**, view, search, FK-label join, cube, or error
+  message. `get_schema_children` lists a child only for a caller who may view it, and nothing
+  under a parent the caller may not view. The generated `select_rule_<entity>(row, context)`
+  is executable by the request role and answers false for every row when it is handed no
+  context. `delete_api_key` answers a caller without `admin` who names a key of another user
+  as it answers for a key that does not exist (`90402`). One
   exception: `RETURNING` hands a writer the row its own statement wrote, also when the write
   moved that row out of `access(row)`. The writer supplied or could already read every value
   in it. A client that runs SQL itself can read that one row again until its transaction
@@ -167,22 +189,35 @@ core of the remediation — today it is not):
 - **I2 · No write/delete of inaccessible rows** — a subject cannot UPDATE/DELETE a row for
   which `access(row)` is false, under EVERY statement shape (A4). Enforced via UPDATE/DELETE
   `USING`, not via incidental SELECT-policy application.
-- **I3 · Write authorization** — writes require `has_permission(edit_permission)` AND
-  `access(row)` on the affected row. An optional per-entity `check_rule` (post-image
-  `WITH CHECK`) MAY further constrain new rows; it is currently unbuilt.
+- **I3 · Write authorization** — writes require `has_permission(edit_permission)`, and an
+  UPDATE or DELETE also requires `access(row)` on the row as it is before the write. The row
+  as it will be, an inserted row or the new values of an updated one, is held to the edit
+  permission only, so a write may move a row out of the writer's own rule. An optional
+  per-entity `check_rule` (post-image `WITH CHECK`) MAY further constrain new rows; it is
+  currently unbuilt.
 - **I4 · RBAC required** — no operation without its permission, including indirect paths
   (cascade, definer, upsert, RPC).
 - **I5 · No privilege escalation** — cannot self-grant by writing `user_roles`/
   `role_permissions`/`user_permissions`/`permissions`/`permission_hierarchy`/`raci_assignments`
   without the governing permission. (Bootstrap first-user→admin is a characterized exception.)
   Writing `users.external_id` is escalation as well, because a session is whoever's row carries
-  the token's `sub`: only a holder of `admin` sets or changes it.
+  the token's `sub`: only a holder of `admin` sets or changes it. The system keeps an enabled
+  holder of role 2, and role 2 keeps its grant of `admin`. Refused with 42501, `hint.code`
+  `90104`: removing the role from the last holder, an UPDATE that points that holder's
+  `user_roles` row at another role or user, deleting or disabling that user, deleting role 2,
+  removing or re-pointing the `role_permissions` row that grants `admin` to role 2, and
+  deleting or renaming the permission `admin`. A direct owner connection is exempt. The API
+  key of a disabled user is no credential: `validate_api_key` answers NULL for it and records
+  no use.
 - **I6 · DD integrity** — core fields (identified by `dd_ctype_is_core(ctype)`, i.e. `ctype` not in
   `''`, `'rollup'`, `'computed'`; originally `ctype <> ''`) cannot be deleted or
   structurally altered (format/default/pk) by any non-migration subject, via any op/shape/role;
   they cannot be renamed EXCEPT the label column (`dd_ctype_is_label(ctype)`, i.e. `'label'`
   or `'computed_label'`), whose rename is *intentionally allowed* and cascades to
-  `entities.label_column` (pinned by `0460_test_ddl_rename.sql`). The core marker cannot
+  `entities.label_column` (pinned by `0460_test_ddl_rename.sql`). The rename of any field,
+  the label column included, is refused while a rule names the field (`90275`), when a
+  generated name would exceed 63 bytes (`90276`), and when the new index name is already
+  taken (`90274`). The core marker cannot
   be set/cleared to trap or free a field. The one marker that moves is the label's: it
   follows `entities.label_column`, which only a holder of the entities edit permission
   can change, and never onto a field that carries another marker (90270). Enforced by an
@@ -306,8 +341,11 @@ red-first tests (0610/0620/0850) are now green. Items NOT marked FIXED remain op
   that matters: it happens once per empty administrator set, not once per apparently-quiet
   system. It fires on INSERT only, so an established principal is never elected however many
   times it authenticates; the administrator set is therefore not allowed to empty, and
-  `rbac.assert_administrator_remains` refuses any statement that would (removing the role,
-  deleting the user, or disabling it). A direct superuser connection is exempt.
+  `rbac.assert_administrator_remains` refuses any statement that would: removing the role
+  from the last holder, pointing that holder's `user_roles` row at another role or user,
+  deleting or disabling the user, or deleting role 2. `rbac.assert_administrator_grant_remains`
+  keeps the grant of `admin` to role 2 and the permission `admin` itself. A direct owner
+  connection is exempt.
 
 **ACCEPTED (per premises/decisions, not violations):** `select_rule` REPLACE semantics (D8);
 audit-log read exposure to admin (P2); cascade into credential children (D9); DD metadata

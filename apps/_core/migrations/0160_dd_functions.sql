@@ -57,7 +57,7 @@ BEGIN
         ELSE 'TEXT'
     END;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
@@ -86,7 +86,7 @@ BEGIN
     END IF;
     RETURN v_tag || p_body || v_tag;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
 'Wraps a generated function body in a dollar tag derived from the body, so no quoted literal inside it can end the body early when the CREATE FUNCTION is executed. Used by every dictionary generator.';
@@ -115,7 +115,7 @@ COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_relation(p_table_name TEXT, p_id_type TEXT)
 RETURNS TEXT AS $$
     SELECT CASE WHEN p_id_type IN ('is_a', 'has_a') THEN p_table_name || '_ext' ELSE p_table_name END;
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_relation(TEXT, TEXT) IS
 'Name of the physical table that holds an entity''s own columns: <entity>_ext for id_type is_a and has_a, the entity name for every other key type.';
@@ -123,7 +123,7 @@ COMMENT ON FUNCTION dd_relation(TEXT, TEXT) IS
 CREATE OR REPLACE FUNCTION dd_relation(p_table_name TEXT)
 RETURNS TEXT AS $$
     SELECT dd_relation(p_table_name, (SELECT e.id_type FROM entities e WHERE e.table_name = p_table_name));
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_relation(TEXT) IS
 'Name of the physical table that holds an entity''s own columns, looked up by the entity''s key type. The entity name itself for an unknown entity.';
@@ -148,7 +148,7 @@ RETURNS TABLE (table_name TEXT, depth INTEGER) AS $$
     SELECT up.table_name, (max(up.hops) OVER () - up.hops)::integer
       FROM up
      ORDER BY 2;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_ancestors(TEXT) IS
 'The chain of an entity: its root at depth 0, then each is_a/has_a level, the entity itself last. A plain entity returns itself alone. Empty for an unknown entity.';
@@ -170,7 +170,7 @@ RETURNS TABLE (table_name TEXT, depth INTEGER) AS $$
     SELECT down.table_name, down.depth
       FROM down
      ORDER BY down.depth, down.table_name;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_descendants(TEXT) IS
 'Every is_a and has_a entity based on the given entity, directly or through other is_a entities, with its distance (1 = direct).';
@@ -205,7 +205,7 @@ RETURNS SETOF fields AS $$
                    ELSE chain.depth
               END,
               f.field_order, f.field_name;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_fields(TEXT) IS
 'The fields rows that make up a record of the entity, in order: for an is_a/has_a entity its key, the fields of its root and of each level (without their key and audit fields), its own fields, then its audit fields; for a plain entity its own fields in field_order. table_name names the entity that owns each field.';
@@ -218,7 +218,7 @@ RETURNS BOOLEAN AS $$
     SELECT COALESCE(bool_and(rbac.has_permission(e.view_permission)), FALSE)
       FROM dd_ancestors(p_table_name) a
       JOIN entities e ON e.table_name = a.table_name;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 'TRUE when the current user holds the view_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
@@ -229,7 +229,7 @@ COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_entity_searchable(p_table_name TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.searchable);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
 'The value of entities.searchable: TRUE when any field of the entity''s record (dd_family_fields) is searchable.';
@@ -241,7 +241,7 @@ COMMENT ON FUNCTION dd_entity_searchable(TEXT) IS
 CREATE OR REPLACE FUNCTION dd_entity_is_child(p_table_name TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS (SELECT 1 FROM dd_family_fields(p_table_name) f WHERE f.format = 'parent');
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_entity_is_child(TEXT) IS
 'The value of entities.is_child: TRUE when any field of the entity''s record (dd_family_fields) has format parent.';
@@ -282,7 +282,7 @@ RETURNS TEXT AS $$
         WHEN 'has_a'          THEN 'COMMON.TYPEID'
         ELSE 'TEXT'  -- text, and computed, whose system keys are generated TEXT
     END;
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_id_type_data_type(TEXT) IS
 'Column type of an entity key for a given id_type (BIGINT, TEXT, UUID or COMMON.TYPEID), upper-cased like field_data_type.';
@@ -360,7 +360,7 @@ BEGIN
     END IF;
 END;
 -- STABLE, not IMMUTABLE: format() is STABLE.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) IS
 'Key column DDL and id field row values (format, input_type, input_type_rule) for an entity''s id_type. Used by create_dd_table and enable_dd_table so both paths build the same key. For is_a/has_a the key of <entity>_ext, referencing the base''s relation. Raises 90234 for computed.';
@@ -429,7 +429,7 @@ BEGIN
                       'hint', 'Change the table''s key column to ${expected_type}, or declare the entity with the id_type that matches it.')::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) IS
 'Raises 90235 when an existing table''s key column does not match the entity''s id_type (or is missing). auto_increment accepts a BIGINT identity or bigserial.';
@@ -479,7 +479,7 @@ END;
 -- SECURITY INVOKER: its callers (create_dd_table, enable_dd_table,
 -- dd_sync_typeid_prefix, dd_refresh_family) are SECURITY DEFINER and already
 -- run as the owner.
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) IS
 'Creates the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid keys, the a_typeid_assign insert trigger carrying the current prefix and the prefixes of the entity''s is_a subtypes, then brings the late key checks up to date (dd_install_key_rule_checks). a_typeid_assign sorts before compute_validate_trigger, so computed fields and validation rules see the generated id. For tables whose key the dictionary builds only.';
@@ -494,7 +494,7 @@ RETURNS TEXT AS $$
       FROM dd_descendants(p_table_name) d
       JOIN entities e ON e.table_name = d.table_name
      WHERE e.id_type = 'is_a';
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) IS
 'The quoted argument list of a typeid table''s a_typeid_assign trigger: key column, current prefix, then the prefixes of the entity''s is_a subtypes.';
@@ -573,7 +573,7 @@ BEGIN
 END;
 -- SECURITY INVOKER: its callers (dd_install_id_triggers and
 -- build_record_logic_trigger) already run as the owner.
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_key_rule_checks(TEXT, TEXT, TEXT, TEXT) IS
 'When a computed field of a plain or root entity names the key column, creates zz_key_check_insert (where the table has a_typeid_assign) and zz_key_check_update (where it has pk_immutable), which repeat those key checks after the rules; otherwise drops them.';
@@ -637,7 +637,7 @@ RETURNS TEXT AS $$
         END,
         format_to_data_type(p_format, p_precision)
     );
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION field_data_type IS
 'PostgreSQL type for a field''s column. Same as format_to_data_type except for reference/parent, which take the type of the referenced entity''s key column so the foreign key can be created: the catalog type when the table exists, else the type the entity''s id_type gives its key. Falls back to the format (BIGINT) when the referenced entity is unknown.';
@@ -654,7 +654,7 @@ RETURNS JSONB AS $$
 BEGIN
     RETURN dd_formats()::jsonb -> p_format -> 'type';
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION format_to_json_type IS 
 'Maps format values to JSON Schema types (returns JSONB - either a string for single type or array for json format).';
@@ -688,7 +688,7 @@ RETURNS JSONB AS $$
         END,
         format_to_json_type(p_format)
     );
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION field_json_type IS
 'JSON Schema type for a field''s property. Same as format_to_json_type except for reference/parent, which take the type of the referenced entity''s key field. Falls back to the format when the referenced entity is unknown.';
@@ -698,20 +698,21 @@ COMMENT ON FUNCTION field_json_type IS
 -- =====================================================
 -- Determines whether a column should allow NULL values based on its format.
 -- Nullable formats: reference (optional FK), date (unknown date), time (no time
--- given), date-time (not-yet timestamps). None of the three temporal formats
--- has a zero value: a default of midnight or of today would be indistinguishable
--- from a value somebody entered.
+-- given), date-time (not-yet timestamps), uuid (no UUID given). None of the
+-- three temporal formats has a zero value: a default of midnight or of today
+-- would be indistinguishable from a value somebody entered. A UUID has none
+-- either: every value of the type names something.
 -- All other formats use NOT NULL with appropriate defaults.
 
 CREATE OR REPLACE FUNCTION is_nullable(p_format TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN p_format IN ('reference', 'date', 'time', 'date-time');
+    RETURN p_format IN ('reference', 'date', 'time', 'date-time', 'uuid');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION is_nullable IS
-'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, time, and date-time formats.';
+'Determines whether a column should allow NULL values based on its format. Returns TRUE for the reference, date, time, date-time and uuid formats.';
 
 -- =====================================================
 -- UNIQUE VALUE PREDICATE
@@ -729,7 +730,7 @@ RETURNS TEXT AS $$
                 THEN format('%I IS NOT NULL AND %I != ''''', p_field.field_name, p_field.field_name)
                 ELSE format('%I IS NOT NULL', p_field.field_name)
            END;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_unique_predicate(fields) IS
 'The WHERE clause of a unique_value field''s partial unique index: NULL is left out for every column type, and the empty string as well for a TEXT column.';
@@ -780,7 +781,7 @@ BEGIN
                                             'name', p_index::name::text, 'used_by', v_used_by)::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) IS
 'Raises 90274 when the generated index name of a field is carried by anything other than that field''s own index. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
@@ -800,7 +801,7 @@ BEGIN
     EXECUTE format('DROP INDEX public.%I', p_index);
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_drop_own_index(TEXT, TEXT) IS
 'Drops a generated index when it is an index of the given table, and leaves a relation of that name on any other table alone. Returns whether it dropped one.';
@@ -823,7 +824,7 @@ CREATE OR REPLACE FUNCTION enum_value_list(p_enum_values JSONB)
 RETURNS JSONB AS $$
     SELECT jsonb_agg(CASE WHEN jsonb_typeof(e) = 'object' THEN e -> 'value' ELSE e END ORDER BY n)
       FROM jsonb_array_elements(p_enum_values) WITH ORDINALITY AS t(e, n);
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enum_value_list IS
 'Returns the values of an enum_values array in order, taking the "value" of an entry that is a {value, label, ...} object. NULL for an empty array.';
@@ -841,7 +842,7 @@ BEGIN
     END IF;
     RETURN p_enum_values;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION effective_enum_values IS
 'Returns the effective list of allowed enum entries, values and {value, label} objects as stored: appends '''' for non-required enums so that the implicit empty-string default is accepted by the CHECK constraint.';
@@ -862,7 +863,7 @@ BEGIN
     END IF;
     RETURN '';
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION effective_enum_default IS
 'Computes the effective default for an enum field: explicit default_value if set, else empty string, which the required check of a required enum refuses.';
@@ -910,7 +911,7 @@ BEGIN
 
     -- Plain numeric constants for numeric columns (NUMERIC(18, n) included)
     IF p_data_type ~ '^(INTEGER|BIGINT|SMALLINT|NUMERIC|DECIMAL|REAL|DOUBLE PRECISION)'
-       AND v_value ~ '^-?[0-9]+(\.[0-9]+)?$' THEN
+       AND v_value ~ '^-?[0-9]+([.][0-9]+)?$' THEN
         RETURN v_value;
     END IF;
 
@@ -929,7 +930,7 @@ BEGIN
     -- (so '[]' works for JSONB, '2026-01-01' for DATE, '1e3' for NUMERIC, ...).
     RETURN quote_literal(p_default_value);
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION quote_default_value IS
 'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
@@ -963,9 +964,14 @@ BEGIN
         WHEN p_data_type = 'BOOLEAN' THEN 'FALSE'
         WHEN p_data_type IN ('TIMESTAMP', 'TIMESTAMPTZ') THEN 'CURRENT_TIMESTAMP'
         WHEN p_data_type = 'DATE' THEN 'CURRENT_DATE'
+        -- No time at all and no bytes are the zero values of a duration and
+        -- of a binary field. An empty binary value is also what a required
+        -- binary field refuses (dd_required_test).
+        WHEN p_data_type = 'INTERVAL' THEN '''0''::interval'
+        WHEN p_data_type = 'BYTEA' THEN '''''::bytea'
     END;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_column_default IS
 'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
@@ -1029,7 +1035,7 @@ BEGIN
         WHEN 'BYTEA' THEN 'octet_length(' || v_col || ') > 0'
     END;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_test(fields) IS
 'The SQL condition a value of a required field must meet, or NULL when the field gets no required check.';
@@ -1053,7 +1059,7 @@ BEGIN
         USING ERRCODE = '90258',
               HINT = jsonb_build_object('table', v_table, 'field_name', p_field)::text;
 END;
-$$ LANGUAGE plpgsql VOLATILE SET search_path = public;
+$$ LANGUAGE plpgsql VOLATILE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.dd_raise_required(OID, TEXT) IS
 'Raises 90258 for a missing value on a required field. Called from the required check of the field, only when the value is missing.';
@@ -1065,7 +1071,7 @@ RETURNS TEXT AS $$
     SELECT format('CASE WHEN %s THEN TRUE ELSE common.dd_raise_required(tableoid, %L) END',
                   dd_required_test(p_field), p_field.field_name)
      WHERE dd_required_test(p_field) IS NOT NULL;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_check_expr(fields) IS
 'The expression of a required field''s check, or NULL when the field gets none.';
@@ -1076,7 +1082,7 @@ RETURNS BOOLEAN AS $$
         SELECT 1 FROM pg_catalog.pg_constraint c
          WHERE c.conrelid = pg_catalog.to_regclass(format('public.%I', p_rel))
            AND c.conname = p_name::name);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_constraint_exists(TEXT, TEXT) IS
 'Whether a table has a constraint of this name. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
@@ -1089,7 +1095,7 @@ BEGIN
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I)', p_rel) INTO v_found;
     RETURN v_found;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_relation_has_rows(TEXT) IS
 'Whether a table has any row. Reads at most one row, so it is safe under a lock.';
@@ -1109,7 +1115,7 @@ BEGIN
     EXECUTE format('SELECT EXISTS (SELECT 1 FROM %I WHERE (%s) IS NOT TRUE)', p_rel, v_test) INTO v_found;
     RETURN v_found;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_field_has_missing(fields, TEXT) IS
 'Whether any row is missing a value for a required field. A plain read: call it before the transaction locks the table.';
@@ -1134,7 +1140,7 @@ BEGIN
         p_field.field_name) INTO v_ok;
     RETURN v_ok;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_default_ok(fields) IS
 'Whether the column default of a required field meets the field''s condition.';
@@ -1153,7 +1159,7 @@ BEGIN
     END IF;
     EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I CHECK (%s) NOT VALID', p_rel, v_name, v_expr);
 END;
-$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_add_required_check(fields, TEXT) IS
 'Adds the required check of a field NOT VALID, unless it has one or gets none. Takes its lock for a moment and gives up after 2 s.';
@@ -1171,7 +1177,7 @@ BEGIN
     EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', p_rel, v_name);
     RETURN TRUE;
 END;
-$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public;
+$$ LANGUAGE plpgsql SET lock_timeout = '2s' SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_drop_required_check(TEXT, TEXT) IS
 'Drops the required check of a field if it has one, and returns whether it did.';
@@ -1195,7 +1201,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_skip_reason(fields, TEXT) IS
 'Why an existing required field must not get its check yet, or NULL when it may. Reads the table, so call it before locking it.';
@@ -1218,7 +1224,7 @@ BEGIN
             USING ERRCODE = '23514', CONSTRAINT = v_name, TABLE = p_rel;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) IS
 'Raises 23514 when a row holds a value outside the enum values of a field. A plain read: call it before locking the table.';
@@ -1246,7 +1252,7 @@ BEGIN
         p_rel, v_name, p_field.field_name, v_list,
         CASE WHEN dd_relation_has_rows(p_rel) THEN ' NOT VALID' ELSE '' END);
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_replace_enum_check(fields, TEXT) IS
 'Replaces the CHECK listing the allowed values of an enum field, or drops it when the field is no longer an enum with values.';
@@ -1269,7 +1275,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_required_delete_mode() IS
 'BEFORE INSERT/UPDATE guard on fields: refuses a required reference whose delete mode is clear, because ON DELETE SET NULL would make every delete of its parent fail.';
@@ -1301,7 +1307,7 @@ BEGIN
     END IF;
     RETURN NULLIF(v_body, '');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_table_comment IS
 'Builds the COMMENT ON TABLE body for an entity: the plural label as a summary line, followed by a blank line and the description when one is set. Returns NULL when both are empty. Used by the entity create and update DDL triggers so both paths stay in sync.';
@@ -1329,7 +1335,7 @@ BEGIN
     END IF;
     RETURN NULLIF(v_body, '');
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_field_comment IS
 'Builds the COMMENT ON COLUMN body for a field: a "<title> (<format>)" summary line, then the description (when set), then for enum fields a blank line and the comma-separated list of allowed values. Used by the field create and update DDL triggers so both paths stay in sync.';
@@ -1412,7 +1418,7 @@ BEGIN
         v_edit_permission
     );
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION create_entity_policies(TEXT) IS
 'Creates the four RLS policies of a managed entity on its physical relation from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
@@ -1588,7 +1594,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION create_dd_table IS
 'Trigger function that creates a table with RLS policies when a row is inserted into entities table. For an is_a or has_a entity it creates <entity>_ext with its write guard; its view comes from the family refresh the field rows trigger.';
@@ -1633,7 +1639,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_dd_table_comment IS
 'Trigger function that re-applies COMMENT ON TABLE (plural label + description) when an entity''s plural_label, description or table_name changes, keeping the table comment in sync with the entity metadata. An is_a or has_a entity''s view gets the same comment as its <entity>_ext table.';
@@ -1663,7 +1669,7 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
 CREATE OR REPLACE FUNCTION dd_ctype_is_core(p_ctype TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
@@ -1681,7 +1687,7 @@ GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
 CREATE OR REPLACE FUNCTION dd_ctype_is_label(p_ctype TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_label(TEXT) IS
@@ -1727,7 +1733,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION lock_field_ctype IS
 'BEFORE INSERT/UPDATE guard on fields: only a BYPASSRLS (DD/migration) caller may set or change ctype. Non-privileged users get ctype forced to '''' on INSERT and a rejection on any UPDATE that changes ctype. Keeps ctype (the core marker that "core = ctype <> ''" depends on) un-tamperable.';
@@ -1975,7 +1981,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION add_dd_field IS 
 'Trigger function that adds a column to a table when a row is inserted into fields table.';
@@ -2010,6 +2016,7 @@ DECLARE
     v_old_as_renamed fields;
     v_required_changed BOOLEAN;
     v_enum_changed   BOOLEAN;
+    v_view           TEXT;
 BEGIN
     -- Check if the parent table is managed. The DDL below goes to the entity's
     -- physical relation, <entity>_ext for an is_a or has_a entity.
@@ -2164,6 +2171,34 @@ BEGIN
             NEW.field_name, OLD.format, NEW.format, NEW.table_name, v_new_data_type;
     END IF;
 
+    -- A changed precision of a number field. The scale is part of the column's
+    -- type, so the column follows the field: raised, the stored values keep
+    -- their value; lowered, PostgreSQL rounds them, which whoever lowers it
+    -- accepts. Any change of scale rewrites the table under an exclusive lock.
+    --
+    -- PostgreSQL does not alter a column a view shows. The view of an is_a or
+    -- has_a entity shows the columns of its own table and of every base, so
+    -- the views of this entity and of the entities below it go first, the
+    -- lowest first; the family refresh at the end of the statement builds
+    -- them again. Objects somebody else built on them would go with them,
+    -- which is refused as for every change that drops a family view (90256).
+    IF OLD.format = 'number' AND NEW.format = 'number' AND OLD."precision" IS DISTINCT FROM NEW."precision" THEN
+        PERFORM dd_check_family_dependents(ARRAY[NEW.table_name]);
+        FOR v_view IN
+            SELECT e.table_name
+              FROM (SELECT NEW.table_name::text AS table_name, 0 AS depth
+                    UNION ALL
+                    SELECT d.table_name, d.depth FROM dd_descendants(NEW.table_name) d) t
+              JOIN entities e ON e.table_name = t.table_name
+             WHERE e.id_type IN ('is_a', 'has_a')
+             ORDER BY t.depth DESC
+        LOOP
+            EXECUTE format('DROP VIEW IF EXISTS public.%I CASCADE', v_view);
+        END LOOP;
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE %s',
+                       v_rel, NEW.field_name, field_data_type(NEW.format, NEW."precision", NEW.reference_table));
+    END IF;
+
     -- Allow updating nullable constraint (derived from format)
     IF is_nullable(OLD.format) <> is_nullable(NEW.format) THEN
         IF is_nullable(NEW.format) THEN
@@ -2307,7 +2342,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_dd_field IS
 'Trigger function that updates column properties when a field is updated.
@@ -2401,7 +2436,7 @@ BEGIN
     
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION delete_dd_field IS 
 'Trigger function that drops a column when a field is deleted.';
@@ -2523,7 +2558,7 @@ BEGIN
 
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION delete_dd_table IS
 'Trigger function that drops a table when a row is deleted from entities table. Refuses first when entities are still based on it (90248), when fields of other entities reference it (90260) or when an is_a/has_a family entity still has records (90247); for an is_a or has_a entity it drops the view, its generated routines and <entity>_ext.';
@@ -2570,7 +2605,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_entity_policies IS
 'AFTER UPDATE trigger on entities: drops and recreates INSERT, UPDATE, and DELETE
@@ -2614,7 +2649,7 @@ BEGIN
     PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_sync_typeid_prefix() IS
 'AFTER UPDATE OF id_prefix trigger on entities: recreates the a_typeid_assign trigger of a managed typeid entity''s table with the new prefix (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix.';
@@ -2821,7 +2856,7 @@ BEGIN
     );
 
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_search_vector_column IS 
 'Creates or updates the search_vector GENERATED column and GIN index for a table based on searchable fields. Works for both managed and core tables as long as the physical table exists. Rebuilding is a full table rewrite under ACCESS EXCLUSIVE (~650 ms per 100k rows) that also rebuilds every index on the table, so it is skipped when the generated expression is unchanged; the check is a fingerprint stored in the column comment.';
@@ -2848,7 +2883,7 @@ BEGIN
       AND e.searchable IS DISTINCT FROM dd_entity_searchable(e.table_name);
 
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_table_searchable_flag IS 
 'Auto-maintains the searchable flag of an entity and of the entities based on it (dd_entity_searchable).';
@@ -2884,7 +2919,7 @@ BEGIN
     -- have dropped with CASCADE. Reads and returns when no family is touched.
     PERFORM dd_refresh_family(p_touched);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION apply_field_searchable_change IS
 'Rebuilds search_vector for every table in p_rebuild, recomputes entities.searchable for every table in p_touched and rebuilds the is_a/has_a families among them. Called once per statement by the handle_field_searchable_* triggers.';
@@ -2919,7 +2954,7 @@ BEGIN
     PERFORM apply_field_searchable_change(v_rebuild, v_touched);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION handle_field_searchable_update()
 RETURNS TRIGGER AS $$
@@ -2953,7 +2988,7 @@ BEGIN
     PERFORM apply_field_searchable_change(v_rebuild, v_touched);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION handle_field_searchable_delete()
 RETURNS TRIGGER AS $$
@@ -2969,7 +3004,7 @@ BEGIN
     PERFORM apply_field_searchable_change(v_rebuild, v_touched);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION handle_field_searchable_insert IS
 'Statement-level trigger function: rebuilds search_vector once per table for the fields inserted by one statement.';
@@ -3033,7 +3068,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_title_to_field() IS
 'AFTER UPDATE trigger on entities: writes a changed label_column_label to the title of the entity''s label field.';
@@ -3058,7 +3093,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_title_from_field() IS
 'AFTER INSERT OR UPDATE trigger on fields: copies the title of an entity''s label field into entities.label_column_label; family_label_column_trigger carries it to the is_a and has_a entities based on it.';
@@ -3132,7 +3167,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_marker_follow() IS
 'AFTER UPDATE trigger on entities: moves the label marker (ctype label or computed_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
@@ -3168,7 +3203,7 @@ BEGIN
     
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enforce_table_searchable_consistency IS 
 'Trigger function that ensures entities.searchable always reflects the status of related fields, preventing manual overrides.';
@@ -3206,7 +3241,7 @@ BEGIN
             OR e.table_name IN (SELECT d.table_name FROM dd_descendants(p_table_name) d))
        AND e.is_child IS DISTINCT FROM dd_entity_is_child(e.table_name);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_table_is_child_flag IS
 'Auto-maintains the is_child flag of an entity and of the entities based on it: TRUE when any field of the record has format=''parent'' (dd_entity_is_child).';
@@ -3242,7 +3277,7 @@ BEGIN
         RETURN NEW;
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION handle_field_parent_format_change IS 
 'Trigger function that updates entities.is_child when fields with format=''parent'' are created, updated, or deleted.';
@@ -3277,7 +3312,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION enforce_table_is_child_consistency IS 
 'Trigger function that ensures entities.is_child always reflects the status of related fields, preventing manual overrides.';
@@ -3425,7 +3460,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_family() IS
 'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
@@ -3454,7 +3489,7 @@ BEGIN
             OR label_column_label IS DISTINCT FROM NEW.label_column_label);
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_label_column_changed() IS
 'AFTER UPDATE trigger on entities: carries a changed label_column or label_column_label to the is_a and has_a entities based on this one, whose own update carries it further down the family.';
@@ -3519,7 +3554,7 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_family_field() IS
 'BEFORE INSERT OR UPDATE trigger on fields: refuses a field name that an ancestor or descendant of the entity already uses (90243), and a cascading reference field on an is_a entity (90249).';
@@ -3580,7 +3615,7 @@ RETURNS TABLE (ord BIGINT, depth INTEGER, rel TEXT, column_name TEXT) AS $$
                       AND att.attnum > 0
                       AND NOT att.attisdropped)
      ORDER BY f.ordinality;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_columns(TEXT) IS
 'The data columns of an entity''s record (dd_family_fields without the key and audit fields) that exist physically, with the depth and physical relation of the level that stores each. Used by the family view and write-routine generators.';
@@ -3682,7 +3717,7 @@ BEGIN
     EXECUTE format('COMMENT ON VIEW public.%I IS %L', p_table_name, v_comment);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user', p_table_name);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 'Creates the security_invoker view of an is_a/has_a entity over its <entity>_ext table and the relations of its bases, with the column defaults and comments of the physical columns, its comment and the request-role grant. Called by dd_refresh_family.';
@@ -3703,7 +3738,7 @@ RETURNS TEXT AS $$
                   || E'\n                      HINT = jsonb_build_object(''column'', %1$L, ''table'', %3$L)::text;'
                   || E'\n        END IF;',
                   p_key, p_was, p_table, CASE WHEN p_when = '' THEN '' ELSE p_when || ' AND ' END);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) IS
 'PL/pgSQL text for a generated write routine: raises 90236 when the key of v_new differs from that of the named record variable, optionally only under a condition.';
@@ -3716,7 +3751,7 @@ RETURNS TEXT AS $$
                   || E'\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %2$L, ''table'', %3$L)::text;'
                   || E'\n        END IF;',
                   p_key, p_prefix, p_table, CASE WHEN p_when = '' THEN '' ELSE p_when || ' AND ' END);
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) IS
 'PL/pgSQL text for a generated write routine: raises 90237 when the key of v_new does not carry the given TypeID prefix, optionally only under a condition.';
@@ -4121,7 +4156,7 @@ $BODY$,
     EXECUTE format($FUNC$
 CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
 RETURNS %2$s
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
 AS %3$s;
 $FUNC$, v_fn, v_type, dd_dollar_quote(v_body));
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
@@ -4129,7 +4164,7 @@ $FUNC$, v_fn, v_type, dd_dollar_quote(v_body));
     EXECUTE format('COMMENT ON FUNCTION common.%I(text, %s, %s, boolean) IS %L', v_fn, v_type, v_type,
         format('Writes (insert/update/delete) one record whose own type is "%s": every part of it, the rules of every derived level, locking every written level first. Returns the stored record, or NULL when the caller may not write a part. Generated by dd_refresh_family.', p_table_name));
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_record_write(TEXT) IS
 'Generates common.record_write_<entity>, the one routine that writes a record of an is_a/has_a entity. Called by dd_refresh_family.';
@@ -4207,7 +4242,7 @@ BEGIN
             p_table_name);
     END LOOP;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_dispatch_case(TEXT, BOOLEAN) IS
 'The declarations and CASE branches that carry an UPDATE or DELETE through an entity down to the write routine of each is_a descendant, chosen by the prefix of the record''s id; a record the caller cannot read through the descendant''s view is skipped, one missing a part raises 90255. Shared by the view triggers and the root''s dispatch trigger.';
@@ -4241,7 +4276,7 @@ BEGIN
     EXECUTE format($FUNC$
 CREATE OR REPLACE FUNCTION common.%I()
 RETURNS trigger
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog, pg_temp
 AS %s;
 $FUNC$, v_fn, dd_dollar_quote(format($BODY$
 #variable_conflict use_variable
@@ -4280,7 +4315,7 @@ $BODY$,
             FOR EACH ROW EXECUTE FUNCTION common.%I()',
         p_table_name, v_fn);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_view_write(TEXT) IS
 'Generates the INSTEAD OF trigger common.view_write_<entity> of an is_a/has_a entity''s view and installs it. Called by dd_refresh_family.';
@@ -4314,7 +4349,7 @@ BEGIN
     EXECUTE format($FUNC$
 CREATE OR REPLACE FUNCTION common.%I()
 RETURNS trigger
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog, pg_temp
 AS %s;
 $FUNC$, v_fn, dd_dollar_quote(format($BODY$
 #variable_conflict use_variable
@@ -4344,7 +4379,7 @@ $BODY$,
             FOR EACH ROW EXECUTE FUNCTION common.%I()',
         p_root, v_fn);
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_build_is_a_dispatch(TEXT) IS
 'Generates and installs the dispatch trigger of an is_a root (common.is_a_dispatch_<root>), or drops it when the root has no is_a subtype left. Called by dd_refresh_family.';
@@ -4361,7 +4396,7 @@ CREATE OR REPLACE FUNCTION common.has_a_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = common, pg_catalog
+SET search_path = common, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_found BOOLEAN;
@@ -4400,7 +4435,7 @@ RETURNS BOOLEAN
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_catalog
+SET search_path = public, pg_catalog, pg_temp
 AS $$
 DECLARE
     v_key     TEXT;
@@ -4478,7 +4513,7 @@ RETURNS BOOLEAN AS $$
                                          AND (p.proname = '_label' OR p.proname LIKE '%\_label'))))))
         ELSE FALSE
     END;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_generated_view_dependent(OID, OID, OID[]) IS
 'TRUE when the object (pg_depend classid, objid) that depends on one of the family views p_views is one the dictionary generates for them: a view''s rule, column default, row or array type, view_write trigger, write/view-trigger/dispatch routine, _label or <fk>_label function, or select_rule function.';
@@ -4516,7 +4551,7 @@ RETURNS TABLE (view_name TEXT, dependent TEXT) AS $$
            END
       FROM dep
      WHERE NOT dep.generated;
-$$ LANGUAGE sql STABLE SET search_path = public;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_view_dependents(OID[]) IS
 'The objects built on the family views p_views, directly or through a generated object, that the dictionary did not generate (dd_generated_view_dependent), each with the view it depends on.';
@@ -4559,7 +4594,7 @@ BEGIN
                       'hint', 'Drop those objects, make the change, then create them again.')::text;
     END IF;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_check_family_dependents(TEXT[]) IS
 'Raises 90256 when objects the dictionary did not generate depend on a view of a family containing any of the given entities, before a change drops those views. Returns at once for entities outside every family.';
@@ -4674,7 +4709,7 @@ BEGIN
         DELETE FROM audit.generated_ddl WHERE transaction_id = pg_current_xact_id();
     END IF;
 END;
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_refresh_family(TEXT[]) IS
 'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s a_typeid_assign and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
@@ -4692,7 +4727,7 @@ BEGIN
     PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_member_changed() IS
 'AFTER UPDATE (rename) and AFTER DELETE trigger on entities: rebuilds the family of a renamed entity, or of a deleted is_a/has_a entity''s base.';
@@ -4866,7 +4901,7 @@ BEGIN
 
     RETURN v_result;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
 'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
@@ -4881,7 +4916,7 @@ COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
 CREATE OR REPLACE FUNCTION get_record_by_id(p_entity TEXT, p_record_id BIGINT)
 RETURNS JSONB AS $$
     SELECT public.get_record_by_id(p_entity, p_record_id::text);
-$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public;
+$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, BIGINT) IS
 'Numeric-key convenience overload of get_record_by_id(TEXT, TEXT): same result, same access checks.';

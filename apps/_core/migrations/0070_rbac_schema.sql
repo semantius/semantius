@@ -23,7 +23,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_module_slug IS
 'Trigger function that derives module_slug from module_name when it is empty';
@@ -55,7 +55,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SET search_path = public;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION auto_set_role_slug IS
 'Trigger function that auto-generates slug from role_name when not provided';

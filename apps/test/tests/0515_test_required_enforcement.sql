@@ -77,6 +77,8 @@ SELECT throws_ok($$INSERT INTO rq_logic (label) VALUES ('x')$$, '90258', NULL, '
 SELECT throws_ok($$INSERT INTO rq_rating (label) VALUES ('x')$$, '90258', NULL, 'rating: omitted');
 SELECT throws_ok($$INSERT INTO rq_rating (label, v) VALUES ('x', 0)$$, '90258', NULL, 'rating: 0 means not rated');
 SELECT throws_ok($$INSERT INTO rq_binary (label, v) VALUES ('x', '')$$, '90258', NULL, 'binary: empty');
+SELECT throws_ok($$INSERT INTO rq_binary (label) VALUES ('x')$$, '90258', NULL, 'binary: omitted, which is the empty default of the column');
+SELECT throws_ok($$INSERT INTO rq_uuid (label) VALUES ('x')$$, '90258', NULL, 'uuid: omitted, which is NULL in a nullable column');
 SELECT throws_ok($$INSERT INTO rq_enum (label) VALUES ('x')$$, '90258', NULL, 'enum: omitted');
 SELECT throws_ok($$INSERT INTO rq_enum (label, v) VALUES ('x', '')$$, '90258', NULL, 'enum: empty');
 
@@ -85,8 +87,6 @@ SELECT throws_ok($$INSERT INTO rq_enum (label, v) VALUES ('x', '')$$, '90258', N
 -- =====================================================
 SELECT throws_ok($$INSERT INTO rq_enum (label, v) VALUES ('x', 'zzz')$$, '23514', NULL, 'an enum value outside the list still returns 23514');
 SELECT throws_ok($$INSERT INTO rq_text (label, v) VALUES ('x', NULL)$$, '23502', NULL, 'explicit NULL on a NOT NULL column is the column''s own error');
-SELECT throws_ok($$INSERT INTO rq_binary (label) VALUES ('x')$$, '23502', NULL, 'a format with no column default: omitted is the column''s own error');
-SELECT throws_ok($$INSERT INTO rq_uuid (label) VALUES ('x')$$, '23502', NULL, 'uuid: omitted is the column''s own error');
 
 -- =====================================================
 -- GROUP 3: real values are accepted

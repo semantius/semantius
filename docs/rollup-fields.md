@@ -44,11 +44,14 @@ refuses a definition whose format does not (90268):
 | `min`, `max` | a numeric, text-typed, `date` or `date-time` format | the same column type as the value field: `email` over `text` passes (both TEXT), `date` over `date-time` does not |
 
 **Decimal places are copied.** When the value field is a `number`, the rollup
-field takes its `precision` on creation and whenever the value field changes,
-so a sum of three-decimal amounts has three decimals. An `avg` over integers
-keeps the rollup field's own precision. A later precision change on the value
-field is not carried to an existing column, for the same reason a precision
-change is not applied to any existing `number` column.
+field takes its `precision` when it is saved with a definition, so a sum of
+three-decimal amounts has three decimals. An `avg` over integers keeps the
+rollup field's own precision. A later precision change on the value field
+alters the child's column and leaves the rollup field alone: it keeps the
+precision it copied and its column the scale, and the totals stay right at
+that scale. The rollup takes the value field's new precision the next time it
+is saved with a change of its definition, format or precision, and its column
+follows.
 
 **Empty aggregates.** A parent with no matching child holds the format's zero
 value: `0` for numbers, `''` for text, and NULL for `date` and `date-time`,
@@ -150,11 +153,11 @@ next to the one interpreter:
 |---|---|
 | `{"and": [a, b, ...]}`, `{"or": [...]}` | `(a AND b)`, `(a OR b)` |
 | `{"!": x}`, `{"!!": x}` | `NOT (x)`, `(x)` |
-| `==`, `===` / `!=`, `!==` | `a IS NOT DISTINCT FROM b` / `a IS DISTINCT FROM b`, so `null` compares as JsonLogic expects |
-| `<`, `<=`, `>`, `>=` | `a < b`; `<` and `<=` also take three operands (`a < b AND b < c`). A NULL side yields NULL and **excludes** the row, where the interpreter would read NULL as 0 |
+| `==`, `===` / `!=`, `!==` | `a IS NOT DISTINCT FROM b` / `a IS DISTINCT FROM b`, so `null` compares as JsonLogic expects. `===` and `!==` compare the types first, so a literal of another JSON type than the column's is refused: a string against a number column, a number against a text column |
+| `<`, `<=`, `>`, `>=` | `a < b`; `<` and `<=` also take three operands (`a < b AND b < c`). A NULL side yields NULL and **excludes** the row, where the interpreter would read NULL as 0. Text is ordered by code point (`COLLATE "C"`), as the interpreter orders it, whatever the collation of the column |
 | `{"in": [x, [l1, l2]]}` | `x IN (l1, l2)`, literals only in the list, never empty |
-| `{"var": "column"}` | the child's column: a plain name, present in the catalog, of type text, boolean, integer, numeric, float, date, timestamp, uuid or TypeID |
-| a string, number or boolean | a literal cast to the type of the column it is compared with |
+| `{"var": "column"}` | the child's column: a plain name, present in the catalog, of type text, boolean, integer, numeric, float, date, timestamp, time, uuid or TypeID |
+| a string, number or boolean | a literal cast to the type of the column it is compared with. Against a `number` column it is compared as it is written, not rounded to the column's decimals: `1.501` equals no value of a two-decimal column |
 | a bare `{"var": "flag"}` | a boolean column as a condition |
 | `date_add`, `date_diff`, `date_part`, `date_trunc`, `to_date`, `date_format` as a value | a call of the interpreter's own `jl_date_*` function for each child, so the filter and a validation rule cannot disagree |
 
@@ -174,6 +177,21 @@ rollup.
 
 A date literal compared with a date or date-time column has to be ISO 8601 and is
 read in UTC.
+
+**Where the compiled filter answers otherwise than the interpreter.** The
+filter compares values of the column's type, the interpreter the JSON a row
+turns into. Four places follow from that and are meant:
+
+- `!` over a comparison that is NULL. SQL's `NOT` keeps NULL, so a row whose
+  column is NULL is in neither `{">": [{"var": "n"}, 5]}` nor its negation.
+  The interpreter always answers true or false, so the row is in one of the
+  two. Write `{"or": [{"==": [{"var": "n"}, null]}, ...]}` to count it.
+- A date-time literal equals the column whatever its spelling:
+  `2026-02-20T12:00:00Z` and `2026-02-20T12:00:00+00:00` are one moment. The
+  interpreter compares the text.
+- A UUID literal equals the column in capitals as in lower case.
+- A number with a fraction against an integer column is refused when the
+  definition is saved, where the interpreter would compare the two numbers.
 
 One insert of several fields may create a child's fields and the rollups over
 them together: a definition may name, as its `link_field`, its `value_field` or

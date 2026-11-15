@@ -13,7 +13,7 @@ BEGIN
         ELSE RETURN true; -- objects are truthy
     END CASE;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
 -- The numeric value of a jsonb, or SQL NULL where there is none. This is
@@ -66,6 +66,22 @@ BEGIN
                           || '|[+-]?Infinity'
                           || '|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+'
                           || ')[[:space:]]*$') THEN
+                -- Number() has no range error: an exponent beyond what it
+                -- holds is Infinity, with the sign of the number, and one
+                -- below it is 0. numeric raises 22003 for both. Only a number
+                -- written with an exponent can get there, so only that form
+                -- pays for the subtransaction of the EXCEPTION block.
+                IF txt_val ~ '[0-9.][eE]' THEN
+                    BEGIN
+                        RETURN txt_val::numeric;
+                    EXCEPTION WHEN numeric_value_out_of_range THEN
+                        IF txt_val ~ '[eE]-' OR txt_val !~ '[1-9].*[eE]' THEN
+                            RETURN 0::numeric;
+                        END IF;
+                        RETURN CASE WHEN txt_val ~ '^[[:space:]]*-' THEN '-Infinity'::numeric
+                                    ELSE 'Infinity'::numeric END;
+                    END;
+                END IF;
                 RETURN txt_val::numeric;
             END IF;
 
@@ -93,13 +109,13 @@ BEGIN
         ELSE RETURN NULL;
     END CASE;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_to_number(val jsonb) RETURNS numeric AS $$
 BEGIN
     RETURN COALESCE(jl_try_number(val), 0::numeric);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- What an arithmetic operator returns for the number it computed.
 --
@@ -118,7 +134,25 @@ BEGIN
         USING ERRCODE = '90920',
               HINT = jsonb_build_object('operator', p_op)::text;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The number an arithmetic operator computes with. Null, the empty string
+-- and a missing argument count as 0, as Number(null) and Number('') do: a
+-- field left empty is no mistake. Text that carries no number is one.
+-- JavaScript computes with NaN there and answers NaN, which is no finite
+-- result, so the operator raises as it does for a division by zero; reading
+-- the text as 0 would let a rule compute with a mistyped value as if nothing
+-- were wrong. An array or an object counts as 0.
+CREATE OR REPLACE FUNCTION jl_operand(p_op text, val jsonb) RETURNS numeric AS $$
+DECLARE
+    v_number numeric := jl_try_number(val);
+BEGIN
+    IF v_number IS NULL AND jsonb_typeof(val) = 'string' THEN
+        PERFORM jl_no_finite_result(p_op);
+    END IF;
+    RETURN COALESCE(v_number, 0::numeric);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_number_result(p_op text, p_value numeric) RETURNS jsonb AS $$
 BEGIN
@@ -130,7 +164,7 @@ BEGIN
     END IF;
     RETURN to_jsonb(p_value);
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Helper: coerce jsonb value to text (for cat, substr, in-string)
 CREATE OR REPLACE FUNCTION jl_to_text(val jsonb) RETURNS text AS $$
@@ -142,7 +176,21 @@ BEGIN
         ELSE RETURN val::text;
     END CASE;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- Helper: an array as the text JavaScript makes of it, Array.prototype.join:
+-- the elements joined by commas, null as nothing, a nested array the same way.
+CREATE OR REPLACE FUNCTION jl_array_text(a jsonb) RETURNS text AS $$
+    SELECT COALESCE(string_agg(
+               CASE jsonb_typeof(t.e)
+                    WHEN 'null'   THEN ''
+                    WHEN 'string' THEN t.e #>> '{}'
+                    WHEN 'array'  THEN jl_array_text(t.e)
+                    WHEN 'object' THEN '[object Object]'
+                    ELSE t.e::text
+               END, ',' ORDER BY t.ord), '')
+      FROM jsonb_array_elements(a) WITH ORDINALITY AS t(e, ord);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Helper: loose equality (==) mimicking JS type coercion
 -- Numbers are compared as numbers; if either side is a number and the other a string, coerce string to number.
@@ -177,10 +225,19 @@ BEGIN
         END IF;
         RETURN jl_to_number(a) = jl_to_number(b);
     END IF;
+    -- array vs number or string: JavaScript turns the array into text first,
+    -- its elements joined by commas, and compares that. So [] is the empty
+    -- string and equals 0, and [5] equals 5 and '5'.
+    IF ta = 'array' AND tb IN ('number', 'string') THEN
+        RETURN jl_loose_eq(to_jsonb(jl_array_text(a)), b);
+    END IF;
+    IF tb = 'array' AND ta IN ('number', 'string') THEN
+        RETURN jl_loose_eq(a, to_jsonb(jl_array_text(b)));
+    END IF;
     RETURN a = b;
 END;
 -- STABLE, not IMMUTABLE: it calls jl_to_number, whose date cast follows DateStyle.
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- =====================================================
 -- Date operators
@@ -199,14 +256,14 @@ CREATE OR REPLACE FUNCTION jl_date_is_blank(p_value jsonb) RETURNS boolean AS $$
 BEGIN
     RETURN p_value IS NULL OR jsonb_typeof(p_value) = 'null' OR p_value = '""'::jsonb;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_date_is_date_only(p_value jsonb) RETURNS boolean AS $$
 BEGIN
     RETURN jsonb_typeof(p_value) = 'string'
        AND (p_value #>> '{}') ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- The regular expressions are what keep this strict. The casts alone also accept
 -- 'today', 'infinity', 'J2461406' and, depending on DateStyle, '01/02/2026', and a
@@ -241,7 +298,7 @@ BEGIN
         USING ERRCODE = '90915',
               HINT = jsonb_build_object('operator', p_op, 'value', p_value)::text;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- The offset is written out rather than left to to_jsonb, which would render the
 -- session's zone, and the seconds carry no fraction, as jl_date_utc promises.
@@ -252,7 +309,7 @@ BEGIN
     END IF;
     RETURN to_jsonb(to_char(p_moment, 'YYYY-MM-DD"T"HH24:MI:SS"+00:00"'));
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION jl_date_bad_unit(p_op text, p_unit jsonb) RETURNS void AS $$
 BEGIN
@@ -260,7 +317,7 @@ BEGIN
         USING ERRCODE = '90916',
               HINT = jsonb_build_object('operator', p_op, 'unit', p_unit)::text;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- A date-only value has no time of day to move or read, and answering as though
 -- it were midnight would silently invent one.
@@ -281,7 +338,7 @@ BEGIN
     END IF;
     RETURN v_unit;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_add":[date, amount, unit]} or {"date_add":[date, duration]}.
 --
@@ -346,7 +403,7 @@ BEGIN
     END;
     RETURN jl_date_render(v_moment + v_span, v_date_only);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_diff":[end, start, unit]}: whole elapsed units, truncated toward zero, in
 -- the argument order of "-". Calendar units go through age(), so a month has
@@ -379,7 +436,7 @@ BEGIN
                       WHEN 'hour' THEN 3600 WHEN 'minute' THEN 60 ELSE 1 END
     )::bigint);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_part":[date, part]}. v_parts is checked by the same sync test as v_units.
 CREATE OR REPLACE FUNCTION jl_date_part(p_date jsonb, p_part jsonb) RETURNS jsonb AS $$
@@ -414,7 +471,7 @@ BEGIN
         ELSE                    extract(epoch   FROM v_moment)
     END)::bigint);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_trunc":[date, unit]}: the start of the period; a week starts on Monday.
 CREATE OR REPLACE FUNCTION jl_date_trunc(p_date jsonb, p_unit jsonb) RETURNS jsonb AS $$
@@ -428,7 +485,7 @@ BEGIN
     v_moment := jl_date_utc('date_trunc', p_date);
     RETURN jl_date_render(date_trunc(jl_date_unit('date_trunc', p_unit, v_date_only), v_moment), v_date_only);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"to_date":[value]}. A number is read as UTC because that exactly reverses the
 -- epoch conversion in jl_try_number, which is what lets the epoch integers that
@@ -443,7 +500,7 @@ BEGIN
     END IF;
     RETURN to_jsonb(jl_date_utc('to_date', p_value)::date);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- {"date_format":[date, pattern]}.
 --
@@ -488,7 +545,7 @@ BEGIN
     END LOOP;
     RETURN to_jsonb(v_out);
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- is_raci_actor and has_consultation call functions defined in 0370_raci.sql; no rule
 -- evaluated during install uses those operators.
@@ -807,6 +864,12 @@ BEGIN
             END IF;
             -- Try object key or array index
             IF jsonb_typeof(nav) = 'array' THEN
+                -- Only digits are an index. PostgreSQL counts a negative one
+                -- from the end; JavaScript reads a[-1] as a property that is
+                -- not there, and so does this.
+                IF sub_props[i] !~ '^[0-9]+$' THEN
+                    IF b IS NOT NULL THEN RETURN b; ELSE RETURN 'null'::jsonb; END IF;
+                END IF;
                 BEGIN
                     nav := nav -> sub_props[i]::int;
                 EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
@@ -943,25 +1006,25 @@ BEGIN
     -- ===================== % =====================
     -- A zero divisor is an error of the evaluator's own (jl_number_result).
     IF op = '%' THEN
-        num_b := jl_to_number(b);
+        num_b := jl_operand(op, b);
         IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
-        RETURN jl_number_result(op, jl_to_number(a) % num_b);
+        RETURN jl_number_result(op, jl_operand(op, a) % num_b);
     END IF;
 
     -- ===================== + =====================
     IF op = '+' THEN
         num_a := 0;
         FOR i IN 0 .. arr_len - 1 LOOP
-            num_a := num_a + jl_to_number(vals -> i);
+            num_a := num_a + jl_operand(op, vals -> i);
         END LOOP;
         RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== * =====================
     IF op = '*' THEN
-        num_a := jl_to_number(vals -> 0);
+        num_a := jl_operand(op, vals -> 0);
         FOR i IN 1 .. arr_len - 1 LOOP
-            num_a := num_a * jl_to_number(vals -> i);
+            num_a := num_a * jl_operand(op, vals -> i);
         END LOOP;
         RETURN jl_number_result(op, num_a);
     END IF;
@@ -969,26 +1032,26 @@ BEGIN
     -- ===================== - =====================
     IF op = '-' THEN
         IF arr_len = 1 THEN
-            num_a := -jl_to_number(a);
+            num_a := -jl_operand(op, a);
         ELSE
-            num_a := jl_to_number(a) - jl_to_number(b);
+            num_a := jl_operand(op, a) - jl_operand(op, b);
         END IF;
         RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== / =====================
     IF op = '/' THEN
-        num_a := jl_to_number(a);
-        num_b := jl_to_number(b);
+        num_a := jl_operand(op, a);
+        num_b := jl_operand(op, b);
         IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
         RETURN jl_number_result(op, num_a / num_b);
     END IF;
 
     -- ===================== max =====================
     IF op = 'max' THEN
-        num_a := jl_to_number(vals -> 0);
+        num_a := jl_operand(op, vals -> 0);
         FOR i IN 1 .. arr_len - 1 LOOP
-            num_b := jl_to_number(vals -> i);
+            num_b := jl_operand(op, vals -> i);
             IF num_b > num_a THEN num_a := num_b; END IF;
         END LOOP;
         RETURN jl_number_result(op, num_a);
@@ -996,9 +1059,9 @@ BEGIN
 
     -- ===================== min =====================
     IF op = 'min' THEN
-        num_a := jl_to_number(vals -> 0);
+        num_a := jl_operand(op, vals -> 0);
         FOR i IN 1 .. arr_len - 1 LOOP
-            num_b := jl_to_number(vals -> i);
+            num_b := jl_operand(op, vals -> i);
             IF num_b < num_a THEN num_a := num_b; END IF;
         END LOOP;
         RETURN jl_number_result(op, num_a);
@@ -1266,7 +1329,7 @@ BEGIN
         USING ERRCODE = '90910',
               HINT = jsonb_build_object('op', op)::text;
 END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- =====================================================
 -- Checking a rule without running it
@@ -1294,7 +1357,7 @@ CREATE OR REPLACE FUNCTION jl_operators() RETURNS text[] AS $$
         'throw_error', 'is_raci_actor', 'has_consultation',
         'date_add', 'date_diff', 'date_part', 'date_trunc', 'to_date', 'date_format'
     ];
-$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 -- An object with exactly one key is an operation; everything else is a value.
 -- The same test evaluate_json_logic makes before it dispatches.
@@ -1308,7 +1371,7 @@ BEGIN
     v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
     RETURN v_op IS NOT NULL AND p_rule - v_op = '{}'::jsonb;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 -- Walks a rule the way evaluate_json_logic reads it: an array is a list of
 -- rules, an object with one key is an operation whose arguments are rules, and
@@ -1361,7 +1424,114 @@ BEGIN
     END LOOP;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The keys a rule reads from the data it is evaluated on: the key of every
+-- var, missing and missing_some, and the field of every value_changed, which
+-- reads the same field of $old as well. A key that is not written out comes
+-- back as NULL: one that is computed, and the empty key, which stands for the
+-- whole data. Such a rule can read anything, and its caller has to assume so.
+--
+-- The walk follows the evaluator, as jl_unknown_operator does, with two more
+-- things it has to know. A name bound by `let` or `set_record` is no key of
+-- the data inside the body that binds it, so a path that starts with one is
+-- left out. And the second argument of filter, map, all, none and some, and
+-- of reduce, is evaluated on an element of the list, not on the data: a key
+-- read there is a key of the element.
+CREATE OR REPLACE FUNCTION jl_row_keys(p_rule jsonb, p_bound text[] DEFAULT '{}') RETURNS SETOF text AS $$
+DECLARE
+    v_op   text;
+    v_args jsonb;
+    v_keys jsonb;
+    v_key  jsonb;
+    v_text text;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            RETURN QUERY SELECT jl_row_keys(p_rule -> i, p_bound);
+        END LOOP;
+        RETURN;
+    END IF;
+
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN;
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    v_args := p_rule -> v_op;
+    IF jsonb_typeof(v_args) <> 'array' THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+
+    IF v_op IN ('var', 'missing', 'missing_some', 'value_changed') THEN
+        -- The keys of the operation, as a list: the one of var and of
+        -- value_changed, every argument of missing or the one list it is
+        -- given, and the list that is the second argument of missing_some.
+        v_keys := CASE
+            WHEN v_op IN ('var', 'value_changed') THEN jsonb_build_array(COALESCE(v_args -> 0, 'null'::jsonb))
+            WHEN v_op = 'missing_some' THEN
+                CASE WHEN jsonb_typeof(v_args -> 1) = 'array' THEN v_args -> 1
+                     ELSE jsonb_build_array(COALESCE(v_args -> 1, 'null'::jsonb)) END
+            WHEN jsonb_array_length(v_args) = 1 AND jsonb_typeof(v_args -> 0) = 'array' THEN v_args -> 0
+            ELSE v_args
+        END;
+
+        FOR i IN 0 .. jsonb_array_length(v_keys) - 1 LOOP
+            v_key := v_keys -> i;
+            IF jsonb_typeof(v_key) IN ('string', 'number') AND v_key #>> '{}' <> '' THEN
+                v_text := v_key #>> '{}';
+                IF NOT (split_part(v_text, '.', 1) = ANY(p_bound)) THEN
+                    RETURN NEXT v_text;
+                END IF;
+            ELSE
+                RETURN NEXT NULL;
+                RETURN QUERY SELECT jl_row_keys(v_key, p_bound);
+            END IF;
+        END LOOP;
+
+        IF v_op = 'value_changed' THEN
+            RETURN NEXT '$old';
+        ELSIF v_op = 'var' THEN
+            -- The default of a var is a rule.
+            RETURN QUERY SELECT jl_row_keys(v_args -> 1, p_bound);
+        ELSIF v_op = 'missing_some' THEN
+            RETURN QUERY SELECT jl_row_keys(v_args -> 0, p_bound);
+        END IF;
+        RETURN;
+    END IF;
+
+    IF v_op = 'let' THEN
+        RETURN QUERY SELECT jl_row_keys(v_args -> 1, p_bound);
+        RETURN QUERY SELECT jl_row_keys(v_args -> 2, p_bound || (v_args ->> 0));
+        RETURN;
+    END IF;
+
+    IF v_op = 'set_record' THEN
+        RETURN QUERY SELECT jl_row_keys(v_args -> 2, p_bound);
+        RETURN QUERY SELECT jl_row_keys(v_args -> 3, p_bound || (v_args ->> 0));
+        RETURN;
+    END IF;
+
+    IF v_op IN ('filter', 'map', 'all', 'none', 'some', 'reduce') THEN
+        RETURN QUERY SELECT jl_row_keys(v_args -> 0, p_bound);
+        IF v_op = 'reduce' THEN
+            RETURN QUERY SELECT jl_row_keys(v_args -> 2, p_bound);
+        END IF;
+        RETURN;
+    END IF;
+
+    FOR i IN 0 .. jsonb_array_length(v_args) - 1 LOOP
+        RETURN QUERY SELECT jl_row_keys(v_args -> i, p_bound);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION jl_row_keys(jsonb, text[]) IS
+'The keys a JsonLogic rule reads from its data: those of var, missing, missing_some and value_changed, wherever the evaluator would evaluate them on the data itself. NULL for a key that is computed or empty, which can read anything; $old for a value_changed. p_bound holds the names bound by an enclosing let or set_record.';
 
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
 'JsonLogic truthiness of a JSONB value: false for null, false, 0, "" and an empty array; true otherwise, an empty object included.';
@@ -1369,6 +1539,10 @@ COMMENT ON FUNCTION jl_try_number(jsonb) IS
 'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. A string counts when JavaScript''s Number() reads it, or when it is an ISO 8601 date or date-time, whose number is its epoch seconds in UTC. Used by jl_loose_eq and the ordering operators, which must not read a non-numeric string as 0.';
 COMMENT ON FUNCTION jl_to_number(jsonb) IS
 'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by the arithmetic operators). Reads anything without a numeric value as 0.';
+COMMENT ON FUNCTION jl_operand(text, jsonb) IS
+'The number an arithmetic operator computes with: jl_try_number of the value, 0 for null, the empty string, an array and an object, and error 90920 for text that carries no number.';
+COMMENT ON FUNCTION jl_array_text(jsonb) IS
+'A JSON array as the text JavaScript makes of it: its elements joined by commas, null as nothing. Used by jl_loose_eq to compare an array with a number or a string.';
 COMMENT ON FUNCTION jl_no_finite_result(text) IS
 'Raises 90920 for an arithmetic operator whose result is not a finite number: a zero divisor, or a result of Infinity or NaN.';
 COMMENT ON FUNCTION jl_number_result(text, numeric) IS
@@ -1415,6 +1589,8 @@ REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_no_finite_result(text) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_operand(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_array_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_number_result(text, numeric) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
@@ -1434,6 +1610,7 @@ REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_operators() FROM public;
 REVOKE EXECUTE ON FUNCTION jl_is_operation(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_row_keys(jsonb, text[]) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
@@ -1441,6 +1618,8 @@ GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_no_finite_result(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_operand(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_array_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_number_result(text, numeric) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
@@ -1466,16 +1645,20 @@ GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
 -- through that code, which checks their rules with jl_operators,
--- jl_is_operation and jl_unknown_operator and evaluates them with the rest.
+-- jl_is_operation and jl_unknown_operator, reads what they name with
+-- jl_row_keys and evaluates them with the rest.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
         GRANT EXECUTE ON FUNCTION
             jl_no_finite_result(text),
             jl_number_result(text, numeric),
+            jl_operand(text, jsonb),
+            jl_array_text(jsonb),
             jl_operators(),
             jl_is_operation(jsonb),
-            jl_unknown_operator(jsonb)
+            jl_unknown_operator(jsonb),
+            jl_row_keys(jsonb, text[])
         TO semantius_owner;
     END IF;
 END $$;
