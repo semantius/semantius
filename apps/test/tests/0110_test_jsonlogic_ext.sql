@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(168);
+SELECT plan(170);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1235,7 +1235,16 @@ SELECT is(pg_temp.jl_eval('{"-":["2026-01-05T01:00:00+02:00","2026-01-04T23:00:0
     'arithmetic: two spellings of one instant are 0 seconds apart in another zone');
 SELECT is(pg_temp.jl_eval('{"-":["2026-03-30","2026-03-29"]}'), '86400'::jsonb,
     'arithmetic: consecutive dates are 86400 seconds apart on the day the clocks change');
+-- A date-time without an offset is UTC as well: read in the session's zone,
+-- the two hours across the change of the clocks would be one.
+SELECT is(pg_temp.jl_eval('{"-":["2026-03-29T03:00:00","2026-03-29T01:00:00"]}'), '7200'::jsonb,
+    'arithmetic: date-times without an offset are read as UTC, not in the session zone');
 RESET timezone;
+
+-- A string of the shape of a date that is no real date has no number, like any
+-- other string that carries none.
+SELECT is(pg_temp.jl_eval('{">":["2026-02-30",0]}'), 'false'::jsonb,
+    'comparison: a date of the right shape that is no real date is no number');
 
 -- A string that only the date parser reads as a number is not one in JavaScript,
 -- and which strings the parser reads follows the session's DateStyle: 01/02/2026
@@ -1341,9 +1350,10 @@ SELECT is(
         jl_unknown_operator('{"let":[{"a_name":1},1,{"var":"x"}]}'::jsonb),
         jl_unknown_operator('{"let":["x",{"nope":1},{"var":"x"}]}'::jsonb),
         jl_unknown_operator('{"set_record":[{"a_name":1},{"an_entity":1},{"an_id_rule":1},1]}'::jsonb),
-        jl_unknown_operator('"text"'::jsonb)
+        jl_unknown_operator('"text"'::jsonb),
+        jl_unknown_operator(NULL::jsonb)
     ],
-    ARRAY['nope', 'nope', NULL, NULL, 'nope', 'an_id_rule', NULL],
+    ARRAY['nope', 'nope', NULL, NULL, 'nope', 'an_id_rule', NULL, NULL],
     'jl_unknown_operator finds an unknown operator wherever the evaluator would evaluate it, and nowhere else');
 
 SELECT * FROM finish();

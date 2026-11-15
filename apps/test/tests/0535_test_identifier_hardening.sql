@@ -21,7 +21,7 @@
 -- administrator, makes the dictionary changes. Everything is rolled back.
 BEGIN;
 
-SELECT plan(244);
+SELECT plan(245);
 
 -- =====================================================
 -- Helpers
@@ -350,6 +350,13 @@ SELECT is(pg_temp.idh_unique_field('idh_u', 'b_c'), 'refused 90274',
 -- Dropping the rule of one field leaves the rule of the other.
 SELECT lives_ok($$UPDATE fields SET unique_value = FALSE WHERE table_name = 'idh_u' AND field_name = 'b_c'$$,
     'unique_value of idh_u.b_c is turned off');
+-- The drop itself, asked to remove that name for the other table: it looks at
+-- whose index carries the name, and leaves one that is not the table's own.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(dd_drop_own_index('idh_u', 'idh_u_b_c_unique'), FALSE,
+    'a drop of idh_u_b_c_unique for idh_u removes nothing: the index is on idh_u_b');
+SELECT authenticate_as('user3');
 SELECT is(catch_error($$INSERT INTO idh_u_b (label, c) VALUES ('third', 'same')$$) ->> 'code', '23505',
     'idh_u_b.c is still unique after idh_u.b_c stopped being unique');
 

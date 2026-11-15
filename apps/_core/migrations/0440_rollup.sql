@@ -284,11 +284,10 @@ BEGIN
     END;
 EXCEPTION
     WHEN SQLSTATE '90915' OR SQLSTATE '90916' OR SQLSTATE '90917' OR SQLSTATE '90918' OR data_exception THEN
-        PERFORM rollup_refuse('90272',
-            'Rollup ${field_name} on ${table}: the filter cannot evaluate ${operator} for this record',
-            jsonb_build_object('table', p_rollup ->> 'table', 'field_name', p_rollup ->> 'field_name',
-                               'operator', p_op, 'cause_code', SQLSTATE));
-        RETURN NULL;
+        RAISE EXCEPTION 'Rollup ${field_name} on ${table}: the filter cannot evaluate ${operator} for this record'
+            USING ERRCODE = '90272',
+                  HINT = jsonb_build_object('table', p_rollup ->> 'table', 'field_name', p_rollup ->> 'field_name',
+                                            'operator', p_op, 'cause_code', SQLSTATE)::text;
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 

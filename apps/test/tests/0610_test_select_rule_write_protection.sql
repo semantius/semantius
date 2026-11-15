@@ -20,7 +20,7 @@
 -- user1 (id 1001) is a plain user; user3 is admin (auto-granted every permission).
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(41);
 
 -- =====================================================
 -- SETUP (as admin): entity whose rows are visible only to their owner (or admin),
@@ -411,6 +411,45 @@ SELECT is(
     'hidden-row,owned-row',
     'forgery: and the hidden row is as it was');
 ROLLBACK TO sp_f2;
+
+-- The same holds for the entities that ship with a rule. modules shows a
+-- caller the modules whose view permission it holds, and user_bookmarks a
+-- caller its own bookmarks: user1 holds no nwind:view and owns no bookmark.
+SAVEPOINT sp_f3;
+SELECT authenticate_as('user2');
+INSERT INTO user_bookmarks (title, url) VALUES ('Forgery Probe', 'https://example.com');
+SELECT authenticate_as('user1');
+SELECT set_config('app.row_move', 'modules', true);
+SELECT is(
+    (SELECT count(*)::int FROM modules WHERE module_slug = 'nwind'),
+    0,
+    'forgery: a value written into app.row_move opens no hidden module');
+SELECT is(
+    (SELECT count(*)::int FROM user_bookmarks WHERE title = 'Forgery Probe'),
+    0,
+    'forgery: nor the bookmark of another user');
+ROLLBACK TO sp_f3;
+
+-- The secret is created when a rule is saved. Should it be missing, the next
+-- rule saved, or the next row written, creates it again, and it then stays
+-- what it is.
+SAVEPOINT sp_f4;
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+DELETE FROM _settings WHERE name = 'row_move_secret';
+SELECT matches(common.row_move_secret(), '^[0-9a-f]{64}$',
+    'the secret is created again when it is missing: 64 hexadecimal characters');
+SELECT is(common.row_move_secret(), (SELECT value FROM _settings WHERE name = 'row_move_secret'),
+    'and it is the value stored in _settings from then on');
+SELECT is(common.row_move_matches('test_abac_write', NULL), FALSE,
+    'a row without a key is never the row being written');
+SELECT is(
+    has_function_privilege('semantius_user', 'common.row_move_secret()', 'EXECUTE')
+    OR has_function_privilege('semantius_user', 'common.row_move_matches(text, text)', 'EXECUTE')
+    OR has_function_privilege('semantius_user', 'common.row_move_token(text, text, text, text)', 'EXECUTE'),
+    FALSE,
+    'the request role can execute none of the functions that read or use the secret');
+ROLLBACK TO sp_f4;
 
 SELECT * FROM finish();
 ROLLBACK;
