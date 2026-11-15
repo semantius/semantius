@@ -14,7 +14,7 @@
 --      sees under it
 BEGIN;
 
-SELECT plan(38);
+SELECT plan(41);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -449,15 +449,33 @@ SELECT lives_ok(
               '{}'::jsonb, 1)$$,
     'save: the empty object is accepted');
 
+-- A literal is no rule either, and for select_rule the table already says so:
+-- the column takes an object and nothing else, so a condition typed as text,
+-- which would be truthy and show every row, never reaches the interpreter.
+SELECT throws_ok(
+    $$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+      VALUES ('sr_save_text', 'sr_save_text_item', 'Sr Save Text Item', 'Sr Save Text Items', 'Refused at save',
+              '"owner == me"'::jsonb, 1)$$,
+    '23514', 'new row for relation "entities" violates check constraint "select_rule_is_object"',
+    'save: a select_rule that is a text literal is refused');
+
+SELECT throws_ok(
+    $$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+      VALUES ('sr_save_true', 'sr_save_true_item', 'Sr Save True Item', 'Sr Save True Items', 'Refused at save',
+              'true'::jsonb, 1)$$,
+    '23514', 'new row for relation "entities" violates check constraint "select_rule_is_object"',
+    'save: a select_rule that is the literal true is refused');
+
 -- =====================================================
 -- PART 6: A stored rule the save would refuse
 -- =====================================================
 -- A rule can be in the dictionary without having passed a save: a restored
 -- dump, or a row written while the triggers of entities are off, which is how
 -- the two below get there. The builder installs a rule as it stands, so the
--- entity can still be rebuilt, by a rename or a change of its view permission,
--- and each reader meets what PART 5 describes: no row under the unknown
--- operator, every row under the object with two keys.
+-- generators can be run again over such an installation. A reader gets no row
+-- under either rule: the unknown operator raises inside the predicate, and a
+-- rule that is not one operator is no rule, which must not read as "everyone".
+-- The entity itself cannot be saved again until the rule is put right.
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
@@ -505,8 +523,15 @@ SELECT authenticate_as('user1');
 SELECT is(pg_temp.sr_read('sr_stored_op'), '0 rows',
     'today: a stored rule with an unknown operator hides every row from a plain reader as well');
 
-SELECT is(pg_temp.sr_read('sr_stored_two_keys'), '2 rows',
-    'today: a stored rule with two keys shows every row to a plain reader');
+SELECT is(pg_temp.sr_read('sr_stored_two_keys'), '0 rows',
+    'stored rule: a rule with two keys hides every row, as a rule that is no single operator fails closed');
+
+SELECT authenticate_as('user3');
+SELECT matches(
+    COALESCE(catch_error($$UPDATE entities SET description = 'Edited after the upgrade'
+                            WHERE table_name = 'sr_stored_op'$$) ->> 'code', 'no error'),
+    '^909',
+    'stored rule: a save of the entity that leaves the rule alone is refused all the same');
 
 SELECT * FROM finish();
 ROLLBACK;

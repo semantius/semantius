@@ -18,7 +18,7 @@
 --      entities or adopted, so adoption never opens them
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(29);
 
 -- =====================================================
 -- TEST 1: no default privilege on tables or sequences in public
@@ -439,6 +439,26 @@ SELECT is(
     '0 / _apikeys.apikeys_deny_all, _settings.settings_deny_all',
     'after the attempts neither table is an entity and each carries its deny-all policy alone'
 );
+
+
+-- The two tables above are not a list to keep up to date: a name that starts
+-- with an underscore is the mark of an internal table, as it is the mark of a
+-- reserved field name, so no such name can be registered, whether or not a
+-- table of that name exists yet.
+SELECT authenticate_as('user3');
+
+SELECT matches(
+    COALESCE(catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id)
+                           VALUES ('_fixture_notes', '_fixture_note', 'Fixture Note', 'Fixture Notes', 'registration probe', 1)$$) ->> 'code', 'no error'),
+    '^90',
+    'registering a table whose name starts with an underscore is refused');
+
+RESET ROLE;
+SELECT is(
+    (SELECT count(*)::int FROM entities WHERE table_name = '_fixture_notes')
+    + (to_regclass('public._fixture_notes') IS NOT NULL)::int,
+    0,
+    'and the refused registration leaves neither an entity nor a table');
 
 SELECT * FROM finish();
 ROLLBACK;

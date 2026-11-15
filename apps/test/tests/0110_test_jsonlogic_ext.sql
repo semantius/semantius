@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(167);
+SELECT plan(168);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1188,11 +1188,17 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
--- A zero divisor has no number to give, in % as in /.
-SELECT is(pg_temp.jl_eval('{"%":[1,0]}'), 'null'::jsonb,
-    'arithmetic: a zero divisor in % gives null');
-SELECT is(pg_temp.jl_eval('{"/":[1,0]}'), 'null'::jsonb,
-    'arithmetic: a zero divisor in / gives null');
+-- A zero divisor has no result. SQL refuses the division, and a rule that
+-- answered null instead would store "no value" where its author made a
+-- mistake, so / and % both raise, with an error of the interpreter's own class
+-- and not the bare one of the arithmetic underneath. The same holds for any
+-- result that is not a finite number.
+SELECT matches(COALESCE(pg_temp.jl_eval('{"%":[1,0]}') ->> 'raised', 'no error'), '^909',
+    'arithmetic: a zero divisor in % raises an interpreter error');
+SELECT matches(COALESCE(pg_temp.jl_eval('{"/":[1,0]}') ->> 'raised', 'no error'), '^909',
+    'arithmetic: a zero divisor in / raises an interpreter error');
+SELECT matches(COALESCE(pg_temp.jl_eval('{"+":["Infinity",1]}') ->> 'raised', 'no error'), '^909',
+    'arithmetic: a result that is not finite raises an interpreter error');
 
 -- A whole result beyond the bigint range is still a number: narrowing it to
 -- bigint would raise 22003, and JavaScript has no such limit.

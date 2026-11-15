@@ -9,7 +9,7 @@
 --   5. external_id of an existing user is written by an administrator only
 BEGIN;
 
-SELECT plan(57);
+SELECT plan(64);
 
 -- =====================================================
 -- PART 1: users table write protection
@@ -472,6 +472,74 @@ SELECT is(
             IS NOT DISTINCT FROM (b.external_id, b.email, b.display_name)),
     3,
     'the three test identities are as they were before the attempts');
+
+
+-- =====================================================
+-- PART 6: external_id of a new user, and of a record saved whole
+-- =====================================================
+-- The same reasoning covers the row that does not exist yet. A caller who may
+-- insert a user with an external_id of its choosing can claim the sub of a
+-- person who has not signed in, and is that person from their first request
+-- on. So the row of a person is made by the sign-in itself (get_userinfo,
+-- which writes with the rights of its owner and not as the caller;
+-- 0210_test_first_user_get_userinfo.sql covers it) or by a holder of `admin`.
+-- `user:manage` still creates an agent, whose external_id the table assigns
+-- and no token carries, as long as it leaves that assignment to the table.
+--
+-- Rows an attempt leaves behind are not removed: nothing below reads them, and
+-- the file is rolled back.
+
+SELECT authenticate_as('user1');
+
+SELECT throws_ok(
+    $$ INSERT INTO users (external_id, email, display_name)
+       VALUES ('claimed-sub', 'claimed@test.com', 'Claimed Person') $$,
+    '42501', NULL,
+    'user:manage without admin cannot insert a user with an external_id of its choosing');
+
+SELECT throws_ok(
+    $$ INSERT INTO users (external_id, email, display_name, is_agent)
+       VALUES ('claimed-agent-sub', 'claimed-agent@test.com', 'Claimed Agent', TRUE) $$,
+    '42501', NULL,
+    'user:manage without admin cannot choose the external_id of an agent either');
+
+RESET ROLE;
+SELECT is(
+    (SELECT count(*)::int FROM users WHERE external_id IN ('claimed-sub', 'claimed-agent-sub')),
+    0,
+    'no row carries a claimed external_id after the attempts');
+
+SELECT authenticate_as('user1');
+
+SELECT lives_ok(
+    $$ INSERT INTO users (email, display_name, is_agent)
+       VALUES ('fixture-agent@test.com', 'Fixture Agent', TRUE) $$,
+    'user:manage without admin can still create an agent');
+
+RESET ROLE;
+SELECT matches(
+    COALESCE((SELECT external_id FROM users WHERE email = 'fixture-agent@test.com'), 'no row'),
+    '^agent:',
+    'and the agent carries the external_id the table assigned');
+
+-- A client that saves a whole record sends external_id back as it read it.
+-- That is no change of identity and stays within user:manage.
+SELECT authenticate_as('user1');
+
+SELECT lives_ok(
+    $$ UPDATE users SET external_id = 'user2', display_name = 'Saved Whole'
+        WHERE external_id = 'user2' $$,
+    'user:manage without admin can save a user record whose external_id is unchanged');
+
+RESET ROLE;
+SELECT pg_temp.restore_identities();
+
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$ INSERT INTO users (external_id, email, display_name)
+       VALUES ('invited-sub', 'invited@test.com', 'Invited Person') $$,
+    'an administrator can insert a user with an external_id');
 
 SELECT * FROM finish();
 ROLLBACK;

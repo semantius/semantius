@@ -11,7 +11,7 @@
 -- builder where no entity row backs it.
 BEGIN;
 
-SELECT plan(84);
+SELECT plan(87);
 
 SELECT authenticate_as('user3');
 
@@ -367,9 +367,31 @@ SELECT matches(
     '^909',
     'save: a validation rule that is an object with two keys is refused');
 
+-- A literal in place of the operator is read the same way as the two-key
+-- object: as data. A condition typed as text is a non-empty string, which is
+-- truthy, so the rule passes every record and nobody notices it never ran. A
+-- rule that is meant to hold always or never has no use that deleting it, or
+-- the edit permission, does not serve better, so true is refused with the rest.
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_save_rule_text', 'cv_save_rule_text', 'Save Rule Text', 'Save Rule Texts', 'Refused at save', 1,
+                '[{"code": "99033", "message": "m", "jsonlogic": "label == ok"}]'::jsonb)$$) ->> 'code',
+    '^909',
+    'save: a validation rule whose condition is a text literal is refused');
+
+SELECT matches(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_save_rule_true', 'cv_save_rule_true', 'Save Rule True', 'Save Rule Trues', 'Refused at save', 1,
+                '[{"code": "99034", "message": "m", "jsonlogic": true}]'::jsonb)$$) ->> 'code',
+    '^909',
+    'save: a validation rule whose condition is the literal true is refused');
+
 SELECT is(
     ARRAY(SELECT n
-            FROM unnest(ARRAY['cv_save_computed', 'cv_save_nested', 'cv_save_rule_op', 'cv_save_rule_shape']) AS n
+            FROM unnest(ARRAY['cv_save_computed', 'cv_save_nested', 'cv_save_rule_op', 'cv_save_rule_shape',
+                              'cv_save_rule_text', 'cv_save_rule_true']) AS n
            WHERE EXISTS (SELECT 1 FROM entities WHERE table_name = n)
               OR to_regclass('public.' || n) IS NOT NULL),
     '{}'::text[],
@@ -447,9 +469,10 @@ SELECT is(
 -- A rule can be in the dictionary without having passed a save: a restored
 -- dump, or a row written while the triggers of entities are off, which is how
 -- this one gets there. The builder installs the rule as it stands, so the
--- entity can still be rebuilt, by a rename or a change of managed, and the
--- operator surfaces where the rule is evaluated: a write raises the
--- interpreter's own error, which passes through like any other of class 90.
+-- generators can be run again over such an installation, and the operator
+-- surfaces where the rule is evaluated: a write raises the interpreter's own
+-- error, which passes through like any other of class 90. The entity itself
+-- cannot be saved again until the rule is put right.
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column)
@@ -484,6 +507,12 @@ SELECT is(
     catch_error_hint($$INSERT INTO cv_stored_op_test (label) VALUES ('boom')$$),
     '{"op": "unknown_op"}'::jsonb,
     'stored rule: and its hint names the operator, with no key added');
+
+SELECT matches(
+    COALESCE(catch_error($$UPDATE entities SET description = 'Edited after the upgrade'
+                            WHERE table_name = 'cv_stored_op_test'$$) ->> 'code', 'no error'),
+    '^909',
+    'stored rule: a save of the entity that leaves the rule alone is refused all the same');
 
 -- =====================================================
 -- An error raised inside a validation rule keeps its identity
