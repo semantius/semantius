@@ -117,12 +117,17 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   unreachable through the Data API: a `SELECT` as the request role raises
   `42501`. The dictionary grants each table it creates, after it has written
   that table's policies. Adoption (setting an entity's `managed` to `true`)
-  does the same for a table made outside the dictionary: row-level security,
-  the four permission policies, then the grant - but only for a table that has
-  no row-level security of its own. A table that is already secured keeps its
-  own policies and privileges, so registering a core table as an entity cannot
-  widen it. Exposing an unmanaged table yourself takes the same two steps in
-  the same order: write its policies, then `GRANT ... TO semantius_user`.
+  does the same for a table made outside the dictionary, whatever that table
+  carried before: row-level security, the four permission policies, then the
+  grant. A table that already has policies keeps them, and PostgreSQL ORs
+  permissive policies together, so adoption can widen access: the entity's
+  `view_permission` and `edit_permission` are added to whatever was there. A
+  table that is protected by having no permission model at all is therefore
+  refused. A name that starts with `_` (`_settings`, `_apikeys`) cannot be
+  registered as an entity, managed or not, and the two audit log entities
+  cannot become managed. Exposing an unmanaged table yourself takes the same
+  two steps in the same order: write its policies, then
+  `GRANT ... TO semantius_user`.
   Never the grant alone - it is what publishes the table, and without policies
   it publishes every row.
 - **Every principal carries a non-empty `external_id`, and that is its

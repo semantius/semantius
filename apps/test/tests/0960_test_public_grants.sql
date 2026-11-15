@@ -378,39 +378,39 @@ FROM (VALUES
 
 RESET ROLE;
 
-SELECT matches(
+SELECT is(
     (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_settings' AND attempt = 'managed'),
-    '^90',
+    '90271',
     'registering _settings as a managed entity is refused'
 );
 
-SELECT matches(
+SELECT is(
     (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_settings' AND attempt = 'unmanaged'),
-    '^90',
+    '90271',
     'registering _settings as an unmanaged entity is refused'
 );
 
-SELECT matches(
+SELECT is(
     (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_settings' AND attempt = 'adopted'),
-    '^90',
+    '90271',
     'registering _settings unmanaged and flipping it to managed is refused'
 );
 
-SELECT matches(
+SELECT is(
     (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_apikeys' AND attempt = 'managed'),
-    '^90',
+    '90271',
     'registering _apikeys as a managed entity is refused'
 );
 
-SELECT matches(
+SELECT is(
     (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_apikeys' AND attempt = 'unmanaged'),
-    '^90',
+    '90271',
     'registering _apikeys as an unmanaged entity is refused'
 );
 
-SELECT matches(
+SELECT is(
     (SELECT outcome ->> 'code' FROM registration_outcome WHERE tbl = '_apikeys' AND attempt = 'adopted'),
-    '^90',
+    '90271',
     'registering _apikeys unmanaged and flipping it to managed is refused'
 );
 
@@ -447,10 +447,10 @@ SELECT is(
 -- table of that name exists yet.
 SELECT authenticate_as('user3');
 
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id)
                            VALUES ('_fixture_notes', '_fixture_note', 'Fixture Note', 'Fixture Notes', 'registration probe', 1)$$) ->> 'code', 'no error'),
-    '^90',
+    '90271',
     'registering a table whose name starts with an underscore is refused');
 
 RESET ROLE;

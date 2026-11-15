@@ -295,7 +295,10 @@ BEGIN
     -- unlocked rather than adopted, because the INSERT and UPDATE policies and
     -- the grant beside them are exactly what it was protected from.
     -- 0200_audit_log.sql refuses the managed flip on those two entities outright,
-    -- so they never arrive here; the reasoning is written out there.
+    -- so they never arrive here; the reasoning is written out there. A table
+    -- whose protection is that it has no permission model at all - an internal
+    -- table, named with a leading "_" - is refused by reserve_table_namespace
+    -- below, before it can be registered.
     --
     -- Access can widen. A table that carried its own policies keeps them, and
     -- PostgreSQL ORs permissive policies together, so the permission model the
@@ -918,6 +921,59 @@ CREATE OR REPLACE TRIGGER fields_reserve_namespace_trigger
     BEFORE INSERT OR UPDATE OF field_name ON fields
     FOR EACH ROW
     EXECUTE FUNCTION reserve_field_namespace();
+
+-- =====================================================
+-- §9b RESERVED TABLE-NAME NAMESPACE
+-- =====================================================
+-- A table whose name starts with "_" is an internal table (_settings, _apikeys,
+-- _versions). Such a table is protected by having no permission model at all:
+-- a deny-all policy, or one hand-written policy, and SECURITY DEFINER functions
+-- as its readers. Registering it as an entity gives it one. A managed entity
+-- gets the four permission policies and the table grant, and PostgreSQL ORs
+-- permissive policies together, so every holder of the entity's
+-- view_permission would read the JWT audience or the API key hashes through
+-- the Data API, and deleting the entity would drop the table.
+--
+-- So the name is refused wherever a row could come to stand for such a table:
+-- on INSERT, managed or not, on a rename to such a name, and on the flip to
+-- managed, which is what would secure the table as an entity. The prefix is
+-- the rule, not a list of the tables that exist today, as it is for field
+-- names above. Nobody is exempt, the owner included: the dictionary itself
+-- registers no such entity. A row that is already there is otherwise left
+-- alone and can still be edited.
+--
+-- The name sorts first among the BEFORE triggers of entities, so this is the
+-- refusal a caller gets, whatever else the row would also have been refused for.
+CREATE OR REPLACE FUNCTION reserve_table_namespace()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY INVOKER
+SET search_path = public
+AS $$
+BEGIN
+    IF NEW.table_name ~ '^_'
+       AND (TG_OP = 'INSERT'
+            OR OLD.table_name !~ '^_'
+            OR (NEW.managed AND NOT OLD.managed)) THEN
+        RAISE EXCEPTION 'Table name ${table} is reserved: a name starting with "_" marks an internal table, which cannot be registered or managed as an entity'
+            USING ERRCODE = '90271',
+                  HINT = jsonb_build_object('table', NEW.table_name)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION reserve_table_namespace() IS
+'Trigger function that refuses an entity whose table_name begins with "_" (90271): on INSERT, on a rename to such a name, and on the flip to managed. Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them.';
+
+REVOKE EXECUTE ON FUNCTION reserve_table_namespace() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER a_reserve_table_namespace_trigger
+    BEFORE INSERT OR UPDATE OF table_name, managed ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION reserve_table_namespace();
+
+COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
+'Refuses registering, renaming to, or adopting a table whose name starts with "_".';
 
 -- =====================================================
 -- §10 label_parent VALIDATION  (+ §2/§11 acyclic, no self-reference)
