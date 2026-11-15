@@ -132,6 +132,12 @@ COMMENT ON FUNCTION rollup_filter_problem(TEXT) IS
 
 REVOKE EXECUTE ON FUNCTION rollup_filter_problem(TEXT) FROM PUBLIC;
 
+-- The compiler functions below take the rollup's table and field name as their
+-- last argument and hand it down to rollup_filter_date_op, which writes it into
+-- the SQL it emits so that an error on a child write can name the rollup. It
+-- defaults to NULL, so each DROP removes the signature without it: left in
+-- place, a call that gives no rollup would match both.
+
 -- A column reference. The lookup is pinned to the child relation, to attnum > 0
 -- and to columns that are not dropped, so no other table's column and no system
 -- column can be named; a column that exists physically but has no fields row
@@ -250,10 +256,50 @@ $fn$ LANGUAGE plpgsql STABLE SET search_path = public SET intervalstyle = 'iso_8
 COMMENT ON FUNCTION rollup_interval_iso(INTERVAL) IS
 'An interval as a JSON string in ISO 8601, whatever the session''s interval style. Used by compiled rollup filters.';
 
+-- A date operator of a compiled filter, evaluated for one child.
+--
+-- The operator's unit, part, pattern and literals are checked when the
+-- definition is saved, but a column is checked with a sample value, and a
+-- column can hold what no sample stands for: a date of infinity, a year
+-- beyond 9999 or before 1, an int64 amount beyond the integer range, an amount
+-- that carries the date past the last timestamp. The operator has no answer
+-- for such a child, and counting it in or out would both be a guess, so the
+-- write of that child is refused. What the writer gets is this one error,
+-- which names the rollup, in place of whichever error the date function or a
+-- cast underneath it raised (90915, 22003, 22008); that error's code travels
+-- along as cause_code.
+--
+-- The EXCEPTION block is a subtransaction per child of the parent being
+-- recomputed, paid only by a filter that uses a date operator.
+CREATE OR REPLACE FUNCTION rollup_date_value(p_rollup JSONB, p_op TEXT, p_a JSONB, p_b JSONB, p_c JSONB)
+RETURNS JSONB AS $fn$
+BEGIN
+    RETURN CASE p_op
+        WHEN 'date_add'    THEN jl_date_add(p_a, p_b, p_c)
+        WHEN 'date_diff'   THEN jl_date_diff(p_a, p_b, p_c)
+        WHEN 'date_part'   THEN jl_date_part(p_a, p_b)
+        WHEN 'date_trunc'  THEN jl_date_trunc(p_a, p_b)
+        WHEN 'to_date'     THEN jl_to_date(p_a)
+        WHEN 'date_format' THEN jl_date_format(p_a, p_b)
+    END;
+EXCEPTION
+    WHEN SQLSTATE '90915' OR SQLSTATE '90916' OR SQLSTATE '90917' OR SQLSTATE '90918' OR data_exception THEN
+        PERFORM rollup_refuse('90272',
+            'Rollup ${field_name} on ${table}: the filter cannot evaluate ${operator} for this record',
+            jsonb_build_object('table', p_rollup ->> 'table', 'field_name', p_rollup ->> 'field_name',
+                               'operator', p_op, 'cause_code', SQLSTATE));
+        RETURN NULL;
+END;
+$fn$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB) IS
+'A date operator of a compiled rollup filter, evaluated for one child through the interpreter''s jl_date_* function. Raises 90272, naming the rollup, when the child holds a value the operator cannot read.';
+
 -- The date argument of a date operator: a date or date-time column, a literal, or
 -- another date operator. Returns its SQL as jsonb and a value of the same kind for
 -- rollup_filter_date_op to check the operator with.
-CREATE OR REPLACE FUNCTION rollup_filter_date_arg(p_node JSONB, p_rel TEXT, p_alias TEXT)
+DROP FUNCTION IF EXISTS rollup_filter_date_arg(JSONB, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION rollup_filter_date_arg(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
     v_arg JSONB;
@@ -264,7 +310,7 @@ BEGIN
     IF jsonb_typeof(p_node) <> 'object' THEN
         PERFORM rollup_filter_problem('a date operator takes a date column, a date literal or another date operator');
     END IF;
-    v_arg := rollup_filter_operand(p_node, p_rel, p_alias);
+    v_arg := rollup_filter_operand(p_node, p_rel, p_alias, p_rollup);
     IF v_arg ->> 'type' NOT IN ('date', 'timestamp with time zone') THEN
         PERFORM rollup_filter_problem(format('%s is not a date', p_node));
     END IF;
@@ -278,16 +324,17 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 
-COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT) IS
+COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles the date argument of a date operator in a rollup filter to SQL yielding jsonb, or raises 90265.';
 
 -- A date operator used as a value.
 --
--- It compiles to a call of the interpreter's own jl_date_* function, not to a
--- native expression, which is what lets a date operator be in this subset at all:
--- a filter and a validation rule cannot disagree about it, because there is no
--- second implementation to keep equivalent. The price is a function call per child
--- of the one parent being recomputed.
+-- It compiles to a call of the interpreter's own jl_date_* function, through
+-- rollup_date_value, not to a native expression, which is what lets a date
+-- operator be in this subset at all: a filter and a validation rule cannot
+-- disagree about it, because there is no second implementation to keep
+-- equivalent. The price is a function call per child of the one parent being
+-- recomputed.
 --
 -- The operator name reaches the SQL only after rollup_filter_operand has matched
 -- it against a fixed list, and every literal goes through %L as jsonb.
@@ -296,12 +343,14 @@ COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT) IS
 -- right kind in place of each column. That applies its own lists of units, parts
 -- and tokens and its refusal of a time of day on a date-only value, so a filter
 -- that could never work is refused when it is saved and not at the first child
--- write. A date column cannot fail at run time: it can only hold a real date.
+-- write. A column can still hold a value its sample does not stand for, a date
+-- of infinity among them; rollup_date_value refuses the write of such a child.
 --
 -- A duration column against a date column is refused here for that reason. It may
 -- hold a time of day in some rows and not others, so it would fail on a child write
 -- that has nothing wrong with it.
-CREATE OR REPLACE FUNCTION rollup_filter_date_op(p_op TEXT, p_args JSONB, p_rel TEXT, p_alias TEXT)
+DROP FUNCTION IF EXISTS rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION rollup_filter_date_op(p_op TEXT, p_args JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
     v_args    JSONB := CASE WHEN jsonb_typeof(p_args) = 'array' THEN p_args ELSE jsonb_build_array(p_args) END;
@@ -324,11 +373,11 @@ BEGIN
     FOR v_i IN 0 .. v_n - 1 LOOP
         v_arg := v_args -> v_i;
         IF v_i = 0 OR (p_op = 'date_diff' AND v_i = 1) THEN
-            v_col := rollup_filter_date_arg(v_arg, p_rel, p_alias);
+            v_col := rollup_filter_date_arg(v_arg, p_rel, p_alias, p_rollup);
             v_sql := v_sql || (v_col ->> 'json_sql');
             v_samples := v_samples || jsonb_build_array(v_col -> 'sample');
         ELSIF p_op = 'date_add' AND v_i = 1 AND jsonb_typeof(v_arg) = 'object' THEN
-            v_col := rollup_filter_operand(v_arg, p_rel, p_alias);
+            v_col := rollup_filter_operand(v_arg, p_rel, p_alias, p_rollup);
             IF v_n = 2 THEN
                 IF v_col ->> 'kind' IS DISTINCT FROM 'interval' THEN
                     PERFORM rollup_filter_problem(format('%s is not a duration', v_arg));
@@ -367,9 +416,10 @@ BEGIN
         PERFORM rollup_filter_problem(format('%s cannot take a blank date or amount: %s', p_op, v_args));
     END IF;
 
-    IF p_op = 'date_add' AND v_n = 2 THEN
+    -- rollup_date_value takes three arguments whatever the operator.
+    WHILE cardinality(v_sql) < 3 LOOP
         v_sql := v_sql || 'NULL::jsonb'::text;
-    END IF;
+    END LOOP;
     v_type := CASE p_op
         WHEN 'date_diff'   THEN 'bigint'
         WHEN 'date_part'   THEN 'bigint'
@@ -377,8 +427,8 @@ BEGIN
         WHEN 'to_date'     THEN 'date'
         ELSE CASE WHEN jl_date_is_date_only(v_result) THEN 'date' ELSE 'timestamp with time zone' END
     END;
-    v_json := format('%s(%s)', CASE p_op WHEN 'to_date' THEN 'jl_to_date' ELSE 'jl_' || p_op END,
-                     array_to_string(v_sql, ', '));
+    v_json := format('rollup_date_value(%L::jsonb, %L, %s)',
+                     COALESCE(p_rollup, '{}'::jsonb)::text, p_op, array_to_string(v_sql, ', '));
     RETURN jsonb_build_object(
         'json_sql', v_json,
         'sql',      format('(%s #>> ''{}'')::%s', v_json, v_type),
@@ -389,13 +439,14 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 
-COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT) IS
-'Compiles a date operator used as a value in a rollup filter to a typed call of the interpreter''s jl_date_* function, or raises 90265.';
+COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB) IS
+'Compiles a date operator used as a value in a rollup filter to a typed call of rollup_date_value, which runs the interpreter''s jl_date_* function for each child, or raises 90265.';
 
 -- An operand of a comparison: a var, a literal or a date operator. Any other
 -- operator object is refused here, which is what keeps arithmetic and the other
 -- custom operators out.
-CREATE OR REPLACE FUNCTION rollup_filter_operand(p_node JSONB, p_rel TEXT, p_alias TEXT)
+DROP FUNCTION IF EXISTS rollup_filter_operand(JSONB, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION rollup_filter_operand(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
     v_op TEXT;
@@ -406,7 +457,7 @@ BEGIN
         END IF;
         SELECT k INTO v_op FROM jsonb_object_keys(p_node) k;
         IF v_op = ANY (ARRAY['date_add', 'date_diff', 'date_part', 'date_trunc', 'to_date', 'date_format']) THEN
-            RETURN rollup_filter_date_op(v_op, p_node -> v_op, p_rel, p_alias);
+            RETURN rollup_filter_date_op(v_op, p_node -> v_op, p_rel, p_alias, p_rollup);
         END IF;
         IF v_op <> 'var' THEN
             PERFORM rollup_filter_problem(format('operator %s cannot be used as a value in a rollup filter', v_op));
@@ -423,13 +474,14 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 
-COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT) IS
+COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) IS
 'Classifies an operand of a rollup filter comparison as a column or a literal, or raises 90265.';
 
 -- The operands of one comparison, as SQL. The first column among them anchors
 -- the type every literal is cast to, so '5' meets a numeric column as a number
 -- and a date column as a date; with no column the literals keep their own type.
-CREATE OR REPLACE FUNCTION rollup_filter_operands(p_args JSONB, p_rel TEXT, p_alias TEXT, p_allow_null BOOLEAN)
+DROP FUNCTION IF EXISTS rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN);
+CREATE OR REPLACE FUNCTION rollup_filter_operands(p_args JSONB, p_rel TEXT, p_alias TEXT, p_allow_null BOOLEAN, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT[] AS $fn$
 DECLARE
     v_node   JSONB;
@@ -439,7 +491,7 @@ DECLARE
     v_out    TEXT[] := ARRAY[]::TEXT[];
 BEGIN
     FOR v_node IN SELECT a FROM jsonb_array_elements(p_args) a LOOP
-        v_op := rollup_filter_operand(v_node, p_rel, p_alias);
+        v_op := rollup_filter_operand(v_node, p_rel, p_alias, p_rollup);
         -- A duration column exists here only to be an argument of date_add.
         IF v_op ->> 'kind' = 'interval' THEN
             PERFORM rollup_filter_problem(format('column %s has type interval, which a rollup filter cannot compare', v_node ->> 'var'));
@@ -463,11 +515,12 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 
-COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN) IS
+COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) IS
 'Compiles the operands of one rollup filter comparison to SQL, casting every literal to the type of the first column among them.';
 
 -- A condition. Recursive for and, or, ! and !!.
-CREATE OR REPLACE FUNCTION rollup_filter_cond(p_node JSONB, p_rel TEXT, p_alias TEXT)
+DROP FUNCTION IF EXISTS rollup_filter_cond(JSONB, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION rollup_filter_cond(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT AS $fn$
 DECLARE
     v_op    TEXT;
@@ -504,30 +557,30 @@ BEGIN
             IF v_n < 1 THEN
                 PERFORM rollup_filter_problem(format('%s needs at least one condition', v_op));
             END IF;
-            SELECT array_agg(rollup_filter_cond(a, p_rel, p_alias) ORDER BY i) INTO v_parts
+            SELECT array_agg(rollup_filter_cond(a, p_rel, p_alias, p_rollup) ORDER BY i) INTO v_parts
               FROM jsonb_array_elements(v_args) WITH ORDINALITY AS t(a, i);
             RETURN '(' || array_to_string(v_parts, CASE v_op WHEN 'and' THEN ' AND ' ELSE ' OR ' END) || ')';
         WHEN '!', '!!' THEN
             IF v_n <> 1 THEN
                 PERFORM rollup_filter_problem(format('%s takes exactly one condition', v_op));
             END IF;
-            RETURN CASE v_op WHEN '!' THEN 'NOT (' ELSE '(' END || rollup_filter_cond(v_args -> 0, p_rel, p_alias) || ')';
+            RETURN CASE v_op WHEN '!' THEN 'NOT (' ELSE '(' END || rollup_filter_cond(v_args -> 0, p_rel, p_alias, p_rollup) || ')';
         WHEN '==', '===', '!=', '!==' THEN
             IF v_n <> 2 THEN
                 PERFORM rollup_filter_problem(format('%s takes exactly two operands', v_op));
             END IF;
-            v_parts := rollup_filter_operands(v_args, p_rel, p_alias, TRUE);
+            v_parts := rollup_filter_operands(v_args, p_rel, p_alias, TRUE, p_rollup);
             RETURN format('(%s IS %sDISTINCT FROM %s)',
                           v_parts[1], CASE WHEN v_op IN ('==', '===') THEN 'NOT ' ELSE '' END, v_parts[2]);
         WHEN '<', '<=', '>', '>=' THEN
             IF v_n = 3 AND v_op IN ('<', '<=') THEN
-                v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE);
+                v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE, p_rollup);
                 RETURN format('(%s %s %s AND %s %s %s)', v_parts[1], v_op, v_parts[2], v_parts[2], v_op, v_parts[3]);
             END IF;
             IF v_n <> 2 THEN
                 PERFORM rollup_filter_problem(format('%s takes two operands (three for < and <=)', v_op));
             END IF;
-            v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE);
+            v_parts := rollup_filter_operands(v_args, p_rel, p_alias, FALSE, p_rollup);
             RETURN format('(%s %s %s)', v_parts[1], v_op, v_parts[2]);
         WHEN 'in' THEN
             IF v_n <> 2 OR jsonb_typeof(v_args -> 1) <> 'array' THEN
@@ -542,10 +595,10 @@ BEGIN
                 END IF;
             END LOOP;
             -- The value comes first, so it anchors the cast of every list entry.
-            v_parts := rollup_filter_operands(jsonb_build_array(v_args -> 0) || (v_args -> 1), p_rel, p_alias, FALSE);
+            v_parts := rollup_filter_operands(jsonb_build_array(v_args -> 0) || (v_args -> 1), p_rel, p_alias, FALSE, p_rollup);
             RETURN format('(%s IN (%s))', v_parts[1], array_to_string(v_parts[2:], ', '));
         WHEN 'var' THEN
-            v_col := rollup_filter_operand(p_node, p_rel, p_alias);
+            v_col := rollup_filter_operand(p_node, p_rel, p_alias, p_rollup);
             IF v_col ->> 'kind' <> 'bool' THEN
                 PERFORM rollup_filter_problem(format('column %s is not boolean; compare it with == or similar', p_node ->> 'var'));
             END IF;
@@ -557,31 +610,33 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 
-COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT) IS
+COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles one JsonLogic condition of the rollup subset to a parenthesized SQL boolean expression over the child alias, or raises 90265.';
 
-CREATE OR REPLACE FUNCTION rollup_filter_sql(p_filter JSONB, p_rel TEXT, p_alias TEXT)
+DROP FUNCTION IF EXISTS rollup_filter_sql(JSONB, TEXT, TEXT);
+CREATE OR REPLACE FUNCTION rollup_filter_sql(p_filter JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT AS $fn$
 BEGIN
     IF p_filter IS NULL OR p_filter = '{}'::jsonb THEN
         RETURN 'TRUE';
     END IF;
-    RETURN rollup_filter_cond(p_filter, p_rel, p_alias);
+    RETURN rollup_filter_cond(p_filter, p_rel, p_alias, p_rollup);
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public;
 
-COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT) IS
+COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles a rollup filter (the JsonLogic subset and, or, !, !!, comparisons, in and var) to a SQL boolean over the given child relation and alias. Identifiers through %I after a catalog lookup, literals through %L cast to the column''s catalog type, every other operator refused with 90265. An empty filter is TRUE.';
 
 REVOKE EXECUTE ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_interval_iso(INTERVAL) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) FROM PUBLIC;
 
 -- =====================================================
 -- The definition, resolved and validated
@@ -862,7 +917,7 @@ BEGIN
     IF v_child.managed AND pg_catalog.to_regclass(format('public.%I', v_child_rel)) IS NOT NULL
        AND (v_col_type IS NOT NULL OR NOT v_parent.managed) THEN
         BEGIN
-            v_filter_sql := rollup_filter_sql(v_filter, v_child_rel, 'c');
+            v_filter_sql := rollup_filter_sql(v_filter, v_child_rel, 'c', v_ctx);
         EXCEPTION
             WHEN SQLSTATE '90265' THEN
                 GET STACKED DIAGNOSTICS v_hint = PG_EXCEPTION_HINT;

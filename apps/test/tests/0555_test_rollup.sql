@@ -1727,15 +1727,15 @@ SELECT is((SELECT jsonb_object_agg(label, pg_temp.rt(label)) FROM rt_parent),
 -- refused: counting the child in or out would both be a guess. What the writer
 -- gets is one error of the dictionary that names the rollup, not whichever
 -- error the date function or a cast underneath happened to raise.
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$INSERT INTO rt_dated (label, parent_id, ship_date) SELECT 'never', id, 'infinity' FROM rt_parent WHERE label = 'endless'$$) ->> 'code', 'no error'),
-    '^902',
+    '90272',
     'a child whose date is infinity is refused under a filter on a part of that date, with a rollup error');
 SELECT is(pg_temp.rt('endless'), '[2, 1, 2, 1]'::jsonb,
     'and the refused child is counted nowhere');
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$INSERT INTO rt_dated (label, parent_id, ship_date) SELECT 'far off', id, '10000-01-01' FROM rt_parent WHERE label = 'far'$$) ->> 'code', 'no error'),
-    '^902',
+    '90272',
     'a child dated after the year 9999 is refused under the same filter, with the same kind of error');
 SELECT is(pg_temp.rt('far'), '[2, 1, 2, 1]'::jsonb,
     'and the refused child is counted nowhere');
@@ -1743,15 +1743,15 @@ SELECT is(pg_temp.rt('far'), '[2, 1, 2, 1]'::jsonb,
 -- An int64 column takes more than an integer holds, and an amount that is an
 -- integer can still carry the date past the last one a timestamp holds. The
 -- sum has no date in either case, and the write is refused the same way.
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$INSERT INTO rt_sized (label, parent_id, ship_date, days) SELECT 'wide', id, '2026-05-01', 3000000000 FROM rt_parent WHERE label = 'wide'$$) ->> 'code', 'no error'),
-    '^902',
+    '90272',
     'a child whose amount is beyond the integer range is refused under a filter that adds it to a date, with a rollup error');
 SELECT is(pg_temp.rt('wide'), '[2, 1, 2, 1]'::jsonb,
     'and the refused child is counted nowhere');
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$INSERT INTO rt_sized (label, parent_id, ship_date, days) SELECT 'long', id, '2026-05-01', 2000000000 FROM rt_parent WHERE label = 'long'$$) ->> 'code', 'no error'),
-    '^902',
+    '90272',
     'a child whose amount carries the date past the last timestamp is refused under the same filter, with the same kind of error');
 SELECT is(pg_temp.rt('long'), '[2, 1, 2, 1]'::jsonb,
     'and the refused child is counted nowhere');
