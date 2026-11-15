@@ -21,7 +21,7 @@
 -- administrator, makes the dictionary changes. Everything is rolled back.
 BEGIN;
 
-SELECT plan(242);
+SELECT plan(244);
 
 -- =====================================================
 -- Helpers
@@ -214,13 +214,13 @@ SELECT is(pg_temp.idh_value($$
 -- a longer table_name can never be the name of the entity's table, and two
 -- names that differ only after byte 63 are one table. The names generated
 -- from a table name (<t>_select_policy, update_<t>_updated_at, ...) are cut
--- the same way. The dictionary either refuses such a name itself, by a CHECK
--- or with one of its own codes, or builds an entity that works under exactly
--- the name it stores.
+-- the same way, and the longest of them puts 22 bytes around the table name.
+-- So the dictionary refuses a table name of more than 41 bytes itself, with a
+-- code of its own, before anything is built from it.
 
--- 'refused' for a refusal by a CHECK or with a dictionary code (class 90),
--- 'usable' when the entity is created, its table carries exactly p_table and
--- a row written under that name is read back, else what happened instead.
+-- 'refused <code>' for a refusal by a CHECK or with a dictionary code (class
+-- 90), 'usable' when the entity is created, its table carries exactly p_table
+-- and a row written under that name is read back, else what happened instead.
 CREATE FUNCTION pg_temp.idh_entity_outcome(p_table TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
 DECLARE
     v_state   TEXT;
@@ -233,7 +233,7 @@ BEGIN
                           VALUES (%L, 'Long', 'Longs', 1, 'public:read', 'admin')$q$, p_table);
     EXCEPTION WHEN OTHERS THEN
         GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_message = MESSAGE_TEXT;
-        RETURN CASE WHEN v_state = '23514' OR v_state LIKE '90%' THEN 'refused'
+        RETURN CASE WHEN v_state = '23514' OR v_state LIKE '90%' THEN 'refused ' || v_state
                     ELSE format('the entity fails with %s: %s', v_state, v_message) END;
     END;
     IF NOT EXISTS (SELECT 1 FROM pg_class c
@@ -250,13 +250,17 @@ BEGIN
     RETURN CASE WHEN v_count = 1 THEN 'usable' ELSE format('created, but %s rows are read back', v_count) END;
 END $f$;
 
-SELECT matches(pg_temp.idh_entity_outcome('idh_edge_' || repeat('a', 54)), '^(refused|usable)$',
-    'a 63-byte table name, the longest PostgreSQL stores, is refused by the dictionary or builds a usable entity');
-SELECT matches(pg_temp.idh_entity_outcome('idh_long_' || repeat('a', 55)), '^(refused|usable)$',
+SELECT is(pg_temp.idh_entity_outcome('idh_fits_' || repeat('a', 32)), 'usable',
+    'a 41-byte table name, the longest whose generated names all fit, builds a usable entity');
+SELECT is(pg_temp.idh_entity_outcome('idh_over_' || repeat('a', 33)), 'refused 90273',
+    'a 42-byte table name is refused by the dictionary');
+SELECT is(pg_temp.idh_entity_outcome('idh_edge_' || repeat('a', 54)), 'refused 90273',
+    'a 63-byte table name, the longest PostgreSQL stores, is refused by the dictionary');
+SELECT is(pg_temp.idh_entity_outcome('idh_long_' || repeat('a', 55)), 'refused 90273',
     'a 64-byte table name is refused by the dictionary');
-SELECT matches(pg_temp.idh_entity_outcome('idh_twin_' || repeat('a', 54) || 'x'), '^(refused|usable)$',
+SELECT is(pg_temp.idh_entity_outcome('idh_twin_' || repeat('a', 54) || 'x'), 'refused 90273',
     'the first of two table names that share their first 63 bytes is refused by the dictionary');
-SELECT matches(pg_temp.idh_entity_outcome('idh_twin_' || repeat('a', 54) || 'y'), '^(refused|usable)$',
+SELECT is(pg_temp.idh_entity_outcome('idh_twin_' || repeat('a', 54) || 'y'), 'refused 90273',
     'the second of two table names that share their first 63 bytes is refused by the dictionary');
 SELECT is((SELECT count(*)::int FROM pg_class c
             WHERE c.relname::text IN ('idh_long_' || repeat('a', 54), 'idh_twin_' || repeat('a', 54))), 0,
@@ -268,7 +272,7 @@ SELECT is((SELECT count(*)::int FROM pg_class c
 -- The unique index of a field is named <table>_<field>_unique and the index
 -- of a reference field idx_<table>_<field>. Index names are unique in the
 -- schema, and table a_b with field c spells the same name as table a with
--- field b_c. Each field gets its index, or the second one is refused; an
+-- field b_c. The first field gets its index and the second one is refused; an
 -- index is never created for one and counted for both.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
 VALUES ('idh_u_b', 'Left', 'Lefts', 1, 'public:read', 'admin'),
@@ -276,7 +280,7 @@ VALUES ('idh_u_b', 'Left', 'Lefts', 1, 'public:read', 'admin'),
        ('idh_r_b', 'Left', 'Lefts', 1, 'public:read', 'admin'),
        ('idh_r',   'Right', 'Rights', 1, 'public:read', 'admin');
 
--- Adds a unique text field: 'refused' for a refusal by a CHECK or with a
+-- Adds a unique text field: 'refused <code>' for a refusal by a CHECK or with a
 -- dictionary code, 'enforced' when a second row with the same value raises
 -- 23505, else what happened instead. The first row stays.
 CREATE FUNCTION pg_temp.idh_unique_field(p_table TEXT, p_field TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
@@ -289,7 +293,7 @@ BEGIN
                           VALUES (%L, %L, 'Code', 'text', TRUE)$q$, p_table, p_field);
     EXCEPTION WHEN OTHERS THEN
         GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_message = MESSAGE_TEXT;
-        RETURN CASE WHEN v_state = '23514' OR v_state LIKE '90%' THEN 'refused'
+        RETURN CASE WHEN v_state = '23514' OR v_state LIKE '90%' THEN 'refused ' || v_state
                     ELSE format('the field fails with %s: %s', v_state, v_message) END;
     END;
     BEGIN
@@ -319,8 +323,8 @@ CREATE FUNCTION pg_temp.idh_index_count(p_table TEXT, p_field TEXT) RETURNS INT 
        AND a.attname = p_field;
 $f$;
 
--- Adds a reference field to idh_probe: 'refused' for a refusal by a CHECK or
--- with a dictionary code, 'indexed' when the column has its index, else what
+-- Adds a reference field to idh_probe: 'refused <code>' for a refusal by a CHECK
+-- or with a dictionary code, 'indexed' when the column has its index, else what
 -- happened instead.
 CREATE FUNCTION pg_temp.idh_reference_field(p_table TEXT, p_field TEXT) RETURNS TEXT LANGUAGE plpgsql AS $f$
 DECLARE
@@ -332,27 +336,27 @@ BEGIN
                           VALUES (%L, %L, 'Probe', 'reference', 'idh_probe')$q$, p_table, p_field);
     EXCEPTION WHEN OTHERS THEN
         GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_message = MESSAGE_TEXT;
-        RETURN CASE WHEN v_state = '23514' OR v_state LIKE '90%' THEN 'refused'
+        RETURN CASE WHEN v_state = '23514' OR v_state LIKE '90%' THEN 'refused ' || v_state
                     ELSE format('the field fails with %s: %s', v_state, v_message) END;
     END;
     RETURN CASE WHEN pg_temp.idh_index_count(p_table, p_field) = 1 THEN 'indexed'
                 ELSE 'created, but the column has no index' END;
 END $f$;
 
-SELECT matches(pg_temp.idh_unique_field('idh_u_b', 'c'), '^(refused|enforced)$',
+SELECT is(pg_temp.idh_unique_field('idh_u_b', 'c'), 'enforced',
     'unique field c of idh_u_b: its uniqueness is enforced');
-SELECT matches(pg_temp.idh_unique_field('idh_u', 'b_c'), '^(refused|enforced)$',
-    'unique field b_c of idh_u, whose index name idh_u_b.c took: refused, or its uniqueness is enforced');
+SELECT is(pg_temp.idh_unique_field('idh_u', 'b_c'), 'refused 90274',
+    'unique field b_c of idh_u, whose index name idh_u_b.c took: refused');
 -- Dropping the rule of one field leaves the rule of the other.
 SELECT lives_ok($$UPDATE fields SET unique_value = FALSE WHERE table_name = 'idh_u' AND field_name = 'b_c'$$,
     'unique_value of idh_u.b_c is turned off');
 SELECT is(catch_error($$INSERT INTO idh_u_b (label, c) VALUES ('third', 'same')$$) ->> 'code', '23505',
     'idh_u_b.c is still unique after idh_u.b_c stopped being unique');
 
-SELECT matches(pg_temp.idh_reference_field('idh_r_b', 'c'), '^(refused|indexed)$',
+SELECT is(pg_temp.idh_reference_field('idh_r_b', 'c'), 'indexed',
     'reference field c of idh_r_b: the column is indexed');
-SELECT matches(pg_temp.idh_reference_field('idh_r', 'b_c'), '^(refused|indexed)$',
-    'reference field b_c of idh_r, whose index name idh_r_b.c took: refused, or the column is indexed');
+SELECT is(pg_temp.idh_reference_field('idh_r', 'b_c'), 'refused 90274',
+    'reference field b_c of idh_r, whose index name idh_r_b.c took: refused');
 -- Deleting one field leaves the index of the other.
 SELECT lives_ok($$DELETE FROM fields WHERE table_name = 'idh_r' AND field_name = 'b_c'$$,
     'field b_c of idh_r is deleted');

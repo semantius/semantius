@@ -735,6 +735,77 @@ COMMENT ON FUNCTION dd_unique_predicate(fields) IS
 'The WHERE clause of a unique_value field''s partial unique index: NULL is left out for every column type, and the empty string as well for a TEXT column.';
 
 -- =====================================================
+-- GENERATED INDEX NAMES
+-- =====================================================
+-- A field's indexes are named after its table and itself: idx_<table>_<field>
+-- for a reference, <table>_<field>_unique for unique_value. An index name is
+-- unique in the schema, not in its table, and the underscore that joins the
+-- two parts is also a letter of both: table a_b with field c spells the same
+-- name as table a with field b_c. A name longer than 63 bytes is cut, which
+-- makes more names the same.
+--
+-- CREATE INDEX IF NOT EXISTS answers a taken name by doing nothing, so the
+-- second field got no index at all: a unique_value that is not enforced, a
+-- reference that is not indexed, and nothing to say so. And DROP INDEX IF
+-- EXISTS removes whatever carries the name, so turning the second field's
+-- unique_value off, or deleting it, dropped the first field's index.
+--
+-- dd_index_name_free is asked before an index is created. The name is free
+-- when nothing in the schema carries it, or when what carries it is already
+-- this field's index, which keeps a second run harmless. Anything else
+-- refuses the field with 90274. dd_drop_own_index drops an index only when it
+-- is on the field's own table, so a name that belongs to another table is
+-- left alone.
+CREATE OR REPLACE FUNCTION dd_index_name_free(p_table TEXT, p_rel TEXT, p_field TEXT, p_index TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_used_by TEXT;
+    v_own     BOOLEAN;
+BEGIN
+    SELECT COALESCE(t.relname::text, c.relname::text),
+           COALESCE(i.indrelid = pg_catalog.to_regclass(format('public.%I', p_rel))
+                    AND a.attname = p_field::name, FALSE)
+      INTO v_used_by, v_own
+      FROM pg_catalog.pg_class c
+      LEFT JOIN pg_catalog.pg_index i ON i.indexrelid = c.oid
+      LEFT JOIN pg_catalog.pg_class t ON t.oid = i.indrelid
+      LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+     WHERE c.relname = p_index::name
+       AND c.relnamespace = 'public'::regnamespace;
+
+    IF FOUND AND NOT v_own THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot get its index: the name ${name} is already used by ${used_by}'
+            USING ERRCODE = '90274',
+                  HINT = jsonb_build_object('table', p_table, 'field_name', p_field,
+                                            'name', p_index::name::text, 'used_by', v_used_by)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) IS
+'Raises 90274 when the generated index name of a field is carried by anything other than that field''s own index. The cast applies the truncation PostgreSQL gives a name longer than 63 bytes.';
+
+CREATE OR REPLACE FUNCTION dd_drop_own_index(p_rel TEXT, p_index TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_catalog.pg_index i
+          JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+         WHERE c.relname = p_index::name
+           AND c.relnamespace = 'public'::regnamespace
+           AND i.indrelid = pg_catalog.to_regclass(format('public.%I', p_rel))) THEN
+        RETURN FALSE;
+    END IF;
+    EXECUTE format('DROP INDEX public.%I', p_index);
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION dd_drop_own_index(TEXT, TEXT) IS
+'Drops a generated index when it is an index of the given table, and leaves a relation of that name on any other table alone. Returns whether it dropped one.';
+
+-- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
 -- An entry of enum_values is a plain value ("active") or a value with its
@@ -1865,6 +1936,7 @@ BEGIN
         
         -- Create index for foreign key
         v_idx_name := format('idx_%s_%s', v_rel, NEW.field_name);
+        PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_idx_name);
         v_alter_sql := format(
             'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
             v_idx_name,
@@ -1888,6 +1960,7 @@ BEGIN
             v_where_clause TEXT;
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', v_rel, NEW.field_name);
+            PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_unique_idx_name);
             v_where_clause := dd_unique_predicate(NEW);
             EXECUTE format(
                 'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
@@ -2176,6 +2249,7 @@ BEGIN
                 );
                 EXECUTE v_alter_sql;
 
+                PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_idx_name);
                 v_alter_sql := format(
                     'CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
                     v_idx_name, v_rel, NEW.field_name
@@ -2186,7 +2260,7 @@ BEGIN
                     v_fk_name, NEW.table_name, NEW.field_name,
                     NEW.reference_table, v_ref_id_column, v_on_delete;
             ELSIF NEW.format NOT IN ('reference', 'parent') AND OLD.format IN ('reference', 'parent') THEN
-                EXECUTE format('DROP INDEX IF EXISTS %I', v_idx_name);
+                PERFORM dd_drop_own_index(v_rel, v_idx_name);
                 RAISE NOTICE 'Dropped index "%" for field "%.%"', v_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END IF;
@@ -2215,6 +2289,7 @@ BEGIN
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', v_rel, NEW.field_name);
             IF NEW.unique_value THEN
+                PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_unique_idx_name);
                 v_where_clause := dd_unique_predicate(NEW);
                 EXECUTE format(
                     'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
@@ -2223,7 +2298,7 @@ BEGIN
                 RAISE NOTICE 'Created unique index "%" for field "%.%"',
                     v_unique_idx_name, NEW.table_name, NEW.field_name;
             ELSE
-                EXECUTE format('DROP INDEX IF EXISTS %I', v_unique_idx_name);
+                PERFORM dd_drop_own_index(v_rel, v_unique_idx_name);
                 RAISE NOTICE 'Dropped unique index "%" for field "%.%"',
                     v_unique_idx_name, NEW.table_name, NEW.field_name;
             END IF;
@@ -2299,16 +2374,13 @@ BEGIN
         
         -- Drop index for foreign key
         v_idx_name := format('idx_%s_%s', v_rel, OLD.field_name);
-        EXECUTE format(
-            'DROP INDEX IF EXISTS %I',
-            v_idx_name
-        );
+        PERFORM dd_drop_own_index(v_rel, v_idx_name);
         RAISE NOTICE 'Dropped index "%"', v_idx_name;
     END IF;
     
     -- Drop unique index if unique_value was set
     IF OLD.unique_value THEN
-        EXECUTE format('DROP INDEX IF EXISTS %I', format('%s_%s_unique', v_rel, OLD.field_name));
+        PERFORM dd_drop_own_index(v_rel, format('%s_%s_unique', v_rel, OLD.field_name));
         RAISE NOTICE 'Dropped unique index "%"', format('%s_%s_unique', v_rel, OLD.field_name);
     END IF;
     
@@ -4884,6 +4956,8 @@ REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_unique_predicate(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_drop_own_index(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_required_test(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_required_check_expr(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_constraint_exists(TEXT, TEXT) FROM PUBLIC;
@@ -4910,6 +4984,8 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
         GRANT EXECUTE ON FUNCTION
             dd_unique_predicate(fields),
+            dd_index_name_free(TEXT, TEXT, TEXT, TEXT),
+            dd_drop_own_index(TEXT, TEXT),
             dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT),
             dd_required_test(fields),
             dd_required_check_expr(fields),

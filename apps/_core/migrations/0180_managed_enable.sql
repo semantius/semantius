@@ -97,6 +97,7 @@ BEGIN
                     v_fk_name, p_field.table_name, p_field.field_name;
             END;
 
+            PERFORM dd_index_name_free(p_field.table_name, p_field.table_name, p_field.field_name, v_idx_name);
             EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I(%I)',
                 v_idx_name, p_field.table_name, p_field.field_name);
         END IF;
@@ -125,6 +126,7 @@ BEGIN
             v_where_clause    TEXT;
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', p_field.table_name, p_field.field_name);
+            PERFORM dd_index_name_free(p_field.table_name, p_field.table_name, p_field.field_name, v_unique_idx_name);
             v_where_clause := dd_unique_predicate(p_field);
             EXECUTE format(
                 'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
@@ -923,7 +925,7 @@ CREATE OR REPLACE TRIGGER fields_reserve_namespace_trigger
     EXECUTE FUNCTION reserve_field_namespace();
 
 -- =====================================================
--- §9b RESERVED TABLE-NAME NAMESPACE
+-- §9b TABLE NAMES AN ENTITY CANNOT TAKE
 -- =====================================================
 -- A table whose name starts with "_" is an internal table (_settings, _apikeys,
 -- _versions). Such a table is protected by having no permission model at all:
@@ -942,8 +944,21 @@ CREATE OR REPLACE TRIGGER fields_reserve_namespace_trigger
 -- registers no such entity. A row that is already there is otherwise left
 -- alone and can still be edited.
 --
+-- A name is also refused for its length. The dictionary generates names from a
+-- table name - policies, trigger functions, the write routines of a family -
+-- and PostgreSQL cuts an identifier to 63 bytes without an error. Two names
+-- that are cut to the same 63 bytes are one object: the four policies of a
+-- 62-byte table name collide with each other, and two entities whose names
+-- share their first 46 bytes would replace each other's compute_validate_<t>
+-- function, and with it the other's rules, without a word. The longest thing
+-- put around a table name is update_<t>_ext_updated_at, 22 bytes, on the _ext
+-- table of an is_a or has_a entity, so a name of at most 41 bytes is never
+-- cut, whatever the entity becomes. The limit applies where the reserved
+-- prefix does: on INSERT, on a rename and on the flip to managed.
+--
 -- The name sorts first among the BEFORE triggers of entities, so this is the
--- refusal a caller gets, whatever else the row would also have been refused for.
+-- refusal a caller gets, whatever else the row would also have been refused
+-- for, and a rename is refused before rename_table_trigger has moved the table.
 CREATE OR REPLACE FUNCTION reserve_table_namespace()
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY INVOKER
@@ -958,12 +973,22 @@ BEGIN
             USING ERRCODE = '90271',
                   HINT = jsonb_build_object('table', NEW.table_name)::text;
     END IF;
+
+    IF octet_length(NEW.table_name) > 41
+       AND (TG_OP = 'INSERT'
+            OR NEW.table_name <> OLD.table_name
+            OR (NEW.managed AND NOT OLD.managed)) THEN
+        RAISE EXCEPTION 'Table name ${table} is ${length} bytes long: the names generated from it fit only up to ${max} bytes'
+            USING ERRCODE = '90273',
+                  HINT = jsonb_build_object('table', NEW.table_name,
+                                            'length', octet_length(NEW.table_name), 'max', 41)::text;
+    END IF;
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION reserve_table_namespace() IS
-'Trigger function that refuses an entity whose table_name begins with "_" (90271): on INSERT, on a rename to such a name, and on the flip to managed. Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them.';
+'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
 
 REVOKE EXECUTE ON FUNCTION reserve_table_namespace() FROM PUBLIC;
 
@@ -973,7 +998,7 @@ CREATE OR REPLACE TRIGGER a_reserve_table_namespace_trigger
     EXECUTE FUNCTION reserve_table_namespace();
 
 COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
-'Refuses registering, renaming to, or adopting a table whose name starts with "_".';
+'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes.';
 
 -- =====================================================
 -- §10 label_parent VALIDATION  (+ §2/§11 acyclic, no self-reference)
