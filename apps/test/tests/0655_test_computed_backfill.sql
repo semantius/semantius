@@ -12,9 +12,10 @@
 --   4. A record that cannot take its new value (90908)
 --   5. Through rollups: a child's rule, a computed field over a rollup
 --   6. is_a and has_a entities
+--   7. A required field: a rule that fills it, a rule that leaves a record without a value
 BEGIN;
 
-SELECT plan(44);
+SELECT plan(57);
 
 -- =====================================================
 -- PART 1: An upgrade through ensure_entities
@@ -172,7 +173,11 @@ CREATE FUNCTION pg_temp.cb_refused() RETURNS TEXT LANGUAGE sql AS $$
 $$;
 
 SELECT throws_ok(pg_temp.cb_refused(), '90908', NULL, '90908: a record whose new value breaks a validation rule refuses the change');
-SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'record_id', (SELECT id::text FROM cb_orders WHERE label = 'A'), 'the error names the record');
+-- The expected id is read first: a statement that also reads cb_orders holds it open,
+-- and the pass cannot ALTER a table this session has a scan open on (55006), which
+-- would name the first record it scans instead of the one the rule refuses.
+CREATE TEMP TABLE cb_refused_id ON COMMIT DROP AS SELECT id::text AS id FROM cb_orders WHERE label = 'A';
+SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'record_id', (SELECT id FROM cb_refused_id), 'the error names the record');
 SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'cause_code', '99871', 'and the rule''s own code');
 SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'problem', 'calc too high', 'and its message');
 SELECT is((SELECT calc FROM cb_orders WHERE label = 'A'), 12, 'the record keeps its value');
@@ -274,6 +279,72 @@ SELECT is((SELECT string_agg(tag, ' ' ORDER BY label) FROM bf_accounts WHERE lab
 
 UPDATE entities SET computed_fields = '[{"name": "doubled", "jsonlogic": {"*": [{"var": "bonus"}, 2]}}]' WHERE table_name = 'bf_extras';
 SELECT is((SELECT doubled FROM bf_extras WHERE label = 'e1'), 8, 'has_a: a rule added fills a column of the extension');
+
+-- =====================================================
+-- PART 7: A required field
+-- =====================================================
+-- The required check is a CHECK constraint, which the pass does not mute. A rule
+-- that fills the field changes the existing records as usual; a rule that leaves
+-- a record without a value refuses the change like a failing validation rule
+-- does, with the check as the cause.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('cb_req', 'cb_req', 'CB Req', 'CB Reqs', 'backfill required probe', 1, 'public:read', 'admin', 'id', 'label');
+INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
+VALUES ('cb_req', 'src', 'Src', 'text', 'default', 10),
+       ('cb_req', 'v', 'V', 'text', 'required', 20);
+INSERT INTO cb_req (label, src, v) VALUES ('r1', 'a', 'seed'), ('r2', 'b', 'seed'), ('r3', '', 'seed');
+
+UPDATE entities SET computed_fields = '[{"name": "v", "jsonlogic": {"cat": ["V-", {"var": "src"}]}}]' WHERE table_name = 'cb_req';
+SELECT is((SELECT string_agg(v, ' ' ORDER BY label) FROM cb_req), 'V-a V-b V-', 'required: a rule added fills the field of existing records');
+SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cb_req_v_assert'), 'and the field keeps its required check');
+
+CREATE FUNCTION pg_temp.cb_req_refused() RETURNS TEXT LANGUAGE sql AS $$
+    SELECT $q$UPDATE entities
+                 SET computed_fields = '[{"name": "v", "jsonlogic": {"var": "src"}}]'
+               WHERE table_name = 'cb_req'$q$
+$$;
+
+SELECT throws_ok(pg_temp.cb_req_refused(), '90908', NULL, 'required: a rule that leaves a record without a value refuses the change');
+-- The expected id is read first: a statement that also reads cb_req holds it open,
+-- and the pass cannot ALTER a table this session has a scan open on (55006).
+CREATE TEMP TABLE cb_req_r3 ON COMMIT DROP AS SELECT id::text AS id FROM cb_req WHERE label = 'r3';
+SELECT is(catch_error_hint(pg_temp.cb_req_refused()) ->> 'record_id', (SELECT id FROM cb_req_r3), 'required: the error names the record');
+SELECT is(catch_error_hint(pg_temp.cb_req_refused()) ->> 'cause_code', '90258', 'and the required check as the cause');
+SELECT is((SELECT string_agg(v, ' ' ORDER BY label) FROM cb_req), 'V-a V-b V-', 'no record moved');
+SELECT ok((SELECT computed_fields::text LIKE '%V-%' FROM entities WHERE table_name = 'cb_req'), 'and the entity keeps the rule it had');
+
+-- A required field that arrives after the rule naming it: the existing records
+-- take the default when the column is added, then the pass replaces it.
+UPDATE entities SET computed_fields = '[{"name": "later_v", "jsonlogic": {"cat": ["L-", {"var": "src"}]}}]' WHERE table_name = 'cb_req';
+INSERT INTO fields (table_name, field_name, title, format, input_type, default_value, field_order)
+VALUES ('cb_req', 'later_v', 'Later V', 'text', 'required', 'seed', 30);
+SELECT is((SELECT string_agg(later_v, ' ' ORDER BY label) FROM cb_req), 'L-a L-b L-',
+    'required: a field added after the rule that names it holds the computed value, not its default');
+SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cb_req_later_v_assert'), 'and has its required check');
+
+-- An is_a subtype is written through its view; the check is on its own table.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+VALUES ('cb_rfam', 'RFam', 'RFams', 1, 'typeid', 'cbrfam');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+VALUES ('cb_rsub', 'RSub', 'RSubs', 1, 'is_a', 'cbrsub', 'cb_rfam');
+INSERT INTO fields (table_name, field_name, title, format, input_type, default_value, field_order)
+VALUES ('cb_rsub', 'note', 'Note', 'text', 'default', '', 30),
+       ('cb_rsub', 'rv', 'RV', 'text', 'required', 'seed', 40);
+INSERT INTO cb_rsub (label, note) VALUES ('x1', 'n'), ('x2', '');
+
+UPDATE entities SET computed_fields = '[{"name": "rv", "jsonlogic": {"cat": ["R-", {"var": "note"}]}}]' WHERE table_name = 'cb_rsub';
+SELECT is((SELECT string_agg(rv, ' ' ORDER BY label) FROM cb_rsub), 'R-n R-', 'is_a: a rule added fills the required field of existing records');
+
+CREATE FUNCTION pg_temp.cb_rsub_refused() RETURNS TEXT LANGUAGE sql AS $$
+    SELECT $q$UPDATE entities
+                 SET computed_fields = '[{"name": "rv", "jsonlogic": {"var": "note"}}]'
+               WHERE table_name = 'cb_rsub'$q$
+$$;
+
+SELECT throws_ok(pg_temp.cb_rsub_refused(), '90908', NULL, 'is_a: a rule that leaves a record without a value refuses the change');
+SELECT is(catch_error_hint(pg_temp.cb_rsub_refused()) ->> 'cause_code', '90258', 'is_a: and the required check as the cause');
+SELECT is((SELECT string_agg(rv, ' ' ORDER BY label) FROM cb_rsub), 'R-n R-', 'is_a: no record moved');
 
 SELECT * FROM finish();
 ROLLBACK;

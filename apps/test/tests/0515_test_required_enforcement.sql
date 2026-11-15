@@ -7,7 +7,7 @@
 -- raising function as the writer. Fixtures that need the owner use RESET ROLE.
 BEGIN;
 
-SELECT plan(117);
+SELECT plan(148);
 
 SELECT authenticate_as('user3');
 
@@ -402,6 +402,83 @@ ALTER VIEW rq_inst_e_sub ALTER COLUMN s SET DEFAULT 'a';
 SELECT dd_install_missing_checks('rq_inst_d');
 SELECT is((SELECT column_default FROM information_schema.columns WHERE table_name = 'rq_inst_e_sub' AND column_name = 's'), '''''::text',
     'the is_a view takes the reset default too');
+
+-- =====================================================
+-- GROUP 14: required on a computed field
+-- =====================================================
+-- The rules run in a BEFORE trigger and the check is a CHECK constraint, which
+-- PostgreSQL evaluates on the finished row. So the check judges the value the
+-- rule produced, never the one the writer sent: a rule that fills the field
+-- satisfies it, and a rule that leaves the field without a value is refused
+-- whatever the writer submitted. Applying a rule to existing records is covered
+-- by 0655_test_computed_backfill.sql.
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id)
+SELECT t, t, t, 1 FROM unnest(ARRAY['rq_cr', 'rq_cr_date']) AS t;
+INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES
+    ('rq_cr',      'src', 'Src', 'text', 'default'),
+    ('rq_cr',      'v',   'V',   'text', 'required'),
+    ('rq_cr_date', 'src', 'Src', 'date', 'default'),
+    ('rq_cr_date', 'v',   'V',   'date', 'required');
+UPDATE entities SET computed_fields = '[{"name": "v", "jsonlogic": {"var": "src"}}]'
+ WHERE table_name IN ('rq_cr', 'rq_cr_date');
+
+-- insert
+SELECT lives_ok($$INSERT INTO rq_cr (label, src) VALUES ('a', 'x')$$, 'a rule that yields a value satisfies the check');
+SELECT is((SELECT v FROM rq_cr WHERE label = 'a'), 'x', 'and the field holds the computed value');
+SELECT throws_ok($$INSERT INTO rq_cr (label) VALUES ('b')$$, '90258', NULL, 'a rule that yields no value is refused');
+SELECT throws_ok($$INSERT INTO rq_cr (label, src) VALUES ('b', ' ')$$, '90258', NULL, 'and so is a rule that yields blank text');
+SELECT is(catch_error_hint($$INSERT INTO rq_cr (label) VALUES ('b')$$) ->> 'field_name', 'v', 'the error names the computed field');
+SELECT throws_ok($$INSERT INTO rq_cr (label, src, v) VALUES ('b', '', 'typed')$$, '90258', NULL,
+    'a value the writer sends does not stand in for a rule that yields none');
+SELECT lives_ok($$INSERT INTO rq_cr (label, src, v) VALUES ('c', 'y', 'typed')$$, 'a value the writer sends with a rule that yields one is accepted');
+SELECT is((SELECT v FROM rq_cr WHERE label = 'c'), 'y', 'and the rule''s value is the one saved');
+SELECT throws_ok($$INSERT INTO rq_cr (label, src) VALUES ('m1', 'p'), ('m2', '')$$, '90258', NULL, 'one record whose rule yields no value fails a multi-row insert');
+SELECT is((SELECT count(*)::int FROM rq_cr WHERE label IN ('m1', 'm2')), 0, 'and no row of it is saved');
+
+-- update
+SELECT lives_ok($$UPDATE rq_cr SET src = 'z' WHERE label = 'a'$$, 'an update of the source recomputes the field');
+SELECT is((SELECT v FROM rq_cr WHERE label = 'a'), 'z', 'and the new value is saved');
+SELECT throws_ok($$UPDATE rq_cr SET src = '' WHERE label = 'a'$$, '90258', NULL, 'an update after which the rule yields no value is refused');
+SELECT is((SELECT v FROM rq_cr WHERE label = 'a'), 'z', 'and the record keeps its value');
+SELECT throws_ok($$UPDATE rq_cr SET src = '', v = 'typed' WHERE label = 'a'$$, '90258', NULL, 'a value sent with that update does not help');
+SELECT lives_ok($$UPDATE rq_cr SET v = '' WHERE label = 'a'$$, 'an update that blanks the computed field itself is accepted, because the rule refills it');
+SELECT is((SELECT v FROM rq_cr WHERE label = 'a'), 'z', 'and the record holds the rule''s value');
+
+-- a nullable format: the missing value is NULL
+SELECT lives_ok($$INSERT INTO rq_cr_date (label, src) VALUES ('a', '2026-01-01')$$, 'a nullable format: a rule that yields a value satisfies the check');
+SELECT is((SELECT v FROM rq_cr_date WHERE label = 'a'), '2026-01-01'::date, 'and the field holds it');
+SELECT throws_ok($$INSERT INTO rq_cr_date (label) VALUES ('b')$$, '90258', NULL, 'a nullable format: a rule that yields NULL is refused');
+
+-- is_a and has_a: the rules run in the write routine, and the check lives on the
+-- entity's own table
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix) VALUES ('rq_cr_fam', 'F', 'F', 1, 'typeid', 'rqcrfam');
+INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_cr_fam', 'base_src', 'B', 'text', 'default');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity) VALUES ('rq_cr_sub', 'S', 'S', 1, 'is_a', 'rqcrsub', 'rq_cr_fam');
+INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_cr_sub', 'sub_v', 'S', 'text', 'required');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity) VALUES ('rq_cr_part', 'P', 'P', 1, 'has_a', 'rq_cr_fam');
+INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES
+    ('rq_cr_part', 'part_src', 'PS', 'text', 'default'),
+    ('rq_cr_part', 'part_v',   'PV', 'text', 'required');
+UPDATE entities SET computed_fields = '[{"name": "sub_v", "jsonlogic": {"var": "base_src"}}]' WHERE table_name = 'rq_cr_sub';
+UPDATE entities SET computed_fields = '[{"name": "part_v", "jsonlogic": {"var": "part_src"}}]' WHERE table_name = 'rq_cr_part';
+
+SELECT lives_ok($$INSERT INTO rq_cr_sub (label, base_src) VALUES ('s1', 'b')$$, 'is_a: a rule that yields a value satisfies the check');
+SELECT is((SELECT sub_v FROM rq_cr_sub WHERE label = 's1'), 'b', 'is_a: and the field holds the computed value');
+SELECT throws_ok($$INSERT INTO rq_cr_sub (label) VALUES ('s2')$$, '90258', NULL, 'is_a: a rule that yields no value is refused');
+SELECT is(catch_error_hint($$INSERT INTO rq_cr_sub (label) VALUES ('s2')$$) ->> 'table', 'rq_cr_sub', 'is_a: and the error names the entity');
+SELECT lives_ok($$UPDATE rq_cr_sub SET base_src = 'c' WHERE label = 's1'$$, 'is_a: an update of the source recomputes the field');
+SELECT is((SELECT sub_v FROM rq_cr_sub WHERE label = 's1'), 'c', 'is_a: and the new value is saved');
+SELECT throws_ok($$UPDATE rq_cr_sub SET base_src = '' WHERE label = 's1'$$, '90258', NULL, 'is_a: an update after which the rule yields no value is refused');
+
+INSERT INTO rq_cr_fam (label) VALUES ('root');
+SELECT throws_ok($$INSERT INTO rq_cr_part (id) SELECT id FROM rq_cr_fam WHERE label = 'root'$$, '90258', NULL,
+    'has_a: attaching the part when the rule yields no value is refused');
+SELECT lives_ok($$INSERT INTO rq_cr_part (id, part_src) SELECT id, 'p' FROM rq_cr_fam WHERE label = 'root'$$,
+    'has_a: attaching it when the rule yields a value is accepted');
+SELECT is((SELECT part_v FROM rq_cr_part WHERE label = 'root'), 'p', 'has_a: and the field holds the computed value');
+SELECT throws_ok($$UPDATE rq_cr_part SET part_src = '' WHERE label = 'root'$$, '90258', NULL, 'has_a: an update after which the rule yields no value is refused');
 
 SELECT * FROM finish();
 ROLLBACK;
