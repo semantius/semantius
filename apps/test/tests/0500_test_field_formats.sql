@@ -564,7 +564,9 @@ SELECT is(
 -- A time has no zero value: midnight is a time of day like any other. So the
 -- column is nullable, as a date column is, and NULL means that no time was
 -- given. A time field with no default_value therefore takes a row that leaves
--- it out, and a table with rows takes the field.
+-- it out. A required one cannot be added to a table that has rows unless it
+-- brings a default, as for every required field: the rows that are there
+-- would have no value for it.
 INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
 VALUES ('tm_fmt_bare', 't_open', 'Opens', 'time', 'default', 30);
 
@@ -575,10 +577,11 @@ SELECT lives_ok(
 
 INSERT INTO tm_fmt_rows (label) VALUES ('first'), ('second');
 
-SELECT lives_ok(
+SELECT throws_ok(
     $$INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
       VALUES ('tm_fmt_rows', 't_close', 'Closes', 'time', 'required', 30)$$,
-    'a required time field without a default_value should be added to a table that has rows'
+    '90259', NULL,
+    'a required time field without a default_value should be refused on a table that has rows'
 );
 
 SELECT lives_ok(
