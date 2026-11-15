@@ -32,7 +32,7 @@
         "_core/0260_notify_triggers.sql": "64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f",
         "_core/0270_apikeys.once.sql": "fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7",
         "_core/0280_apikeys.sql": "e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732",
-        "_core/0290_ensure_entities.sql": "dd5f88ee03ae98641256835df8ebc8d8bf660c97bf6cac45710b620e3d821765",
+        "_core/0290_ensure_entities.sql": "95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e",
         "_core/0300_audit_log.jsonc": "df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c",
         "_core/0310_pgmq.once.sql": "603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6",
         "_core/0320_queue.jsonc": "8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf",

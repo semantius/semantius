@@ -845,6 +845,10 @@ BEGIN
         v_skip     TEXT[];
         v_unknown  TEXT;
         v_col_list TEXT;
+        v_sel_list TEXT;
+        v_set_list TEXT;
+        v_old_list TEXT;
+        v_new_list TEXT;
         v_sequence TEXT;
         v_max      BIGINT;
         v_last     BIGINT;
@@ -943,16 +947,26 @@ BEGIN
             v_cols := ARRAY(SELECT c FROM unnest(v_cols) AS c
                              WHERE c = v_id_col OR c <> ALL (coalesce(v_skip, ARRAY[]::TEXT[]))
                              ORDER BY c);
-            SELECT string_agg(format('%I', c), ', ' ORDER BY c) INTO v_col_list FROM unnest(v_cols) AS c;
+            -- Every list the two statements below need is computed here, not
+            -- as a sub-select inside their format() calls: when building the
+            -- query string takes a sub-select, the plpgsql_check profiler (on
+            -- for `test --coverage`) leaves ROW_COUNT at that sub-select's one
+            -- row instead of the statement's count, so the summary would
+            -- report 1 inserted and 1 updated whatever was written.
+            SELECT string_agg(format('%I', c), ', ' ORDER BY c),
+                   string_agg(format('r.%I', c), ', ' ORDER BY c),
+                   string_agg(format('%1$I = r.%1$I', c), ', ' ORDER BY c) FILTER (WHERE c <> v_id_col),
+                   string_agg(format('x.%I', c), ', ' ORDER BY c) FILTER (WHERE c <> v_id_col),
+                   string_agg(format('r.%I', c), ', ' ORDER BY c) FILTER (WHERE c <> v_id_col)
+              INTO v_col_list, v_sel_list, v_set_list, v_old_list, v_new_list
+              FROM unnest(v_cols) AS c;
 
             EXECUTE format(
                 'INSERT INTO public.%1$I (%2$s)
                  SELECT %3$s FROM jsonb_populate_recordset(NULL::public.%1$I, $1) WITH ORDINALITY AS r
                   WHERE NOT EXISTS (SELECT 1 FROM public.%1$I x WHERE x.%4$I = r.%4$I)
                   ORDER BY r.ordinality',
-                v_table, v_col_list,
-                (SELECT string_agg(format('r.%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c),
-                v_id_col)
+                v_table, v_col_list, v_sel_list, v_id_col)
             USING v_records;
             GET DIAGNOSTICS v_n = ROW_COUNT;
 
@@ -963,11 +977,7 @@ BEGIN
                        FROM jsonb_populate_recordset(NULL::public.%1$I, $1) r
                       WHERE x.%3$I = r.%3$I
                         AND jsonb_build_array(%4$s) IS DISTINCT FROM jsonb_build_array(%5$s)',
-                    v_table,
-                    (SELECT string_agg(format('%1$I = r.%1$I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c WHERE c <> v_id_col),
-                    v_id_col,
-                    (SELECT string_agg(format('x.%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c WHERE c <> v_id_col),
-                    (SELECT string_agg(format('r.%I', c), ', ' ORDER BY c) FROM unnest(v_cols) AS c WHERE c <> v_id_col))
+                    v_table, v_set_list, v_id_col, v_old_list, v_new_list)
                 USING v_records;
                 GET DIAGNOSTICS v_m = ROW_COUNT;
             END IF;
