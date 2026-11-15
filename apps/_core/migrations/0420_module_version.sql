@@ -44,52 +44,37 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 -- =====================================================
 -- Increments version on the parent module when a related table changes.
 -- Expects the related table to have a module_id column.
+--
+-- module_id is nullable and updatable on some of these tables (roles), so a row
+-- can move between modules, into one, or out of one to none. Every module the
+-- row belonged to or belongs to now has changed, so the module it left is
+-- bumped as well as the one it joined, each once. A NULL on either side names
+-- no module and matches no row.
 
 CREATE OR REPLACE FUNCTION bump_module_version_from_related()
 RETURNS TRIGGER AS $$
 DECLARE
     v_module_id BIGINT;
+    v_old_module_id BIGINT;
 BEGIN
-    -- Determine the module_id from the affected row
-    IF TG_OP = 'DELETE' THEN
-        v_module_id := OLD.module_id;
-    ELSE
+    IF TG_OP <> 'DELETE' THEN
         v_module_id := NEW.module_id;
     END IF;
-
-    -- If module_id is NULL, nothing to bump
-    IF v_module_id IS NULL THEN
-        IF TG_OP = 'DELETE' THEN
-            RETURN OLD;
-        END IF;
-        RETURN NEW;
+    IF TG_OP <> 'INSERT' THEN
+        v_old_module_id := OLD.module_id;
     END IF;
 
-    -- Guard against recursive calls
-    IF current_setting('app.bumping_module_version', TRUE) = 'true' THEN
-        IF TG_OP = 'DELETE' THEN
-            RETURN OLD;
-        END IF;
-        RETURN NEW;
-    END IF;
-
-    PERFORM set_config('app.bumping_module_version', 'true', TRUE);
-
-    UPDATE modules
-    SET version = version + 1,
-        version_date = CURRENT_TIMESTAMP
-    WHERE id = v_module_id;
-
-    PERFORM set_config('app.bumping_module_version', 'false', TRUE);
-
-    -- On UPDATE, if module_id changed, also bump the old module
-    IF TG_OP = 'UPDATE' AND OLD.module_id IS DISTINCT FROM NEW.module_id AND OLD.module_id IS NOT NULL THEN
+    -- The UPDATE below writes modules, whose own AFTER trigger would otherwise
+    -- bump a second time.
+    IF current_setting('app.bumping_module_version', TRUE) IS DISTINCT FROM 'true'
+       AND (v_module_id IS NOT NULL OR v_old_module_id IS NOT NULL) THEN
         PERFORM set_config('app.bumping_module_version', 'true', TRUE);
 
         UPDATE modules
         SET version = version + 1,
             version_date = CURRENT_TIMESTAMP
-        WHERE id = OLD.module_id;
+        WHERE id = v_module_id
+           OR id = v_old_module_id;
 
         PERFORM set_config('app.bumping_module_version', 'false', TRUE);
     END IF;
@@ -146,7 +131,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 COMMENT ON FUNCTION bump_module_version() IS
 'Trigger function on modules that increments the module version when a version-relevant column changes, unless a related-table bump is already in progress (guarded by app.bumping_module_version).';
 COMMENT ON FUNCTION bump_module_version_from_related() IS
-'Trigger function on module-scoped tables (entities, roles, permissions, processes, …) that bumps the owning module''s version when a related row changes, using app.bumping_module_version to avoid recursive double-bumps.';
+'Trigger function on module-scoped tables (entities, roles, permissions, processes, …) that bumps the owning module''s version when a related row changes, and the version of the module a row left when its module_id changes, using app.bumping_module_version to avoid recursive double-bumps.';
 COMMENT ON FUNCTION bump_module_version_from_fields() IS
 'Trigger function on fields that bumps the owning module''s version, resolving the module through entities.table_name because fields has no module_id. A field edit changes what get_schema() returns, so it is a model change.';
 
