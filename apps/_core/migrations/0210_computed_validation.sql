@@ -63,6 +63,122 @@ COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 
 -- =====================================================
+-- A rule is checked when the entity is saved
+-- =====================================================
+-- Two mistakes in a rule are invisible until records are written, and both are
+-- refused here instead.
+--
+-- An operator the evaluator does not implement raises on the first record that
+-- reaches it. In a select_rule the generated predicate swallows that error and
+-- every row is hidden, with nothing to say why.
+--
+-- A select_rule or a validation rule that is not one operation is worse. The
+-- evaluator reads an object with several keys, and every literal, as a value;
+-- a value is truthy unless it is empty; so the rule passes every record and
+-- shows every row, and nobody notices that it never ran. That includes a
+-- condition typed as text and the literal true: a rule meant to hold always
+-- has no use that removing it does not serve better. A computed field may be a
+-- literal, because a constant is a legitimate value for a field. The empty
+-- select_rule {} means no rule and stays valid. A select_rule that is no
+-- object at all is left to the select_rule_is_object CHECK.
+--
+-- The check is a trigger of its own and not part of the builders below. A
+-- rule can be in the dictionary without having passed a save - a restored
+-- dump, a row written with the triggers off - and the builders must still be
+-- able to install what is stored, or one such rule would block every later
+-- rebuild of its entity. They install it; build_select_rule_policy makes a
+-- stored select_rule that is no operation hide every row.
+--
+-- It runs on every write of the entity, not only when a rule changes, so an
+-- entity that stores a refused rule cannot be saved again - renamed,
+-- re-applied by ensure_entities, edited in any column - until the rule is put
+-- right. A delete is not checked.
+CREATE OR REPLACE FUNCTION dd_check_rule(p_table TEXT, p_rule TEXT, p_logic JSONB, p_operation_only BOOLEAN)
+RETURNS VOID AS $$
+DECLARE
+    v_op TEXT;
+BEGIN
+    IF p_operation_only AND NOT jl_is_operation(p_logic) THEN
+        RAISE EXCEPTION '${rule} on ${table} must be a single JsonLogic operation: an object with exactly one key'
+            USING ERRCODE = '90919',
+                  HINT = jsonb_build_object('rule', p_rule, 'table', p_table)::text;
+    END IF;
+
+    v_op := jl_unknown_operator(p_logic);
+    IF v_op IS NOT NULL THEN
+        RAISE EXCEPTION '${rule} on ${table} uses an operation the evaluator does not implement: ${op}'
+            USING ERRCODE = '90909',
+                  HINT = jsonb_build_object('rule', p_rule, 'table', p_table, 'op', v_op)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) IS
+'Raises 90919 when a rule that has to be one JsonLogic operation is not, and 90909 when a rule names an operator the evaluator does not implement. p_rule is the rule''s place in the entity, such as validation_rules[0].';
+
+-- An entry without a "jsonlogic" key, or one that is no object, is left to the
+-- builders, which refuse it with the code that names what is missing.
+CREATE OR REPLACE FUNCTION check_entity_rules()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_item JSONB;
+    v_idx  INT;
+BEGIN
+    IF jsonb_typeof(NEW.select_rule) = 'object' AND NEW.select_rule <> '{}'::jsonb THEN
+        PERFORM dd_check_rule(NEW.table_name, 'select_rule', NEW.select_rule, TRUE);
+    END IF;
+
+    IF jsonb_typeof(NEW.validation_rules) = 'array' THEN
+        FOR v_idx IN 0 .. jsonb_array_length(NEW.validation_rules) - 1 LOOP
+            v_item := NEW.validation_rules -> v_idx;
+            IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
+                PERFORM dd_check_rule(NEW.table_name, format('validation_rules[%s]', v_idx), v_item -> 'jsonlogic', TRUE);
+            END IF;
+        END LOOP;
+    END IF;
+
+    IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
+        FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
+            v_item := NEW.computed_fields -> v_idx;
+            IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
+                PERFORM dd_check_rule(NEW.table_name, format('computed_fields[%s]', v_idx), v_item -> 'jsonlogic', FALSE);
+            END IF;
+        END LOOP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION check_entity_rules() IS
+'BEFORE INSERT OR UPDATE trigger on entities: refuses a select_rule, validation rule or computed field that names an unknown operator (90909), and a select_rule or validation rule that is not one JsonLogic operation (90919). Runs on every write of the entity.';
+
+-- The check runs as whoever saves the entity, so the request role needs the
+-- helper; the trigger function itself is called by the trigger alone.
+REVOKE EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION check_entity_rules() FROM PUBLIC;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function new in this file stays owned by the installer until
+-- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
+-- through that code, and the check would be refused its helper.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_owner;
+    END IF;
+END $$;
+
+CREATE OR REPLACE TRIGGER check_entity_rules_trigger
+    BEFORE INSERT OR UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION check_entity_rules();
+
+COMMENT ON TRIGGER check_entity_rules_trigger ON entities IS
+'Refuses an entity whose rules name an unknown operator or whose select_rule or validation rules are not single JsonLogic operations.';
+
+-- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
 
@@ -936,6 +1052,7 @@ DECLARE
     v_logic_lit TEXT;
     v_rel TEXT;
     v_row_data TEXT;
+    v_predicate TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -1027,12 +1144,15 @@ BEGIN
     -- Both bodies are wrapped by dd_dollar_quote: the rule is a quoted literal
     -- inside the first, and a fixed body tag would be ended by the same tag
     -- written into the rule.
-    v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
-
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
-$FUNC$, v_fn_name, v_rel,
-        dd_dollar_quote(format($SEL$
+    --
+    -- A stored rule that is not one operation gets a predicate that is false
+    -- for every row. The save refuses such a rule (check_entity_rules), so it
+    -- is here only when it was stored past the save, and evaluating it would
+    -- return the object itself, which is truthy: every row would be visible
+    -- to everyone, whatever the rule was meant to say. Hiding every row is the
+    -- failure that gets noticed and that leaks nothing.
+    IF jl_is_operation(v_entity.select_rule) THEN
+        v_predicate := format($SEL$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -1047,7 +1167,21 @@ BEGIN
 
     RETURN jl_truthy(v_result);
 END;
-$SEL$, v_row_data, v_logic_lit)),
+$SEL$, v_row_data, v_logic_lit);
+    ELSE
+        v_predicate := $SEL$
+BEGIN
+    RETURN FALSE;
+END;
+$SEL$;
+    END IF;
+
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+$FUNC$, v_fn_name, v_rel,
+        dd_dollar_quote(v_predicate),
         v_fn_name, v_rel,
         dd_dollar_quote(format($SEL$
     SELECT public.%I(p_row, public.jl_request_context());

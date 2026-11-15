@@ -335,36 +335,36 @@ SELECT is(
 -- entity of its own, so a save that goes through changes nothing another
 -- assertion reads.
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                                         module_id, computed_fields)
         VALUES ('cv_save_computed', 'cv_save_computed', 'Save Computed', 'Save Computeds', 'Refused at save', 1,
                 '[{"name": "broken", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb)$$) ->> 'code',
-    '^909',
+    '90909',
     'save: a computed field with an unknown operator is refused');
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                                         module_id, computed_fields)
         VALUES ('cv_save_nested', 'cv_save_nested', 'Save Nested', 'Save Nesteds', 'Refused at save', 1,
                 '[{"name": "broken", "jsonlogic": {"if": [{"var": "label"}, {"unknown_op": [1, 2]}, null]}}]'::jsonb)$$) ->> 'code',
-    '^909',
+    '90909',
     'save: an unknown operator below the top of a rule is refused as well');
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                                         module_id, validation_rules)
         VALUES ('cv_save_rule_op', 'cv_save_rule_op', 'Save Rule Op', 'Save Rule Ops', 'Refused at save', 1,
                 '[{"code": "99030", "message": "m", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb)$$) ->> 'code',
-    '^909',
+    '90909',
     'save: a validation rule with an unknown operator is refused');
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                                         module_id, validation_rules)
         VALUES ('cv_save_rule_shape', 'cv_save_rule_shape', 'Save Rule Shape', 'Save Rule Shapes', 'Refused at save', 1,
                 '[{"code": "99031", "message": "m", "jsonlogic": {"==": [1, 1], "x": 2}}]'::jsonb)$$) ->> 'code',
-    '^909',
+    '90919',
     'save: a validation rule that is an object with two keys is refused');
 
 -- A literal in place of the operator is read the same way as the two-key
@@ -372,20 +372,20 @@ SELECT matches(
 -- truthy, so the rule passes every record and nobody notices it never ran. A
 -- rule that is meant to hold always or never has no use that deleting it, or
 -- the edit permission, does not serve better, so true is refused with the rest.
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                                         module_id, validation_rules)
         VALUES ('cv_save_rule_text', 'cv_save_rule_text', 'Save Rule Text', 'Save Rule Texts', 'Refused at save', 1,
                 '[{"code": "99033", "message": "m", "jsonlogic": "label == ok"}]'::jsonb)$$) ->> 'code',
-    '^909',
+    '90919',
     'save: a validation rule whose condition is a text literal is refused');
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                                         module_id, validation_rules)
         VALUES ('cv_save_rule_true', 'cv_save_rule_true', 'Save Rule True', 'Save Rule Trues', 'Refused at save', 1,
                 '[{"code": "99034", "message": "m", "jsonlogic": true}]'::jsonb)$$) ->> 'code',
-    '^909',
+    '90919',
     'save: a validation rule whose condition is the literal true is refused');
 
 SELECT is(
@@ -402,11 +402,11 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
 VALUES ('cv_save_update', 'cv_save_update', 'Save Update', 'Save Updates', 'Refused at update',
     1, 'public:read', 'admin', 'id', 'label');
 
-SELECT matches(
+SELECT is(
     catch_error($$UPDATE entities
         SET validation_rules = '[{"code": "99032", "message": "m", "jsonlogic": {"unknown_op": [1, 2]}}]'::jsonb
       WHERE table_name = 'cv_save_update'$$) ->> 'code',
-    '^909',
+    '90909',
     'save: the same refusal when a rule is added to an existing entity');
 
 SELECT is(
@@ -508,10 +508,10 @@ SELECT is(
     '{"op": "unknown_op"}'::jsonb,
     'stored rule: and its hint names the operator, with no key added');
 
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$UPDATE entities SET description = 'Edited after the upgrade'
                             WHERE table_name = 'cv_stored_op_test'$$) ->> 'code', 'no error'),
-    '^909',
+    '90909',
     'stored rule: a save of the entity that leaves the rule alone is refused all the same');
 
 -- =====================================================
@@ -548,7 +548,7 @@ SELECT is(
 
 SELECT throws_ok(
     $$UPDATE entities SET validation_rules =
-        '[{"code": "must_be_positive", "message": "m", "jsonlogic": true}]'::jsonb
+        '[{"code": "must_be_positive", "message": "m", "jsonlogic": {"==": [1, 1]}}]'::jsonb
       WHERE table_name = 'cv_rule_error_test'$$,
     '90905',
     'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}',
@@ -556,7 +556,7 @@ SELECT throws_ok(
 
 SELECT throws_ok(
     $$UPDATE entities SET validation_rules =
-        '[{"code": "99009", "message": "m", "source_module": "platform", "jsonlogic": true}]'::jsonb
+        '[{"code": "99009", "message": "m", "source_module": "platform", "jsonlogic": {"==": [1, 1]}}]'::jsonb
       WHERE table_name = 'cv_rule_error_test'$$,
     '90906',
     'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}',
@@ -805,7 +805,7 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
     validation_rules)
 VALUES ('cv_shape_probe', 'cv_shape_probe', 'Shape Probe', 'Shape Probes', 'Rule-shape probe',
     1, 'public:read', 'admin', 'id', 'label',
-    '[{"code": "99020", "message": "kept", "jsonlogic": true}]'::jsonb);
+    '[{"code": "99020", "message": "kept", "jsonlogic": {"==": [1, 1]}}]'::jsonb);
 
 SELECT is(
     pg_temp.cv_refusal($$UPDATE entities
@@ -833,7 +833,7 @@ SELECT is(
 
 SELECT is(
     pg_temp.cv_refusal($$UPDATE entities
-        SET validation_rules = '[{"code": "99020", "message": "m", "jsonlogic": true}, {"message": "m", "jsonlogic": true}]'::jsonb
+        SET validation_rules = '[{"code": "99020", "message": "m", "jsonlogic": {"==": [1, 1]}}, {"message": "m", "jsonlogic": {"==": [1, 1]}}]'::jsonb
       WHERE table_name = 'cv_shape_probe'$$),
     '{"code": "90902", "message": "validation_rules[${index}] on ${table} is missing required \"code\"",
       "hint": {"index": 1, "table": "cv_shape_probe"}}'::jsonb,
@@ -841,7 +841,7 @@ SELECT is(
 
 SELECT is(
     pg_temp.cv_refusal($$UPDATE entities
-        SET validation_rules = '[{"code": "", "message": "m", "jsonlogic": true}]'::jsonb
+        SET validation_rules = '[{"code": "", "message": "m", "jsonlogic": {"==": [1, 1]}}]'::jsonb
       WHERE table_name = 'cv_shape_probe'$$),
     '{"code": "90902", "message": "validation_rules[${index}] on ${table} is missing required \"code\"",
       "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
@@ -849,7 +849,7 @@ SELECT is(
 
 SELECT is(
     pg_temp.cv_refusal($$UPDATE entities
-        SET validation_rules = '[{"code": "99020", "jsonlogic": true}]'::jsonb
+        SET validation_rules = '[{"code": "99020", "jsonlogic": {"==": [1, 1]}}]'::jsonb
       WHERE table_name = 'cv_shape_probe'$$),
     '{"code": "90903", "message": "validation_rules[${index}] on ${table} is missing required \"message\"",
       "hint": {"index": 0, "table": "cv_shape_probe"}}'::jsonb,
@@ -865,7 +865,7 @@ SELECT is(
 
 SELECT ok(
     (SELECT computed_fields = '[]'::jsonb
-        AND validation_rules = '[{"code": "99020", "message": "kept", "jsonlogic": true}]'::jsonb
+        AND validation_rules = '[{"code": "99020", "message": "kept", "jsonlogic": {"==": [1, 1]}}]'::jsonb
        FROM entities WHERE table_name = 'cv_shape_probe')
     AND to_regprocedure('public.compute_validate_cv_shape_probe()') IS NOT NULL,
     'the refused saves left the entity with the rules it had, and its trigger function in place');

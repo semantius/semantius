@@ -407,18 +407,18 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
         VALUES ('sr_save_op', 'sr_save_op_item', 'Sr Save Op Item', 'Sr Save Op Items', 'Refused at save',
                 '{"unknown_op":[1,2]}'::jsonb, 1)$$) ->> 'code',
-    '^909',
+    '90909',
     'save: a select_rule with an unknown operator is refused');
 
-SELECT matches(
+SELECT is(
     catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
         VALUES ('sr_save_two_keys', 'sr_save_two_keys_item', 'Sr Save Two Keys Item', 'Sr Save Two Keys Items', 'Refused at save',
                 '{"==":[1,1],"x":2}'::jsonb, 1)$$) ->> 'code',
-    '^909',
+    '90919',
     'save: a select_rule that is an object with two keys is refused');
 
 SELECT is(
@@ -432,10 +432,10 @@ SELECT is(
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id)
 VALUES ('sr_save_update', 'sr_save_update_item', 'Sr Save Update Item', 'Sr Save Update Items', 'Refused at update', 1);
 
-SELECT matches(
+SELECT is(
     catch_error($$UPDATE entities SET select_rule = '{"unknown_op":[1,2]}'::jsonb
                    WHERE table_name = 'sr_save_update'$$) ->> 'code',
-    '^909',
+    '90909',
     'save: the same refusal when a rule is set on an existing entity');
 
 SELECT is(
@@ -527,10 +527,10 @@ SELECT is(pg_temp.sr_read('sr_stored_two_keys'), '0 rows',
     'stored rule: a rule with two keys hides every row, as a rule that is no single operator fails closed');
 
 SELECT authenticate_as('user3');
-SELECT matches(
+SELECT is(
     COALESCE(catch_error($$UPDATE entities SET description = 'Edited after the upgrade'
                             WHERE table_name = 'sr_stored_op'$$) ->> 'code', 'no error'),
-    '^909',
+    '90909',
     'stored rule: a save of the entity that leaves the rule alone is refused all the same');
 
 SELECT * FROM finish();

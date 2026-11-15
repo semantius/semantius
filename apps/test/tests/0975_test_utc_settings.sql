@@ -53,7 +53,7 @@ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_ty
                       edit_permission, select_rule, validation_rules)
 VALUES ('utc_accounts', 'Account', 'Accounts', 1, 'typeid', 'utcac', 'nwind:manage',
         '{"==":[1,1]}'::jsonb,
-        '[{"code":"99851","message":"always true","jsonlogic":true}]'::jsonb);
+        '[{"code":"99851","message":"always true","jsonlogic":{"==":[1,1]}}]'::jsonb);
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
                       edit_permission)
 VALUES ('utc_premium', 'Premium Account', 'Premium Accounts', 1, 'is_a', 'utcpr', 'utc_accounts', 'nwind:manage');

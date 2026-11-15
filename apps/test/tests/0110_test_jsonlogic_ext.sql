@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(168);
+SELECT plan(170);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1312,6 +1312,40 @@ SELECT is(evaluate_json_logic('{"to_date":["2026-11-18T23:30:00Z"]}'::jsonb, '{}
     '"2026-11-18"'::jsonb, 'dates at UTC-11: to_date is UTC');
 SELECT is(evaluate_json_logic('{"date_format":["2026-11-18T23:30:00Z","DD HH24"]}'::jsonb, '{}'::jsonb),
     '"18 23"'::jsonb, 'dates at UTC-11: date_format is UTC');
+
+-- =====================================================
+-- The operator list a rule is checked against when it is saved
+-- =====================================================
+-- The dictionary refuses a rule that names an unknown operator when the entity
+-- is saved, by walking the rule against jl_operators(). That list is a second
+-- copy of what evaluate_json_logic dispatches on, so the two are compared
+-- here: every `op = '...'` in the evaluator's source, against the list. An
+-- operator added to the evaluator alone would be refused at every save, and
+-- one added to the list alone would be saved and then fail on a record.
+SELECT is(
+    (SELECT array_agg(DISTINCT m[1] ORDER BY m[1])
+       FROM pg_catalog.pg_proc p,
+            regexp_matches(p.prosrc, $re$\mop = '([^']+)'$re$, 'g') AS m
+      WHERE p.oid = 'public.evaluate_json_logic(jsonb, jsonb)'::regprocedure),
+    (SELECT array_agg(o ORDER BY o) FROM unnest(jl_operators()) AS o),
+    'jl_operators lists exactly the operators evaluate_json_logic dispatches on');
+
+-- The walk follows the evaluator: every argument it would evaluate, at any
+-- depth, and nothing it would not. An object with several keys and the empty
+-- object are values. The name of `let`, and the name and the entity of
+-- `set_record`, are never evaluated, so what stands there is not an operator.
+SELECT is(
+    ARRAY[
+        jl_unknown_operator('{"if":[{"var":"a"},{"nope":[1]},null]}'::jsonb),
+        jl_unknown_operator('[{"var":"a"},{"nope":1}]'::jsonb),
+        jl_unknown_operator('{"merge":[{"a":1,"b":2},{}]}'::jsonb),
+        jl_unknown_operator('{"let":[{"a_name":1},1,{"var":"x"}]}'::jsonb),
+        jl_unknown_operator('{"let":["x",{"nope":1},{"var":"x"}]}'::jsonb),
+        jl_unknown_operator('{"set_record":[{"a_name":1},{"an_entity":1},{"an_id_rule":1},1]}'::jsonb),
+        jl_unknown_operator('"text"'::jsonb)
+    ],
+    ARRAY['nope', 'nope', NULL, NULL, 'nope', 'an_id_rule', NULL],
+    'jl_unknown_operator finds an unknown operator wherever the evaluator would evaluate it, and nowhere else');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -1376,7 +1376,7 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -2598,6 +2598,101 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
+-- =====================================================
+-- Checking a rule without running it
+-- =====================================================
+-- evaluate_json_logic learns that a rule names an operator it does not
+-- implement only when a record reaches that node, which for a branch of an
+-- `if` can be long after the rule was saved, on a write that has nothing to do
+-- with the mistake. The functions below answer the same question from the
+-- rule alone, so the dictionary can refuse the rule when it is saved.
+--
+-- The list is the set of operators evaluate_json_logic dispatches on, written
+-- a second time, because that dispatch is a run of IF statements and cannot be
+-- asked what it knows. 0110_test_jsonlogic_ext.sql compares the two, so an
+-- operator added to one and not to the other fails the suite.
+CREATE OR REPLACE FUNCTION jl_operators() RETURNS text[] AS $$
+    SELECT ARRAY[
+        'if', '?:', 'and', 'or', 'filter', 'map', 'reduce', 'all', 'none', 'some',
+        'let', 'set_record',
+        'var', 'missing', 'missing_some',
+        '==', '===', '!=', '!==', '!', '!!',
+        '>', '>=', '<', '<=',
+        '%', '+', '*', '-', '/', 'max', 'min',
+        'in', 'cat', 'substr', 'merge', 'log',
+        'has_permission', 'require_permission', 'value_changed', 'concat', 'is_match',
+        'throw_error', 'is_raci_actor', 'has_consultation',
+        'date_add', 'date_diff', 'date_part', 'date_trunc', 'to_date', 'date_format'
+    ];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+
+-- An object with exactly one key is an operation; everything else is a value.
+-- The same test evaluate_json_logic makes before it dispatches.
+CREATE OR REPLACE FUNCTION jl_is_operation(p_rule jsonb) RETURNS boolean AS $$
+DECLARE
+    v_op text;
+BEGIN
+    IF p_rule IS NULL OR jsonb_typeof(p_rule) <> 'object' THEN
+        RETURN FALSE;
+    END IF;
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    RETURN v_op IS NOT NULL AND p_rule - v_op = '{}'::jsonb;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- Walks a rule the way evaluate_json_logic reads it: an array is a list of
+-- rules, an object with one key is an operation whose arguments are rules, and
+-- anything else - a scalar, an empty object, an object with several keys - is
+-- a value and is not looked into, because the evaluator returns it as it
+-- stands. Two argument positions hold a name, not a rule, and are skipped: the
+-- variable name of `let`, and the variable name and the entity of
+-- `set_record`. A name that happens to look like an operation would otherwise
+-- be refused although it is never evaluated.
+CREATE OR REPLACE FUNCTION jl_unknown_operator(p_rule jsonb) RETURNS text AS $$
+DECLARE
+    v_op    text;
+    v_args  jsonb;
+    v_found text;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            v_found := jl_unknown_operator(p_rule -> i);
+            IF v_found IS NOT NULL THEN
+                RETURN v_found;
+            END IF;
+        END LOOP;
+        RETURN NULL;
+    END IF;
+
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN NULL;
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    IF NOT (v_op = ANY(jl_operators())) THEN
+        RETURN v_op;
+    END IF;
+
+    v_args := p_rule -> v_op;
+    IF jsonb_typeof(v_args) <> 'array' THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+
+    FOR i IN (CASE v_op WHEN 'let' THEN 1 WHEN 'set_record' THEN 2 ELSE 0 END)
+             .. jsonb_array_length(v_args) - 1 LOOP
+        v_found := jl_unknown_operator(v_args -> i);
+        IF v_found IS NOT NULL THEN
+            RETURN v_found;
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
 'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
 COMMENT ON FUNCTION jl_try_number(jsonb) IS
@@ -2632,6 +2727,12 @@ COMMENT ON FUNCTION jl_to_date(jsonb) IS
 'JsonLogic to_date: the UTC date of a date, date-time or epoch number.';
 COMMENT ON FUNCTION jl_date_format(jsonb, jsonb) IS
 'JsonLogic date_format: renders a date in UTC through a fixed token list. Raises 90917 for any other pattern.';
+COMMENT ON FUNCTION jl_operators() IS
+'The operators evaluate_json_logic implements, as a list a rule can be checked against without being run.';
+COMMENT ON FUNCTION jl_is_operation(jsonb) IS
+'True when a JSONB value is a JsonLogic operation: an object with exactly one key. Everything else is a value to the evaluator.';
+COMMENT ON FUNCTION jl_unknown_operator(jsonb) IS
+'The first operator in a JsonLogic rule that evaluate_json_logic does not implement, or NULL when it knows them all. Walks every argument the evaluator would evaluate, and none it would not.';
 COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
 
@@ -2654,6 +2755,9 @@ REVOKE EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_date(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_operators() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_is_operation(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
@@ -2675,10 +2779,29 @@ GRANT EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_date(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
+-- The check of an entity's rules runs as whoever saves the entity.
+GRANT EXECUTE ON FUNCTION jl_operators() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_is_operation(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function new in this file stays owned by the installer until
+-- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
+-- through that code, which checks their rules with these three.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            jl_operators(),
+            jl_is_operation(jsonb),
+            jl_unknown_operator(jsonb)
+        TO semantius_owner;
+    END IF;
+END $$;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', 'fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55')
+        VALUES ('_core.0050_jsonlogic.sql', '6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14647,7 +14770,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a88d900e03531f104a44a0dcb723c3b340c4ba88727ca174dd813111411eec5c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -14713,6 +14836,122 @@ COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 'Merges locating keys into the JSON hint of an error being re-raised, keeping every key the original hint already carries. A hint that is not a JSON object is wrapped as {"hint": <text>} first.';
 
 REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
+
+-- =====================================================
+-- A rule is checked when the entity is saved
+-- =====================================================
+-- Two mistakes in a rule are invisible until records are written, and both are
+-- refused here instead.
+--
+-- An operator the evaluator does not implement raises on the first record that
+-- reaches it. In a select_rule the generated predicate swallows that error and
+-- every row is hidden, with nothing to say why.
+--
+-- A select_rule or a validation rule that is not one operation is worse. The
+-- evaluator reads an object with several keys, and every literal, as a value;
+-- a value is truthy unless it is empty; so the rule passes every record and
+-- shows every row, and nobody notices that it never ran. That includes a
+-- condition typed as text and the literal true: a rule meant to hold always
+-- has no use that removing it does not serve better. A computed field may be a
+-- literal, because a constant is a legitimate value for a field. The empty
+-- select_rule {} means no rule and stays valid. A select_rule that is no
+-- object at all is left to the select_rule_is_object CHECK.
+--
+-- The check is a trigger of its own and not part of the builders below. A
+-- rule can be in the dictionary without having passed a save - a restored
+-- dump, a row written with the triggers off - and the builders must still be
+-- able to install what is stored, or one such rule would block every later
+-- rebuild of its entity. They install it; build_select_rule_policy makes a
+-- stored select_rule that is no operation hide every row.
+--
+-- It runs on every write of the entity, not only when a rule changes, so an
+-- entity that stores a refused rule cannot be saved again - renamed,
+-- re-applied by ensure_entities, edited in any column - until the rule is put
+-- right. A delete is not checked.
+CREATE OR REPLACE FUNCTION dd_check_rule(p_table TEXT, p_rule TEXT, p_logic JSONB, p_operation_only BOOLEAN)
+RETURNS VOID AS $$
+DECLARE
+    v_op TEXT;
+BEGIN
+    IF p_operation_only AND NOT jl_is_operation(p_logic) THEN
+        RAISE EXCEPTION '${rule} on ${table} must be a single JsonLogic operation: an object with exactly one key'
+            USING ERRCODE = '90919',
+                  HINT = jsonb_build_object('rule', p_rule, 'table', p_table)::text;
+    END IF;
+
+    v_op := jl_unknown_operator(p_logic);
+    IF v_op IS NOT NULL THEN
+        RAISE EXCEPTION '${rule} on ${table} uses an operation the evaluator does not implement: ${op}'
+            USING ERRCODE = '90909',
+                  HINT = jsonb_build_object('rule', p_rule, 'table', p_table, 'op', v_op)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) IS
+'Raises 90919 when a rule that has to be one JsonLogic operation is not, and 90909 when a rule names an operator the evaluator does not implement. p_rule is the rule''s place in the entity, such as validation_rules[0].';
+
+-- An entry without a "jsonlogic" key, or one that is no object, is left to the
+-- builders, which refuse it with the code that names what is missing.
+CREATE OR REPLACE FUNCTION check_entity_rules()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_item JSONB;
+    v_idx  INT;
+BEGIN
+    IF jsonb_typeof(NEW.select_rule) = 'object' AND NEW.select_rule <> '{}'::jsonb THEN
+        PERFORM dd_check_rule(NEW.table_name, 'select_rule', NEW.select_rule, TRUE);
+    END IF;
+
+    IF jsonb_typeof(NEW.validation_rules) = 'array' THEN
+        FOR v_idx IN 0 .. jsonb_array_length(NEW.validation_rules) - 1 LOOP
+            v_item := NEW.validation_rules -> v_idx;
+            IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
+                PERFORM dd_check_rule(NEW.table_name, format('validation_rules[%s]', v_idx), v_item -> 'jsonlogic', TRUE);
+            END IF;
+        END LOOP;
+    END IF;
+
+    IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
+        FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
+            v_item := NEW.computed_fields -> v_idx;
+            IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
+                PERFORM dd_check_rule(NEW.table_name, format('computed_fields[%s]', v_idx), v_item -> 'jsonlogic', FALSE);
+            END IF;
+        END LOOP;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SET search_path = public;
+
+COMMENT ON FUNCTION check_entity_rules() IS
+'BEFORE INSERT OR UPDATE trigger on entities: refuses a select_rule, validation rule or computed field that names an unknown operator (90909), and a select_rule or validation rule that is not one JsonLogic operation (90919). Runs on every write of the entity.';
+
+-- The check runs as whoever saves the entity, so the request role needs the
+-- helper; the trigger function itself is called by the trigger alone.
+REVOKE EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION check_entity_rules() FROM PUBLIC;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function new in this file stays owned by the installer until
+-- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
+-- through that code, and the check would be refused its helper.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_owner;
+    END IF;
+END $$;
+
+CREATE OR REPLACE TRIGGER check_entity_rules_trigger
+    BEFORE INSERT OR UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION check_entity_rules();
+
+COMMENT ON TRIGGER check_entity_rules_trigger ON entities IS
+'Refuses an entity whose rules name an unknown operator or whose select_rule or validation rules are not single JsonLogic operations.';
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -15588,6 +15827,7 @@ DECLARE
     v_logic_lit TEXT;
     v_rel TEXT;
     v_row_data TEXT;
+    v_predicate TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -15679,12 +15919,15 @@ BEGIN
     -- Both bodies are wrapped by dd_dollar_quote: the rule is a quoted literal
     -- inside the first, and a fixed body tag would be ended by the same tag
     -- written into the rule.
-    v_body := format($FUNC$
-CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
-
-CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
-$FUNC$, v_fn_name, v_rel,
-        dd_dollar_quote(format($SEL$
+    --
+    -- A stored rule that is not one operation gets a predicate that is false
+    -- for every row. The save refuses such a rule (check_entity_rules), so it
+    -- is here only when it was stored past the save, and evaluating it would
+    -- return the object itself, which is truthy: every row would be visible
+    -- to everyone, whatever the rule was meant to say. Hiding every row is the
+    -- failure that gets noticed and that leaks nothing.
+    IF jl_is_operation(v_entity.select_rule) THEN
+        v_predicate := format($SEL$
 DECLARE
     v_data jsonb;
     v_result jsonb;
@@ -15699,7 +15942,21 @@ BEGIN
 
     RETURN jl_truthy(v_result);
 END;
-$SEL$, v_row_data, v_logic_lit)),
+$SEL$, v_row_data, v_logic_lit);
+    ELSE
+        v_predicate := $SEL$
+BEGIN
+    RETURN FALSE;
+END;
+$SEL$;
+    END IF;
+
+    v_body := format($FUNC$
+CREATE FUNCTION public.%I(p_row public.%I, p_ctx jsonb) RETURNS BOOLEAN AS %s LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+
+CREATE FUNCTION public.%I(p_row public.%I) RETURNS BOOLEAN AS %s LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
+$FUNC$, v_fn_name, v_rel,
+        dd_dollar_quote(v_predicate),
         v_fn_name, v_rel,
         dd_dollar_quote(format($SEL$
     SELECT public.%I(p_row, public.jl_request_context());
@@ -15810,7 +16067,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'a88d900e03531f104a44a0dcb723c3b340c4ba88727ca174dd813111411eec5c')
+        VALUES ('_core.0210_computed_validation.sql', 'b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26136,7 +26393,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"a88d900e03531f104a44a0dcb723c3b340c4ba88727ca174dd813111411eec5c","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -26200,7 +26457,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"fcd99c77d3fcd24c8917a8106fac7d7e1558807ceac1db7bf32210d4f5c3df55","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"a88d900e03531f104a44a0dcb723c3b340c4ba88727ca174dd813111411eec5c","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

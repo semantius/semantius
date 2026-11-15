@@ -1217,6 +1217,101 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
 
+-- =====================================================
+-- Checking a rule without running it
+-- =====================================================
+-- evaluate_json_logic learns that a rule names an operator it does not
+-- implement only when a record reaches that node, which for a branch of an
+-- `if` can be long after the rule was saved, on a write that has nothing to do
+-- with the mistake. The functions below answer the same question from the
+-- rule alone, so the dictionary can refuse the rule when it is saved.
+--
+-- The list is the set of operators evaluate_json_logic dispatches on, written
+-- a second time, because that dispatch is a run of IF statements and cannot be
+-- asked what it knows. 0110_test_jsonlogic_ext.sql compares the two, so an
+-- operator added to one and not to the other fails the suite.
+CREATE OR REPLACE FUNCTION jl_operators() RETURNS text[] AS $$
+    SELECT ARRAY[
+        'if', '?:', 'and', 'or', 'filter', 'map', 'reduce', 'all', 'none', 'some',
+        'let', 'set_record',
+        'var', 'missing', 'missing_some',
+        '==', '===', '!=', '!==', '!', '!!',
+        '>', '>=', '<', '<=',
+        '%', '+', '*', '-', '/', 'max', 'min',
+        'in', 'cat', 'substr', 'merge', 'log',
+        'has_permission', 'require_permission', 'value_changed', 'concat', 'is_match',
+        'throw_error', 'is_raci_actor', 'has_consultation',
+        'date_add', 'date_diff', 'date_part', 'date_trunc', 'to_date', 'date_format'
+    ];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public;
+
+-- An object with exactly one key is an operation; everything else is a value.
+-- The same test evaluate_json_logic makes before it dispatches.
+CREATE OR REPLACE FUNCTION jl_is_operation(p_rule jsonb) RETURNS boolean AS $$
+DECLARE
+    v_op text;
+BEGIN
+    IF p_rule IS NULL OR jsonb_typeof(p_rule) <> 'object' THEN
+        RETURN FALSE;
+    END IF;
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    RETURN v_op IS NOT NULL AND p_rule - v_op = '{}'::jsonb;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+-- Walks a rule the way evaluate_json_logic reads it: an array is a list of
+-- rules, an object with one key is an operation whose arguments are rules, and
+-- anything else - a scalar, an empty object, an object with several keys - is
+-- a value and is not looked into, because the evaluator returns it as it
+-- stands. Two argument positions hold a name, not a rule, and are skipped: the
+-- variable name of `let`, and the variable name and the entity of
+-- `set_record`. A name that happens to look like an operation would otherwise
+-- be refused although it is never evaluated.
+CREATE OR REPLACE FUNCTION jl_unknown_operator(p_rule jsonb) RETURNS text AS $$
+DECLARE
+    v_op    text;
+    v_args  jsonb;
+    v_found text;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            v_found := jl_unknown_operator(p_rule -> i);
+            IF v_found IS NOT NULL THEN
+                RETURN v_found;
+            END IF;
+        END LOOP;
+        RETURN NULL;
+    END IF;
+
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN NULL;
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    IF NOT (v_op = ANY(jl_operators())) THEN
+        RETURN v_op;
+    END IF;
+
+    v_args := p_rule -> v_op;
+    IF jsonb_typeof(v_args) <> 'array' THEN
+        v_args := jsonb_build_array(v_args);
+    END IF;
+
+    FOR i IN (CASE v_op WHEN 'let' THEN 1 WHEN 'set_record' THEN 2 ELSE 0 END)
+             .. jsonb_array_length(v_args) - 1 LOOP
+        v_found := jl_unknown_operator(v_args -> i);
+        IF v_found IS NOT NULL THEN
+            RETURN v_found;
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
 'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
 COMMENT ON FUNCTION jl_try_number(jsonb) IS
@@ -1251,6 +1346,12 @@ COMMENT ON FUNCTION jl_to_date(jsonb) IS
 'JsonLogic to_date: the UTC date of a date, date-time or epoch number.';
 COMMENT ON FUNCTION jl_date_format(jsonb, jsonb) IS
 'JsonLogic date_format: renders a date in UTC through a fixed token list. Raises 90917 for any other pattern.';
+COMMENT ON FUNCTION jl_operators() IS
+'The operators evaluate_json_logic implements, as a list a rule can be checked against without being run.';
+COMMENT ON FUNCTION jl_is_operation(jsonb) IS
+'True when a JSONB value is a JsonLogic operation: an object with exactly one key. Everything else is a value to the evaluator.';
+COMMENT ON FUNCTION jl_unknown_operator(jsonb) IS
+'The first operator in a JsonLogic rule that evaluate_json_logic does not implement, or NULL when it knows them all. Walks every argument the evaluator would evaluate, and none it would not.';
 COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
 
@@ -1273,6 +1374,9 @@ REVOKE EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_date(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_operators() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_is_operation(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
@@ -1294,3 +1398,22 @@ GRANT EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_date(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
+-- The check of an entity's rules runs as whoever saves the entity.
+GRANT EXECUTE ON FUNCTION jl_operators() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_is_operation(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function new in this file stays owned by the installer until
+-- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
+-- through that code, which checks their rules with these three.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            jl_operators(),
+            jl_is_operation(jsonb),
+            jl_unknown_operator(jsonb)
+        TO semantius_owner;
+    END IF;
+END $$;

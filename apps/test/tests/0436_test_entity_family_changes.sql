@@ -1546,7 +1546,7 @@ SELECT is(pg_temp.sqlstate_of($$UPDATE entities SET id_prefix = 'fccptyother' WH
 
 SELECT is(pg_temp.sqlstate_of(
     $$UPDATE entities
-         SET validation_rules = '[{"code": "99111", "message": "always passes", "jsonlogic": true}]'::jsonb
+         SET validation_rules = '[{"code": "99111", "message": "always passes", "jsonlogic": {"==": [1, 1]}}]'::jsonb
        WHERE table_name = 'fcc_orgs'$$),
     '90256',
     'rules added to a middle level are refused while a view of another author is built on a family view');
