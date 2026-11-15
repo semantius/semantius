@@ -1108,6 +1108,11 @@ SELECT is(
     'get_schema(orders) children order_details.order_id should have plural_label "Order Details"'
 );
 
+-- user_roles is viewable with admin only, and a child is listed for a caller
+-- who may view it, so its place among the children of users is read as an
+-- administrator.
+select authenticate_as('user3');
+
 -- Test that children key exists in get_schema for users
 SELECT ok(
     (public.get_schema('users')::jsonb) ? 'children',
@@ -1216,8 +1221,6 @@ SELECT ok(
 -- TEST: singular_label_parent / plural_label_parent in children
 -- =====================================================
 
-select authenticate_as('user2');
-
 -- Test children entry for user_roles.user_id has correct singular_label_parent
 SELECT is(
     (SELECT elem->>'singular_label_parent'
@@ -1235,6 +1238,8 @@ SELECT is(
     'Roles',
     'get_schema(users) children user_roles.user_id should have plural_label_parent "Roles"'
 );
+
+select authenticate_as('user2');
 
 -- =====================================================
 -- TEST: cube_type included in field properties

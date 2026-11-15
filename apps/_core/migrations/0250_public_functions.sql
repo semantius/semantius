@@ -173,6 +173,15 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 -- Returns an array of fields that reference the given table with format='parent'
 -- Each child entry includes: fields.id, fields.title, entities.singular_label,
 -- entities.plural_label, entities.id_column, entities.label_column
+--
+-- The function is SECURITY DEFINER, because fields and entities are readable
+-- with admin only, and it is reachable as an RPC by every signed-in user. So
+-- it applies the view permissions itself: a child is listed only when the
+-- caller may view the child's entity, and only under a parent the caller may
+-- view. Without that, anyone could read the names, labels and key columns of
+-- every entity that hangs off a table, whatever its view_permission. A parent
+-- the caller may not view answers with the empty list, as a table that is
+-- nobody's parent does, so the answer does not say whether the table exists.
 CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
@@ -198,15 +207,18 @@ BEGIN
     INTO v_result
     FROM fields f
     JOIN entities e ON f.table_name = e.table_name
+    JOIN entities p ON p.table_name = f.reference_table
     WHERE f.reference_table = p_table_name
-      AND f.format = 'parent';
+      AND f.format = 'parent'
+      AND rbac.has_permission(p.view_permission)
+      AND rbac.has_permission(e.view_permission);
 
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 COMMENT ON FUNCTION public.get_schema_children IS 
-'Returns array of child relationships (fields with format=''parent'') that reference the given table. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
+'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller may view; empty when the caller may not view the table itself. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
