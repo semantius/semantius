@@ -668,18 +668,21 @@ COMMENT ON FUNCTION field_json_type IS
 -- IS_NULLABLE FUNCTION
 -- =====================================================
 -- Determines whether a column should allow NULL values based on its format.
--- Nullable formats: reference (optional FK), date (unknown date), date-time (not-yet timestamps)
+-- Nullable formats: reference (optional FK), date (unknown date), time (no time
+-- given), date-time (not-yet timestamps). None of the three temporal formats
+-- has a zero value: a default of midnight or of today would be indistinguishable
+-- from a value somebody entered.
 -- All other formats use NOT NULL with appropriate defaults.
 
 CREATE OR REPLACE FUNCTION is_nullable(p_format TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN p_format IN ('reference', 'date', 'date-time');
+    RETURN p_format IN ('reference', 'date', 'time', 'date-time');
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION is_nullable IS
-'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
+'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, time, and date-time formats.';
 
 -- =====================================================
 -- UNIQUE VALUE PREDICATE

@@ -510,10 +510,10 @@ SELECT is(
        FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'tm_fmt_probe' AND column_name IN ('t_open', 't_close')),
     jsonb_build_object(
-        't_open',  jsonb_build_array('time without time zone', 'NO', '''09:30:00''::time without time zone'),
-        't_close', jsonb_build_array('time without time zone', 'NO', '''12:00:00''::time without time zone')
+        't_open',  jsonb_build_array('time without time zone', 'YES', '''09:30:00''::time without time zone'),
+        't_close', jsonb_build_array('time without time zone', 'YES', '''12:00:00''::time without time zone')
     ),
-    'a time field should create a NOT NULL time column defaulting to its default_value'
+    'a time field should create a nullable time column defaulting to its default_value'
 );
 
 INSERT INTO tm_fmt_probe (label) VALUES ('defaults');
@@ -561,10 +561,10 @@ SELECT is(
     'get_schema should emit format time, type string and the default of a time property'
 );
 
--- Every NOT NULL column carries a default (dd_column_default: "a blank falls
--- back to the zero value of the column type"), so a time field with no
--- default_value takes a row that leaves it out, and a table with rows takes
--- the field.
+-- A time has no zero value: midnight is a time of day like any other. So the
+-- column is nullable, as a date column is, and NULL means that no time was
+-- given. A time field with no default_value therefore takes a row that leaves
+-- it out, and a table with rows takes the field.
 INSERT INTO fields (table_name, field_name, title, format, input_type, field_order)
 VALUES ('tm_fmt_bare', 't_open', 'Opens', 'time', 'default', 30);
 

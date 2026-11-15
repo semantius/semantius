@@ -201,8 +201,8 @@ deno task test                                   # 4. full suite
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
 - **If you think a field should be nullable, YOU ARE WRONG** - use an empty
-  string, 0, or FALSE instead. Only the formats `reference`, `date` and
-  `date-time` are nullable (`is_nullable()`).
+  string, 0, or FALSE instead. Only the formats `reference`, `date`, `time`
+  and `date-time` are nullable (`is_nullable()`).
 - **Every NOT NULL column has a DEFAULT**: `''` for text, `0` for numbers,
   `FALSE` for booleans, `CURRENT_TIMESTAMP` for timestamps.
 - **The only columns without a default**: a TEXT primary key

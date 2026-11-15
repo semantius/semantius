@@ -52,7 +52,7 @@ change is not applied to any existing `number` column.
 
 **Empty aggregates.** A parent with no matching child holds the format's zero
 value: `0` for numbers, `''` for text, and NULL for `date` and `date-time`,
-the two nullable formats. `sum` and `avg` are computed in `numeric` whatever
+which are nullable formats. `sum` and `avg` are computed in `numeric` whatever
 the value column is, so an integer sum cannot overflow and a float sum is
 exact before it is cast to the column.
 
