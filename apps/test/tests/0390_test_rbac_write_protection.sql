@@ -402,7 +402,7 @@ SELECT is(
 
 SELECT throws_ok(
     $$ UPDATE users SET external_id = 'user1_moved' WHERE external_id = 'user1' $$,
-    '42501', NULL,
+    '42501', 'Permission denied: only an administrator can set the external_id of a user',
     'user:manage without admin cannot change the external_id of its own row');
 
 RESET ROLE;
@@ -417,7 +417,7 @@ SELECT authenticate_as('user1');
 
 SELECT throws_ok(
     $$ UPDATE users SET external_id = 'user3_moved' WHERE external_id = 'user3' $$,
-    '42501', NULL,
+    '42501', 'Permission denied: only an administrator can set the external_id of a user',
     'user:manage without admin cannot change the external_id of an administrator');
 
 RESET ROLE;
@@ -494,13 +494,13 @@ SELECT authenticate_as('user1');
 SELECT throws_ok(
     $$ INSERT INTO users (external_id, email, display_name)
        VALUES ('claimed-sub', 'claimed@test.com', 'Claimed Person') $$,
-    '42501', NULL,
+    '42501', 'Permission denied: only an administrator can set the external_id of a user',
     'user:manage without admin cannot insert a user with an external_id of its choosing');
 
 SELECT throws_ok(
     $$ INSERT INTO users (external_id, email, display_name, is_agent)
        VALUES ('claimed-agent-sub', 'claimed-agent@test.com', 'Claimed Agent', TRUE) $$,
-    '42501', NULL,
+    '42501', 'Permission denied: only an administrator can set the external_id of a user',
     'user:manage without admin cannot choose the external_id of an agent either');
 
 RESET ROLE;

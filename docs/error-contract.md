@@ -410,6 +410,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.` | - | The lockout guard. |
 | `90105` | `42501` | `Permission denied for queue ${queue}` | - | `queue` | Hides whether the queue exists from a caller who may not read it. |
 | `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`. Hides whether the entity exists, as 90105 does for queues. |
+| `90107` | `42501` | `Permission denied: only an administrator can set the external_id of a user` | `external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.` | - | A caller without `admin` inserted a user with an `external_id`, or changed the one of an existing user. An unchanged value and an agent saved without one pass. |
 
 ### 902xx - data dictionary: entities and fields
 

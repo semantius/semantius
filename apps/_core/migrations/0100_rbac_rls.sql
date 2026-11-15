@@ -325,6 +325,75 @@ COMMENT ON TRIGGER assert_administrator_remains_on_role_delete ON roles IS
 'Refuses a DELETE of the Administrator role while it is the only source of an enabled administrator.';
 
 -- =====================================================
+-- GUARD: external_id is written by an administrator only
+-- =====================================================
+-- external_id is the identity: a request is whoever's row carries the token's
+-- sub claim (rbac.uid). Writing it is therefore not user administration but a
+-- change of who a principal is. A caller who moves an administrator's
+-- external_id to a sub it controls is that administrator at its next request,
+-- without touching user_roles; one who inserts a row under the sub of a person
+-- who has not signed in yet is that person from their first request on.
+-- `user:manage` opens the users table for writing, so it must not be enough
+-- for this one column: only a holder of `admin` chooses an external_id.
+--
+-- What stays possible without `admin`:
+--   * an UPDATE that sends external_id back unchanged, which is what a client
+--     that saves a whole record does;
+--   * an INSERT that sends none. An agent then gets a generated one from
+--     assign_agent_external_id_trigger (0370_raci.sql); a person's row is
+--     refused by the column's NOT NULL, because a person's row is made by the
+--     sign-in or by an administrator.
+--
+-- The sign-in (get_userinfo) writes as the owner of the dictionary code, and
+-- the owner is exempt here as it is from every guard on these tables, so a
+-- first login still creates its row. SECURITY INVOKER for that reason: the
+-- BYPASSRLS test has to see the role the write really runs as.
+CREATE OR REPLACE FUNCTION rbac.assert_external_id_writer()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.external_id IS NOT DISTINCT FROM OLD.external_id THEN
+            RETURN NEW;
+        END IF;
+    ELSIF NEW.external_id IS NULL OR btrim(NEW.external_id) = '' THEN
+        RETURN NEW;
+    END IF;
+
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        RETURN NEW;
+    END IF;
+
+    IF rbac.has_permission('admin') THEN
+        RETURN NEW;
+    END IF;
+
+    RAISE EXCEPTION 'Permission denied: only an administrator can set the external_id of a user'
+        USING ERRCODE = 'insufficient_privilege',
+              HINT = jsonb_build_object(
+                  'code', '90107',
+                  'hint', 'external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.')::text;
+END;
+$$ LANGUAGE plpgsql SET search_path = rbac, public;
+
+-- The request role keeps EXECUTE: it is the invoker, and the trigger is
+-- useless if the caller cannot run it.
+REVOKE EXECUTE ON FUNCTION rbac.assert_external_id_writer() FROM PUBLIC;
+
+COMMENT ON FUNCTION rbac.assert_external_id_writer IS
+'Row-level guard on users: refuses an INSERT that brings an external_id and an UPDATE that changes one unless the caller holds admin (42501, hint.code 90107). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+
+-- BEFORE INSERT triggers fire in name order, and this name sorts before
+-- assign_agent_external_id_trigger on purpose: here an external_id on the new
+-- row is still one the caller sent, not one the table assigned.
+CREATE OR REPLACE TRIGGER assert_external_id_writer_trigger
+    BEFORE INSERT OR UPDATE OF external_id ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.assert_external_id_writer();
+
+COMMENT ON TRIGGER assert_external_id_writer_trigger ON users IS
+'Refuses a chosen external_id on INSERT and a changed one on UPDATE from a caller without admin.';
+
+-- =====================================================
 -- TRIGGER: Default assigned_by to current user
 -- =====================================================
 -- When a user_role record is inserted without an assigned_by value,
