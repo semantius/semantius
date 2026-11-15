@@ -446,14 +446,15 @@ SELECT is(
     'A class 90 error out of a computed field keeps its hint, with no key added');
 
 -- PostgreSQL's own errors do get stamped, because nothing else in them says
--- which rule produced them. Modulo by zero is the shortest way to raise one
--- from inside a computed field.
+-- which rule produced them. A date of the right shape that is no real date is
+-- the shortest way to raise one from inside a computed field: the date
+-- operators hand it to PostgreSQL's cast, which answers 22008.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column,
     computed_fields)
-VALUES ('cv_divzero_test', 'cv_divzero', 'Div', 'Divs', 'Division probe',
+VALUES ('cv_divzero_test', 'cv_divzero', 'Div', 'Divs', 'PostgreSQL error probe',
     1, 'public:read', 'admin', 'id', 'label',
-    '[{"name": "ratio", "jsonlogic": {"%": [1, 0]}}]'::jsonb);
+    '[{"name": "ratio", "jsonlogic": {"date_part": ["2026-02-30", "day"]}}]'::jsonb);
 
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('cv_divzero_test', 'ratio', 'Ratio', 'integer', 10);

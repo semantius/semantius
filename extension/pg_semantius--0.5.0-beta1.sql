@@ -1376,11 +1376,12 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
--- false, null, 0, "" and empty arrays are falsy; everything else is truthy
+-- false, null, 0, "" and empty arrays are falsy; everything else is truthy,
+-- an empty object included
 CREATE OR REPLACE FUNCTION jl_truthy(val jsonb) RETURNS boolean AS $$
 BEGIN
     IF val IS NULL THEN RETURN false; END IF;
@@ -1397,13 +1398,31 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
 -- The numeric value of a jsonb, or SQL NULL where there is none. This is
--- JavaScript's NaN, and it exists because two callers need opposite things from
--- it: arithmetic wants a number whatever it was handed, while equality must not
--- invent one. jl_to_number below folds NULL to 0 for the first; jl_loose_eq
--- answers false for the second, which is what JavaScript does when it compares
--- against NaN.
+-- JavaScript's NaN, and it exists because its callers need opposite things from
+-- it: arithmetic wants a number whatever it was handed, while equality and
+-- ordering must not invent one. jl_to_number below folds NULL to 0 for the
+-- first; jl_loose_eq and the ordering operators answer false for the second,
+-- which is what JavaScript does when it compares against NaN.
+--
+-- A string is a number when JavaScript's Number() reads it as one, and the
+-- patterns are what keep it to that. The casts alone accept much more: NaN,
+-- inf, infinity in any case, 1_000, and through the date parser today, now,
+-- and whatever the session's DateStyle makes of 01/02/2026. None of those may
+-- count, because the browser evaluates the same rule and a stored result must
+-- not depend on the day a rule ran or on a session setting.
+--
+-- An ISO 8601 date or date-time is a number as well: its epoch seconds. This is
+-- a Semantius extension (JavaScript gives NaN), and it reads the three shapes
+-- jl_date_utc reads, the same way: a date is UTC midnight, a date-time without
+-- an offset is UTC, and an offset moves the instant. A string of one of those
+-- shapes that is no real date (2026-02-30) has no number. The date casts are
+-- what make the function STABLE rather than IMMUTABLE.
+--
+-- The EXCEPTION block costs a subtransaction, so it encloses the date casts
+-- alone, which only a date-shaped string reaches.
 CREATE OR REPLACE FUNCTION jl_try_number(val jsonb) RETURNS numeric AS $$
 DECLARE
+    v_moment CONSTANT text := '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?';
     txt_val text;
 BEGIN
     IF val IS NULL THEN RETURN NULL; END IF;
@@ -1415,30 +1434,40 @@ BEGIN
         WHEN 'string' THEN
             txt_val := val #>> '{}';
 
-            -- First try numeric coercion to preserve original JsonLogic behavior.
-            -- data_exception is the whole 22xxx class: bad syntax, overflow,
-            -- anything the cast can raise on caller-supplied text.
-            BEGIN
-                RETURN txt_val::numeric;
-            EXCEPTION WHEN data_exception THEN
-                NULL;
-            END;
-
-            -- Number('') and Number('   ') are 0 in JavaScript, not NaN, and the
-            -- numeric cast above raises on both. Without this an empty string
-            -- would stop comparing equal to 0 and to false.
-            IF trim(txt_val) = '' THEN
+            -- Number('') and Number('   ') are 0 in JavaScript, not NaN.
+            IF txt_val ~ '^[[:space:]]*$' THEN
                 RETURN 0::numeric;
             END IF;
 
-            -- Then try timestamp/date coercion for ISO-like date strings. This is
-            -- a Semantius extension (JavaScript would give NaN); it makes the
-            -- function STABLE, not IMMUTABLE, because the parse follows DateStyle.
-            BEGIN
-                RETURN extract(epoch FROM txt_val::timestamp)::numeric;
-            EXCEPTION WHEN data_exception THEN
-                RETURN NULL;
-            END;
+            -- A decimal number with an optional sign, fraction and exponent;
+            -- Infinity in exactly that spelling; a hexadecimal, octal or binary
+            -- integer, which takes no sign.
+            IF txt_val ~ ('^[[:space:]]*('
+                          || '[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?'
+                          || '|[+-]?Infinity'
+                          || '|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+'
+                          || ')[[:space:]]*$') THEN
+                RETURN txt_val::numeric;
+            END IF;
+
+            IF txt_val ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN
+                BEGIN
+                    IF txt_val ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
+                        RETURN extract(epoch FROM txt_val::date::timestamp)::numeric;
+                    END IF;
+                    -- No offset means UTC, so the session's zone must not be applied to it.
+                    IF txt_val ~ (v_moment || '$') THEN
+                        RETURN extract(epoch FROM txt_val::timestamp)::numeric;
+                    END IF;
+                    IF txt_val ~ (v_moment || '(Z|[+-][0-9]{2}(:?[0-9]{2})?)$') THEN
+                        RETURN extract(epoch FROM (txt_val::timestamptz AT TIME ZONE 'UTC'))::numeric;
+                    END IF;
+                EXCEPTION WHEN data_exception THEN
+                    RETURN NULL;
+                END;
+            END IF;
+
+            RETURN NULL;
 
         WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1::numeric ELSE 0::numeric END;
         WHEN 'null' THEN RETURN NULL;
@@ -1452,6 +1481,37 @@ BEGIN
     RETURN COALESCE(jl_try_number(val), 0::numeric);
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- What an arithmetic operator returns for the number it computed.
+--
+-- A result that is not a finite number is an error, as a division by zero is in
+-- SQL. JSON has no Infinity and no NaN, so the alternative would be null, and
+-- a rule that answered null would store "no value" where its author made a
+-- mistake. The error is the evaluator's own rather than the bare 22012 or
+-- 22003 of the arithmetic underneath, so a client can translate it.
+--
+-- A whole number is returned without a fraction (5, not 5.0). It stays a
+-- numeric: narrowing it to bigint would raise for a value beyond that range,
+-- and neither JSON nor JavaScript has such a limit.
+CREATE OR REPLACE FUNCTION jl_no_finite_result(p_op text) RETURNS jsonb AS $$
+BEGIN
+    RAISE EXCEPTION '${operator} has no finite result'
+        USING ERRCODE = '90920',
+              HINT = jsonb_build_object('operator', p_op)::text;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_number_result(p_op text, p_value numeric) RETURNS jsonb AS $$
+BEGIN
+    IF p_value IN ('Infinity'::numeric, '-Infinity'::numeric, 'NaN'::numeric) THEN
+        RETURN jl_no_finite_result(p_op);
+    END IF;
+    IF p_value = trunc(p_value) THEN
+        RETURN to_jsonb(trunc(p_value));
+    END IF;
+    RETURN to_jsonb(p_value);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to text (for cat, substr, in-string)
 CREATE OR REPLACE FUNCTION jl_to_text(val jsonb) RETURNS text AS $$
@@ -2180,7 +2240,10 @@ BEGIN
     END IF;
 
     -- ===================== === =====================
+    -- An argument that was not given is JavaScript's undefined, which is
+    -- strictly equal to nothing but another undefined.
     IF op = '===' THEN
+        IF a IS NULL OR b IS NULL THEN RETURN to_jsonb(a IS NULL AND b IS NULL); END IF;
         -- Strict equality: types must match
         IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'false'::jsonb; END IF;
         RETURN to_jsonb(a = b);
@@ -2193,6 +2256,7 @@ BEGIN
 
     -- ===================== !== =====================
     IF op = '!==' THEN
+        IF a IS NULL OR b IS NULL THEN RETURN to_jsonb(NOT (a IS NULL AND b IS NULL)); END IF;
         IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'true'::jsonb; END IF;
         RETURN to_jsonb(a <> b);
     END IF;
@@ -2209,8 +2273,12 @@ BEGIN
 
     -- ===================== > >= < <= =====================
     -- Two strings compare as text in code-point order (COLLATE "C"); any other
-    -- pair is coerced to numbers through jl_to_number, so "10" > "9" is false
-    -- and "10" > 9 is true. JavaScript orders strings by UTF-16 code unit, which
+    -- pair is coerced to numbers, so "10" > "9" is false and "10" > 9 is true.
+    -- A string that carries no number is NaN in JavaScript, and every
+    -- comparison with NaN is false, so such a pair is false under all four
+    -- operators: reading "abc" as 0 would make "abc" < 5 true. Null and the
+    -- empty string are 0 there and here, as is everything that is no string.
+    -- JavaScript orders strings by UTF-16 code unit, which
     -- is the same order for every character in the Basic Multilingual Plane and
     -- a different one above U+FFFF, where a surrogate pair sorts below U+E000
     -- there and above it here. The
@@ -2223,8 +2291,9 @@ BEGIN
                            WHEN txt_a COLLATE "C" > txt_b THEN 1
                            ELSE 0 END;
         ELSE
-            num_a := jl_to_number(a);
-            num_b := jl_to_number(b);
+            num_a := CASE WHEN jsonb_typeof(a) = 'string' THEN jl_try_number(a) ELSE jl_to_number(a) END;
+            num_b := CASE WHEN jsonb_typeof(b) = 'string' THEN jl_try_number(b) ELSE jl_to_number(b) END;
+            IF num_a IS NULL OR num_b IS NULL THEN RETURN 'false'::jsonb; END IF;
             cmp_ab := CASE WHEN num_a < num_b THEN -1
                            WHEN num_a > num_b THEN 1
                            ELSE 0 END;
@@ -2241,8 +2310,9 @@ BEGIN
                            WHEN txt_a COLLATE "C" > txt_b THEN 1
                            ELSE 0 END;
         ELSE
-            num_b := jl_to_number(b);
-            num_c := jl_to_number(c);
+            num_b := CASE WHEN jsonb_typeof(b) = 'string' THEN jl_try_number(b) ELSE jl_to_number(b) END;
+            num_c := CASE WHEN jsonb_typeof(c) = 'string' THEN jl_try_number(c) ELSE jl_to_number(c) END;
+            IF num_b IS NULL OR num_c IS NULL THEN RETURN 'false'::jsonb; END IF;
             cmp_bc := CASE WHEN num_b < num_c THEN -1
                            WHEN num_b > num_c THEN 1
                            ELSE 0 END;
@@ -2252,8 +2322,11 @@ BEGIN
     END IF;
 
     -- ===================== % =====================
+    -- A zero divisor is an error of the evaluator's own (jl_number_result).
     IF op = '%' THEN
-        RETURN to_jsonb(jl_to_number(a) % jl_to_number(b));
+        num_b := jl_to_number(b);
+        IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
+        RETURN jl_number_result(op, jl_to_number(a) % num_b);
     END IF;
 
     -- ===================== + =====================
@@ -2262,12 +2335,7 @@ BEGIN
         FOR i IN 0 .. arr_len - 1 LOOP
             num_a := num_a + jl_to_number(vals -> i);
         END LOOP;
-        -- Return integer if result is integer
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== * =====================
@@ -2276,11 +2344,7 @@ BEGIN
         FOR i IN 1 .. arr_len - 1 LOOP
             num_a := num_a * jl_to_number(vals -> i);
         END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== - =====================
@@ -2290,24 +2354,15 @@ BEGIN
         ELSE
             num_a := jl_to_number(a) - jl_to_number(b);
         END IF;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== / =====================
     IF op = '/' THEN
         num_a := jl_to_number(a);
         num_b := jl_to_number(b);
-        IF num_b = 0 THEN RETURN 'null'::jsonb; END IF;
-        num_c := num_a / num_b;
-        IF num_c = trunc(num_c) THEN
-            RETURN to_jsonb(num_c::bigint);
-        ELSE
-            RETURN to_jsonb(num_c);
-        END IF;
+        IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
+        RETURN jl_number_result(op, num_a / num_b);
     END IF;
 
     -- ===================== max =====================
@@ -2317,11 +2372,7 @@ BEGIN
             num_b := jl_to_number(vals -> i);
             IF num_b > num_a THEN num_a := num_b; END IF;
         END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== min =====================
@@ -2331,11 +2382,7 @@ BEGIN
             num_b := jl_to_number(vals -> i);
             IF num_b < num_a THEN num_a := num_b; END IF;
         END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== in =====================
@@ -2350,8 +2397,11 @@ BEGIN
             END LOOP;
             RETURN 'false'::jsonb;
         ELSIF jsonb_typeof(b) = 'string' THEN
-            -- Substring check
-            txt_a := jl_to_text(a);
+            -- Substring check. JavaScript searches for the needle as text, and
+            -- null as text is 'null'. jl_to_text reads null as the empty text,
+            -- which every string contains, so a null or missing needle would be
+            -- found everywhere.
+            txt_a := CASE WHEN jsonb_typeof(a) = 'null' THEN 'null' ELSE jl_to_text(a) END;
             txt_b := jl_to_text(b);
             RETURN to_jsonb(position(txt_a in txt_b) > 0);
         ELSE
@@ -2381,8 +2431,9 @@ BEGIN
             end_len := jl_to_number(c)::int;
             IF end_len < 0 THEN
                 -- Negative length: from start_pos, take chars until end_len from end
+                -- A length that reaches back past the start leaves nothing.
                 temp_str := substring(src FROM start_pos + 1);
-                RETURN to_jsonb(substring(temp_str FROM 1 FOR length(temp_str) + end_len));
+                RETURN to_jsonb(substring(temp_str FROM 1 FOR GREATEST(length(temp_str) + end_len, 0)));
             ELSE
                 RETURN to_jsonb(substring(src FROM start_pos + 1 FOR end_len));
             END IF;
@@ -2694,11 +2745,15 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
-'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
+'JsonLogic truthiness of a JSONB value: false for null, false, 0, "" and an empty array; true otherwise, an empty object included.';
 COMMENT ON FUNCTION jl_try_number(jsonb) IS
-'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. Used by jl_loose_eq, which must not read a non-numeric string as 0.';
+'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. A string counts when JavaScript''s Number() reads it, or when it is an ISO 8601 date or date-time, whose number is its epoch seconds in UTC. Used by jl_loose_eq and the ordering operators, which must not read a non-numeric string as 0.';
 COMMENT ON FUNCTION jl_to_number(jsonb) IS
-'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by arithmetic and comparison operators). Reads anything without a numeric value as 0.';
+'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by the arithmetic operators). Reads anything without a numeric value as 0.';
+COMMENT ON FUNCTION jl_no_finite_result(text) IS
+'Raises 90920 for an arithmetic operator whose result is not a finite number: a zero divisor, or a result of Infinity or NaN.';
+COMMENT ON FUNCTION jl_number_result(text, numeric) IS
+'The JSON number an arithmetic operator returns: a whole number without a fraction, whatever its size. Raises 90920 for Infinity and NaN.';
 COMMENT ON FUNCTION jl_to_text(jsonb) IS
 'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
 COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
@@ -2740,6 +2795,8 @@ COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_no_finite_result(text) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_number_result(text, numeric) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_date_is_blank(jsonb) FROM public;
@@ -2764,6 +2821,8 @@ REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
 GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_no_finite_result(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_number_result(text, numeric) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_date_is_blank(jsonb) TO semantius_user;
@@ -2787,11 +2846,14 @@ GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
 -- On an upgrade the dictionary's definer code already runs as semantius_owner,
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
--- through that code, which checks their rules with these three.
+-- through that code, which checks their rules with jl_operators,
+-- jl_is_operation and jl_unknown_operator and evaluates them with the rest.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
         GRANT EXECUTE ON FUNCTION
+            jl_no_finite_result(text),
+            jl_number_result(text, numeric),
             jl_operators(),
             jl_is_operation(jsonb),
             jl_unknown_operator(jsonb)
@@ -2801,7 +2863,7 @@ END $$;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', '6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687')
+        VALUES ('_core.0050_jsonlogic.sql', '522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26393,7 +26455,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -26457,7 +26519,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"6e80f2139c1cc31cd7a4ee129c24f008d6a4bc725d9089533a05c61c7b820687","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"114a9cf29422e144decc53f6762e1282c53af3944997f8213ea5676279d6aaf5","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d262958f77644edb55e83b35a21b8c4498e45f3031f8467e04776c59dab70bd9","_core.0045_typeid.sql":"64d5e5c02cdf6d16bff6a5042efaf74b0fb9ee3e204d57bbdd36bf81e6fd4741","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"522bad8ed77182a5a4b3ac3fddcc8621183af88919ecb6b77cee92bca7e178ef","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"f56ed13d9a49ade9a9fa88a2aff51d791e7fc5121de80327911e01ba9be8b1fc","_core.0080_rbac_functions.sql":"807a997731950cb339194ecaa4030fd0085c27d130a8e94cb9e3c03106992e88","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"14d71b9ace5b483db9f04661aae8a754fbddb733cafa9fb30624e393be1124ca","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"2a112a7de32e97428f8e3d5869e97a17795f72e2fc2f2c6c12ea77df5c480722","_core.0130_dd_schema.once.sql":"a239c8a33d3ffe3e33a068b24161ec9d000fb1f563da93b9ad2aa0120909f8b0","_core.0140_dd_schema.sql":"b54e838165f0c1d3773ace1b7dcb6341d2bd40e9f5c524339732c0d88c498016","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"20ec9744be9ead1ba84634840b9e070cadf29a319c44bb2774188575e78739f3","_core.0170_dd_rename.sql":"35ba5990217f2098a6545992583a413e58f9e171041270fca96916ee5f261ee4","_core.0180_managed_enable.sql":"4234e85df29e74b96eaf9b499269325e06f969debc1d96a5bd64aca39ea5858b","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"5253d29b6511931743d78677f4f37c0c53b52a771a47d7e0e838d244fe63b27f","_core.0210_computed_validation.sql":"b5bd53eb1b17a4c49b24776f2d68c4b49fb508e44d064b37a2e33664b3bbb076","_core.0220_entity_insert_defaults.sql":"530876310d595a44f396fceaee8c14fbc552179d1e74b40035fbfb82b02d6e63","_core.0230_entity_order_column.sql":"d01a034f572be54008cc5a89eedd43fb923b8c0a191561882170d205e3bb0c5d","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"98305888085ee320a3306638caf14f60fc12ddf32dd9f3dcf6cb9d9a2642b572","_core.0260_notify_triggers.sql":"64a7a24cfe317fcab72bf582c8acf38cc854be37e2ca1f399b8cf8c52adc2d5f","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"e01a120ec3de8f3f5e9b658341db6aaeea30c9072a277f05db6c8c7d81a90732","_core.0290_ensure_entities.sql":"95630a6f118ddc9e8e026b742c9a38d0cf325d912a20edcbd340a5103918072e","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"6749d9fbbc16cd7655150d383fe567d1a55b1aeeaafff2122b55674d2383cff8","_core.0350_raci.jsonc":"6d1309e5f52bdf3f00b6ac025801a62df695c946bfa97a1ac50ea7bc0cb5910f","_core.0360_raci_setup.once.sql":"5afff2f2bd833fd333b940e9d4580bd7cbbefc8c6ad6612a0b88b36a309307c2","_core.0370_raci.sql":"69adf9d963ba87cebbedccf9fe158fa007fcf7f4f3435dc95df0b361430254c2","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"a2797b405371f156e3efdb0470927c2cc7d1b7bce6f3bd5f1ded030cf7c0bfee","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c3376d7f0596d7d33c301b2a41139071aa171dbc009cf8d31317c82c3ff443da","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

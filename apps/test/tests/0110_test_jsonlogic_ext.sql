@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(170);
+SELECT plan(168);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1193,17 +1193,17 @@ $$;
 -- mistake, so / and % both raise, with an error of the interpreter's own class
 -- and not the bare one of the arithmetic underneath. The same holds for any
 -- result that is not a finite number.
-SELECT matches(COALESCE(pg_temp.jl_eval('{"%":[1,0]}') ->> 'raised', 'no error'), '^909',
+SELECT is(COALESCE(pg_temp.jl_eval('{"%":[1,0]}') ->> 'raised', 'no error'), '90920',
     'arithmetic: a zero divisor in % raises an interpreter error');
-SELECT matches(COALESCE(pg_temp.jl_eval('{"/":[1,0]}') ->> 'raised', 'no error'), '^909',
+SELECT is(COALESCE(pg_temp.jl_eval('{"/":[1,0]}') ->> 'raised', 'no error'), '90920',
     'arithmetic: a zero divisor in / raises an interpreter error');
-SELECT matches(COALESCE(pg_temp.jl_eval('{"+":["Infinity",1]}') ->> 'raised', 'no error'), '^909',
+SELECT is(COALESCE(pg_temp.jl_eval('{"+":["Infinity",1]}') ->> 'raised', 'no error'), '90920',
     'arithmetic: a result that is not finite raises an interpreter error');
 
 -- A whole result beyond the bigint range is still a number: narrowing it to
--- bigint would raise 22003, and JavaScript has no such limit.
-SELECT is(pg_temp.jl_eval('{"*":[10000000000,10000000000]}'), '100000000000000000000'::jsonb,
-    'arithmetic: a product beyond the bigint range is returned');
+-- bigint would raise 22003, and JavaScript has no such limit. The product is in
+-- the shared corpus (0100_test_jsonlogic.json); the operands below are beyond
+-- what JavaScript holds exactly, so these stay here.
 SELECT is(pg_temp.jl_eval('{"+":[50000000000000000000,50000000000000000000]}'), '100000000000000000000'::jsonb,
     'arithmetic: a sum beyond the bigint range is returned');
 SELECT is(pg_temp.jl_eval('{"-":[0,100000000000000000000]}'), '-100000000000000000000'::jsonb,
@@ -1216,9 +1216,8 @@ SELECT is(pg_temp.jl_eval('{"min":[-100000000000000000000,1]}'), '-1000000000000
     'arithmetic: a minimum beyond the bigint range is returned');
 
 -- A negative length stops that many characters before the end of the text, and
--- one that reaches back past the start leaves nothing.
-SELECT is(pg_temp.jl_eval('{"substr":["abc",0,-5]}'), '""'::jsonb,
-    'substr: a negative length past the start of the text gives the empty text');
+-- one that reaches back past the start leaves nothing. The case with start 0 is
+-- in the shared corpus.
 SELECT is(pg_temp.jl_eval('{"substr":["abc",1,-5]}'), '""'::jsonb,
     'substr: a negative length past the start gives the empty text from a later start too');
 

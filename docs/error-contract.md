@@ -309,10 +309,11 @@ stable and language-neutral.
 | `$user_id` for a subject with no `users` row | 42501, `hint.code` 900xx | `rbac.user_id`; the client has not called `get_userinfo` yet |
 | unknown operator | 909xx | `Unrecognized operation: ${op}` |
 | `is_match` with a malformed pattern | 2201B | PostgreSQL's own message |
-| `%` with a zero divisor | 22012 | PostgreSQL's own message; `/` returns null instead |
+| `/` or `%` with a zero divisor, an arithmetic result of Infinity or NaN | 90920 | `${operator} has no finite result` |
 
-Bad numeric or date strings never raise; the coercion swallows the whole 22xxx
-class and yields 0.
+Bad numeric or date strings never raise. Arithmetic reads a string that
+carries no number as 0; `==` and the ordering operators read it as no number
+at all, so every comparison with it is false.
 
 ## Errors we do not raise
 
@@ -557,6 +558,7 @@ their own, so nothing raises from this block yet.
 | `90917` | `90917` | `${operator} cannot use the pattern ${pattern}` | - | `operator`, `pattern` | `date_format` takes a fixed list of tokens so that the browser and the server render the same text. A token with a time of day is refused on a date-only value. |
 | `90918` | `90918` | `${operator} needs a whole number or an ISO 8601 duration, not ${value}` | - | `operator`, `value` | The amount given to `date_add` is neither. |
 | `90919` | `90919` | `${rule} on ${table} must be a single JsonLogic operation: an object with exactly one key` | - | `rule`, `table` | Raised while the entity is saved, for a `select_rule` or a validation rule. The evaluator reads an object with several keys, and every literal, as a value, and a value is truthy, so such a rule would pass every record. `true` and `false` are refused with the rest; a computed field may be a literal. The empty `select_rule` `{}` means no rule. |
+| `90920` | `90920` | `${operator} has no finite result` | - | `operator` | `/` or `%` with a zero divisor, or `+`, `-`, `*`, `/`, `%`, `max` or `min` with a result of Infinity or NaN, which only an operand spelled `Infinity` can produce. JSON has no such number, and answering null would store "no value" where the rule's author made a mistake. The browser evaluator raises in the same cases. |
 
 ## Constraint names
 

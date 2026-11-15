@@ -1,5 +1,6 @@
 -- Helper: JsonLogic truthy semantics
--- false, null, 0, "" and empty arrays are falsy; everything else is truthy
+-- false, null, 0, "" and empty arrays are falsy; everything else is truthy,
+-- an empty object included
 CREATE OR REPLACE FUNCTION jl_truthy(val jsonb) RETURNS boolean AS $$
 BEGIN
     IF val IS NULL THEN RETURN false; END IF;
@@ -16,13 +17,31 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to numeric (for arithmetic / comparisons)
 -- The numeric value of a jsonb, or SQL NULL where there is none. This is
--- JavaScript's NaN, and it exists because two callers need opposite things from
--- it: arithmetic wants a number whatever it was handed, while equality must not
--- invent one. jl_to_number below folds NULL to 0 for the first; jl_loose_eq
--- answers false for the second, which is what JavaScript does when it compares
--- against NaN.
+-- JavaScript's NaN, and it exists because its callers need opposite things from
+-- it: arithmetic wants a number whatever it was handed, while equality and
+-- ordering must not invent one. jl_to_number below folds NULL to 0 for the
+-- first; jl_loose_eq and the ordering operators answer false for the second,
+-- which is what JavaScript does when it compares against NaN.
+--
+-- A string is a number when JavaScript's Number() reads it as one, and the
+-- patterns are what keep it to that. The casts alone accept much more: NaN,
+-- inf, infinity in any case, 1_000, and through the date parser today, now,
+-- and whatever the session's DateStyle makes of 01/02/2026. None of those may
+-- count, because the browser evaluates the same rule and a stored result must
+-- not depend on the day a rule ran or on a session setting.
+--
+-- An ISO 8601 date or date-time is a number as well: its epoch seconds. This is
+-- a Semantius extension (JavaScript gives NaN), and it reads the three shapes
+-- jl_date_utc reads, the same way: a date is UTC midnight, a date-time without
+-- an offset is UTC, and an offset moves the instant. A string of one of those
+-- shapes that is no real date (2026-02-30) has no number. The date casts are
+-- what make the function STABLE rather than IMMUTABLE.
+--
+-- The EXCEPTION block costs a subtransaction, so it encloses the date casts
+-- alone, which only a date-shaped string reaches.
 CREATE OR REPLACE FUNCTION jl_try_number(val jsonb) RETURNS numeric AS $$
 DECLARE
+    v_moment CONSTANT text := '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?';
     txt_val text;
 BEGIN
     IF val IS NULL THEN RETURN NULL; END IF;
@@ -34,30 +53,40 @@ BEGIN
         WHEN 'string' THEN
             txt_val := val #>> '{}';
 
-            -- First try numeric coercion to preserve original JsonLogic behavior.
-            -- data_exception is the whole 22xxx class: bad syntax, overflow,
-            -- anything the cast can raise on caller-supplied text.
-            BEGIN
-                RETURN txt_val::numeric;
-            EXCEPTION WHEN data_exception THEN
-                NULL;
-            END;
-
-            -- Number('') and Number('   ') are 0 in JavaScript, not NaN, and the
-            -- numeric cast above raises on both. Without this an empty string
-            -- would stop comparing equal to 0 and to false.
-            IF trim(txt_val) = '' THEN
+            -- Number('') and Number('   ') are 0 in JavaScript, not NaN.
+            IF txt_val ~ '^[[:space:]]*$' THEN
                 RETURN 0::numeric;
             END IF;
 
-            -- Then try timestamp/date coercion for ISO-like date strings. This is
-            -- a Semantius extension (JavaScript would give NaN); it makes the
-            -- function STABLE, not IMMUTABLE, because the parse follows DateStyle.
-            BEGIN
-                RETURN extract(epoch FROM txt_val::timestamp)::numeric;
-            EXCEPTION WHEN data_exception THEN
-                RETURN NULL;
-            END;
+            -- A decimal number with an optional sign, fraction and exponent;
+            -- Infinity in exactly that spelling; a hexadecimal, octal or binary
+            -- integer, which takes no sign.
+            IF txt_val ~ ('^[[:space:]]*('
+                          || '[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?'
+                          || '|[+-]?Infinity'
+                          || '|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+'
+                          || ')[[:space:]]*$') THEN
+                RETURN txt_val::numeric;
+            END IF;
+
+            IF txt_val ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN
+                BEGIN
+                    IF txt_val ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN
+                        RETURN extract(epoch FROM txt_val::date::timestamp)::numeric;
+                    END IF;
+                    -- No offset means UTC, so the session's zone must not be applied to it.
+                    IF txt_val ~ (v_moment || '$') THEN
+                        RETURN extract(epoch FROM txt_val::timestamp)::numeric;
+                    END IF;
+                    IF txt_val ~ (v_moment || '(Z|[+-][0-9]{2}(:?[0-9]{2})?)$') THEN
+                        RETURN extract(epoch FROM (txt_val::timestamptz AT TIME ZONE 'UTC'))::numeric;
+                    END IF;
+                EXCEPTION WHEN data_exception THEN
+                    RETURN NULL;
+                END;
+            END IF;
+
+            RETURN NULL;
 
         WHEN 'boolean' THEN RETURN CASE WHEN val::text = 'true' THEN 1::numeric ELSE 0::numeric END;
         WHEN 'null' THEN RETURN NULL;
@@ -71,6 +100,37 @@ BEGIN
     RETURN COALESCE(jl_try_number(val), 0::numeric);
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public;
+
+-- What an arithmetic operator returns for the number it computed.
+--
+-- A result that is not a finite number is an error, as a division by zero is in
+-- SQL. JSON has no Infinity and no NaN, so the alternative would be null, and
+-- a rule that answered null would store "no value" where its author made a
+-- mistake. The error is the evaluator's own rather than the bare 22012 or
+-- 22003 of the arithmetic underneath, so a client can translate it.
+--
+-- A whole number is returned without a fraction (5, not 5.0). It stays a
+-- numeric: narrowing it to bigint would raise for a value beyond that range,
+-- and neither JSON nor JavaScript has such a limit.
+CREATE OR REPLACE FUNCTION jl_no_finite_result(p_op text) RETURNS jsonb AS $$
+BEGIN
+    RAISE EXCEPTION '${operator} has no finite result'
+        USING ERRCODE = '90920',
+              HINT = jsonb_build_object('operator', p_op)::text;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+CREATE OR REPLACE FUNCTION jl_number_result(p_op text, p_value numeric) RETURNS jsonb AS $$
+BEGIN
+    IF p_value IN ('Infinity'::numeric, '-Infinity'::numeric, 'NaN'::numeric) THEN
+        RETURN jl_no_finite_result(p_op);
+    END IF;
+    IF p_value = trunc(p_value) THEN
+        RETURN to_jsonb(trunc(p_value));
+    END IF;
+    RETURN to_jsonb(p_value);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 -- Helper: coerce jsonb value to text (for cat, substr, in-string)
 CREATE OR REPLACE FUNCTION jl_to_text(val jsonb) RETURNS text AS $$
@@ -799,7 +859,10 @@ BEGIN
     END IF;
 
     -- ===================== === =====================
+    -- An argument that was not given is JavaScript's undefined, which is
+    -- strictly equal to nothing but another undefined.
     IF op = '===' THEN
+        IF a IS NULL OR b IS NULL THEN RETURN to_jsonb(a IS NULL AND b IS NULL); END IF;
         -- Strict equality: types must match
         IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'false'::jsonb; END IF;
         RETURN to_jsonb(a = b);
@@ -812,6 +875,7 @@ BEGIN
 
     -- ===================== !== =====================
     IF op = '!==' THEN
+        IF a IS NULL OR b IS NULL THEN RETURN to_jsonb(NOT (a IS NULL AND b IS NULL)); END IF;
         IF jsonb_typeof(a) <> jsonb_typeof(b) THEN RETURN 'true'::jsonb; END IF;
         RETURN to_jsonb(a <> b);
     END IF;
@@ -828,8 +892,12 @@ BEGIN
 
     -- ===================== > >= < <= =====================
     -- Two strings compare as text in code-point order (COLLATE "C"); any other
-    -- pair is coerced to numbers through jl_to_number, so "10" > "9" is false
-    -- and "10" > 9 is true. JavaScript orders strings by UTF-16 code unit, which
+    -- pair is coerced to numbers, so "10" > "9" is false and "10" > 9 is true.
+    -- A string that carries no number is NaN in JavaScript, and every
+    -- comparison with NaN is false, so such a pair is false under all four
+    -- operators: reading "abc" as 0 would make "abc" < 5 true. Null and the
+    -- empty string are 0 there and here, as is everything that is no string.
+    -- JavaScript orders strings by UTF-16 code unit, which
     -- is the same order for every character in the Basic Multilingual Plane and
     -- a different one above U+FFFF, where a surrogate pair sorts below U+E000
     -- there and above it here. The
@@ -842,8 +910,9 @@ BEGIN
                            WHEN txt_a COLLATE "C" > txt_b THEN 1
                            ELSE 0 END;
         ELSE
-            num_a := jl_to_number(a);
-            num_b := jl_to_number(b);
+            num_a := CASE WHEN jsonb_typeof(a) = 'string' THEN jl_try_number(a) ELSE jl_to_number(a) END;
+            num_b := CASE WHEN jsonb_typeof(b) = 'string' THEN jl_try_number(b) ELSE jl_to_number(b) END;
+            IF num_a IS NULL OR num_b IS NULL THEN RETURN 'false'::jsonb; END IF;
             cmp_ab := CASE WHEN num_a < num_b THEN -1
                            WHEN num_a > num_b THEN 1
                            ELSE 0 END;
@@ -860,8 +929,9 @@ BEGIN
                            WHEN txt_a COLLATE "C" > txt_b THEN 1
                            ELSE 0 END;
         ELSE
-            num_b := jl_to_number(b);
-            num_c := jl_to_number(c);
+            num_b := CASE WHEN jsonb_typeof(b) = 'string' THEN jl_try_number(b) ELSE jl_to_number(b) END;
+            num_c := CASE WHEN jsonb_typeof(c) = 'string' THEN jl_try_number(c) ELSE jl_to_number(c) END;
+            IF num_b IS NULL OR num_c IS NULL THEN RETURN 'false'::jsonb; END IF;
             cmp_bc := CASE WHEN num_b < num_c THEN -1
                            WHEN num_b > num_c THEN 1
                            ELSE 0 END;
@@ -871,8 +941,11 @@ BEGIN
     END IF;
 
     -- ===================== % =====================
+    -- A zero divisor is an error of the evaluator's own (jl_number_result).
     IF op = '%' THEN
-        RETURN to_jsonb(jl_to_number(a) % jl_to_number(b));
+        num_b := jl_to_number(b);
+        IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
+        RETURN jl_number_result(op, jl_to_number(a) % num_b);
     END IF;
 
     -- ===================== + =====================
@@ -881,12 +954,7 @@ BEGIN
         FOR i IN 0 .. arr_len - 1 LOOP
             num_a := num_a + jl_to_number(vals -> i);
         END LOOP;
-        -- Return integer if result is integer
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== * =====================
@@ -895,11 +963,7 @@ BEGIN
         FOR i IN 1 .. arr_len - 1 LOOP
             num_a := num_a * jl_to_number(vals -> i);
         END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== - =====================
@@ -909,24 +973,15 @@ BEGIN
         ELSE
             num_a := jl_to_number(a) - jl_to_number(b);
         END IF;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== / =====================
     IF op = '/' THEN
         num_a := jl_to_number(a);
         num_b := jl_to_number(b);
-        IF num_b = 0 THEN RETURN 'null'::jsonb; END IF;
-        num_c := num_a / num_b;
-        IF num_c = trunc(num_c) THEN
-            RETURN to_jsonb(num_c::bigint);
-        ELSE
-            RETURN to_jsonb(num_c);
-        END IF;
+        IF num_b = 0 THEN RETURN jl_no_finite_result(op); END IF;
+        RETURN jl_number_result(op, num_a / num_b);
     END IF;
 
     -- ===================== max =====================
@@ -936,11 +991,7 @@ BEGIN
             num_b := jl_to_number(vals -> i);
             IF num_b > num_a THEN num_a := num_b; END IF;
         END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== min =====================
@@ -950,11 +1001,7 @@ BEGIN
             num_b := jl_to_number(vals -> i);
             IF num_b < num_a THEN num_a := num_b; END IF;
         END LOOP;
-        IF num_a = trunc(num_a) THEN
-            RETURN to_jsonb(num_a::bigint);
-        ELSE
-            RETURN to_jsonb(num_a);
-        END IF;
+        RETURN jl_number_result(op, num_a);
     END IF;
 
     -- ===================== in =====================
@@ -969,8 +1016,11 @@ BEGIN
             END LOOP;
             RETURN 'false'::jsonb;
         ELSIF jsonb_typeof(b) = 'string' THEN
-            -- Substring check
-            txt_a := jl_to_text(a);
+            -- Substring check. JavaScript searches for the needle as text, and
+            -- null as text is 'null'. jl_to_text reads null as the empty text,
+            -- which every string contains, so a null or missing needle would be
+            -- found everywhere.
+            txt_a := CASE WHEN jsonb_typeof(a) = 'null' THEN 'null' ELSE jl_to_text(a) END;
             txt_b := jl_to_text(b);
             RETURN to_jsonb(position(txt_a in txt_b) > 0);
         ELSE
@@ -1000,8 +1050,9 @@ BEGIN
             end_len := jl_to_number(c)::int;
             IF end_len < 0 THEN
                 -- Negative length: from start_pos, take chars until end_len from end
+                -- A length that reaches back past the start leaves nothing.
                 temp_str := substring(src FROM start_pos + 1);
-                RETURN to_jsonb(substring(temp_str FROM 1 FOR length(temp_str) + end_len));
+                RETURN to_jsonb(substring(temp_str FROM 1 FOR GREATEST(length(temp_str) + end_len, 0)));
             ELSE
                 RETURN to_jsonb(substring(src FROM start_pos + 1 FOR end_len));
             END IF;
@@ -1313,11 +1364,15 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
 
 COMMENT ON FUNCTION jl_truthy(jsonb) IS
-'JsonLogic truthiness of a JSONB value (JavaScript-style): false for null, false, 0, "" and empty arrays/objects; true otherwise.';
+'JsonLogic truthiness of a JSONB value: false for null, false, 0, "" and an empty array; true otherwise, an empty object included.';
 COMMENT ON FUNCTION jl_try_number(jsonb) IS
-'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. Used by jl_loose_eq, which must not read a non-numeric string as 0.';
+'Numeric value of a JSONB value under JsonLogic/JavaScript rules, or NULL where there is none - JavaScript''s NaN. A string counts when JavaScript''s Number() reads it, or when it is an ISO 8601 date or date-time, whose number is its epoch seconds in UTC. Used by jl_loose_eq and the ordering operators, which must not read a non-numeric string as 0.';
 COMMENT ON FUNCTION jl_to_number(jsonb) IS
-'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by arithmetic and comparison operators). Reads anything without a numeric value as 0.';
+'Coerces a JSONB value to numeric using JsonLogic/JavaScript rules (used by the arithmetic operators). Reads anything without a numeric value as 0.';
+COMMENT ON FUNCTION jl_no_finite_result(text) IS
+'Raises 90920 for an arithmetic operator whose result is not a finite number: a zero divisor, or a result of Infinity or NaN.';
+COMMENT ON FUNCTION jl_number_result(text, numeric) IS
+'The JSON number an arithmetic operator returns: a whole number without a fraction, whatever its size. Raises 90920 for Infinity and NaN.';
 COMMENT ON FUNCTION jl_to_text(jsonb) IS
 'Coerces a JSONB value to text using JsonLogic/JavaScript rules (used by string operators and loose comparisons).';
 COMMENT ON FUNCTION jl_loose_eq(jsonb, jsonb) IS
@@ -1359,6 +1414,8 @@ COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 REVOKE EXECUTE ON FUNCTION jl_truthy(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_try_number(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_number(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_no_finite_result(text) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_number_result(text, numeric) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_to_text(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_date_is_blank(jsonb) FROM public;
@@ -1383,6 +1440,8 @@ REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
 GRANT EXECUTE ON FUNCTION jl_truthy(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_try_number(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_number(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_no_finite_result(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_number_result(text, numeric) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_text(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_loose_eq(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_date_is_blank(jsonb) TO semantius_user;
@@ -1406,11 +1465,14 @@ GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
 -- On an upgrade the dictionary's definer code already runs as semantius_owner,
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
--- through that code, which checks their rules with these three.
+-- through that code, which checks their rules with jl_operators,
+-- jl_is_operation and jl_unknown_operator and evaluates them with the rest.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
         GRANT EXECUTE ON FUNCTION
+            jl_no_finite_result(text),
+            jl_number_result(text, numeric),
             jl_operators(),
             jl_is_operation(jsonb),
             jl_unknown_operator(jsonb)
