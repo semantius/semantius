@@ -682,6 +682,27 @@ COMMENT ON FUNCTION is_nullable IS
 'Determines whether a column should allow NULL values based on its format. Returns TRUE for reference, date, and date-time formats.';
 
 -- =====================================================
+-- UNIQUE VALUE PREDICATE
+-- =====================================================
+-- The WHERE clause of the partial unique index a unique_value field gets.
+-- NULL never counts as a value. On a TEXT column the empty string does not
+-- either: it is what a text field that was left out holds, so any number of
+-- rows may carry it. The test is the column's type, not the JSON type of the
+-- format: a date, a timestamp, a uuid and the other formats that travel as a
+-- JSON string have no empty value, and comparing such a column with '' fails
+-- when the index is built, because '' cannot be cast to its type.
+CREATE OR REPLACE FUNCTION dd_unique_predicate(p_field fields)
+RETURNS TEXT AS $$
+    SELECT CASE WHEN field_data_type(p_field.format, p_field."precision", p_field.reference_table) = 'TEXT'
+                THEN format('%I IS NOT NULL AND %I != ''''', p_field.field_name, p_field.field_name)
+                ELSE format('%I IS NOT NULL', p_field.field_name)
+           END;
+$$ LANGUAGE sql STABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_unique_predicate(fields) IS
+'The WHERE clause of a unique_value field''s partial unique index: NULL is left out for every column type, and the empty string as well for a TEXT column.';
+
+-- =====================================================
 -- ENUM HELPER FUNCTIONS
 -- =====================================================
 -- An entry of enum_values is a plain value ("active") or a value with its
@@ -1835,12 +1856,7 @@ BEGIN
             v_where_clause TEXT;
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', v_rel, NEW.field_name);
-            -- For string types, exclude NULL and empty string from uniqueness enforcement
-            IF format_to_json_type(NEW.format)::text = '"string"' THEN
-                v_where_clause := format('%I IS NOT NULL AND %I != ''''', NEW.field_name, NEW.field_name);
-            ELSE
-                v_where_clause := format('%I IS NOT NULL', NEW.field_name);
-            END IF;
+            v_where_clause := dd_unique_predicate(NEW);
             EXECUTE format(
                 'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
                 v_unique_idx_name,
@@ -2167,12 +2183,7 @@ BEGIN
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', v_rel, NEW.field_name);
             IF NEW.unique_value THEN
-                IF format_to_json_type(NEW.format)::text = '"string"' THEN
-                    v_where_clause := format('%I IS NOT NULL AND %I != ''''',
-                        NEW.field_name, NEW.field_name);
-                ELSE
-                    v_where_clause := format('%I IS NOT NULL', NEW.field_name);
-                END IF;
+                v_where_clause := dd_unique_predicate(NEW);
                 EXECUTE format(
                     'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
                     v_unique_idx_name, v_rel, NEW.field_name, v_where_clause
@@ -4831,6 +4842,7 @@ REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_unique_predicate(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_required_test(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_required_check_expr(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_constraint_exists(TEXT, TEXT) FROM PUBLIC;

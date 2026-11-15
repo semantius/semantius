@@ -125,12 +125,7 @@ BEGIN
             v_where_clause    TEXT;
         BEGIN
             v_unique_idx_name := format('%s_%s_unique', p_field.table_name, p_field.field_name);
-            IF format_to_json_type(p_field.format)::text = '"string"' THEN
-                v_where_clause := format('%I IS NOT NULL AND %I != ''''',
-                    p_field.field_name, p_field.field_name);
-            ELSE
-                v_where_clause := format('%I IS NOT NULL', p_field.field_name);
-            END IF;
+            v_where_clause := dd_unique_predicate(p_field);
             EXECUTE format(
                 'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I(%I) WHERE %s',
                 v_unique_idx_name, p_field.table_name, p_field.field_name, v_where_clause
