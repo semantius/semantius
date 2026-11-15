@@ -63,37 +63,6 @@ COMMENT ON FUNCTION public.jl_error_hint(TEXT, JSONB) IS
 REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 
 -- =====================================================
--- Dollar-quoting a generated function body
--- =====================================================
--- A generated body is handed to EXECUTE as the owner, and text an
--- administrator wrote (a rule, a validation message, a computed field's name,
--- a filter literal) lands inside it through quote_literal. quote_literal
--- protects the single-quote context only: a dollar-quoted body ends at the
--- first occurrence of its tag wherever that is, a quoted literal included, so
--- a fixed tag such as $RULES$ written into a message would end the body early
--- and hand the rest of the text to EXECUTE as SQL run by the owner. The tag is
--- therefore derived from the body itself: no literal inside the body can hold
--- a hash of the whole body, and the check makes sure of it. Deterministic, so
--- a regenerated body is byte-identical to the one before.
-CREATE OR REPLACE FUNCTION dd_dollar_quote(p_body TEXT)
-RETURNS TEXT AS $$
-DECLARE
-    v_tag TEXT := '$dd_' || md5(p_body) || '$';
-BEGIN
-    IF position(v_tag IN p_body) > 0 THEN
-        RAISE EXCEPTION 'generated function body contains its own delimiter'
-            USING ERRCODE = '22023';
-    END IF;
-    RETURN v_tag || p_body || v_tag;
-END;
-$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
-
-COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
-'Wraps a generated function body in a dollar tag derived from the body, so no quoted literal inside it can end the body early when the CREATE FUNCTION is executed. Used by every dictionary generator.';
-
-REVOKE EXECUTE ON FUNCTION dd_dollar_quote(TEXT) FROM PUBLIC;
-
--- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
 

@@ -960,7 +960,7 @@ COMMENT ON FUNCTION rollup_value_sql(JSONB, TEXT) IS
 
 REVOKE EXECUTE ON FUNCTION rollup_value_sql(JSONB, TEXT) FROM PUBLIC;
 
--- The body goes through dd_dollar_quote (0210_computed_validation.sql), like
+-- The body goes through dd_dollar_quote (0160_dd_functions.sql), like
 -- every generated body: a filter literal cannot end it early inside the
 -- EXECUTE that creates the function.
 CREATE OR REPLACE FUNCTION rollup_create_function(p_name TEXT, p_body TEXT)

@@ -822,10 +822,12 @@ BEGIN
         v_body := format('SELECT %s', v_local);
     END IF;
 
+    -- The dollar tag is derived from the body (dd_dollar_quote), as for every
+    -- generated function, so nothing spliced into the body can end it.
     EXECUTE format(
         'CREATE OR REPLACE FUNCTION public._label(rec %s) RETURNS text '
-        'LANGUAGE sql STABLE SET search_path = public AS $body$ %s $body$',
-        v_rowtype, v_body);
+        'LANGUAGE sql STABLE SET search_path = public AS %s',
+        v_rowtype, dd_dollar_quote(' ' || v_body || ' '));
     -- Computed-label functions are SECURITY INVOKER (default): keep them off PUBLIC but executable
     -- by the request role so they work as PostgREST computed columns and in nested _label calls.
     EXECUTE format('REVOKE EXECUTE ON FUNCTION public._label(%s) FROM PUBLIC', v_rowtype);
@@ -857,9 +859,10 @@ BEGIN
             WHERE table_schema='public' AND table_name=p_table_name AND column_name = r.field_name || '_label');
         EXECUTE format(
             'CREATE OR REPLACE FUNCTION public.%I(rec %s) RETURNS text '
-            'LANGUAGE sql STABLE SET search_path = public AS $body$ '
-            'SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I $body$',
-            r.field_name || '_label', v_rowtype, r.reference_table, v_parent_id, r.field_name);
+            'LANGUAGE sql STABLE SET search_path = public AS %s',
+            r.field_name || '_label', v_rowtype,
+            dd_dollar_quote(format(' SELECT public._label(p) FROM public.%I p WHERE p.%I = rec.%I ',
+                                   r.reference_table, v_parent_id, r.field_name)));
         EXECUTE format('REVOKE EXECUTE ON FUNCTION public.%I(%s) FROM PUBLIC', r.field_name || '_label', v_rowtype);
         EXECUTE format('GRANT EXECUTE ON FUNCTION public.%I(%s) TO semantius_user', r.field_name || '_label', v_rowtype);
         EXECUTE format(

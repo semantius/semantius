@@ -123,7 +123,7 @@ SELECT is_empty(
 -- occurrence of its tag wherever that is, a quoted literal included, so
 -- metadata that contains the tag ends the body early and the rest of the text
 -- runs as SQL of the owner. The tag therefore has to be one the body cannot
--- contain, which is what dd_dollar_quote (0210_computed_validation.sql)
+-- contain, which is what dd_dollar_quote (0160_dd_functions.sql)
 -- derives from the body itself.
 --
 -- pg_proc.prosrc holds a function's body without its own delimiters, so

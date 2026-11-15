@@ -63,6 +63,35 @@ COMMENT ON FUNCTION format_to_data_type IS
 'Maps JSON Schema format values to PostgreSQL data types for CREATE/ALTER TABLE statements. For "number" format, the optional p_precision argument controls the NUMERIC scale (default 2).';
 
 -- =====================================================
+-- Dollar-quoting a generated function body
+-- =====================================================
+-- A generated body is handed to EXECUTE as the owner, and text an
+-- administrator wrote (a rule, a validation message, a computed field's name,
+-- a column default, a filter literal) lands inside it through quote_literal.
+-- quote_literal protects the single-quote context only: a dollar-quoted body
+-- ends at the first occurrence of its tag wherever that is, a quoted literal
+-- included, so a fixed tag such as $RULES$ written into a message would end
+-- the body early and hand the rest of the text to EXECUTE as SQL run by the
+-- owner. The tag is therefore derived from the body itself: no literal inside
+-- the body can hold a hash of the whole body, and the check makes sure of it.
+-- Deterministic, so a regenerated body is byte-identical to the one before.
+CREATE OR REPLACE FUNCTION dd_dollar_quote(p_body TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_tag TEXT := '$dd_' || md5(p_body) || '$';
+BEGIN
+    IF position(v_tag IN p_body) > 0 THEN
+        RAISE EXCEPTION 'generated function body contains its own delimiter'
+            USING ERRCODE = '22023';
+    END IF;
+    RETURN v_tag || p_body || v_tag;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public;
+
+COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
+'Wraps a generated function body in a dollar tag derived from the body, so no quoted literal inside it can end the body early when the CREATE FUNCTION is executed. Used by every dictionary generator.';
+
+-- =====================================================
 -- ENTITY FAMILIES (id_type is_a and has_a)
 -- =====================================================
 -- An is_a entity is a subtype, a has_a entity an optional extension, of the
@@ -3923,10 +3952,6 @@ BEGIN
                        ELSE format('CASE%s ELSE %s END', v_top_expr, v_n) END;
 
     v_body := format($BODY$
-CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
-RETURNS %2$s
-LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
-AS $RW$
 #variable_conflict use_variable
 DECLARE
     v_new    %2$s := p_new;
@@ -3966,7 +3991,6 @@ BEGIN
     END IF;
     RETURN v_res;
 END;
-$RW$;
 $BODY$,
         v_fn,
         v_type,
@@ -4018,7 +4042,16 @@ $BODY$,
         -- 16: the key of a stored record never changes
         dd_key_kept_sql(v_k, 'p_old', p_table_name));
 
-    EXECUTE v_body;
+    -- The body holds the default expressions of the base's columns, which are
+    -- text an administrator chose, so its dollar tag is derived from the body
+    -- (dd_dollar_quote): a default that spells out a fixed tag would end the
+    -- body there.
+    EXECUTE format($FUNC$
+CREATE OR REPLACE FUNCTION common.%1$I(p_op text, p_old %2$s, p_new %2$s, p_from_root boolean)
+RETURNS %2$s
+LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog SET timezone = 'UTC' SET intervalstyle = 'iso_8601'
+AS %3$s;
+$FUNC$, v_fn, v_type, dd_dollar_quote(v_body));
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) FROM PUBLIC', v_fn, v_type, v_type);
     EXECUTE format('GRANT EXECUTE ON FUNCTION common.%I(text, %s, %s, boolean) TO semantius_user', v_fn, v_type, v_type);
     EXECUTE format('COMMENT ON FUNCTION common.%I(text, %s, %s, boolean) IS %L', v_fn, v_type, v_type,
@@ -4131,11 +4164,14 @@ BEGIN
     END IF;
     RETURN v_res;$OWN$, 'record_write_' || p_table_name);
 
-    EXECUTE format($BODY$
-CREATE OR REPLACE FUNCTION common.%1$I()
+    -- The dollar tag is derived from the body (dd_dollar_quote), as for every
+    -- generated function, so nothing spliced into the body can end it.
+    EXECUTE format($FUNC$
+CREATE OR REPLACE FUNCTION common.%I()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
-AS $VW$
+AS %s;
+$FUNC$, v_fn, dd_dollar_quote(format($BODY$
 #variable_conflict use_variable
 DECLARE
     v_res public.%2$I;%3$s
@@ -4145,7 +4181,6 @@ BEGIN
         RETURN v_res;
     END IF;%5$s
 END;
-$VW$;
 $BODY$,
         v_fn, p_table_name, v_case.decls, 'record_write_' || p_table_name,
         CASE WHEN v_case.branches = '' THEN v_own
@@ -4163,7 +4198,7 @@ $BODY$,
     END IF;
     RETURN v_res;$CASE$,
                     v_k, v_case.branches, replace(v_own, E'\n    ', E'\n            '), p_table_name)
-        END);
+        END)));
 
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', v_fn);
     EXECUTE format('COMMENT ON FUNCTION common.%I() IS %L', v_fn,
@@ -4202,11 +4237,14 @@ BEGIN
         RETURN;
     END IF;
 
-    EXECUTE format($BODY$
-CREATE OR REPLACE FUNCTION common.%1$I()
+    -- The dollar tag is derived from the body (dd_dollar_quote), as for every
+    -- generated function, so nothing spliced into the body can end it.
+    EXECUTE format($FUNC$
+CREATE OR REPLACE FUNCTION common.%I()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_catalog
-AS $DISPATCH$
+AS %s;
+$FUNC$, v_fn, dd_dollar_quote(format($BODY$
 #variable_conflict use_variable
 DECLARE%2$s
 BEGIN
@@ -4223,9 +4261,8 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$DISPATCH$;
 $BODY$,
-        v_fn, v_case.decls, v_k, replace(v_case.branches, E'\n', E'\n    '));
+        v_fn, v_case.decls, v_k, replace(v_case.branches, E'\n', E'\n    '))));
 
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', v_fn);
     EXECUTE format('COMMENT ON FUNCTION common.%I() IS %L', v_fn,
@@ -4829,6 +4866,7 @@ REVOKE EXECUTE ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_sync_typeid_prefix() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION format_to_data_type(TEXT, SMALLINT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_dollar_quote(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_data_type(TEXT, SMALLINT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION enum_value_list(JSONB) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION effective_enum_values(TEXT, JSONB) FROM PUBLIC;
@@ -4871,6 +4909,7 @@ DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
         GRANT EXECUTE ON FUNCTION
+            dd_unique_predicate(fields),
             dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT),
             dd_required_test(fields),
             dd_required_check_expr(fields),
