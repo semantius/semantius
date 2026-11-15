@@ -101,6 +101,23 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   their lazy write instead. Everything they write is transaction-local, so a
   rolled-back request leaves nothing behind; the full contract is in the
   comment above `rbac.uid()`.
+- **A row being written passes its entity's `select_rule` for that one
+  statement.** The write policies of an entity with a `select_rule` hold the
+  row as it was to the rule and the row as it will be to the edit permission
+  only. An editor may therefore move a row out of its own rule, or insert one
+  outside it, and gets the row it wrote back from `RETURNING`. PostgreSQL also
+  holds the new row to the read policy, so a trigger marks that row in the
+  transaction-local setting `app.row_move` to let it pass. The setting is
+  client-writable wherever the client runs SQL, so its value is a SHA-256 of a
+  secret in `_settings`, the transaction id, the table and the key, and a
+  value the client writes opens nothing. Behind PostgREST or an app server,
+  the writer can no longer read, update or delete the row once the statement
+  has ended. A client that runs SQL itself can read the token while its
+  statement runs and write it back later in the same transaction, which lets
+  it read that one row, the row it wrote, until the transaction ends. A row
+  whose rule raises on its new values is not let through: the write is refused
+  with 42501. An `INSERT` under a key that is already stored is not marked, so
+  it cannot be used to read the row that holds the key.
 - **Bearer mode is experimental.** PostgreSQL 18 OAuth bearer authentication
   with `pg_oidc_validator` is a development configuration, not a deployment
   target. Its status and the remaining hardening are in

@@ -302,6 +302,58 @@ installs the core schema as ordinary objects.
   already run. Reinstall it. `.jsonc` exports taken from an older instance that
   declare an id or user id field as `int32` must be edited to `int64` before
   they are imported, because a core field's format cannot change.
+- **Rules are checked when they are saved.** A `select_rule`, validation rule or
+  computed field that names an operator the evaluator does not implement is
+  refused (`90909`), wherever in the rule the operator stands. A `select_rule`
+  or validation rule that is not one JsonLogic operation, a literal such as
+  `true` included, is refused (`90919`): the evaluator reads it as a value,
+  which is truthy, so it passed every record. The check runs on every write of
+  the entity, so an entity that stores such a rule cannot be saved again until
+  the rule is put right. A stored `select_rule` that is no operation hides
+  every row.
+- **JsonLogic follows JavaScript more closely.** A string counts as a number
+  only when `Number()` reads it, or when it is an ISO 8601 date or date-time
+  (its epoch seconds, offset honored); `NaN`, `infinity`, `today` and locale
+  dates no longer do. Ordering against a string that carries no number is
+  false. `/` and `%` with a zero divisor, and any arithmetic result of
+  Infinity or NaN, raise `90920`; `/` used to return null. A whole result
+  beyond the 64-bit range is returned. `in` with a null needle, `substr` with
+  a negative length past the start, and `===` / `!==` with one argument answer
+  as JavaScript does.
+- **`external_id` is written by an administrator only.** A caller without
+  `admin` can neither change the `external_id` of a user nor insert a user
+  with one (42501, `hint.code` `90107`). A holder of `user:manage` still
+  creates agents and edits every other column; a person's row comes from the
+  first sign-in or from an administrator.
+- **Internal tables cannot be entities.** A table name that starts with `_`
+  (`_settings`, `_apikeys`) is refused on insert into `entities`, on a rename
+  and on adoption (`90271`).
+- **Names that would be cut are refused.** A table name longer than 41 bytes
+  is refused on insert, rename and adoption (`90273`): the longest name
+  generated from it adds 22 bytes and PostgreSQL cuts an identifier at 63. A
+  field whose generated index name is already used, as table `a_b` with field
+  `c` and table `a` with field `b_c` spell the same one, is refused (`90274`).
+- **A write may move a record out of the writer's own `select_rule`.** A
+  keyed `UPDATE` that reassigns a record, and an `INSERT ... RETURNING` of a
+  record outside the rule, used to fail with 42501 because PostgreSQL holds
+  the new row to the read policy. The row being written now passes that one
+  check; afterward the rule hides it from the writer. `SECURITY.md` describes
+  the mechanism.
+- **A `time` field is nullable**, like `date`, and has no default unless
+  `default_value` sets one. A required `time` field refuses a missing value
+  with `90258`.
+- **`unique_value` works on every column type.** The partial unique index
+  leaves out NULL, and the empty string on a TEXT column only; a `date`,
+  `date-time` or `uuid` field could not be made unique before.
+- **A rollup filter with a date operator refuses a child it cannot read**
+  with `90272`, naming the rollup, in place of `90915`, `22003` or `22008`: a
+  date of `infinity`, a year beyond 9999, an amount beyond the integer range.
+- `get_schema_children()` lists a child only for a caller who may view it,
+  and nothing under a parent the caller may not view.
+- A role moved from a module to no module bumps the version of the module it
+  left.
+- No generator wraps a generated function body in a fixed dollar tag; a
+  column default containing such a tag used to end the body early.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.

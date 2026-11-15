@@ -33,6 +33,14 @@ including the client-artifact regeneration (drizzle, kysely and docgen rebuilt f
 `_core`-only database, and the extension reissued as a fresh-install-only build because the
 generated upgrade script was a no-op). Pinned by tests `0930` (b8), `0660` (b5), `0630` (b3),
 `0570` (b6, the b7 audit and the b7 ctype lock and protection) and `0620` (b9).
+**Amended 2026-11-15 (the row being written, identity, read helpers):** four changes, decided by
+the maintainer. (1) I1 and I3: a write may move a row out of the writer's own `select_rule`, and
+`RETURNING` hands back the row the statement wrote; the path table and I1 say how. Reading the
+row afterward is still confined by `access(row)`. Test `0610`. (2) I5: `users.external_id` is the
+identity a token resolves to, so only a holder of `admin` sets or changes it (`90107`, test
+`0390`). (3) I1 read helpers: `get_schema_children` lists a child only for a caller who may view
+it (test `0700`). (4) A2: an internal table, named with a leading `_`, cannot be registered as an
+entity or adopted (`90271`, test `0960`).
 **Amended 2026-09-05 (first-user bootstrap):** I5's bootstrap exception is re-keyed. The gate is no longer
 "no other user has a `last_seen`" but "no user holds role 2", taken under
 `pg_advisory_xact_lock`. The old form was a heuristic that drifted: pre-provisioned users keep
@@ -106,6 +114,7 @@ core of the remediation — today it is not):
 | `get_record_by_id` / `set_record` / `build_schema_for_table` / reference-label joins | evaluate `access(row)` — **today they check only `view_permission` → the bypass** |
 | UPDATE / DELETE `USING` | `has_permission(edit_permission) AND access(row)` — can't write a row you can't read |
 | `INSERT`/`UPDATE` `WITH CHECK` | `has_permission(edit_permission)` (+ optional post-image `check_rule`, unbuilt) |
+| The new row of a write that reads a column (`WHERE`, `RETURNING`) | PostgreSQL also holds it to the SELECT policy. The row the statement is writing passes that one check, so a write may move a row out of the writer's own rule; `access(row)` applies again as soon as the statement has ended |
 
 ---
 
@@ -150,7 +159,11 @@ core of the remediation — today it is not):
 
 - **I1 · Read confinement** — no subject reads a row outside `access(row)` (the canonical
   predicate) via ANY path: SELECT, RETURNING, sub-select, **`get_record_by_id`/`set_record`/
-  `build_schema_for_table`**, view, search, FK-label join, cube, or error message.
+  `build_schema_for_table`**, view, search, FK-label join, cube, or error message. One
+  exception: `RETURNING` hands a writer the row its own statement wrote, also when the write
+  moved that row out of `access(row)`. The writer supplied or could already read every value
+  in it. A client that runs SQL itself can read that one row again until its transaction
+  ends, and no other.
 - **I2 · No write/delete of inaccessible rows** — a subject cannot UPDATE/DELETE a row for
   which `access(row)` is false, under EVERY statement shape (A4). Enforced via UPDATE/DELETE
   `USING`, not via incidental SELECT-policy application.
@@ -162,6 +175,8 @@ core of the remediation — today it is not):
 - **I5 · No privilege escalation** — cannot self-grant by writing `user_roles`/
   `role_permissions`/`user_permissions`/`permissions`/`permission_hierarchy`/`raci_assignments`
   without the governing permission. (Bootstrap first-user→admin is a characterized exception.)
+  Writing `users.external_id` is escalation as well, because a session is whoever's row carries
+  the token's `sub`: only a holder of `admin` sets or changes it.
 - **I6 · DD integrity** — core fields (identified by `dd_ctype_is_core(ctype)`, i.e. `ctype` not in
   `''`, `'rollup'`, `'computed'`; originally `ctype <> ''`) cannot be deleted or
   structurally altered (format/default/pk) by any non-migration subject, via any op/shape/role;
