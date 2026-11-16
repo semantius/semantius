@@ -5,7 +5,8 @@ The dictionary builds SQL at run time from values administrators write into
 value reaches a statement only through `%I`, through `%L` or `quote_literal`,
 through a fixed allow-list, or from the catalog. This page lists every such
 value: where it comes from, how it is quoted and which test pins it. A new
-statement that builds SQL gets its row here in the commit that adds it.
+statement that builds SQL gets its row here in the commit that adds it;
+`0900_test_security.sql` (TEST 2.6) fails until it has.
 
 ## How to read the table
 
@@ -466,6 +467,8 @@ and `delete`, always with `queues.queue_name`.
 | `rollup_filter_date_op` | operator name | the operator key of the filter object; it must be on a fixed list | `%L`, allow-list | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_filter_date_op` | result cast type | a `CASE` over literals | allow-list | not needed: no caller text reaches the statement |
 | `rollup_filter_cond`, `rollup_filter_sql` | `AND` or `OR`, the `NOT` prefix, `TRUE`, `FALSE` | a `CASE` over literals on the operator key | allow-list | not needed: no caller text reaches the statement |
+| `rollup_filter_operand` | an operand of a comparison | a `var` of `fields.rollup` -> `filter`, resolved by `rollup_filter_column` against `pg_attribute`, or a literal, handed on to `rollup_filter_literal`; its own `format()` builds a 90265 message only | helper `rollup_filter_column` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `rollup_filter_operands` | the operands of one comparison, as SQL | columns from `rollup_filter_operand`, literals from `rollup_filter_literal`; its own `format()` builds a 90265 message only | helper `rollup_filter_operand`, helper `rollup_filter_literal` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_filter_cond` | comparison operator | the operator key of the filter object, spliced only in the branch for `<`, `<=`, `>`, `>=` | allow-list | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_definition` | parent and child relation (name lookup) | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `rollup_value_sql` | value column | `fields.rollup ->> 'value_field'`, which must name a `fields` row of the child; `rollup_definition` validates the definition again at every build | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
