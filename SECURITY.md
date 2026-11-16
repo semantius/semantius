@@ -153,20 +153,31 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   resolves to a user id, and the JWT minted from it carries that row's
   `external_id` as `sub`. A user brings theirs from the authentication
   provider and is refused without one. An agent (`is_agent`) saved without one
-  gets a generated `agent:<uuid>` from a trigger. The column refuses the empty
-  string for both (`users_external_id_not_empty`). Uniqueness is enforced by
-  the data dictionary's partial unique index, which excludes `NULL` and `''`;
-  with the empty string refused, it is total in effect.
+  gets a generated `agent:<uuid>` from a trigger. Only a holder of `admin` sets
+  or changes an `external_id` (42501, `hint.code` `90107`): a holder of
+  `user:manage` creates agents and edits every other column, and a person's
+  row comes from the first sign-in or from an administrator. The column
+  refuses the empty string for both (`users_external_id_not_empty`).
+  Uniqueness is enforced by the data dictionary's partial unique index, which
+  excludes `NULL` and `''`; with the empty string refused, it is total in
+  effect.
 - **An API key is its owner.** A key authenticates as the user it belongs to
   and carries every permission that user holds; there is no per-key scope.
   Keep an administrator's key where you keep the administrator's password.
+  The key of a disabled user does not validate: `validate_api_key()` answers
+  NULL for it and records no use, and the key works again once the user is
+  enabled.
 - **The last enabled Administrator cannot be removed through the API.**
-  Dropping the role from the last holder, deleting that user, disabling them, or
-  deleting the Administrator role is refused, because every route back in is
-  itself gated on `admin` and the first-user election fires only when a user row
-  is created. A direct superuser or owner connection is exempt, so an operator
-  can still empty the set deliberately; the next principal to log in *for the
-  first time* is then elected.
+  Dropping the role from the last holder, pointing that holder's `user_roles`
+  row at another role or user, deleting that user, disabling them, or deleting
+  the Administrator role is refused (42501, `hint.code` `90104`), because every
+  route back in is itself gated on `admin` and the first-user election fires
+  only when a user row is created. The role also keeps what makes its holders
+  administrators: removing or re-pointing its grant of `admin`, and deleting or
+  renaming the permission `admin`, are refused the same way. A direct superuser
+  or owner connection is exempt, so an operator can still empty the set
+  deliberately; the next principal to log in *for the first time* is then
+  elected.
 - **pgmq's information functions are callable by the request role.** Queue
   names, metrics and topic bindings are readable. Queue contents are not:
   they are reachable only through the queue RPCs, which require the queue's

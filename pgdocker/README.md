@@ -113,9 +113,10 @@ For OAuth sessions, core's `rbac.uid()` takes the subject from `system_user`
 (`oauth:<sub>`, which PostgreSQL validated from the bearer token and a client cannot
 forge), ignoring any client-set `sub`. (The Supabase/Neon PostgREST path,
 `system_user = scram-sha-256:authenticator`, is unaffected.) Writes to the `users`
-table additionally require the `user:manage` permission via RLS, so only admins can
-change user rows; first-login provisioning runs through a `SECURITY DEFINER` function
-that only ever touches the caller's own row.
+table additionally require the `user:manage` permission via RLS, and setting or
+changing a row's `external_id`, the identity a session resolves to, requires `admin`
+(42501, `hint.code` `90107`); first-login provisioning runs through a `SECURITY DEFINER`
+function that only ever touches the caller's own row.
 
 > **Why not `pg_session_jwt`?** That Neon extension *re-validates* a raw JWT
 > injected into a session var and exposes it via `auth.user_id()`. Here the
@@ -231,8 +232,9 @@ For **RS256 tokens** (what the test issuer mints, and most IdPs default to):
 > election fires only when the user row is created, so an existing user is never
 > elected however many times they log in afterwards. For the same reason the
 > system refuses to leave itself without an enabled Administrator — you cannot
-> remove the role from the last one, delete them, or disable them, except over a
-> direct superuser connection.
+> remove the role from the last one, point their role assignment at another role
+> or user, delete them, or disable them, and the Administrator role cannot lose its
+> `admin` permission, except over a direct superuser connection.
 
 ### Testing session mode
 

@@ -15,7 +15,7 @@
 --   7. The predicate handed no request context answers false
 BEGIN;
 
-SELECT plan(47);
+SELECT plan(48);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -596,6 +596,12 @@ SELECT is(
         jsonb_populate_record(NULL::public.user_bookmarks, '{"id": 2, "user_id": 1002}'::jsonb), NULL::jsonb),
     FALSE,
     'no context: somebody else''s bookmark does not pass it either');
+
+SELECT is(
+    public.select_rule_modules(
+        jsonb_populate_record(NULL::public.modules, '{"id": 1, "view_permission": "public:read"}'::jsonb), NULL::jsonb),
+    FALSE,
+    'no context: a module whose view_permission everybody holds does not pass the rule of modules');
 
 SELECT * FROM finish();
 ROLLBACK;
