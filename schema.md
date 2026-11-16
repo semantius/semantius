@@ -1110,7 +1110,7 @@ Users and agents
 | `display_name` (label) | text | Display Name | - | string | false | - | 25 | default | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `is_disabled` (core) | boolean | Is Disabled | - | boolean | false | - | 30 | default | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `settings` (core) | json | Settings | - | json | false | - | 35 | default | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
-| `last_seen` (core) | date-time | Last Seen | - | string | false | - | 60 | readonly | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `last_seen` (core) | date-time | Last Seen | - | string | false | - | 60 | disabled | default | core | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `is_agent` | boolean | Is Agent | A service principal (agent) rather than a person | boolean | false | false | 100 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 
 ---

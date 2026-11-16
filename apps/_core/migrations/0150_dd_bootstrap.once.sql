@@ -247,7 +247,9 @@ VALUES
     ('users', 'is_agent', 'Is Agent', 'A service principal (agent) rather than a person', 'boolean', FALSE, 100, 'default', 'default', '', FALSE, '', '', 'false', FALSE),
     ('users', 'created_at', 'Created At', '', 'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '', '', '', FALSE),
     ('users', 'updated_at', 'Updated At', '', 'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '', '', '', FALSE),
-    ('users', 'last_seen', 'Last Seen', '', 'date-time', FALSE, 60, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE);
+    -- disabled, not readonly: an edit form sends a readonly field back on save,
+    -- which would write the last_seen it loaded over a newer login's.
+    ('users', 'last_seen', 'Last Seen', '', 'date-time', FALSE, 60, 'disabled', 'default', 'core', FALSE, '', '', '', FALSE);
 
 -- Insert fields metadata for modules table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, enum_values, default_value)
