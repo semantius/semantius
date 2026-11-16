@@ -32,7 +32,7 @@
 -- omitting 'admin' confines even an administrator out of it.
 BEGIN;
 
-SELECT plan(118);
+SELECT plan(122);
 
 -- =====================================================
 -- GROUP 1: has_any_permission / require_any_permission (user2)
@@ -559,6 +559,33 @@ SELECT ok(rbac.has_permission('user:read'),
 SELECT set_config('app.oauth_scopes', 'public:read', true);
 SELECT ok(NOT rbac.has_permission('user:read'),
     'memoized expansion: rewriting the list rebuilds rather than answering from the old one');
+
+-- The second seeded edge: admin includes public:read (0100_rbac_rls.sql).
+-- public:read is the view permission of entities and fields, and their UPDATE
+-- and DELETE policies check it next to admin, so a token scoped to admin alone
+-- reads and changes the catalog only through this edge. expand_scopes is
+-- asked as the owner: the request role cannot call it.
+SELECT set_config('app.oauth_scopes', '', true);
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(rbac.expand_scopes('admin'), 'admin,public:read',
+    'scope admin: the scope list expands to admin and the public:read it includes');
+
+SELECT authenticate_as('user3');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id)
+VALUES ('sc_catalog_probe', 'Scope Catalog Probe', 'Scope Catalog Probes', 1);
+SELECT set_config('app.oauth_scopes', 'admin', true);
+SELECT ok(rbac.has_permission('public:read'),
+    'scope admin: hp allows the public:read that admin includes');
+WITH u AS (
+    UPDATE entities SET description = 'scoped to admin' WHERE table_name = 'sc_catalog_probe' RETURNING 1
+)
+SELECT is(count(*)::int, 1, 'scope admin: a row of entities can be updated') FROM u;
+WITH u AS (
+    UPDATE fields SET description = 'scoped to admin'
+     WHERE table_name = 'sc_catalog_probe' AND field_name = 'label' RETURNING 1
+)
+SELECT is(count(*)::int, 1, 'scope admin: a row of fields can be updated') FROM u;
 
 SELECT set_config('app.oauth_scopes', '', true);
 

@@ -2,6 +2,11 @@
 
 **Status:** FROZEN v2. Incorporates the stage-2 adversary panel findings and decisions
 D1–D11. Amendments require explicit review (note the change in this header).
+**Amended 2026-11-16 (references):** stale statements and references were corrected to match the
+code and the amendments below: the access-path status, `$mode` and the subject of a Microsoft
+Entra ID token. D10 states what the 2026-06-12 (b-impl) and (b3/b6/b9) amendments decided: the
+`/rpc/evaluate_json_logic` revoke declined, and `build_schema_for_table` gated by
+`view_permission`. No invariant or premise changed.
 **Amended 2026-09-06 (references):** two pointers into a deleted plan file were replaced by the
 status they were pointing at. No invariant, decision or premise changed. This file is permanent
 and may not cite anything under `plans/`, which is disposable by design.
@@ -121,12 +126,12 @@ access(row) =  select_rule(row)                    when select_rule is non-empty
   operator (`90909`); tests cover the rest.
 
 **This single predicate MUST be enforced identically in every access path** (this is the
-core of the remediation — today it is not):
+core of the remediation):
 
 | Path | required |
 |---|---|
-| SELECT RLS policy | evaluate `access(row)` (already does when rule set) |
-| `get_record_by_id` / `set_record` / `build_schema_for_table` / reference-label joins | evaluate `access(row)` — **today they check only `view_permission` → the bypass** |
+| SELECT RLS policy | evaluate `access(row)` |
+| `get_record_by_id` / `set_record` / `build_schema_for_table` / reference-label joins | evaluate `access(row)`: `get_record_by_id` evaluates it on every level the record is stored in, `set_record` reads through it, the label functions are `SECURITY INVOKER` so the referenced table's SELECT policy applies, and `build_schema_for_table`, which returns no record, checks `view_permission` with existence-hiding |
 | UPDATE / DELETE `USING` | `has_permission(edit_permission) AND access(row)` — can't write a row you can't read |
 | `INSERT`/`UPDATE` `WITH CHECK` | `has_permission(edit_permission)` (+ optional post-image `check_rule`, unbuilt) |
 | The new row of a write that reads a column (`WHERE`, `RETURNING`) | PostgreSQL also holds it to the SELECT policy. The row the statement is writing passes that one check, so a write may move a row out of the writer's own rule; `access(row)` applies again as soon as the statement has ended |
@@ -155,7 +160,7 @@ core of the remediation — today it is not):
   NOT because it is "qualified." The protective axis is "reads-a-column," and the only sound
   fix is to gate writes via `USING` (above), not to rely on the SELECT policy.
 - **A5 · Condition state** — `select_rule` set/empty · `validation_rules`/`computed_fields`
-  present · variable injection `$user_id`/`$old`/`$now`/`$today`/`$mode`(planned) ·
+  present · variable injection `$user_id`/`$old`/`$now`/`$today`/`$mode` ·
   `view_permission` (= reach) · `WITH CHECK`.
 - **A6 · Enforcement layer** — RLS policy (bypassed by owner/BYPASSRLS) · BEFORE trigger
   (fires for owner; bypassed by `session_replication_role=replica`) · SECURITY DEFINER logic
@@ -201,7 +206,8 @@ core of the remediation — today it is not):
   `role_permissions`/`user_permissions`/`permissions`/`permission_hierarchy`/`raci_assignments`
   without the governing permission. (Bootstrap first-user→admin is a characterized exception.)
   Writing `users.external_id` is escalation as well, because a session is whoever's row carries
-  the token's `sub`: only a holder of `admin` sets or changes it. The system keeps an enabled
+  the subject its token resolves to (the `sub` claim, or `entra.<tid>.<oid>` for a Microsoft
+  Entra ID token): only a holder of `admin` sets or changes it. The system keeps an enabled
   holder of role 2, and role 2 keeps its grant of `admin`. Refused with 42501, `hint.code`
   `90104`: removing the role from the last holder, an UPDATE that points that holder's
   `user_roles` row at another role or user, deleting or disabling that user, deleting role 2,
@@ -281,9 +287,12 @@ core of the remediation — today it is not):
   clean up keys/grants, and it requires parent-delete authority). Reconsider only
   `raci_events` (`target_role_id` cascade is the least defensible for an audit log).
 - **D10 · Definer read-helper bypass → FIX, red-first (priority #1).** Make
-  `get_record_by_id`/`set_record`/`build_schema_for_table` apply `access(row)`; lock down
-  `/rpc/evaluate_json_logic` (revoke from the request role, or bound it). Pin with a regression
-  test FIRST (it regressed before precisely because nothing pinned it).
+  `get_record_by_id`/`set_record` apply `access(row)`, and make `build_schema_for_table`, which
+  returns no record, check `view_permission` with existence-hiding. The bypass is closed at the
+  helper, so the revoke of `/rpc/evaluate_json_logic` is not needed and it stays callable by the
+  request role; it is not bounded either, and its unbounded recursion and size are an accepted
+  residual (I-jsonlogic). Pin with a regression test FIRST (it regressed before precisely because
+  nothing pinned it).
 - **D11 · FORCE RLS → SKIP.** Given the BYPASSRLS owner is separate from the non-privileged
   request role, FORCE adds nothing (BYPASSRLS overrides FORCE). Protection = role separation
   (pin via I-roles guard test) + fixing the DEFINER helpers (D10).

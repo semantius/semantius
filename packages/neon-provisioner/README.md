@@ -81,7 +81,7 @@ Runs the full provisioning workflow:
 curl -X POST https://<worker-host>/neon-provisioner \
   -H "Authorization: Bearer $NEON_PROVISIONER_API_KEY" \
   -H "Content-Type: application/json" \
-  -d ' '
+  -d '{"project_name":"acme","jwks_url":"https://<idp>/.well-known/jwks.json","jwt_audience":"<audience>","region_id":"aws-us-east-1","neon_org_id":"free"}'
 ```
 
 ### Success response

@@ -460,27 +460,24 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
-    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
-    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
-    -- callers — otherwise any request-role caller reads any table's full schema (including its
-    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
-    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
-    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
-    -- harmless) for them. The view permission is that of every level an is_a or has_a
-    -- entity's records are stored in, as for reading them.
-    IF NOT FOUND THEN
+    -- Permission gate and existence hiding. build_schema_for_table is granted to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it applies the same
+    -- view_permission check as get_schema()/get_schemas() rather than trusting its callers:
+    -- otherwise any request-role caller would read any table's full schema, its select_rule
+    -- logic included, by calling this helper directly and skipping the wrappers. The four
+    -- in-tree callers check first, so for them the gate is redundant and harmless. The view
+    -- permission is that of every level an is_a or has_a entity's records are stored in, as
+    -- for reading them.
+    --
+    -- A missing table and one the caller may not view raise the same error from one RAISE
+    -- statement: the same SQLSTATE, message and DETAIL, and the same CONTEXT line, which a
+    -- client connected directly receives with the error. Two RAISE statements with the same
+    -- text would still differ in that line and tell a hidden table from a missing one.
+    -- 0700_test_get_schema.sql compares the two errors field by field.
+    IF NOT FOUND OR NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT dd_entity_viewable(p_table_name) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -647,22 +644,14 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Raise error if table not found
-    IF NOT FOUND THEN
+    -- A missing table and one the caller may not view (the table, or a base an
+    -- is_a/has_a entity's records are stored in) raise the same error from one
+    -- RAISE statement, so no field of it, the CONTEXT line included, tells the
+    -- caller that a hidden table exists; see build_schema_for_table.
+    IF NOT FOUND OR NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Check if user has view permission for this table (and for every base an
-    -- is_a/has_a entity's records are stored in)
-    -- Raise same error to avoid leaking table existence
-    IF NOT dd_entity_viewable(p_table_name) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -672,8 +661,8 @@ END;
 -- STABLE: writes no row.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION public.get_schema IS 
-'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
+COMMENT ON FUNCTION public.get_schema IS
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises undefined_table if the table is not found, and the same error if the caller may not view it.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
@@ -687,9 +676,9 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Accepts a comma-separated list of table names
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
--- Raises an error if any table is not found or the user lacks view permission
--- (same error behavior as get_schema() — use the same error code to avoid
---  leaking information about table existence)
+-- Raises an error if any table is not found or the user lacks view permission,
+-- the same error for both, as get_schema() does, so the answer does not say
+-- whether a table the caller may not view exists
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
 DECLARE
@@ -708,19 +697,15 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- Raise error if table not found in entities metadata
         SELECT * INTO v_table_record
         FROM entities
         WHERE table_name = v_table_name;
 
-        IF NOT FOUND THEN
+        -- One RAISE statement for a missing table and one the caller may not
+        -- view, so the two errors agree in every field, the CONTEXT line
+        -- included; see build_schema_for_table.
+        IF NOT FOUND OR NOT dd_entity_viewable(v_table_name) THEN
             RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
-                USING ERRCODE = 'undefined_table';
-        END IF;
-
-        -- Raise same error when user lacks view permission (avoid leaking table existence)
-        IF NOT dd_entity_viewable(v_table_name) THEN
-            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
                 USING ERRCODE = 'undefined_table';
         END IF;
 
@@ -734,7 +719,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, the same error for both, as get_schema() does. Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;

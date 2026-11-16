@@ -340,6 +340,29 @@ installs the core schema as ordinary objects.
   the new row to the read policy. The row being written now passes that one
   check; afterward the rule hides it from the writer. `SECURITY.md` describes
   the mechanism.
+- **`UPDATE` and `DELETE` of an entity without a `select_rule` require the
+  view permission.** Their policies checked the `edit_permission` only, and
+  PostgreSQL holds the rows an `UPDATE` or `DELETE` touches to the read policy
+  only when the statement reads a column. A holder of the edit permission
+  without the `view_permission` could read no row, yet overwrite every row with
+  constants and delete every row with a statement that reads none
+  (`UPDATE t SET c = 'x'`, `DELETE FROM t`, `WHERE true`, `RETURNING 1`).
+  `UPDATE` and `DELETE` now require both permissions; an `INSERT` and the new
+  values of an `UPDATE` still need the edit permission only.
+- **`admin` includes `public:read`.** A second seeded `permission_hierarchy`
+  row, `origin` `system` like `user:manage -> user:read`. `public:read` is the
+  view permission of `entities` and `fields`, whose `UPDATE` and `DELETE` now
+  check it next to `admin`, so a session whose OAuth scopes name `admin` alone
+  can read and change the catalog, and a role or user granted `admin` without
+  `public:read` holds it as well. The row is written by the repeatable
+  `0100_rbac_rls.sql` with `ON CONFLICT DO NOTHING`, so a database that already
+  ran the seed gets it too, and a deleted row is written again the next time
+  that file runs.
+- **`get_schema()`, `get_schemas()` and `build_schema_for_table()` answer a
+  table the caller may not view exactly as a missing one**: `42P01` with the
+  message `Table "<name>" not found in entities`, the same DETAIL and the same
+  CONTEXT. The message `Table "<name>" not found in tables metadata`, which
+  told the two apart, is no longer raised.
 - **A `time` field is nullable**, like `date`, and has no default unless
   `default_value` sets one. A required `time` field refuses a missing value
   with `90258`.

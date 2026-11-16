@@ -14,9 +14,9 @@ A version stays **mutable while it is the highest version built**. It may be
 regenerated, re-tagged and re-released as often as needed. It becomes **frozen
 the moment a higher version is committed** to `extension/versions.json`.
 
-This is deliberate. `0.5.0` is a fresh start: the 0.1.0/0.3.0/0.4.0 lineage was
-cut off on 2026-09-03 and its version history discarded from the manifest, so
-there is no upgrade chain into 0.5.0 and no `pg_semantius--0.4.0--0.5.0.sql`.
+This is deliberate. `0.5.0` is a fresh start: the manifest holds no version of
+the 0.1.0/0.3.0/0.4.0 lineage, so there is no upgrade chain into 0.5.0 and no
+`pg_semantius--0.4.0--0.5.0.sql`.
 Until 0.5.0 is declared final it is developed in place rather than accreting
 patch versions for changes nobody has consumed yet.
 
@@ -27,8 +27,8 @@ Two things enforce it:
   the edit detection is skipped (it only looks at versions *below* the target,
   and a superseded version has none), the higher version's full install is pruned
   away, its upgrade script is orphaned, and `default_version` moves backwards.
-- The version argument is **required**. It used to fall back to the CLI
-  package's own version (`0.1.0`), which quietly did all of the above.
+- The version argument is **required**: the command has no default version, so
+  it never builds a version nobody named.
 
 The one channel that does not honor the rule is **PGXN** — see below.
 
@@ -175,7 +175,7 @@ So the sequence works the way you would expect:
 | `v0.6.0` | `v0.6.0-rc1` | rejected: it is lower, so it is frozen |
 | `v0.5.0` | `v0.5.0-beta` | rejected for the same reason |
 
-Nothing special was added for this: `0.6.0-rc1` becomes frozen the moment `0.6.0`
+Nothing special handles this: `0.6.0-rc1` becomes frozen the moment `0.6.0`
 lands purely because the comparator says it is lower, and the existing "frozen
 once a higher version is in the manifest" rule does the rest. The upgrade chain
 follows too - cutting `0.6.0` after `0.6.0-rc1` writes
@@ -196,8 +196,8 @@ Two traps this avoids, both real:
   release path ranks versions any other way.
 - **The shell and the generator must agree.** `semver_cmp` in `scripts/semver.sh`
   and `compareVersions()` in `packages/cli/commands/extension.ts` implement the
-  same total order and are tested against the same cases, including the canonical
-  chain from semver.org §11. Every guard here assumes they cannot disagree.
+  same total order, the rules of semver.org §11, and each one's comment says so;
+  no test compares the two. Every guard here assumes they cannot disagree.
 
 Two things are refused rather than ordered:
 
@@ -217,7 +217,7 @@ which resolves the version from the tag name and publishes:
 |---|---|
 | git history | the `v<ver>` tag, on a commit whose `schema.md` is generated from that version's migrations and stamped with `<ver>` |
 | GitHub Release | `pg_semantius-<ver>.zip` — the full install **plus the whole upgrade chain**, `META.json`, `.control`, `Makefile`, `README.md`, `CHANGES.md`, `SECURITY.md`, `LICENSE` — and the loose `.sql` and `.control` alongside it |
-| GitHub Release | the five `pg_semantius-<os>-<arch>[.exe]` CLI binaries and `checksums.txt`, which `install.sh` and `install.ps1` download by name |
+| GitHub Release | the five `pg_semantius-cli-<os>-<arch>[.exe]` CLI binaries and `checksums.txt`, which `install.sh` and `install.ps1` download by name |
 | GHCR | `postgres:<ver>-pg<major>`, `postgres:latest-pg<major>`, `postgres:latest` |
 
 `release.sh` also writes `<ver>` into `packages/cli/deno.json` and
@@ -248,10 +248,10 @@ The rejected alternative is `:latest` as the highest *final* release. It sounds
 safer and is the commoner convention, but it holds the tag on whatever shipped
 last for as long as everything ahead of it is a pre-release - and "the last final
 build" is only a useful thing to hand someone while that build is still
-supported, which the tag cannot know. That is not hypothetical here: the
-0.1.0/0.3.0/0.4.0 lineage was cut off, so under that rule `:latest` served 0.4.0
-- a build with no upgrade path into 0.5.0, whose core tables are extension
-members, and which therefore loses data on `DROP EXTENSION` without `CASCADE`.
+supported, which the tag cannot know. That is not hypothetical here: the highest
+final release is 0.4.0, so under that rule `:latest` would serve 0.4.0 - a build
+with no upgrade path into 0.5.0, whose core tables are extension members, and
+which therefore loses data on `DROP EXTENSION` without `CASCADE`.
 A moving tag that quietly points at a dead end is worse than one that moves.
 
 The guard that remains is the one that matters: a moving tag may only go
@@ -269,10 +269,11 @@ There is deliberately no bare `:<version>` image tag: a version tag that
 silently changed PostgreSQL major later is the exact ambiguity the suffix
 removes.
 
-The gates, in order: `deno task extension <ver> --strict` → committed build must
-equal the regenerated one → Path B → Path A → lifecycle → PGXN manifest checks →
-package → release → image. If anything fails, nothing is published; fix it and
-move the tag.
+The gates, in order: the CLI binaries (the committed version in
+`packages/cli/deno.json`, the builds, the smoke tests) → `deno task extension
+<ver>` → committed build must equal the regenerated one → Path B → Path A →
+lifecycle → PGXN manifest checks → package → release → image. If anything
+fails, nothing is published; fix it and move the tag.
 
 Building an image locally is [docker-postgres/build.sh](docker-postgres/build.sh)
 and [publish.sh](docker-postgres/publish.sh). Neither regenerates the extension —
@@ -281,8 +282,10 @@ they package whatever is already in `extension/`.
 ## PGXN is not automated, and must not be
 
 Nothing publishes to PGXN. Both workflows only *validate* `extension/META.json`
-(`pgxn_meta validate` plus explicit checks for the four defects open item B10
-named); neither uploads anything.
+(`pgxn_meta validate` when it is installed, plus the explicit checks of
+`scripts/check-pgxn-meta.sh` for what a spec validation does not catch: a
+`git://` repository URL, a maintainer with no email, a missing `release_status`
+and a missing `CHANGES.md`); neither uploads anything.
 
 That is on purpose, because **PGXN is the one channel this project cannot take
 back**. A GitHub Release is deleted and recreated on every re-release and a GHCR
@@ -298,11 +301,14 @@ So it is a separate, manual, guarded step:
 ```
 
 [scripts/pgxn-release.sh](scripts/pgxn-release.sh) refuses unless the build on
-disk is that version (full install, `META.json` and `default_version` all agree),
-the working tree is clean, the tag `v<ver>` exists, and `HEAD` is the commit that
-tag points at. It warns when `release_status` is not `stable`, requires
-the version to be typed, then hands the archive to
-`pgxn release` (or tells you to upload it at manager.pgxn.org).
+disk is that version (full install, `META.json` and `default_version` all agree)
+and equals a fresh regeneration, the working tree is clean, the tag `v<ver>`
+exists and matches origin, `HEAD` is the commit that tag points at, and the
+archive attached to the GitHub Release holds exactly the manifest's files with
+the build's content. It refuses a `release_status` other than `stable` unless
+`--allow-testing-release` is passed, requires the version to be typed, then
+hands that archive to `pgxn release` (or tells you to upload it at
+manager.pgxn.org).
 
 **Publish to PGXN only when the version is final.** Afterwards, stop re-tagging
 it: cut the next version for any further change.

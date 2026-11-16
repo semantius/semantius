@@ -136,7 +136,7 @@ Two things do **not** happen. `updated_at` is not bumped and no audit row is
 written when a child write changes nothing but rollup columns: a moved total is
 not an edit of the parent record. The trigger that keeps `updated_at` therefore
 carries the rollup columns as arguments, which also means a write that changes
-nothing no longer moves `updated_at` (the behavior
+nothing does not move `updated_at` (the behavior
 `common.update_updated_at_column` describes for tables that opt in). When a
 real column of the parent changes, the audit row still carries the rollup
 columns in `record` and `old_record`; only the gate ignores them.

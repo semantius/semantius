@@ -16,10 +16,13 @@ Salesforce Platform, ServiceNow, Directus and SmartSuite. It does three things:
 
 - **Tables and keys.** Every entity has a single-column key. The key types are
   `auto_increment`, `bigint`, `text`, `uuid` and `typeid`, and `is_a` and `has_a`
-  below. A plain entity is one PostgreSQL table.
+  below; `computed`, a key generated from other columns, is reserved for system
+  tables. A plain entity is one PostgreSQL table.
 - **Relationships.**
-  - `reference`: the referenced record has its own lifecycle; delete is restrict or clear.
-  - `parent`: composition; delete cascades.
+  - `reference`: the referenced record has its own lifecycle.
+  - `parent`: composition; the parent record owns this one.
+  - Each takes a delete mode: restrict (the default) or cascade; a reference can
+    also clear, which sets it to NULL.
   - Many-to-many relationships go through junction entities.
 - **Enforced by the database:**
   - foreign keys and CHECK constraints;

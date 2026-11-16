@@ -179,7 +179,7 @@ Each app folder follows this structure:
 
 ```
 apps/<appName>/
-├── migrations/   # SQL files executed in sorted order (0010_*.sql, 0020_*.sql …)
+├── migrations/   # .sql and .jsonc files executed in sorted order (0010_*, 0020_* …)
 └── tests/        # pgTAP SQL test files
 ```
 

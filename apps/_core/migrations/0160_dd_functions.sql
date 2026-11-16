@@ -1344,12 +1344,18 @@ COMMENT ON FUNCTION dd_field_comment IS
 -- RLS POLICIES OF AN ENTITY
 -- =====================================================
 -- The dictionary's four policies for a managed entity, from its row in
--- entities: SELECT on view_permission, INSERT/UPDATE/DELETE on
--- edit_permission. A select_rule, when set, is layered on afterwards by
--- build_select_rule_policy (0210_computed_validation.sql), which replaces
--- SELECT, UPDATE and DELETE. create_dd_table calls it for every new entity;
+-- entities. This function creates the INSERT policy, on edit_permission alone,
+-- and hands SELECT, UPDATE and DELETE to build_select_rule_policy
+-- (0210_computed_validation.sql). When a select_rule is set, SELECT is the rule
+-- and UPDATE and DELETE are edit_permission AND the rule; otherwise SELECT is
+-- view_permission and UPDATE and DELETE are edit_permission AND
+-- view_permission. Every later change of view_permission, edit_permission or
+-- select_rule rebuilds those three through the same function, so there is one
+-- generator of their text, and an entity is created with exactly the policies a
+-- rebuild would give it. create_dd_table calls this for every new entity;
 -- 0240_dd_bootstrap_complete.once.sql calls it for the core tables that were
--- registered before the dictionary existed.
+-- registered before the dictionary existed. Neither runs before
+-- 0210_computed_validation.sql has defined build_select_rule_policy.
 --
 -- The policies go on the entity's physical relation and are named after it
 -- (<entity>_ext_select_policy for an is_a or has_a entity): each table of a
@@ -1358,12 +1364,12 @@ COMMENT ON FUNCTION dd_field_comment IS
 CREATE OR REPLACE FUNCTION create_entity_policies(p_table_name TEXT)
 RETURNS VOID AS $$
 DECLARE
-    v_view_permission TEXT;
     v_edit_permission TEXT;
     v_id_type         TEXT;
+    v_rel             TEXT;
 BEGIN
-    SELECT view_permission, edit_permission, id_type
-      INTO v_view_permission, v_edit_permission, v_id_type
+    SELECT edit_permission, id_type
+      INTO v_edit_permission, v_id_type
       FROM entities
      WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -1371,57 +1377,28 @@ BEGIN
             USING ERRCODE = '90231',
                   HINT = jsonb_build_object('table', p_table_name)::text;
     END IF;
-    p_table_name := dd_relation(p_table_name, v_id_type);
+    v_rel := dd_relation(p_table_name, v_id_type);
 
-    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
-    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
+    -- The check is wrapped in a scalar sub-select: PostgreSQL then evaluates it once per
+    -- statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
     -- 0940_test_policy_subselect_form.sql fails on the bare per-row form.
-    EXECUTE format(
-        'CREATE POLICY %I ON %I
-            FOR SELECT
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_select_policy',
-        p_table_name,
-        v_view_permission
-    );
-
     EXECUTE format(
         'CREATE POLICY %I ON %I
             FOR INSERT
             TO semantius_user
             WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_insert_policy',
-        p_table_name,
+        v_rel || '_insert_policy',
+        v_rel,
         v_edit_permission
     );
 
-    EXECUTE format(
-        'CREATE POLICY %I ON %I
-            FOR UPDATE
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))
-            WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_update_policy',
-        p_table_name,
-        v_edit_permission,
-        v_edit_permission
-    );
-
-    EXECUTE format(
-        'CREATE POLICY %I ON %I
-            FOR DELETE
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_delete_policy',
-        p_table_name,
-        v_edit_permission
-    );
+    -- Takes the entity's name, not its relation: it finds the relation itself.
+    PERFORM build_select_rule_policy(p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION create_entity_policies(TEXT) IS
-'Creates the four RLS policies of a managed entity on its physical relation from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
+'Creates the four RLS policies of a managed entity on its physical relation from its entities row: INSERT on edit_permission here, and SELECT, UPDATE and DELETE through build_select_rule_policy, which every later permission or select_rule change calls as well (UPDATE and DELETE on edit_permission and view_permission, or on edit_permission and the select_rule). Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
@@ -1444,6 +1421,16 @@ BEGIN
         RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
         RETURN NEW;
     END IF;
+
+    -- Suppress IF NOT EXISTS/IF EXISTS notices. build_select_rule_policy drops
+    -- the rule functions, policies and row move triggers before it builds them,
+    -- and on a new entity each of those DROPs would print a "does not exist,
+    -- skipping" NOTICE. Below the managed test, so the NOTICE above still
+    -- reaches the caller. SET LOCAL holds to the end of the transaction, as it
+    -- does in add_dd_field, which the field rows inserted at the end of this
+    -- function fire anyway; the .jsonc loader puts the caller's level back
+    -- before each NOTICE of its own, from semantius.notice_level.
+    SET LOCAL client_min_messages = WARNING;
 
     -- Raises 90234 for id_type computed, before anything is created.
     v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
@@ -1528,8 +1515,9 @@ BEGIN
     -- Enable RLS on the new table
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', v_rel);
 
-    -- The four RLS policies (view_permission for SELECT, edit_permission for
-    -- INSERT, UPDATE and DELETE).
+    -- The four RLS policies: INSERT on edit_permission, SELECT on the rule or
+    -- view_permission, UPDATE and DELETE on edit_permission and that same rule
+    -- or view_permission.
     PERFORM create_entity_policies(NEW.table_name);
 
     -- The request role has no default privileges in public, so a dictionary
@@ -2573,11 +2561,13 @@ CREATE OR REPLACE TRIGGER delete_table_trigger
 -- =====================================================
 -- TRIGGER FUNCTION: update RLS policies on permission change
 -- =====================================================
--- When entities.edit_permission is changed, the INSERT, UPDATE, and DELETE
--- RLS policies must be dropped and recreated with the new permission value.
+-- When entities.edit_permission is changed, the INSERT policy is dropped and
+-- recreated with the new permission value, and SELECT, UPDATE and DELETE are
+-- rebuilt through build_select_rule_policy, which builds all three together.
 --
--- NOTE: The SELECT policy is already handled by manage_select_rule_policy
--- (in 0210_computed_validation.sql) which fires when view_permission changes.
+-- A change of view_permission, which SELECT, UPDATE and DELETE check, is
+-- handled by manage_select_rule_policy (0210_computed_validation.sql), which
+-- rebuilds those three through the same build_select_rule_policy.
 
 CREATE OR REPLACE FUNCTION update_entity_policies()
 RETURNS TRIGGER AS $$
@@ -2589,7 +2579,8 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Sub-select form: see the note in create_dd_table (P1).
+    -- Sub-select form, so the check runs once per statement (InitPlan) rather than once per
+    -- row; 0940_test_policy_subselect_form.sql fails on the bare form.
     -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         v_rel || '_insert_policy', v_rel);
@@ -2598,7 +2589,8 @@ BEGIN
         v_rel || '_insert_policy', v_rel, NEW.edit_permission);
 
     -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
-    -- canonical predicate (select_rule when set, else view/edit permission). Delegating here
+    -- canonical predicate (the select_rule when set, else view_permission, and for UPDATE and
+    -- DELETE the edit permission next to either). Delegating here
     -- keeps the read policy, the read helpers, and the write USING clauses on ONE predicate,
     -- so an edit_permission change does not silently strip the row rule from writes.
     PERFORM build_select_rule_policy(NEW.table_name);
@@ -2608,9 +2600,10 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_entity_policies IS
-'AFTER UPDATE trigger on entities: drops and recreates INSERT, UPDATE, and DELETE
-RLS policies when edit_permission changes. The SELECT policy is handled separately
-by manage_select_rule_policy (0210_computed_validation.sql).';
+'AFTER UPDATE trigger on entities: when edit_permission changes, drops and recreates
+the INSERT policy and rebuilds SELECT, UPDATE and DELETE through build_select_rule_policy.
+A view_permission change reaches the same three through manage_select_rule_policy
+(0210_computed_validation.sql).';
 
 CREATE OR REPLACE TRIGGER update_entity_policies_trigger
     AFTER UPDATE ON entities
@@ -2619,7 +2612,7 @@ CREATE OR REPLACE TRIGGER update_entity_policies_trigger
     EXECUTE FUNCTION update_entity_policies();
 
 COMMENT ON TRIGGER update_entity_policies_trigger ON entities IS
-'Rebuilds INSERT/UPDATE/DELETE RLS policies when entities.edit_permission is updated';
+'Rebuilds the INSERT RLS policy, and the SELECT, UPDATE and DELETE policies through build_select_rule_policy, when entities.edit_permission is updated';
 
 -- =====================================================
 -- TRIGGER FUNCTION: typeid prefix change

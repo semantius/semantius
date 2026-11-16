@@ -63,13 +63,14 @@ always sends PKCE **S256**).
 ```
 src/
   main.tsx              <AuthProvider> wraps an InnerApp that feeds live auth into <RouterProvider>
-  router.tsx            TanStack Router route tree: root layout (nav) + /, /users, /oauth2_callback;
-                        /users is auth-GUARDED via beforeLoad; /oauth2_callback handles the redirect
+  router.tsx            TanStack Router route tree: root layout (nav) + /, /users, /audit, /oauth2_callback;
+                        /users and /audit are auth-GUARDED via beforeLoad; /oauth2_callback handles the redirect
   auth/AuthContext.tsx  wraps react-oauth2-code-pkce's <AuthProvider> + exposes a small
                         app-shaped useAuth() (status / claims / token / login / logout)
   api/client.ts         useApi(): fetch wrapper — attaches Authorization: Bearer <token>
   pages/Home.tsx        sign-in status + Log in; probes the API's GET / to show its DB_AUTH_MODE
   pages/Users.tsx       GET /me (provision) + GET /users (RLS read) + PUT /me/display-name (write)
+  pages/Audit.tsx       GET /audit (the audit log; rows for an admin only)
   types.ts              local API DTOs (NO DB import — keeps the SPA free of DB deps)
 ```
 
@@ -132,11 +133,10 @@ This is the deliberate, honest tradeoff for a **decoupled** SPA:
 
 ## Required token claims
 
-The API/DB enforce a claims contract (`role=authenticated`, `sub`, `iss`, `aud`,
-`exp`/`iat`, plus `email`/`name`). Full table and trust model:
+The API/DB enforce a claims contract (`sub`, `iss`, `aud`, `exp`/`iat`, plus
+`email`/`name`; `role=authenticated` is set by the API or the database, not read
+from the token). Full table and trust model:
 [`../spa-hono-backend/README.md`](../spa-hono-backend/README.md#required-token-claims).
-**The issuer must mint `role=authenticated`** (the test issuer does; Auth0/Clerk need
-a custom claim).
 
 ---
 

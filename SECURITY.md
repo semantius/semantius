@@ -114,10 +114,22 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   the writer can no longer read, update or delete the row once the statement
   has ended. A client that runs SQL itself can read the token while its
   statement runs and write it back later in the same transaction, which lets
-  it read that one row, the row it wrote, until the transaction ends. A row
-  whose rule raises on its new values is not let through: the write is refused
-  with 42501. An `INSERT` under a key that is already stored is not marked, so
-  it cannot be used to read the row that holds the key.
+  it read that one row, the row it wrote, until the transaction ends. A write
+  whose new values make the rule raise is refused with 42501 only when the
+  statement reads a column of the table, because only then does PostgreSQL
+  hold the new row to the read policy, where a rule that raises answers false
+  before the row being written is let through. A statement that reads no
+  column - a plain `INSERT`, `INSERT ... RETURNING 1`, an `UPDATE` that sets
+  only constants and names no column in a `WHERE` or `RETURNING` - stores the
+  row, and from then on no caller for whom the rule raises can read, update or
+  delete it, an administrator included unless the rule decides for them before
+  the raising part; only the owner can. Wherever the rule is evaluated on a stored row - a read, the
+  `USING` of an `UPDATE` or `DELETE`, `get_record_by_id` - a rule that raises
+  counts as false for that row: the row is hidden and not written, and one
+  WARNING per transaction and entity names the entity and the SQLSTATE but not
+  the message, which can quote a value of the hidden row. An `INSERT` under a
+  key that is already stored is not marked, so it cannot be used to read the
+  row that holds the key.
 - **Bearer mode is experimental.** PostgreSQL 18 OAuth bearer authentication
   with `pg_oidc_validator` is a development configuration, not a deployment
   target. Its status and the remaining hardening are in
@@ -136,9 +148,13 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   that table's policies. Adoption (setting an entity's `managed` to `true`)
   does the same for a table made outside the dictionary, whatever that table
   carried before: row-level security, the four permission policies, then the
-  grant. A table that already has policies keeps them, and PostgreSQL ORs
-  permissive policies together, so adoption can widen access: the entity's
-  `view_permission` and `edit_permission` are added to whatever was there. A
+  grant. The table's `<table>_select_policy`, `<table>_update_policy` and
+  `<table>_delete_policy` are replaced by the entity's; a
+  `<table>_insert_policy` it already has keeps its definition, and so does
+  every policy of another name. PostgreSQL ORs permissive policies together,
+  so adoption can widen access: the entity's policies are added to the ones
+  kept, and an `INSERT` is held to a kept `<table>_insert_policy` instead of
+  to the entity's `edit_permission`. A
   table that is protected by having no permission model at all is therefore
   refused. A name that starts with `_` (`_settings`, `_apikeys`) cannot be
   registered as an entity, managed or not, and the two audit log entities
@@ -149,7 +165,9 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   it publishes every row.
 - **Every principal carries a non-empty `external_id`, and that is its
   identity.** A session is a JWT, and the caller is the `users` row whose
-  `external_id` equals the `sub` claim, for users and agents alike; an API key
+  `external_id` equals the subject the token resolves to, for users and agents
+  alike: the `sub` claim, or `entra.<tid>.<oid>` for a Microsoft Entra ID
+  token, whose `sub` differs per app registration; an API key
   resolves to a user id, and the JWT minted from it carries that row's
   `external_id` as `sub`. A user brings theirs from the authentication
   provider and is refused without one. An agent (`is_agent`) saved without one

@@ -1232,6 +1232,7 @@ DECLARE
     v_rel TEXT;
     v_row_data TEXT;
     v_predicate TEXT;
+    v_write_using TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -1265,11 +1266,13 @@ BEGIN
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
-    -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
-    -- statement (InitPlan), not per row; see the note in create_dd_table.
-    -- 0940_test_policy_subselect_form.sql pins it.
-    -- If select_rule is empty, restore the default permission-only policies (read = view
-    -- permission, writes = edit permission, no per-row rule).
+    -- Every rbac.has_permission() below is wrapped in a scalar sub-select: PostgreSQL then
+    -- evaluates it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on
+    -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
+    --
+    -- If select_rule is empty, the row a caller may reach is the one its view permission
+    -- lets it read: SELECT on view_permission, UPDATE and DELETE on edit_permission AND
+    -- view_permission, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
         -- No rule, so no row can leave it: the two row move triggers go.
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
@@ -1277,14 +1280,28 @@ BEGIN
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
             v_policy_name, v_rel, v_entity.view_permission);
+        -- The view permission has to be in the USING of UPDATE and DELETE itself.
+        -- PostgreSQL holds the rows an UPDATE or DELETE touches to the SELECT policy only
+        -- when the statement reads a column of the table, so with the edit permission
+        -- alone, a caller that may read no row could still overwrite every row with
+        -- constants and delete every row: UPDATE t SET c = 'x', DELETE FROM t, WHERE true,
+        -- RETURNING 1. The new row of an UPDATE is held to the edit permission only, as an
+        -- inserted row is. When the two permissions are the same, one check says it all.
+        -- Both parts are quoted with %L before they are joined. Pinned by
+        -- 0610_test_select_rule_write_protection.sql.
+        v_write_using := format('(SELECT rbac.has_permission(%L))', v_entity.edit_permission);
+        IF v_entity.view_permission IS DISTINCT FROM v_entity.edit_permission THEN
+            v_write_using := v_write_using
+                || format(' AND (SELECT rbac.has_permission(%L))', v_entity.view_permission);
+        END IF;
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_entity.edit_permission);
+            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (%s) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+            v_rel || '_update_policy', v_rel, v_write_using, v_entity.edit_permission);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_rel || '_delete_policy', v_rel, v_entity.edit_permission);
+            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (%s)',
+            v_rel || '_delete_policy', v_rel, v_write_using);
         RETURN;
     END IF;
 
@@ -1452,7 +1469,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, the three policies are the permission-only form instead and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -1500,7 +1517,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
-'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
+'Trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions when the entity is deleted.';
 
 CREATE OR REPLACE TRIGGER manage_select_rule_policy_trigger
     AFTER INSERT OR UPDATE OR DELETE ON entities

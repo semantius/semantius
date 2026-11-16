@@ -28,7 +28,8 @@ transport ([`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts)) and the token helpe
   transport using `drizzle-orm/pg-proxy` (one async query callback; no custom
   dialect needed), decoding values by type OID via `pg-types`.
 - [`src/schema/`](src/schema) — the committed schema snapshot generated from a
-  fresh `_core` catalog (`admin.ts` = the `_core` module, plus `index.ts`).
+  catalog with `_core` and `nwind` deployed (`admin.ts` = the `_core` module,
+  `nwind.ts` = Northwind, plus `index.ts`).
 - [`src/list-users.ts`](src/list-users.ts) — sample #1, "list users". Each sample is
   its own task-named file in `src/`; add more (a count, a join, …) as sibling files.
 - [`drizzle.config.ts`](drizzle.config.ts) — config for `drizzle-kit studio`.
@@ -41,7 +42,7 @@ transport ([`src/pg-oauthbearer.ts`](src/pg-oauthbearer.ts)) and the token helpe
 2. Connect as `authenticated`, presenting that token over SASL `OAUTHBEARER`.
 3. Call `public.get_userinfo()` once — first-login provisioning. It assigns the
    `User` role (which carries `user:read`), so the RLS `SELECT` policy on `users`
-   lets us read. Without it the list comes back empty.
+   lets us read. Without it the read fails with *User not found*.
 4. Run a typed `db.select(...).from(users)` and print the rows visible under RLS.
 
 ## Prerequisites
@@ -51,7 +52,8 @@ A running pgdocker stack with the Semantius `_core` present. From `pgdocker/`:
 - **CLI stack** (port **5432**): `./pg-cli-create.sh`, then deploy core —
   `export DATABASE_URL=… && deno task migrate --apps _core`.
 - **Extension stack** (port **5433**): `./pg-ext-create.sh` — `_core` is installed
-  by `CREATE EXTENSION` automatically. Run this example with `PGPORT=5433`.
+  automatically by its init script (`CREATE EXTENSION pg_semantius`, then
+  `CALL semantius.migrate()`). Run this example with `PGPORT=5433`.
 
 The container must reach the issuer's HTTPS JWKS endpoint outbound, and you need
 Node **≥ 20** (for global `fetch`).
@@ -96,7 +98,7 @@ Note `id` is a real number (`1`, not `'1'`) — see [How values are typed](#how-
 ## Drizzle Studio
 
 ```bash
-DATABASE_URL=postgresql://postgres:devpassword@localhost:5432/appdb npm run studio
+DATABASE_URL=postgresql://postgres:<POSTGRES_PASSWORD>@localhost:5432/appdb npm run studio
 ```
 
 Studio is **independent of the OAUTHBEARER transport**. `drizzle-kit` only speaks

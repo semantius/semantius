@@ -1,4 +1,4 @@
-Extracted pgtap.sql from pgTAP 1.3.5 and just added the folowing prefix 
+Extracted pgtap.sql from pgTAP 1.3.5 and just added the following prefix 
 
 ```sql
 CREATE SCHEMA IF NOT EXISTS pgtap;

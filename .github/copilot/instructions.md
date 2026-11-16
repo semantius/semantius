@@ -29,7 +29,7 @@ apps/
 **CRITICAL**: Always execute these commands in this exact order for testing:
 
 1. **Reset database**: `deno task dropall --confirm`
-2. **Setup database**: `deno task migrate test --verbose`
+2. **Setup database**: `deno task migrate --apps _core,nwind,test --verbose` (nwind before test: the test seed assigns user2 to the Northwind Sales role)
 3. **Run tests**: `deno task test`
 
 **AGENT RESPONSIBILITY**: The agent MUST execute this full cycle after making any changes to verify nothing is broken. This is a throwaway test database - it's safe and required to run these operations.

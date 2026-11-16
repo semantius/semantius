@@ -8,7 +8,49 @@
 --   4. get_schema_children()
 BEGIN;
 
-SELECT plan(175);
+SELECT plan(178);
+
+-- pg_temp.schema_error runs a statement and returns every field of the error it
+-- raises that a client can receive - SQLSTATE, message, DETAIL, HINT, CONTEXT
+-- and the five object names - with the table name replaced by <t>. A missing
+-- table and one the caller may not view are then compared as whole errors:
+-- equal messages from two RAISE statements still differ in the CONTEXT line, and
+-- a client connected directly receives that line. Created here, as the owner,
+-- before any part authenticates.
+CREATE FUNCTION pg_temp.schema_error(p_sql TEXT, p_table TEXT) RETURNS JSONB AS $$
+DECLARE
+    v_state      TEXT;
+    v_message    TEXT;
+    v_detail     TEXT;
+    v_hint       TEXT;
+    v_context    TEXT;
+    v_column     TEXT;
+    v_constraint TEXT;
+    v_datatype   TEXT;
+    v_table      TEXT;
+    v_schema     TEXT;
+BEGIN
+    EXECUTE p_sql;
+    RETURN 'null'::jsonb;
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS
+        v_state      = RETURNED_SQLSTATE,
+        v_message    = MESSAGE_TEXT,
+        v_detail     = PG_EXCEPTION_DETAIL,
+        v_hint       = PG_EXCEPTION_HINT,
+        v_context    = PG_EXCEPTION_CONTEXT,
+        v_column     = COLUMN_NAME,
+        v_constraint = CONSTRAINT_NAME,
+        v_datatype   = PG_DATATYPE_NAME,
+        v_table      = TABLE_NAME,
+        v_schema     = SCHEMA_NAME;
+    RETURN replace(jsonb_build_object(
+        'code', v_state, 'message', v_message, 'detail', v_detail, 'hint', v_hint,
+        'context', v_context, 'column', v_column, 'constraint', v_constraint,
+        'datatype', v_datatype, 'table', v_table, 'schema', v_schema)::text,
+        p_table, '<t>')::jsonb;
+END;
+$$ LANGUAGE plpgsql;
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -303,9 +345,21 @@ SELECT ok(
 SELECT throws_ok(
     'SELECT public.get_schema(''webhook_receivers'')',
     '42P01',
-    'Table "webhook_receivers" not found in tables metadata',
+    'Table "webhook_receivers" not found in entities',
     'get_schema() should raise "not found" error when user lacks view permission'
 );
+
+-- The two errors are the same in every field, not only in SQLSTATE and message.
+SELECT is(
+    pg_temp.schema_error($$SELECT public.get_schema('webhook_receivers')$$, 'webhook_receivers'),
+    pg_temp.schema_error($$SELECT public.get_schema('nonexistent_table')$$, 'nonexistent_table'),
+    'get_schema(): a table the caller may not view raises exactly what a missing table raises, field by field');
+
+-- build_schema_for_table is an RPC of its own and gates itself the same way.
+SELECT is(
+    pg_temp.schema_error($$SELECT public.build_schema_for_table('webhook_receivers')$$, 'webhook_receivers'),
+    pg_temp.schema_error($$SELECT public.build_schema_for_table('nonexistent_table')$$, 'nonexistent_table'),
+    'build_schema_for_table(): a table the caller may not view raises exactly what a missing table raises, field by field');
 
 -- =====================================================
 -- TEST: New fields (inputType, width, format)
@@ -1377,9 +1431,14 @@ SELECT throws_ok(
 SELECT throws_ok(
     'SELECT public.get_schemas(''customers, webhook_receivers'')',
     '42P01',
-    'Table "webhook_receivers" not found in tables metadata',
+    'Table "webhook_receivers" not found in entities',
     'get_schemas() should raise an error when the user lacks view permission for any table in the list'
 );
+
+SELECT is(
+    pg_temp.schema_error($$SELECT public.get_schemas('customers, webhook_receivers')$$, 'webhook_receivers'),
+    pg_temp.schema_error($$SELECT public.get_schemas('customers, nonexistent_table_xyz')$$, 'nonexistent_table_xyz'),
+    'get_schemas(): a table the caller may not view raises exactly what a missing table raises, field by field');
 
 -- =====================================================
 -- PART 3: get_schema of is_a and has_a entities

@@ -22,7 +22,7 @@ You are working on Semantius Core, a database-first backend system. Follow these
 
 ## Testing Requirements
 - Write pgTAP tests for all database functionality
-- **ALWAYS EXECUTE**: Run the full test cycle after any changes: dropall → migrate test → test
+- **ALWAYS EXECUTE**: Run the full test cycle after any changes: dropall → migrate --apps _core,nwind,test → test
 - Test both success and failure scenarios
 - Consider edge cases and security boundaries
 - **AGENT MUST VERIFY**: Execute tests to ensure nothing is broken before completing tasks

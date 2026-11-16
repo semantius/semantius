@@ -29,13 +29,13 @@
 -- Part 2 drives every policy generator on throwaway entities and re-checks, so an edit that
 -- reintroduces `USING (rbac.has_permission(%L))` in a generator fails here even though the
 -- install-time catalog stays clean:
---   create_dd_table            (0160_dd_functions.sql, entity INSERT)
+--   create_dd_table            (0160_dd_functions.sql, entity INSERT, through create_entity_policies)
 --   update_entity_policies     (0160_dd_functions.sql, edit_permission UPDATE)
 --   build_select_rule_policy   (0210_computed_validation.sql, the permission-only branch and the rule branch)
 --   enable_dd_table            (0180_managed_enable.sql, managed FALSE -> TRUE)
--- enable_dd_table and update_entity_policies hand SELECT/UPDATE/DELETE to build_select_rule_policy,
--- so of their own emissions only the INSERT policy reaches the catalog; a bare form in one of the
--- shadowed emissions is dead code and is not detected here (confirmed by mutating each generator in turn).
+-- create_entity_policies, update_entity_policies and enable_dd_table emit only the INSERT policy
+-- themselves and hand SELECT, UPDATE and DELETE to build_select_rule_policy, so every policy text
+-- the dictionary can generate is produced by one of the steps below.
 --
 -- The same rule and the same reasoning cover public.jl_request_context(), the statement-constant
 -- JsonLogic context that the select_rule policies pass into the per-row predicate. A bare call

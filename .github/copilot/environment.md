@@ -10,8 +10,6 @@ DATABASE_URL=postgresql://postgres:DD3ZR7NPSIu9dzVw@db.feuwllkajpvgwqovfjyh.supa
 
 ## Setup Instructions
 
-## Setup Instructions
-
 ### For Copilot Environment Secret (Best Option):
 1. Go to repository Settings → "Copilot" → "Environments" 
 2. Click "Add environment secret"

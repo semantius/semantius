@@ -2,7 +2,7 @@ web hook receiver, web hook sender, function call, human in the loop, maybe: sen
 sync queue with call back ?
 
 
-- workflow server is a seperate service
+- workflow server is a separate service
 - trigger with dblink  generic user + password + apikey in function check
 - human in the loop / approvals
 - callback with m2m token

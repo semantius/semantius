@@ -21,11 +21,10 @@ sample (Hono API + React SPA) that **vendors the same `lib/db/` layer**.
 
 ## Prerequisites
 
-1. **Foundation signed off.** This sample consumes the dual-auth foundation
-   (`plans/foundation-dual-auth-plan.md`): the `semantius_authenticator` role
-   (`apps/_core/migrations/0011_session_authenticator.sql`), the local LOGIN/password
-   (`pgdocker/init/11-session-role.sh`), and the pg_hba scram lines. See
-   `pgdocker/README.md`.
+1. **The dual-auth foundation.** This sample consumes the `semantius_authenticator`
+   role (`apps/_core/migrations/0030_session_authenticator.sql`), the local
+   LOGIN/password (`pgdocker/init/11-session-role.sh`), and the pg_hba scram lines.
+   See `pgdocker/README.md`.
 2. **A migrated database** with the `_core` schema deployed (so `users`, the RBAC
    functions, and `public.get_userinfo()` exist).
 3. **Node ≥ 20.** For `bearer` against local PG18 you also need the pgdocker stack up
@@ -102,8 +101,8 @@ The DB enforces a claims contract independent of the provider. Any OIDC issuer
 
 | Claim | Requirement | Used for |
 |---|---|---|
-| `role` | **MUST equal `authenticated`** | `rbac.uid()` rejects anything else. Auth0/Clerk don't emit this by default — add a custom claim (Auth0 Action / Clerk JWT template). |
-| `sub` | required, stable & unique | becomes `users.external_id`; identity for RLS/RBAC |
+| `role` | not read from the token | `session` pins `authenticated` server-side (`lib/db/verify.ts`); in `bearer`, `rbac.uid()` sets it because `system_user` starts with `oauth:`. Code that injects a token's own claims needs `role=authenticated` (or `authenticated` in `roles`): `rbac.uid()` rejects anything else. |
+| `sub` | required, stable & unique | becomes `users.external_id`; identity for RLS/RBAC. In `session` mode a Microsoft Entra ID token, recognized by its `iss`, is keyed `entra.<tid>.<oid>` instead and needs both claims |
 | `iss` | must equal the configured issuer | verified app-side (`session`) / by the validator (`bearer`) |
 | `aud` | DB enforces only if `_settings.jwt_aud` is seeded (**off by default**); **app-side `aud` check is MANDATORY in `session` mode** | else a same-issuer token for another client is accepted |
 | `exp` / `iat` | standard | expiry validation |
@@ -111,9 +110,10 @@ The DB enforces a claims contract independent of the provider. Any OIDC issuer
 | `name`, `given_name`, `family_name` | optional | profile fields |
 
 **Swapping providers** = change `OAUTH_ISSUER` + `OAUTH_CLIENT_ID` + `OAUTH_JWKS_URI`
-(+ `OAUTH_EXPECTED_AUD`) **and** ensure the provider mints `role=authenticated`. The
-test issuer's discovery omits `code_challenge_methods_supported`, so this client
-**forces PKCE S256** explicitly (`lib/auth/oauth.ts`).
+(+ `OAUTH_EXPECTED_AUD`), and for `bearer` the `issuer` of the `oauth` lines in
+`pgdocker/conf/pg_hba.conf`. The test issuer's discovery omits
+`code_challenge_methods_supported`, so this client **forces PKCE S256** explicitly
+(`lib/auth/oauth.ts`).
 
 ---
 
@@ -170,9 +170,10 @@ Sample-acceptable on a single dev instance; for production:
 - **`bearer` does not scale past ~`max_connections` concurrent users** — one
   OAUTHBEARER connection per user/token, no pooling, ≥5 serialized round-trips per
   request. Demo / low-concurrency self-host only.
-- **Per-request permission CTE.** `rbac.get_user_permissions()` runs once per
-  transaction (cached in a LOCAL GUC that resets at COMMIT) → re-runs every request
-  in both modes. Production needs an app-side permission cache.
+- **Per-request permission CTE.** `rbac.get_user_permissions_by_id()` runs once per
+  transaction in `session` mode (cached in a LOCAL GUC that resets at COMMIT) and on
+  every permission check in `bearer` mode, where the cache is bypassed → re-runs
+  every request in both modes. Production needs an app-side permission cache.
 - **RSC fan-out.** Use one request-scoped read session per render (this sample loads
   a page's data in a single `withSession`), not one session per component.
 - **Refresh-token storms.** ~1h `exp` + many clients ⇒ synchronized expiry; add
@@ -193,6 +194,7 @@ app/
   users/page.tsx               RSC read under RLS (one request-scoped session)
   users/actions.ts             server action: the user:manage write demo (+ logout)
   users/update-name-form.tsx   client form (useActionState) for the write
+  audit/page.tsx               RSC read of audit_record_logs (rows for admin only, else empty)
 lib/auth/
   oauth.ts        oauth4webapi client (discovery memoized, PKCE S256 forced, refresh)
   tokens.ts       httpOnly token + login-state cookies; proactive-expiry hint
@@ -217,11 +219,6 @@ The schema under `lib/db/schema/` is generated from the catalog. Refresh it with
 ```bash
 deno task drizzlegen --output bearer-auth-experimental/examples/nextjs/lib/db/schema
 ```
-
-> Known generator quirk: FK fields whose target PK is `text` (e.g. `fields.table_name`,
-> `queue_table_events.table_name`) are emitted as `integer`. The demo only touches
-> `users`/`roles`/`user_roles`/`permissions`, which are unaffected; avoid those two
-> tables (or fix `packages/cli/commands/drizzlegen.ts`).
 
 ---
 

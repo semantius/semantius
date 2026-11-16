@@ -41,7 +41,7 @@ same release page — `pg_semantius--<version>.sql`, `pg_semantius.control` and
 the PGXN archive `pg_semantius-<version>.zip`, whose names PostgreSQL and PGXN
 fix and which therefore cannot move. The installed command is `pg_semantius`
 either way. Releases up to v0.5.0-beta1 published the binaries without the
-infix; both installers still accept those older names.
+infix; both installers fall back to those names.
 
 There is no macOS x64 build; on an Intel Mac, run the CLI from a checkout.
 
@@ -62,12 +62,13 @@ overrides both: `pg_semantius test --apps myapp,test` runs exactly those two,
 and the execution order is always the central `test` suite first (it seeds the
 identities the others assert against), then the rest by name.
 
-Two commands have database-side prerequisites, which are not dependencies of the
-binary: `test` needs pgTAP in the target database
+Some commands have database-side prerequisites, which are not dependencies of
+the binary: `test` needs pgTAP in the target database
 (`pg_semantius migrate
---apps test` installs it), and `--coverage` needs
+--apps test` installs it), `--coverage` needs
 `plpgsql_check` on the server for statement-level data (without it,
-function-level data is still reported). Beyond that the binary needs nothing at
+function-level data is still reported), and `lint-sql` needs `plpgsql_check`
+too. Beyond that the binary needs nothing at
 all — no Deno, no `node_modules`, no network other than the PostgreSQL
 connection.
 
@@ -120,14 +121,16 @@ Copy-Item dist\pg_semantius-cli-windows-x64.exe "$env:LOCALAPPDATA\Programs\Sema
 
 On Windows that directory is created and added to PATH by `install.ps1`; if you
 have never run it, create the directory and add it to your PATH once. On
-Linux/macOS, `~/.local/bin` must be on your PATH.
+Linux/macOS, `install.sh` uses `/usr/local/bin` instead when that directory is
+writable; `~/.local/bin` must be on your PATH.
 
 ---
 
 ## CLI usage (`packages/cli`)
 
-All Deno tasks are defined in the root `deno.json` and run
-`packages/cli/cli.ts`.
+The command tasks are defined in the root `deno.json` and run
+`packages/cli/cli.ts`; `build-cli`, `bundle-sql` and `setup-session-role` run
+scripts in `scripts/`.
 
 ```bash
 deno task [COMMAND] [OPTIONS]
@@ -141,8 +144,13 @@ deno task [COMMAND] [OPTIONS]
 | `--version` | Show version information |
 | `-v, --verbose` | Enable verbose output |
 | `--apps <APPS>` | Comma-separated app names (for `migrate`, `extension`, `test`) |
-| `--confirm` | Skip confirmation prompt (for `dropall`, `reset`) |
-| `--script` | Generate SQL file instead of executing |
+| `--confirm` | Skip confirmation prompt (for `dropall`, `reset`, `retest`) |
+| `--script` | Generate SQL file instead of executing (`migrate.sql` for `migrate`, `dropall.sql` for `dropall`) |
+| `--tap` | Plain TAP output (for `test`) |
+| `--failfast` | Stop after the first failed test file (for `test`, `retest`) |
+| `--output <PATH>` | Where to write (for `extension`, default `./extension`; `drizzlegen`, default `./drizzle/schema`; `kyselygen`, default `./kysely/types.ts`) |
+| `--check` | Compare `./extension` with the migrations and write nothing; exit 1 when it is stale (for `extension`) |
+| `--allow-edited-migrations` | Waive the check that refuses an edit to a migration an earlier version shipped (for `extension`) |
 | `--env <ENV>` | Load `.env.<ENV>` instead of `.env.local` |
 | `--database-url <URL>` | Database URL — overrides `DATABASE_URL` env var and `.env` file |
 | `--coverage` | Measure which functions/statements/tables the pgTAP suite executes (for `test` and `retest`); writes `coverage/` |
@@ -155,6 +163,7 @@ deno task [COMMAND] [OPTIONS]
 | `init` | Initialize a new project (checkout only) |
 | `connect` | Test the database connection |
 | `test` | Run pgTAP tests (`--apps <names>` to pick which apps' suites) |
+| `lint-sql` | Run `plpgsql_check` over every PL/pgSQL function of a migrated database and write `coverage/lint.txt`; always exits 0 |
 | `lint` | Run Deno linter (checkout only) |
 | `format` / `fmt` | Format code (checkout only) |
 | `migrate` | Execute SQL migrations for specified apps |
@@ -163,6 +172,9 @@ deno task [COMMAND] [OPTIONS]
 | `reset` | **DESTRUCTIVE** — dropall + migrate `_core` only (no sample data, no tests) |
 | `retest` | **DESTRUCTIVE** — dropall + migrate `_core,nwind,test` + run tests |
 | `docgen` | Generate `schema.md` from entity metadata |
+| `drizzlegen` | Generate a Drizzle ORM schema (one file per module) from the catalog |
+| `kyselygen` | Generate Kysely type definitions (one file) from the catalog |
+| `testgen_jsonlogic` | Generate `apps/test/tests/0100_test_jsonlogic.sql` from `0100_test_jsonlogic.json` |
 | `bundle-sql` | Bundle SQL files for Node.js/serverless deployment (`deno task` only) |
 
 `deno task build-cli` and `deno task build-cli:all` compile the `pg_semantius`

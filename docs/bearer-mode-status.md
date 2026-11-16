@@ -1,6 +1,6 @@
 # Bearer mode status
 
-**Status: experimental. Not a deployment target.** Last updated 2026-09-06.
+**Status: experimental. Not a deployment target.** Last updated 2026-11-16.
 
 Bearer mode is the deployment where a client connects to PostgreSQL 18
 directly with an OAuth access token over SASL `OAUTHBEARER`, PostgreSQL
@@ -46,8 +46,9 @@ Three more reasons are ours to fix:
    verified claims into `request.jwt.claims`. Upstream calls 1.0.0 its first
    stable release; it is still a dependency we build from source.
 4. **The permission cache is bypassed in bearer sessions** (next section), so
-   every permission check costs about a millisecond instead of tens of
-   microseconds, and per-row workloads pay that per row.
+   every permission check costs more: about a millisecond instead of tens of
+   microseconds in the measurement recorded on 2026-09-03 (below), and
+   per-row workloads pay that per row.
 5. **Only `sub` is trusted.** The `request.jwt.claims` setting published by the
    validator patch is an ordinary user-settable GUC, so a bearer client can
    rewrite `email`, `name` and any other claim. `rbac.uid()` takes the subject
@@ -69,14 +70,13 @@ app server that is harmless, because the client never runs SQL. In session
 mode an attacker with SQL access can already rewrite the `sub` claim - in a
 session-mode deployment the request role controls `request.jwt.claim.*` - so the
 cache adds nothing for them. In a bearer session the
-client does run SQL while the identity is pinned, so the cache was the one
-remaining way to escalate: a correctly identified user1 could write `admin`
-into `app.user_permissions`. That is the client-writable permission cache, found
-by the release review of 2026-09-02. For regular configurations - PostgREST and
-app-server sessions - it is solved, because the cache is unreachable there. What
-remains is bearer-only and is tracked in this file.
+client does run SQL while the identity is pinned, so a trusted cache would be a
+way to escalate: a correctly identified user1 could write `admin` into
+`app.user_permissions`. Behind PostgREST and app servers the cache is
+unreachable by the client. What remains is bearer-only and is tracked in this
+file.
 
-What changed on 2026-09-03:
+How bearer sessions are kept away from the cache:
 
 - `rbac.is_bearer_session()` returns true when `system_user LIKE 'oauth:%'`.
 - `rbac.ensure_context_initialized()` skips its "already initialized" shortcut
@@ -87,27 +87,30 @@ What changed on 2026-09-03:
   direct SQL sessions. Permissions are re-resolved on every check, which is
   correct but slower.`
 
-  It was once per session until 2026-09-06. The flag that suppresses the
-  repeat is written with `is_local => true` now, and the change of scope is the
-  point rather than a side effect: the readers that reach this code are
-  declared `STABLE`, and PostgreSQL executes `STABLE` calls while estimating
-  selectivity, so a session-scoped write there can happen during planning and
-  survives a transaction that never ran. In an autocommit bearer session the
-  notice therefore appears once per statement rather than once at connect; a
-  client that runs a transaction per request sees it once per request.
-  `pgdocker/test_bearer_cache.ts` asserts both halves - one notice for two
-  checks inside one transaction, and a fresh notice in the next.
-- The two readers that took `app.current_user_id` raw, `audit.current_user_id()`
-  and the generated compute/validate trigger, now derive the id through
-  `rbac.user_id_or_null()`, so a hand-written setting never reaches `$user_id`
-  or audit attribution in any mode.
+  The flag that suppresses the repeat is written with `is_local => true`, and
+  that scope is the point rather than a side effect: the readers that reach
+  this code are declared `STABLE`, and PostgreSQL executes `STABLE` calls while
+  estimating selectivity, so a session-scoped write there can happen during
+  planning and survives a transaction that never ran. In an autocommit bearer
+  session the notice therefore appears once per statement rather than once at
+  connect; a client that runs a transaction per request sees it once per
+  request. `pgdocker/test_bearer_cache.ts` asserts both halves - one notice for
+  two checks inside one transaction, and a fresh notice in the next.
+- `audit.current_user_id()` and the generated rule function
+  `common.record_rules_<table>` derive the user id through
+  `rbac.user_id_or_null()` instead of reading `app.current_user_id`. In a
+  bearer session that re-derives the context on every call, so a hand-written
+  setting never reaches `$user_id` or audit attribution there. Outside a bearer
+  session `rbac.user_id()` reads `app.current_user_id` back once the context is
+  initialized for the same `sub`, so only a client that can run SQL, and could
+  rewrite the `sub` claim as well, can steer it.
 - `rbac.whoami()` reports `status / permission_cache` as `enabled` or
   `disabled (bearer session)`.
 
-Nothing changed for session mode or PostgREST; the cache still works there.
+Session mode and PostgREST keep the cache.
 
 Cost per permission check, measured warm on PostgreSQL 18 with the Northwind
-sample as user3:
+sample as user3 (recorded 2026-09-03):
 
 | Path | Cost |
 |---|---|
@@ -130,8 +133,8 @@ deno run --allow-net test_bearer_cache.ts     # forged app.* cache ignored, WARN
 
 `apps/test/tests/0250_test_bearer_context_bypass.sql` pins the parts pgTAP can
 reach (pgTAP cannot open an OAuth session). The whole suite was also run once
-with the detector forced on; everything passed except the assertions that say
-the session is not a bearer session.
+with the detector forced on (recorded 2026-09-03); everything passed except the
+assertions that say the session is not a bearer session.
 
 ## Ways to bring the cache back
 
@@ -144,7 +147,7 @@ derived value can live that the client cannot write, and one future one:
 | A. HMAC-signed settings (SQL only) | everywhere, including read-only PostgREST transactions | one secret row, pgcrypto (already required) | **recommended**; detailed below |
 | B. Own guard extension: a superuser-context GUC | self-hosted only (needs `shared_preload_libraries`) | a 30-line C library built like the validator | cleanest for a self-hosted appliance; detailed below |
 | C. Definer-owned `pg_temp` table | bearer sessions only (read-write SQL) | DDL on first use, audit trigger must skip `pg_temp` | works, but adds DDL per session; not pursued |
-| D. Core session variables (`CREATE VARIABLE`, `LET`, with GRANT) | a future PostgreSQL | nothing | the native answer; missed 19, now in the PostgreSQL 20 commitfest |
+| D. Core session variables (`CREATE VARIABLE`, `LET`, with GRANT) | a future PostgreSQL | nothing | the native answer; not in PostgreSQL 19, in the PostgreSQL 20 commitfest as of 2026-09-03 |
 
 Extensions that exist today do not cover this. `pg_oidc_validator` and
 `pg_session_jwt` protect identity and claims; the Supabase pattern carries
@@ -162,7 +165,7 @@ pairs does not let you forge a checksum for different content.
 
 ### 1. Secret
 
-New migration (for example `0300_context_signing.sql`):
+New migration (for example `0450_context_signing.once.sql`):
 
 ```sql
 INSERT INTO _settings (name, value)
@@ -171,7 +174,7 @@ ON CONFLICT (name) DO NOTHING;
 ```
 
 `_settings` is deny-all for `semantius_user` and read only through SECURITY
-DEFINER code. Since the 2026-09-03 extension rebuild it is an ordinary table
+DEFINER code. It is an ordinary table
 on both install paths — never an extension member — so `pg_dump` carries its
 rows by default and no `pg_extension_config_dump` registry is involved;
 the secret survives dump and restore. Rotating the row invalidates every
@@ -261,7 +264,7 @@ BEGIN
     END IF;
     IF v_mac = rbac.context_mac(
             current_setting('app.current_external_id', true),
-            nullif(current_setting('app.current_user_id', true), '')::integer,
+            nullif(current_setting('app.current_user_id', true), '')::bigint,
             current_setting('app.user_permissions', true),
             current_setting('app.oauth_scopes', true))
        AND current_setting('app.current_external_id', true) = rbac.uid() THEN
@@ -303,25 +306,22 @@ session that can run SQL can blank it and walk out of its own confinement -
 which the checkers read as "no scopes", meaning no restriction. Putting the list
 inside the signature is what makes the confinement binding.
 
-This step is the sole record of open item **S12**, closed as postponed on
-2026-09-07 together with bearer mode itself (closure in
-`plans/ext-solved-items.md`). What is done, what is not, and why the gap is
-Low are written here so the row does not have to be reconstructed.
+This step is the only record of the gap. Its binding half is deferred with the
+rest of this design, together with bearer mode itself (decided 2026-09-07).
+What is done, what is not, and why the gap is Low are written here.
 
-**Done (2026-09-05): the delimiter half.** Separators are normalized rather
+**Done: the delimiter half.** Separators are normalized rather
 than unified: any run of commas or whitespace separates, in all three GUC
 readers (`has_permission`, `has_any_permission`, `user_has_permission`) and in
 `validate_oauth_scopes`' request parameter, so `"a,b"`, `"a b"` and
-`" a ,, b "` are the same two scopes. That is stronger than the "one delimiter
-everywhere" this step originally asked for - it needs no writer to have
-normalized first, and it stays correct when the entry point below later
-normalizes on write. Before it, two readers split on commas and one on spaces,
-so a list written in the other convention silently confined the session to
-nothing. Pinned by `apps/test/tests/0310_test_rbac_helpers.sql` GROUP 6.
+`" a ,, b "` are the same two scopes. That is stronger than one delimiter
+everywhere - it needs no writer to have normalized first, and it stays correct
+when the entry point below normalizes on write. Pinned by
+`apps/test/tests/0310_test_rbac_helpers.sql` GROUP 6.
 
 **Not done: the binding half.** Scopes become part of the signed payload.
-`set_request_context` was removed on 2026-09-03, because it let a caller
-assert any identity, so scopes need a new definer entry point, say
+An entry point that took an identity would let a caller assert any identity,
+so scopes need a new definer entry point, say
 `rbac.set_request_scopes(p_oauth_scopes)`, that takes no identity parameter:
 normalize the list (split on comma or whitespace, trim, sort, join with
 comma) and apply a narrow-only rule: if the current context is `valid` and
@@ -339,9 +339,10 @@ never can - which is the bearer-mode deployment this document describes.
 
 ### 6. Identity binding
 
-Done on 2026-09-03 by removal: `set_request_context` no longer exists in
-`0030` or `0190` (nothing called it). The scope entry point of step 5 must
-not grow an identity parameter; the subject is always `rbac.uid()`.
+Done: the request context is written only by `ensure_context_initialized` and
+`get_userinfo`, both from the subject `rbac.uid()` returns. The scope entry
+point of step 5 must not grow an identity parameter; the subject is always
+`rbac.uid()`.
 
 ### 7. Readers stay as they are
 
@@ -359,7 +360,7 @@ instead of `SELECT ... INTO`, and fetch `jwt_aud` and the secret in one
 
 ### 9. Tests
 
-Extend `0435`:
+Extend `0250_test_bearer_context_bypass.sql`:
 
 - forged settings with no checksum: `has_permission('admin')` false, state `absent`;
 - a genuine checksum with a tampered permission list: state `invalid`, the next check raises 42501;
@@ -435,8 +436,8 @@ Ecosystem items that change the status above:
 
 - PostgreSQL session variables (option D): commitfest entry
   [Declarative session variables, LET command](https://commitfest.postgresql.org/patch/1608/),
-  Pavel Stehule, status "Needs review", moved through the PostgreSQL 19
-  commitfests and now listed in PG20-1; design notes on the
+  Pavel Stehule, status "Needs review" and listed in PG20-1 as of 2026-09-03;
+  design notes on the
   [wiki](https://wiki.postgresql.org/wiki/Implementation_of_declarative_catalog_session_variables).
   Variables would be catalog objects with ACLs, so a variable that only
   `semantius_owner` may `LET` would replace both A and B.

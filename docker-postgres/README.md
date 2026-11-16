@@ -82,19 +82,18 @@ the CLI's driver speaks TCP. **Its contract is
 All three infer the version from the `./extension` build when no argument is given,
 and honor an `IMAGE=` override (default `ghcr.io/semantius/postgres`).
 
-`test-image.sh` is the only check that runs the init scripts at all. The pgTAP
-suites and `docker-compose/test.sh` both install the Northwind module with
-`deno task migrate`; nothing else exercises `40-nwind.sh`, which is a second
-implementation of that runner. It asserts the two produce the same database —
-same `_versions` names, same checksums — and derives the migration list from
-`apps/nwind/migrations/` rather than naming files, so a migration the image fails
-to ship is a test failure. Run it before publishing a version.
+`test-image.sh` is the only check of `40-nwind.sh`, a second implementation of
+the runner that the pgTAP suites and `docker-compose/test.sh` use to install the
+Northwind module (`deno task migrate`). It asserts the two produce the same
+database — same `_versions` names, same checksums — and derives the migration
+list from `apps/nwind/migrations/` rather than naming files, so a migration the
+image fails to ship is a test failure. Run it before publishing a version.
 
 > **Changed migrations?** Regenerate the extension first. The version is
-> required — `deno task extension` refuses without one, because the old fallback
-> to the CLI's own `0.1.0` silently downgraded the build:
+> required — `deno task extension` refuses without one — and for the current build
+> it is the `default_version` in `extension/pg_semantius.control`:
 > ```bash
-> deno task extension 0.5.0
+> deno task extension <default_version>
 > ```
 > A version may be regenerated while it is the highest version built, and is frozen
 > once a higher one is committed; see [RELEASE.md](../RELEASE.md).

@@ -42,7 +42,8 @@
 #   * pgmq.meta and every sequence's position.
 # Ignored: the audit log tables and their sequences (the DDL history of two
 # different installs differs by design), _versions (file names), _apikeys
-# (random keys), and the db_version row of _settings (an install timestamp).
+# (random keys), and two rows of _settings: db_version (an install timestamp)
+# and row_move_secret (random per install).
 #
 # Environment: APPS (default _core,nwind), CONTAINER (default postgres18-cli),
 # KEEP=1 to keep both databases and the snapshot files for triage.
@@ -138,7 +139,7 @@ SELECT format('SELECT %L || E''\\t'' || (to_jsonb(t) - %L::text[])::text FROM %I
                                 OR (c.relname = 'modules' AND a.attname IN ('version', 'version_date'))
                                 OR (c.relname = 'users' AND a.attname = 'last_seen'))), '{}'),
               n.nspname, c.relname,
-              CASE WHEN c.relname = '_settings' THEN 'WHERE t.name <> ''db_version''' ELSE '' END,
+              CASE WHEN c.relname = '_settings' THEN 'WHERE t.name NOT IN (''db_version'', ''row_move_secret'')' ELSE '' END,
               coalesce((SELECT string_agg(format('t.%I', a.attname), ', ' ORDER BY k.ord)
                           FROM pg_index i
                           CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)

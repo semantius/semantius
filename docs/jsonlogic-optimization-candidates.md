@@ -1,6 +1,6 @@
 # Finding JsonLogic optimization candidates
 
-Last updated 2026-09-06.
+Last updated 2026-11-16.
 
 Semantius stores row-visibility, computed-column and validation rules as
 JsonLogic in the data dictionary, and evaluates them with the interpreter in
@@ -25,27 +25,24 @@ on its own.
 
 ## Status: postponed, and what would change that
 
-This was tracked as an open item until 2026-09-06, when it was **postponed by
-decision**. Nothing about the problem changed. It is owned by no plan, and this
+This is **postponed by decision** (2026-09-06). It is owned by no plan, and this
 document is its only record.
 
-Postponed because **nothing is slow today and no caller can reach it.** Exactly
-one entity ships a `select_rule` - `user_bookmarks`
-(`0410_user_bookmarks.jsonc`), a per-user bookmarks table that will not grow.
-The other rule shapes measured alongside it on 2026-09-05 - four uses of
-`{"or":[{"has_permission":...},...]}` - are test fixtures created and rolled
-back inside tests; they do not exist in an installation. Their numbers are not
-reproduced here because they measure a shape nobody ships: a full scan cost
-5,404 ms interpreted for a non-holder and 2,229 ms for a permission holder,
-against 8.2 ms and 6.0 ms native, and the native form stayed a sequential scan
-with an index present because an `OR` needs every arm index-matchable.
+Postponed because **nothing is slow today and no caller can reach it.** Two
+entities ship a `select_rule`, both on tables that stay small: `user_bookmarks`
+(`0410_user_bookmarks.jsonc`), a per-user bookmarks table that will not grow,
+and `modules` (`0150_dd_bootstrap.once.sql`), one row per module, whose rule is
+`{"or":[{"has_permission":"admin"},{"has_permission":{"var":"view_permission"}}]}`.
+No measurement covers the `modules` rule. The other rule shapes measured on
+2026-09-05, beside the `user_bookmarks` rule below, were four uses of
+`{"or":[{"has_permission":...},...]}` in test fixtures that are created and
+rolled back inside tests. For them a full scan cost 5,404 ms interpreted for a
+non-holder and 2,229 ms for a permission holder, against 8.2 ms and 6.0 ms
+native, and the native form stayed a sequential scan with an index present
+because an `OR` needs every arm index-matchable.
 
-It was graded Medium rather than the High it had carried since the release
-review of 2026-09-02. That grade was set in a different context, and a problem
-nobody can reach does not outrank the reachable security work that sat at Medium
-beside it - the audit tables writable by the request role, the first-user
-bootstrap that could elect a second administrator, and reading another user's
-permissions, all since fixed.
+It is graded Medium: a problem nobody can reach does not outrank security work
+that callers can reach.
 
 **What makes this urgent is the first `select_rule` on an entity that grows.**
 From that point the degradation is silent, unbounded and has no workaround: it
@@ -65,12 +62,14 @@ When it is picked up, it is done when both hold:
 
 ## What the cost actually looks like
 
-Two generated functions carry every rule, one pair per entity:
+Two generated functions carry every rule. Each exists only for an entity that
+has rules of its kind: the first for an entity with a `select_rule`, the second
+for one with computed fields or validation rules.
 
 | Function | Built by | Rules it carries |
 |---|---|---|
 | `select_rule_<table>(row, ctx)` | `build_select_rule_policy` (`0210_computed_validation.sql`) | the entity's `select_rule`, called from all three RLS policies |
-| `compute_validate_<table>()` | `build_record_logic_trigger` (`0210_computed_validation.sql`) | the entity's computed-column expressions and validation rules, called from a row trigger |
+| `common.record_rules_<table>(mode, old, data)` | `build_record_logic_trigger` (`0210_computed_validation.sql`) | the entity's computed-column expressions and validation rules, called from the row trigger function `compute_validate_<table>()`, or from the write routine of an is_a or has_a entity, which has no such trigger |
 
 Because the name carries the table, **per-function statistics give you a
 per-entity ranking for free**. That is the whole basis of the method below.
@@ -79,11 +78,11 @@ Measured 2026-09-05 on `postgres18-cli`, on a schema where the request context
 had already been hoisted to one resolution per statement: a 100k-row
 table, `user_id` spread over 50 users so the caller owns 2,000 rows (2%), rule
 `{"==": [{"var":"user_id"}, {"var":"$user_id"}]}`. The helper was a
-byte-for-byte copy of what `build_select_rule_policy` generates for the shipped
-`user_bookmarks` rule; one rolled-back transaction, second of two runs,
-`EXPLAIN (ANALYZE, TIMING OFF)`.
+byte-for-byte copy of what `build_select_rule_policy` generated at the time for
+the shipped `user_bookmarks` rule; one rolled-back transaction, second of two
+runs, `EXPLAIN (ANALYZE, TIMING OFF)`.
 
-| Query | Interpreted (today) | Native | Native + index |
+| Query | Interpreted | Native | Native + index |
 |---|---|---|---|
 | Full scan | **4,693 ms** | 7.9 ms | 1.1 ms |
 | `count(*)` | 4,546 ms | 8.8 ms | 0.8 ms |
@@ -92,15 +91,15 @@ byte-for-byte copy of what `build_select_rule_policy` generates for the shipped
 | `ORDER BY title LIMIT 20` | **3,344 ms** | 8.2 ms | — |
 | Floor, `USING (true)` | 4.6 ms | — | — |
 
-End-to-end that is about **45 µs per row**, against 17.21 µs for the rule
+End-to-end that was about **45 µs per row**, against 17.21 µs for the rule
 evaluation alone — the difference is the SECURITY DEFINER PL/pgSQL frame and the
-`to_jsonb(p_row)` around it. Three earlier optimizations (a cheaper warm
-permission check, an interpreter that no longer queries the database to read a
-JSON key, and the hoisted request context) touched neither, which is why the
-baseline is still ~4.7 s.
+`to_jsonb(p_row)` around it. Three optimizations already in the measured schema
+(a cheaper warm permission check, an interpreter that reads a JSON key without
+querying the database, and the hoisted request context) touch neither, which is
+why the baseline was ~4.7 s.
 
-**Pagination does not save you.** Page 1 is genuinely cheap, but any *sorted*
-page, and any page past the first, costs ~3.2 s: a sort must see every visible
+**Pagination does not save you.** Page 1 was genuinely cheap, but any *sorted*
+page, and any page past the first, cost ~3.2 s: a sort must see every visible
 row before it can return twenty. The exposure is the ordinary UI grid, not a
 rare admin query.
 
@@ -138,13 +137,17 @@ FROM   pg_stat_user_functions s
 JOIN   pg_proc p ON p.oid = s.funcid
 WHERE  p.proname LIKE 'select\_rule\_%'
    OR  p.proname LIKE 'compute\_validate\_%'
+   OR  p.proname LIKE 'record\_rules\_%'
 ORDER  BY s.total_time DESC;
 ```
 
 Read `total_ms` first, not `ms_per_call`: a cheap rule called constantly costs
 more than an expensive one called twice. `select_rule_<t>` exists in a one-argument
 and a two-argument form — the two-argument one does the work; the one-argument
-wrapper only resolves the request context for `get_record_by_id`.
+wrapper only resolves the request context for `get_record_by_id`. Likewise
+`compute_validate_<t>` is the trigger function around `record_rules_<t>`, so
+its time includes the rules'; an is_a or has_a entity shows `record_rules_<t>`
+only.
 
 Turn tracking off when the window closes:
 
@@ -254,13 +257,21 @@ Beyond the three signals, prefer a shape that:
    operators, or none.
 3. **Can be defined without inheriting the generic operators' coercion rules.**
    This is the main reason to prefer a named operator over recognizing a generic
-   expression: `{">=": [{"var":"valid_to"}, {"var":"$today"}]}` drags in
-   `jl_to_number`, which renders both sides as text and tries numeric then
-   timestamp coercion. A named `not_expired` operator resolves the column against
-   `pg_attribute` and compares dates as dates. The generic path is faithful to
-   the reference since 2026-09-05 (two strings compare as text, and a
-   non-numeric string no longer raises, both fixed 2026-09-05 and pinned by
-   corpus cases 290 to 311), but it still cannot know that a column is a date,
+   expression: `{">=": [{"var":"valid_to"}, {"var":"$today"}]}` compares two
+   strings as text in code-point order, and any other pair as numbers: a string
+   side through `jl_try_number`, which reads an ISO 8601 date or date-time as
+   its epoch seconds, and any other side through `jl_to_number`, which reads
+   null, an array and an object as 0. A named `not_expired` operator resolves
+   the column against `pg_attribute` and compares dates as dates. The generic
+   path follows the reference where two strings compare as text and where a
+   string that carries no number makes the comparison false rather than
+   raising, pinned by the corpus sections on string comparison and on ordering
+   such a string in `0100_test_jsonlogic.json`. It departs from the reference
+   for a date string compared with anything but a string: the reference reads
+   no number in it, and Semantius reads its epoch seconds. It also departs for
+   two strings with a character above U+FFFF, which the reference orders by
+   UTF-16 code unit and Semantius by code point (`0050_jsonlogic.sql`, the
+   ordering operators). Either way it cannot know that a column is a date,
    which is the point.
 
 ## Confirming the win before committing
@@ -362,16 +373,17 @@ that save rebuilds the policy. The check finds a column through `var`,
 `0050_jsonlogic.sql`). A named operator that takes a column name as a plain
 argument has to be added to it, with a test that the rename is refused.
 
-Budget about ten extra DDL events per field on rule-bearing entities, and note
-that the base it lands on has moved. Adding a plain scalar field used to trigger
-a full label-function rebuild and an unconditional `entities` UPDATE that
-cascaded through the entity trigger stack; since 2026-09-06 it does neither. The
-rebuild is skipped for a field that cannot change a generated body, and the two
-flag updates only write when the flag actually changes, so a field insert costs
-about 1.9 ms and two DDL events - the `ALTER TABLE ... ADD COLUMN` and the
-schema reload - instead of about 5.8 ms and four. Ten more would be a five-fold
-increase against that base, not the marginal addition it looked like against the
-old one. Measure before assuming the budget is affordable.
+Budget about ten extra DDL events per field on rule-bearing entities, and weigh
+them against what a field insert costs without them. Adding a plain scalar field
+skips the label-function rebuild when it cannot change a generated body: it is
+not the entity's label column or `label_parent`, it is not named
+`<fk>_label` after a reference field, and the entity has fewer than two
+`parent` fields (`dd_label_fn_sync_field`, `0180_managed_enable.sql`). The two
+flag updates on `entities` write only when the flag actually changes. Recorded
+on 2026-09-06, such a field insert cost about 1.9 ms and two DDL events - the
+`ALTER TABLE ... ADD COLUMN` and the schema reload. Ten more would be a
+five-fold increase against that base, not a marginal addition. Measure before
+assuming the budget is affordable.
 
 ### 4. Do not write a general compiler, and do not recognize shapes either
 
@@ -387,16 +399,17 @@ lost to named operators, recorded 2026-09-05:
   proving that two independently written predicates agree on cases nobody chose.
 - **Its own deferred shape was the evidence.** Temporal validity
   (`{">=":[{"var":"col"},{"var":"$today"}]}`) was identified as the obvious
-  second shape and then deferred, entirely because `>=` coerces both sides
-  through `jl_to_number`. A named `not_expired` operator has none of that. The
-  shape was hard only because of the approach.
+  second shape and then deferred, entirely because `>=` inherits the generic
+  operators' coercion rules. A named `not_expired` operator has none of that.
+  The shape was hard only because of the approach.
 - **Performance becomes visible rather than accidental.** Under recognition,
   whether an entity is fast depends on whether its rule happens to match a
   template the author cannot see; rewording it silently costs 500x.
-- **The backwards-compatibility argument is thin here.** Exactly one rule ships.
+- **The backwards-compatibility argument is thin here.** Two rules ship
+  (`user_bookmarks`, `modules`), both on tables that stay small.
 
 A general JsonLogic-to-SQL translator was designed and rejected twice. It is a
-second implementation of a 44-operator language, so the two drift silently, and
+second implementation of a 51-operator language, so the two drift silently, and
 review passes kept finding semantic divergences between the
 interpreter and the obvious SQL mapping. Named operators exist precisely so that
 neither side has to reverse-engineer the other: an operator is defined once and

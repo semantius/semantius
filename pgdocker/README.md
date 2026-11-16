@@ -72,8 +72,9 @@ to `authenticated`:
 oidc        /^(.*)$           authenticated
 ```
 
-The token's own `sub` still identifies the individual user to the application
-via the JWT claims (next section).
+The token's own `sub` still identifies the individual user: PostgreSQL records
+it in `system_user` as `oauth:<sub>`, and the rest of the claims reach the
+session through `request.jwt.claims` (next section).
 
 ### Claims in the session — published by the bundled validator patch
 
@@ -102,8 +103,10 @@ OK  current_user=authenticated  system_user=oauth:user1
     request.jwt.claims = {"sub":"user1","role":"authenticated","email":"user@test.com", ...}
 ```
 
-`rbac.uid()` requires `role = 'authenticated'` and a non-empty `sub`; the test
-tokens carry both, so it just works — no app step, no extension.
+In a bearer session `rbac.uid()` takes the subject from `system_user` and sets the
+role to `authenticated`, because `system_user` starts with `oauth:` (next section),
+and reads the rest from `request.jwt.claims`, so it just works — no app step, no
+extension.
 
 ### Identity comes from the validated session, not the claims
 
@@ -183,12 +186,15 @@ COMMIT;
   auto-revert on COMMIT/ROLLBACK → **transaction-pooling-safe** (PgBouncer/Supavisor).
   Never use session-level `SET ROLE` / `set_config(…, false)` on the live path.
 - **Minimal claims:** `{"sub":"…","role":"authenticated"}` (both required by
-  `rbac.uid()`), plus `"email"` for first-login provisioning, plus `"aud"` only if
-  `_settings.jwt_aud` is seeded (off by default).
+  `rbac.uid()`, except that a token with no `role` claim may carry `authenticated`
+  in `roles` instead, and a Microsoft Entra ID token, recognized by its `iss`,
+  needs `tid` and `oid` instead of `sub`), plus `"email"` for first-login
+  provisioning, plus `"aud"` only if `_settings.jwt_aud` is seeded (off by default).
 - **First login:** call `public.get_userinfo()` once before other reads, or
   `ensure_context_initialized()` raises *"User not found"*. It works in session mode
-  because `get_userinfo`/`upsert_user_from_jwt` are `SECURITY DEFINER` owned by the
-  BYPASSRLS migration role — not because `semantius_authenticator` has any write grant.
+  because `get_userinfo`/`upsert_user_from_jwt` are `SECURITY DEFINER` owned by a
+  BYPASSRLS role (`semantius_owner`, or on a managed platform the installing role) —
+  not because `semantius_authenticator` has any write grant.
 
 ### Trust model — who verifies the signature
 
@@ -266,11 +272,11 @@ The mechanisms are correct (session mode is genuinely transaction-pooler-safe). 
   request; OAUTHBEARER can't be pooled (bound to one `sub`) and PgBouncer can't
   passthrough it. Treat `bearer` as demo / low-concurrency self-host.
 - **Per-request permission resolution** — in `session` mode `ensure_context_initialized()`
-  runs the recursive `get_user_permissions()` once per tx (cached in a LOCAL GUC that
+  runs the recursive `get_user_permissions_by_id()` once per tx (cached in a LOCAL GUC that
   resets at COMMIT), so it re-runs every request. In `bearer` mode the cache is
   **disabled**: the client runs SQL as the request role and could overwrite the `app.*`
   GUCs, so permissions are re-resolved on every check and the session receives a
-  one-time WARNING saying so (release review S2). Per-row select rules and row triggers
+  WARNING saying so, once per transaction. Per-row select rules and row triggers
   pay that cost per row in bearer mode; the cache needs a signed/verified form before
   bearer mode can be called production-ready. For high-RPS / high-permission users,
   production needs an app-side permission cache (keyed by `sub` + roles-version); the
@@ -302,7 +308,7 @@ Point the Semantius CLI at it and deploy:
 ```bash
 export DATABASE_URL=postgresql://postgres:<POSTGRES_PASSWORD>@localhost:5432/appdb
 deno task reset --confirm     # drop + migrate _core
-deno task retest --confirm    # migrate test + run pgTAP
+deno task retest --confirm    # drop all, migrate _core,nwind,test, run pgTAP
 ```
 
 ---
@@ -315,14 +321,15 @@ database. Pick one per database — they are alternatives, not layers:
 | Build command | What the image contains | How core is loaded | Port |
 | ------------- | ----------------------- | ------------------ | ---- |
 | `pg-cli-create` (`.sh`/`.cmd`) | Plain PG18 + OAuth | You deploy with the CLI: `deno task migrate` / `reset` | 5432 |
-| `pg-ext-create` (`.sh`/`.cmd`) | Same image **+ the Semantius core extension baked in** | `CREATE EXTENSION pg_semantius` runs automatically at first init | 5433 |
+| `pg-ext-create` (`.sh`/`.cmd`) | Same image **+ the Semantius core extension baked in** | `CREATE EXTENSION pg_semantius` and `CALL semantius.migrate()` run automatically at first init | 5433 |
 
 They are independent Docker Compose projects (separate container, data volume,
 and port), so both can run at once. The extension variant must have the extension
 generated first, from the repo root:
 
 ```bash
-deno task extension 0.5.0    # writes ../extension/{pg_semantius.control, pg_semantius--<ver>.sql}
+deno task extension <ver>    # <ver> = default_version in ../extension/pg_semantius.control;
+                             # writes ../extension/{pg_semantius.control, pg_semantius--<ver>.sql}
                              # (for a release use ../release.sh instead)
 ./pg-ext-create.sh           # builds the base image, then the extension image, and starts it
 ```
@@ -354,8 +361,8 @@ extension-`_core` ≡ migrate-`_core`.
 
 | Path | Harness | What it does |
 | ---- | ------- | ------------ |
-| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm --env pgdocker-cli` (dropall → migrate `_core,nwind,test` → test), on port 5432 |
-| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` installs `_core`) → migrate `nwind,test` → test, on port 5433 |
+| **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm` (dropall → migrate `_core,nwind,test` → test), on port 5432 |
+| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` + `CALL semantius.migrate()` install `_core`) → migrate `nwind,test` → test, on port 5433 |
 
 ```bash
 ./pg-cli-retest.sh      # Path A — migrate-installed _core
@@ -371,25 +378,25 @@ extension-`_core` ≡ migrate-`_core`.
 ./pg-ext-retest.sh --coverage
 ```
 
-In **Path B**, `migrate --apps nwind,test` auto-prepends `_core`, but the
-extension already seeded the `_versions` run-once guards, so every `_core.*`
-migration is **skipped** (not re-run) and only `test`/`nwind` are
+In **Path B**, `migrate --apps nwind,test` auto-prepends `_core`, but
+`migrate()` already recorded every `_core` file in `_versions` with its checksum,
+so every `_core.*` migration is **skipped** (not re-run) and only `test`/`nwind` are
 deployed onto the extension's `_core` — the exact same app set Path A migrates,
 so the two paths run the identical suite over an identical schema. (The
-`webhook_receivers`/`dashboards` tables that test's `0030_seed.once.sql` and several test
-files use are now part of `_core` itself, so they come from the extension —
-no separate app needed.) That seed (plus the
-`_versions` table the extension now creates) is what lets an extension-installed
-database be managed by the CLI; it is also the fix for the `CREATE EXTENSION`
-install itself (`_core/0100_rbac_rls.sql` attaches an RLS policy to `_versions`).
+`webhook_receivers`/`dashboards` tables that the Northwind seed
+`0030_nwind_platform.once.sql` and several test files use are part of `_core`,
+so they come from the extension.) Those `_versions` rows, in the `_versions`
+table `migrate()` creates before any file runs, are what let the CLI manage an
+extension-installed database; `_core/0100_rbac_rls.sql` attaches an RLS policy to
+that table.
 
-> The connection is not hard-coded: `pg-cli-retest` uses the `.env.pgdocker-cli`
-> profile, while `pg-ext-retest` reads `POSTGRES_PASSWORD` from `pgdocker/.env`
-> and passes `--database-url` (which also outranks any exported `DATABASE_URL`).
-> The lighter `deploy-module` scripts (below) use the matching `--env pgdocker-cli`
-> / `--env pgdocker-ext` profiles. Either way the profile's password must match
-> `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged and forward any
-> extra arguments (such as `--coverage`) to the CLI.
+> The connection is not hard-coded: `pg-cli-retest.sh` and `pg-ext-retest` read
+> `POSTGRES_PASSWORD` from `pgdocker/.env` and pass `--database-url` (which also
+> outranks any exported `DATABASE_URL`), while `pg-cli-retest.cmd` uses the
+> `.env.pgdocker-cli` profile. The lighter `deploy-module` scripts (below) use the
+> matching `--env pgdocker-cli` / `--env pgdocker-ext` profiles. A profile's
+> password must match `pgdocker/.env`. They wrap `retest`/`migrate`/`test` unchanged
+> and forward any extra arguments (such as `--coverage`) to the CLI.
 
 `pg-ext-retest` is also re-runnable without the reset: re-running just its
 `migrate --apps nwind,test` + `test` steps stays green (migrate reports
@@ -404,21 +411,30 @@ does not disturb `appdb`:
 
 | Step | Proves |
 |---|---|
-| 0 | the control file (`schema = public`, `encoding = 'UTF8'`, no `requires`) and a generated script with no `skip_audit` |
-| 1 | two-statement install with no CASCADE; members are only the schema and its functions; all 52 core relations are non-members; `extconfig IS NULL` |
-| 1b | a second database on the same cluster, with the roles already present (B11) |
-| 1c | two concurrent `migrate()` callers serialize on the advisory lock |
-| 1d | `psql -1` installs; a rolled-back `migrate()` leaves nothing behind |
-| 2 | plain `pg_dump` → **single-pass** `pg_restore`, with a custom field on a core entity (B16) |
+| 0 | the build in `../extension` matches the migrations; the control file (`schema = public`, `relocatable = false`, `superuser = true`, `encoding = 'UTF8'`, no `requires`); a generated script with exactly one `pg_extension_config_dump` call (`migrate()`'s own guard), no table registered for `pg_dump` and no `skip_audit`; the generator's LF normalization and manifest checksum (`extension_test.ts`); no CR byte in the script or the control file |
+| 1 | two-statement install with no CASCADE; `pending()` and `version()` work before `migrate()`; a second `migrate()` runs nothing, and a forced re-run of every repeatable file leaves the schema and the dictionary unchanged; `pgcrypto` lands in `public`; no relation is a member of the extension; `extconfig IS NULL`; the DDL audit names `migrate()` as the query |
+| 1b | a second database on the same cluster, with the roles already present; `postgres` is not made a member of `semantius_user`, and schema `common` has the same ACL as `rbac`, with no extra grant to the installer |
+| 1c | while a session holds the migration lock, `CALL migrate()` fails at once with `another migration is running` (55P03) and writes nothing; while a `CALL` runs, a second `CALL` fails the same way and a CLI runner cannot take the lock; the lock is released when the `CALL` ends, and each migration is applied exactly once |
+| 1d | `psql -1` (both statements in one transaction) and a `CALL` inside `BEGIN` are refused with 2D000; the refused `CALL` leaves no `_versions`, no schema `common` and no migration lock, and the roles still exist |
+| 1e | two concurrent first logins elect exactly one administrator, the earlier one, and the other keeps the User role; a later login is not elected |
+| 1f | `fix_id_sequence` behind an open insert fails with 90232 instead of queueing; the retry succeeds |
+| 1g | a file failing mid-pass is named with its original error and not recorded, earlier files stay committed, the 9900 files still run and leave nothing owned by the installing superuser, and the next `CALL migrate()` resumes to an install equal to an uninterrupted one |
+| 1h | the same on the CLI runner (`deno task migrate`); like the procedure, it fails at once while another session holds the migration lock |
+| 2 | plain `pg_dump` → **single-pass** `pg_restore`, with a custom field on a core entity and a custom entity's rows; nothing is pending on the restored database |
 | 2b | the same dump through `-Fp \| psql`, `-j 4` and `-1` |
-| 4 | `DROP EXTENSION` is inert, with and without CASCADE |
-| 4b | the documented uninstall recipe leaves no leftovers |
-| 6 | schema pinning: a non-`public` search_path installs, `SCHEMA other` is refused (B2) |
-| 6b | hostile `PGOPTIONS` produce a byte-identical install |
+| 4 | `DROP EXTENSION` is inert, with and without CASCADE: the schema `semantius` goes, the data and the four roles stay, and a re-created extension has nothing to migrate |
+| 4b | the documented uninstall recipe leaves nothing behind but the cosmetic `FUNCTIONS` default ACL, the `authenticated` membership in `semantius_user` (the recipe's conditional `DROP ROLE` would clear it; the harness's own `appdb` still uses the roles) and `pgcrypto` (the recipe's optional last step); a clean install succeeds again afterwards |
+| 5 | a restore where the extension is not installed (the managed-service case): `pg_restore` exits non-zero, every error concerns `pg_semantius`, the data and the RLS policies survive, and a write works |
+| 6 | schema pinning: a non-`public` search_path installs, with `pgcrypto` still in `public`; `SCHEMA other` is refused |
+| 6b | an install under hostile `PGOPTIONS` succeeds and matches a plain one in its row, policy, trigger, event-trigger and function counts and in the md5 of one column default (the `standard_conforming_strings` canary) |
 | 7 | refusals: a real `pgmq`, a misplaced `pgcrypto`, `migrate()` inside an extension script |
-| 8 | privileges: a request role cannot reach `migrate()`, and a granted non-superuser still hits the superuser gate (B15) |
-| 8b | a squatted `semantius_owner` is refused |
-| 9 | LATIN1 and SQL_ASCII databases are refused (B9) |
+| 7d | the header guard of `0310_pgmq.once.sql`, which `migrate()`'s pre-flight never lets run, refuses a real `pgmq` when the file runs on its own (`psql -f`) and creates no schema `pgmq` |
+| 8 | privileges: a request role cannot reach `migrate()`; no `semantius` function is PUBLIC-executable or SECURITY DEFINER, and the schema is not PUBLIC-usable; a granted non-superuser still hits the superuser gate; a non-superuser cannot `CREATE EXTENSION`; the generated script has no `ASSERT` statement |
+| 8b | a squatted `semantius_owner` is refused (skipped while another database on the cluster uses the role) |
+| 8d | the BYPASSRLS gate of `0100_rbac_rls.sql` refuses a superuser without the attribute before any later file is applied, with a hint that names the fix; the same role installs once it has the attribute |
+| 9 | LATIN1 and SQL_ASCII databases are refused |
+| 10 | the schema-only dumps of `appdb` on the extension stack and on the CLI stack are byte-identical once psql meta-commands, comments, blank lines and the `pg_semantius` extension lines are removed (skipped unless both stacks have `appdb`) |
+| 11 | the DDL audit and `NOTIFY pgrst` skip foreign schemas and temp tables while a table in `public` still notifies and is audited, a `DROP TABLE` is audited as the table alone, the request role can create a temp table, and audited query text is cut at 8192 characters |
 
 ```bash
 ./pg-ext-create.sh                  # first: an extension stack to run against
@@ -426,12 +442,10 @@ does not disturb `appdb`:
 ./pg-ext-lifecycle.sh --keep        # keep the scratch databases for triage
 ```
 
-It replaced `pg-ext-dump-restore.sh`, which existed only to drive the old
-three-pass restore. That procedure is gone: because `migrate()` creates the
-core schema as ordinary objects rather than extension members, a plain
-`pg_dump` and a single `pg_restore` round-trip everything, and
-`apps/test/tests/0980_test_extension_membership.sql` pins the membership
-invariants the round trip depends on.
+Because `migrate()` creates the core schema as ordinary objects rather than
+extension members, a plain `pg_dump` and a single `pg_restore` round-trip
+everything, and `apps/test/tests/0980_test_extension_membership.sql` pins the
+membership invariants the round trip depends on.
 
 `pg-required-locks.sh` (no `.cmd` variant) proves that adding a required check is safe
 on a live database, which needs two sessions: the search for missing values blocks no
@@ -580,7 +594,8 @@ destructive path:
 | nothing — just resuming | **`pg-cli-start`** (or `pg-ext-start`) | reuses image + data |
 
 > Changing the `issuer=` in `conf/pg_hba.conf` is the common case: a running
-> server keeps the old issuer in memory until it restarts, so `pg-cli-stop` → `pg-cli-start`
+> server keeps the old issuer in memory until it re-reads the file (a reload or a
+> restart), so `pg-cli-stop` → `pg-cli-start`
 > (which keeps your data) is all you need — not `pg-cli-delete`/`pg-cli-create`.
 
 ---
@@ -659,7 +674,7 @@ for why that matters.
 
 ## Automated checks (CI)
 
-Both scripts are dependency-free Deno (stdlib only) and exit non-zero on failure,
+The three scripts are dependency-free Deno (stdlib only) and exit non-zero on failure,
 so they drop straight into CI once the container is healthy:
 
 ```bash
@@ -705,7 +720,7 @@ so no host-specific changes are needed.
 
 ## Files
 
-- [Dockerfile](Dockerfile) — `postgres:18` + the validator (pinned commit + local patch)
+- [Dockerfile](Dockerfile) — `postgres:18` + the validator (pinned to release 1.1.0 + local patch)
 - [docker-compose.yml](docker-compose.yml) — CLI-testing stack: service, volumes, validator/HBA/ident wiring, healthcheck
 - [Dockerfile.ext](Dockerfile.ext) — extension variant: layers the generated `../extension` on the base image
 - [docker-compose.ext.yml](docker-compose.ext.yml) — extension stack (separate project `semantius-ext`, port 5433)
@@ -713,7 +728,7 @@ so no host-specific changes are needed.
 - [conf/pg_ident.conf](conf/pg_ident.conf) — token identity → `authenticated` role map
 - [init/10-roles.sql](init/10-roles.sql) — creates the `authenticated` LOGIN role (both stacks)
 - [init/11-session-role.sh](init/11-session-role.sh) — gives `semantius_authenticator` LOGIN + password for session mode (both stacks; reads `SEMANTIUS_AUTHENTICATOR_PASSWORD`)
-- [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION pg_semantius CASCADE`
+- [init-ext/20-extension.sql](init-ext/20-extension.sql) — extension stack only: runs `CREATE EXTENSION pg_semantius` (no `CASCADE`), then `CALL semantius.migrate()`
 - [pg-cli-retest.sh](pg-cli-retest.sh) / [pg-cli-retest.cmd](pg-cli-retest.cmd) — Path A equivalence harness (migrate-installed `_core` → pgTAP)
 - [pg-ext-retest.sh](pg-ext-retest.sh) / [pg-ext-retest.cmd](pg-ext-retest.cmd) — Path B equivalence harness (extension-installed `_core` → pgTAP)
 - [pg-cli-deploy-module.sh](pg-cli-deploy-module.sh) / [pg-cli-deploy-module.cmd](pg-cli-deploy-module.cmd) — deploy given module(s) onto the running CLI container (`<module[,module...]>`)
@@ -721,7 +736,7 @@ so no host-specific changes are needed.
 - [patches/](patches/) — validator patch that publishes `request.jwt.claims`
 - [verify_oauth.ts](verify_oauth.ts) — bearer: end-to-end OAuth handshake + claims check
 - [test_oauth_security.ts](test_oauth_security.ts) — bearer: hostile-client impersonation check
-- [test_bearer_cache.ts](test_bearer_cache.ts) — bearer: hostile-client forges the `app.*` permission cache; must be ignored (release review S2)
+- [test_bearer_cache.ts](test_bearer_cache.ts) — bearer: hostile-client forges the `app.*` permission cache; must be ignored
 - [verify_session.ts](verify_session.ts) — session: SCRAM connect → `SET ROLE` + claims → RLS, with provisioning + guardrail
 - [test_session_trust.ts](test_session_trust.ts) — session: trust-model assertion + NOINHERIT/no-claims/bad-role negatives
 - [session_helpers.ts](session_helpers.ts) — shared session helpers (SCRAM connect, password resolution, claims/tx)

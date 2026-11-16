@@ -161,10 +161,11 @@ The code reads these settings from the session:
 | Setting | Set by |
 |---|---|
 | `request.jwt.claims` | PostgREST or your app tier, per request |
-| `request.jwt.claim.sub`, `request.jwt.claim.email`, `request.jwt.claim.role`, `request.jwt.claim.name`, `request.jwt.claim.given_name`, `request.jwt.claim.family_name`, `request.jwt.claim.aud`, `request.jwt.claim.iss`, `request.jwt.claim.tid`, `request.jwt.claim.oid` | the same, one GUC per claim (Neon/Supabase style) |
-| `app.current_user_id`, `app.user_permissions`, `app.oauth_scopes`, `app.current_external_id`, `app.context_initialized`, `app.bumping_module_version`, `app.bearer_cache_notice` | the RBAC code itself, per transaction |
+| `request.jwt.claim.sub`, `request.jwt.claim.email`, `request.jwt.claim.role`, `request.jwt.claim.roles`, `request.jwt.claim.name`, `request.jwt.claim.given_name`, `request.jwt.claim.family_name`, `request.jwt.claim.aud`, `request.jwt.claim.iss`, `request.jwt.claim.tid`, `request.jwt.claim.oid` | the same, one GUC per claim (Neon/Supabase style); `rbac.uid()` also writes them, per transaction, when it fans out `request.jwt.claims` and when it sets the `role` and `sub` it resolved |
+| `app.current_user_id`, `app.user_permissions`, `app.oauth_scopes`, `app.oauth_scopes_expanded`, `app.oauth_scopes_expanded_for`, `app.current_external_id`, `app.context_initialized`, `app.bumping_module_version`, `app.bearer_cache_notice` | the RBAC code itself, per transaction |
 | `app.row_move`, `app.select_rule_warned` | the generated `select_rule` predicates and the `zz_row_move` triggers of an entity with a `select_rule`, per transaction |
 | `dd.table_rename` | the data dictionary, during a table rename |
+| `semantius.notice_level` | `ensure_entities()`, per transaction, to keep the caller's `client_min_messages` for its NOTICEs |
 
 DDL emits `NOTIFY pgrst, 'reload schema'` so PostgREST reloads its cache, and
 the audit event triggers record both DDL and drops in

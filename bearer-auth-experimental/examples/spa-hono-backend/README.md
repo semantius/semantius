@@ -51,6 +51,8 @@ React SPA (:3000)  ──Authorization: Bearer──▶  Hono API (:8788)  ─�
 - `GET /me` — first-call **provisioning** (`public.get_userinfo()`, a write path) +
   the current user. The SPA calls this once on load.
 - `GET /users` — RLS-enforced list (any provisioned user has `user:read`).
+- `GET /audit` — the audit log; `audit_record_logs` needs `admin`, so a plain `User`
+  gets zero rows.
 - `PUT /me/display-name` — the **`user:manage` write demo** (admin/first user only).
 
 ---
@@ -112,8 +114,8 @@ works **only if the access token carries**:
 
 | Claim | Requirement | Used for |
 |---|---|---|
-| `role` | **MUST equal `authenticated`** | `rbac.uid()` rejects anything else. Auth0/Clerk need a custom claim. |
-| `sub` | required, stable & unique | becomes `users.external_id`; identity for RLS/RBAC |
+| `role` | not read from the token | `session` pins `authenticated` server-side (`lib/db/verify.ts`); in `bearer`, `rbac.uid()` sets it because `system_user` starts with `oauth:`. Code that injects a token's own claims needs `role=authenticated` (or `authenticated` in `roles`): `rbac.uid()` rejects anything else. |
+| `sub` | required, stable & unique | becomes `users.external_id`; identity for RLS/RBAC. In `session` mode a Microsoft Entra ID token, recognized by its `iss`, is keyed `entra.<tid>.<oid>` instead and needs both claims |
 | `iss` | must equal the configured issuer | verified app-side (`session`) / by the validator (`bearer`) |
 | `aud` | DB enforces only if `_settings.jwt_aud` is seeded (**off by default**); **app-side `aud` check is MANDATORY in `session` mode** | else a same-issuer token for another client is accepted |
 | `exp` / `iat` | standard | expiry validation (a cheap `exp` pre-check yields a uniform 401 in both modes → the SPA's 401→refresh works) |
@@ -173,23 +175,20 @@ What the demo shows:
 
 ## The vendored `lib/db/` layer (same as the Next sample)
 
-`lib/db/` and `lib/dal/` are **copied byte-for-byte** from `bearer-auth-experimental/examples/nextjs` (no
-shared package — copy-paste portability is the accepted tradeoff; keep them in sync
-by hand). The schema under `lib/db/schema/` is generated from the catalog:
+`lib/db/` is **copied byte-for-byte** from `bearer-auth-experimental/examples/nextjs`,
+and `lib/dal/` differs from its copy there only in comments (no shared package —
+copy-paste portability is the accepted tradeoff; keep them in sync by hand). The
+schema under `lib/db/schema/` is generated from the catalog:
 
 ```bash
 deno task drizzlegen --output bearer-auth-experimental/examples/spa-hono-backend/lib/db/schema
 ```
 
-> Known generator quirk: FK fields whose target PK is `text` (e.g. `fields.table_name`,
-> `queue_table_events.table_name`) are emitted as `integer`. The demo only touches
-> `users`/`roles`/`user_roles`/`permissions`, which are unaffected; avoid those two tables.
-
 ```
 src/
   server.ts              Hono app: CORS → contextStorage → routes; startup superuser guard
   middleware/session.ts  bearer-token extraction, jose verify (session), request-scoped tx
-  routes/users.ts        GET /me (provision), GET /users (RLS read), PUT /me/display-name (write)
+  routes/users.ts        GET /me (provision), GET /users (RLS read), GET /audit, PUT /me/display-name (write)
 lib/db/                  ← vendored, identical to bearer-auth-experimental/examples/nextjs/lib/db
   session.ts             AsyncLocalStorage + withSession() + getDb()
   adapter.ts             DbAdapter interface + SessionContext
@@ -225,9 +224,10 @@ Sample-acceptable on a single dev instance; for production:
 - **`bearer` does not scale past ~`max_connections` concurrent users** — one
   OAUTHBEARER connection per user/token, no pooling (PgBouncer can't passthrough it),
   per-request connect + SASL. Demo / low-concurrency self-host only.
-- **Per-request permission CTE.** `rbac.get_user_permissions()` runs once per
-  transaction → re-runs every request in both modes. Production needs an app-side
-  permission cache.
+- **Per-request permission CTE.** `rbac.get_user_permissions_by_id()` runs once per
+  transaction in `session` mode and on every permission check in `bearer` mode,
+  where the cache is bypassed → re-runs every request in both modes. Production
+  needs an app-side permission cache.
 - **Refresh-token storms.** ~1h `exp` + many SPA clients ⇒ synchronized expiry can
   stampede the IdP at the hour boundary; add jitter / refresh-ahead in production.
 

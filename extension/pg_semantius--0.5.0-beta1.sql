@@ -5251,7 +5251,7 @@ $pgsem__core_0090_rbac_seed_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '2ef70c5a164faf5b42ebd4134a706e5b4244465133095bb18c7b1705eb05dfc4') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
       EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
@@ -5793,6 +5793,31 @@ CREATE OR REPLACE TRIGGER default_granted_by_trigger
 COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
 'Defaults granted_by to the current session user when not provided on insert.';
 
+-- =====================================================
+-- SEEDED PERMISSION HIERARCHY: admin includes public:read
+-- =====================================================
+-- entities and fields are viewed with public:read and edited with admin, and
+-- their UPDATE and DELETE policies check both, as every entity without a
+-- select_rule does. A session confined by OAuth scopes holds only what its
+-- scope list names and what that includes (rbac.scope_closure), so a token
+-- scoped to admin alone could otherwise neither read nor change the catalog it
+-- administers. With this row, admin includes public:read as user:manage
+-- includes user:read (0090_rbac_seed.once.sql), and the same origin marks it
+-- as a platform built-in.
+--
+-- Here and not in 0090_rbac_seed.once.sql: that file shipped in a released
+-- version, and a .once. file never runs again on a database that has run it,
+-- so the row would reach fresh installs only. ON CONFLICT DO NOTHING makes the
+-- statement harmless on every later run of this file. The row is written only
+-- while both permissions exist under these names, so a database where one of
+-- them was renamed still migrates; such a database gets no row. A row an
+-- administrator deletes is written again the next time this file runs.
+INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin)
+SELECT 'admin', 'public:read', 'system'
+ WHERE EXISTS (SELECT 1 FROM permissions WHERE permission_name = 'admin')
+   AND EXISTS (SELECT 1 FROM permissions WHERE permission_name = 'public:read')
+ON CONFLICT DO NOTHING;
+
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
@@ -5801,7 +5826,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
 $pgsem__core_0100_rbac_rls_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0100_rbac_rls.sql', '42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc')
+        VALUES ('_core.0100_rbac_rls.sql', '2ef70c5a164faf5b42ebd4134a706e5b4244465133095bb18c7b1705eb05dfc4')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7042,7 +7067,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd32674ed2a0e4a18812d6bcddba0fbf24f479e9b69457504d160ed138d89353f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -8391,12 +8416,18 @@ COMMENT ON FUNCTION dd_field_comment IS
 -- RLS POLICIES OF AN ENTITY
 -- =====================================================
 -- The dictionary's four policies for a managed entity, from its row in
--- entities: SELECT on view_permission, INSERT/UPDATE/DELETE on
--- edit_permission. A select_rule, when set, is layered on afterwards by
--- build_select_rule_policy (0210_computed_validation.sql), which replaces
--- SELECT, UPDATE and DELETE. create_dd_table calls it for every new entity;
+-- entities. This function creates the INSERT policy, on edit_permission alone,
+-- and hands SELECT, UPDATE and DELETE to build_select_rule_policy
+-- (0210_computed_validation.sql). When a select_rule is set, SELECT is the rule
+-- and UPDATE and DELETE are edit_permission AND the rule; otherwise SELECT is
+-- view_permission and UPDATE and DELETE are edit_permission AND
+-- view_permission. Every later change of view_permission, edit_permission or
+-- select_rule rebuilds those three through the same function, so there is one
+-- generator of their text, and an entity is created with exactly the policies a
+-- rebuild would give it. create_dd_table calls this for every new entity;
 -- 0240_dd_bootstrap_complete.once.sql calls it for the core tables that were
--- registered before the dictionary existed.
+-- registered before the dictionary existed. Neither runs before
+-- 0210_computed_validation.sql has defined build_select_rule_policy.
 --
 -- The policies go on the entity's physical relation and are named after it
 -- (<entity>_ext_select_policy for an is_a or has_a entity): each table of a
@@ -8405,12 +8436,12 @@ COMMENT ON FUNCTION dd_field_comment IS
 CREATE OR REPLACE FUNCTION create_entity_policies(p_table_name TEXT)
 RETURNS VOID AS $$
 DECLARE
-    v_view_permission TEXT;
     v_edit_permission TEXT;
     v_id_type         TEXT;
+    v_rel             TEXT;
 BEGIN
-    SELECT view_permission, edit_permission, id_type
-      INTO v_view_permission, v_edit_permission, v_id_type
+    SELECT edit_permission, id_type
+      INTO v_edit_permission, v_id_type
       FROM entities
      WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -8418,57 +8449,28 @@ BEGIN
             USING ERRCODE = '90231',
                   HINT = jsonb_build_object('table', p_table_name)::text;
     END IF;
-    p_table_name := dd_relation(p_table_name, v_id_type);
+    v_rel := dd_relation(p_table_name, v_id_type);
 
-    -- Policy predicates wrap rbac.has_permission() in a scalar sub-select: PostgreSQL then evaluates
-    -- it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
+    -- The check is wrapped in a scalar sub-select: PostgreSQL then evaluates it once per
+    -- statement (InitPlan) instead of once per row (1.7 s vs 10 ms on 100k rows).
     -- 0940_test_policy_subselect_form.sql fails on the bare per-row form.
-    EXECUTE format(
-        'CREATE POLICY %I ON %I
-            FOR SELECT
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_select_policy',
-        p_table_name,
-        v_view_permission
-    );
-
     EXECUTE format(
         'CREATE POLICY %I ON %I
             FOR INSERT
             TO semantius_user
             WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_insert_policy',
-        p_table_name,
+        v_rel || '_insert_policy',
+        v_rel,
         v_edit_permission
     );
 
-    EXECUTE format(
-        'CREATE POLICY %I ON %I
-            FOR UPDATE
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))
-            WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_update_policy',
-        p_table_name,
-        v_edit_permission,
-        v_edit_permission
-    );
-
-    EXECUTE format(
-        'CREATE POLICY %I ON %I
-            FOR DELETE
-            TO semantius_user
-            USING ((SELECT rbac.has_permission(%L)))',
-        p_table_name || '_delete_policy',
-        p_table_name,
-        v_edit_permission
-    );
+    -- Takes the entity's name, not its relation: it finds the relation itself.
+    PERFORM build_select_rule_policy(p_table_name);
 END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION create_entity_policies(TEXT) IS
-'Creates the four RLS policies of a managed entity on its physical relation from its entities row: SELECT on view_permission, INSERT/UPDATE/DELETE on edit_permission. Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
+'Creates the four RLS policies of a managed entity on its physical relation from its entities row: INSERT on edit_permission here, and SELECT, UPDATE and DELETE through build_select_rule_policy, which every later permission or select_rule change calls as well (UPDATE and DELETE on edit_permission and view_permission, or on edit_permission and the select_rule). Called by create_dd_table for every new entity and once for the core tables registered before the dictionary existed.';
 
 -- =====================================================
 -- TRIGGER FUNCTION: CREATE TABLE ON INSERT
@@ -8491,6 +8493,16 @@ BEGIN
         RAISE NOTICE 'Skipping table creation for "%" (managed=false)', NEW.table_name;
         RETURN NEW;
     END IF;
+
+    -- Suppress IF NOT EXISTS/IF EXISTS notices. build_select_rule_policy drops
+    -- the rule functions, policies and row move triggers before it builds them,
+    -- and on a new entity each of those DROPs would print a "does not exist,
+    -- skipping" NOTICE. Below the managed test, so the NOTICE above still
+    -- reaches the caller. SET LOCAL holds to the end of the transaction, as it
+    -- does in add_dd_field, which the field rows inserted at the end of this
+    -- function fire anyway; the .jsonc loader puts the caller's level back
+    -- before each NOTICE of its own, from semantius.notice_level.
+    SET LOCAL client_min_messages = WARNING;
 
     -- Raises 90234 for id_type computed, before anything is created.
     v_key := dd_id_column_ddl(NEW.table_name, NEW.id_column, NEW.id_type);
@@ -8575,8 +8587,9 @@ BEGIN
     -- Enable RLS on the new table
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', v_rel);
 
-    -- The four RLS policies (view_permission for SELECT, edit_permission for
-    -- INSERT, UPDATE and DELETE).
+    -- The four RLS policies: INSERT on edit_permission, SELECT on the rule or
+    -- view_permission, UPDATE and DELETE on edit_permission and that same rule
+    -- or view_permission.
     PERFORM create_entity_policies(NEW.table_name);
 
     -- The request role has no default privileges in public, so a dictionary
@@ -9620,11 +9633,13 @@ CREATE OR REPLACE TRIGGER delete_table_trigger
 -- =====================================================
 -- TRIGGER FUNCTION: update RLS policies on permission change
 -- =====================================================
--- When entities.edit_permission is changed, the INSERT, UPDATE, and DELETE
--- RLS policies must be dropped and recreated with the new permission value.
+-- When entities.edit_permission is changed, the INSERT policy is dropped and
+-- recreated with the new permission value, and SELECT, UPDATE and DELETE are
+-- rebuilt through build_select_rule_policy, which builds all three together.
 --
--- NOTE: The SELECT policy is already handled by manage_select_rule_policy
--- (in 0210_computed_validation.sql) which fires when view_permission changes.
+-- A change of view_permission, which SELECT, UPDATE and DELETE check, is
+-- handled by manage_select_rule_policy (0210_computed_validation.sql), which
+-- rebuilds those three through the same build_select_rule_policy.
 
 CREATE OR REPLACE FUNCTION update_entity_policies()
 RETURNS TRIGGER AS $$
@@ -9636,7 +9651,8 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- Sub-select form: see the note in create_dd_table (P1).
+    -- Sub-select form, so the check runs once per statement (InitPlan) rather than once per
+    -- row; 0940_test_policy_subselect_form.sql fails on the bare form.
     -- INSERT policy is edit_permission-only (there is no per-row rule on inserts).
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
         v_rel || '_insert_policy', v_rel);
@@ -9645,7 +9661,8 @@ BEGIN
         v_rel || '_insert_policy', v_rel, NEW.edit_permission);
 
     -- SELECT/UPDATE/DELETE are rule-aware: build_select_rule_policy() rebuilds them on the
-    -- canonical predicate (select_rule when set, else view/edit permission). Delegating here
+    -- canonical predicate (the select_rule when set, else view_permission, and for UPDATE and
+    -- DELETE the edit permission next to either). Delegating here
     -- keeps the read policy, the read helpers, and the write USING clauses on ONE predicate,
     -- so an edit_permission change does not silently strip the row rule from writes.
     PERFORM build_select_rule_policy(NEW.table_name);
@@ -9655,9 +9672,10 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION update_entity_policies IS
-'AFTER UPDATE trigger on entities: drops and recreates INSERT, UPDATE, and DELETE
-RLS policies when edit_permission changes. The SELECT policy is handled separately
-by manage_select_rule_policy (0210_computed_validation.sql).';
+'AFTER UPDATE trigger on entities: when edit_permission changes, drops and recreates
+the INSERT policy and rebuilds SELECT, UPDATE and DELETE through build_select_rule_policy.
+A view_permission change reaches the same three through manage_select_rule_policy
+(0210_computed_validation.sql).';
 
 CREATE OR REPLACE TRIGGER update_entity_policies_trigger
     AFTER UPDATE ON entities
@@ -9666,7 +9684,7 @@ CREATE OR REPLACE TRIGGER update_entity_policies_trigger
     EXECUTE FUNCTION update_entity_policies();
 
 COMMENT ON TRIGGER update_entity_policies_trigger ON entities IS
-'Rebuilds INSERT/UPDATE/DELETE RLS policies when entities.edit_permission is updated';
+'Rebuilds the INSERT RLS policy, and the SELECT, UPDATE and DELETE policies through build_select_rule_policy, when entities.edit_permission is updated';
 
 -- =====================================================
 -- TRIGGER FUNCTION: typeid prefix change
@@ -12109,7 +12127,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d')
+        VALUES ('_core.0160_dd_functions.sql', 'd32674ed2a0e4a18812d6bcddba0fbf24f479e9b69457504d160ed138d89353f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12990,7 +13008,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '988d8933fd7c5fbc7cf9aac82cb1c08298e152e2a4660262a504ff127331732f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -13281,8 +13299,8 @@ BEGIN
     -- ── Secure the table ─────────────────────────────────────────────────
     -- Unconditionally, whatever the table carried before. Becoming managed means
     -- the dictionary owns the table, so it ends up configured the way a table
-    -- created managed would be: row-level security on, the four permission
-    -- policies from view_permission and edit_permission, the table grant. There
+    -- created managed would be: row-level security on, the four policies from
+    -- view_permission, edit_permission and select_rule, the table grant. There
     -- is no half-adopted state where an entity claims a permission model the
     -- table does not enforce.
     --
@@ -13297,31 +13315,25 @@ BEGIN
     -- table, named with a leading "_" - is refused by reserve_table_namespace
     -- below, before it can be registered.
     --
-    -- Access can widen. A table that carried its own policies keeps them, and
+    -- Access can widen. A table that carried policies of other names keeps them, and
     -- PostgreSQL ORs permissive policies together, so the permission model the
     -- entity declares is added to whatever was there. That is what adoption now
     -- means, and it is why the flip is a decision rather than a setting.
     --
-    -- The policy creations are guarded by a pg_policies lookup because
-    -- PostgreSQL has no CREATE POLICY IF NOT EXISTS; a policy that already
-    -- carries one of the four names keeps its own definition. Predicates use the
-    -- (SELECT rbac.has_permission(...)) InitPlan form, see the note in
-    -- create_dd_table; 0940_test_policy_subselect_form.sql fails on the bare
-    -- per-row form.
+    -- The INSERT policy is created only when no policy of its name exists,
+    -- because PostgreSQL has no CREATE POLICY IF NOT EXISTS; one that is there
+    -- keeps its own definition. SELECT, UPDATE and DELETE come from
+    -- build_select_rule_policy, the one generator of those three, which drops
+    -- and recreates them whatever the table carried: the select_rule when one is
+    -- set, else view_permission, and for UPDATE and DELETE the edit permission
+    -- as well. Calling it here rather than leaving it to the
+    -- manage_select_rule_policy AFTER trigger is deliberate: two AFTER triggers
+    -- on one table fire in name order, and the toggle must not depend on which
+    -- runs first. The predicates use the (SELECT rbac.has_permission(...))
+    -- InitPlan form, evaluated once per statement rather than once per row;
+    -- 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_select_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR SELECT TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
-        );
-    END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = 'public' AND tablename = NEW.table_name
@@ -13334,31 +13346,7 @@ BEGIN
             NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
         );
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_update_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR UPDATE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
-        );
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_delete_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR DELETE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
-        );
-    END IF;
+    PERFORM build_select_rule_policy(NEW.table_name);
 
     EXECUTE format(
         'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
@@ -13443,16 +13431,6 @@ BEGIN
     SET searchable = dd_entity_searchable(NEW.table_name)
     WHERE table_name = NEW.table_name;
 
-    -- Build the canonical-predicate RLS policies (select_rule, or the permission-only default
-    -- when no rule is set) DETERMINISTICALLY here, rather than relying on the separate
-    -- manage_select_rule_policy AFTER-trigger firing in the right alphabetical order (F3). The
-    -- table-creation block above installs permission-only policies; this replaces the SELECT /
-    -- UPDATE / DELETE policies with the per-row rule when entities.select_rule is non-empty, so
-    -- the F→T toggle can never leave a select_rule-bearing entity gated by view_permission alone.
-    -- Idempotent: build_select_rule_policy drops + recreates, so the redundant manage_*-trigger
-    -- call is harmless.
-    PERFORM build_select_rule_policy(NEW.table_name);
-
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -13460,19 +13438,18 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
 creates the physical table and its updated_at trigger if it does not already
-exist, then secures it whatever it carried before - RLS enabled, the four permission
-policies created if absent, the request-role table and sequence grants issued -
-then adds any columns that were defined as field records while the table was
-unmanaged. An adopted table ends up configured as a table created managed would
-be; a table that carried policies of its own keeps them alongside, so access can
-widen, which is why 0200_audit_log.sql refuses the managed flip outright for the
-two entities whose protection is that the request role cannot write them. Finally
-calls build_select_rule_policy() directly, so an entity carrying a select_rule
-gets the per-row predicate rather than the permission-only policies installed
-above. Calling it here rather than leaving it to the manage_select_rule_policy
-AFTER-trigger is deliberate: two AFTER triggers on the same table fire in name
-order, and if that one ran first the toggle would leave a select_rule entity
-gated by view_permission alone.';
+exist, then secures it whatever it carried before - RLS enabled, the INSERT policy
+created if absent, the SELECT, UPDATE and DELETE policies built by
+build_select_rule_policy() (the select_rule when one is set, else view_permission,
+and for UPDATE and DELETE the edit permission as well), the request-role table and
+sequence grants issued - then adds any columns that were defined as field records
+while the table was unmanaged. An adopted table ends up configured as a table
+created managed would be; a table that carried policies of other names keeps them
+alongside, so access can widen, which is why 0200_audit_log.sql refuses the managed
+flip outright for the two entities whose protection is that the request role cannot
+write them. build_select_rule_policy() is called here rather than left to the
+manage_select_rule_policy AFTER-trigger deliberately: two AFTER triggers on the same
+table fire in name order, and the toggle must not depend on which runs first.';
 
 -- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
 CREATE OR REPLACE TRIGGER enable_table_trigger
@@ -14288,7 +14265,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538')
+        VALUES ('_core.0180_managed_enable.sql', '988d8933fd7c5fbc7cf9aac82cb1c08298e152e2a4660262a504ff127331732f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15528,7 +15505,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '29af53b9ba887c76e931897bbd6b1b5789008898bf12aeadcbd3ac53d9909766') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -16765,6 +16742,7 @@ DECLARE
     v_rel TEXT;
     v_row_data TEXT;
     v_predicate TEXT;
+    v_write_using TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -16798,11 +16776,13 @@ BEGIN
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
-    -- Every rbac.has_permission() below is wrapped in a scalar sub-select so it runs once per
-    -- statement (InitPlan), not per row; see the note in create_dd_table.
-    -- 0940_test_policy_subselect_form.sql pins it.
-    -- If select_rule is empty, restore the default permission-only policies (read = view
-    -- permission, writes = edit permission, no per-row rule).
+    -- Every rbac.has_permission() below is wrapped in a scalar sub-select: PostgreSQL then
+    -- evaluates it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on
+    -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
+    --
+    -- If select_rule is empty, the row a caller may reach is the one its view permission
+    -- lets it read: SELECT on view_permission, UPDATE and DELETE on edit_permission AND
+    -- view_permission, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
         -- No rule, so no row can leave it: the two row move triggers go.
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
@@ -16810,14 +16790,28 @@ BEGIN
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
             v_policy_name, v_rel, v_entity.view_permission);
+        -- The view permission has to be in the USING of UPDATE and DELETE itself.
+        -- PostgreSQL holds the rows an UPDATE or DELETE touches to the SELECT policy only
+        -- when the statement reads a column of the table, so with the edit permission
+        -- alone, a caller that may read no row could still overwrite every row with
+        -- constants and delete every row: UPDATE t SET c = 'x', DELETE FROM t, WHERE true,
+        -- RETURNING 1. The new row of an UPDATE is held to the edit permission only, as an
+        -- inserted row is. When the two permissions are the same, one check says it all.
+        -- Both parts are quoted with %L before they are joined. Pinned by
+        -- 0610_test_select_rule_write_protection.sql.
+        v_write_using := format('(SELECT rbac.has_permission(%L))', v_entity.edit_permission);
+        IF v_entity.view_permission IS DISTINCT FROM v_entity.edit_permission THEN
+            v_write_using := v_write_using
+                || format(' AND (SELECT rbac.has_permission(%L))', v_entity.view_permission);
+        END IF;
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_entity.edit_permission);
+            'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING (%s) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+            v_rel || '_update_policy', v_rel, v_write_using, v_entity.edit_permission);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_rel || '_delete_policy', v_rel, v_entity.edit_permission);
+            'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING (%s)',
+            v_rel || '_delete_policy', v_rel, v_write_using);
         RETURN;
     END IF;
 
@@ -16985,7 +16979,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'Generates (or drops) the per-row policy function that evaluates an entity''s select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and rebuilds the table''s SELECT, UPDATE and DELETE policies on top of it, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, the three policies are the permission-only form instead and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -17033,7 +17027,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
-'Trigger function on entities that creates/updates/drops the per-table FOR SELECT RLS policy for select_rule.';
+'Trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions when the entity is deleted.';
 
 CREATE OR REPLACE TRIGGER manage_select_rule_policy_trigger
     AFTER INSERT OR UPDATE OR DELETE ON entities
@@ -17044,7 +17038,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235')
+        VALUES ('_core.0210_computed_validation.sql', '29af53b9ba887c76e931897bbd6b1b5789008898bf12aeadcbd3ac53d9909766')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17744,7 +17738,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20df0156a3ac097571871e88c6d4c2915bff1432e7af74221f0a2366a66070cd') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -18209,27 +18203,24 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Permission gate + existence-hiding (b9). build_schema_for_table is GRANTed to the request
-    -- role and reachable directly as /rpc/build_schema_for_table, so it must apply the SAME
-    -- view_permission check + existence-hiding as get_schema()/get_schemas() rather than trusting
-    -- callers — otherwise any request-role caller reads any table's full schema (including its
-    -- select_rule logic) by calling this helper directly and skipping the wrappers. A missing
-    -- table and a permission-denied table raise the IDENTICAL undefined_table error so existence
-    -- cannot be probed. The four in-tree callers already pre-check, so the gate is redundant (and
-    -- harmless) for them. The view permission is that of every level an is_a or has_a
-    -- entity's records are stored in, as for reading them.
-    IF NOT FOUND THEN
+    -- Permission gate and existence hiding. build_schema_for_table is granted to the request
+    -- role and reachable directly as /rpc/build_schema_for_table, so it applies the same
+    -- view_permission check as get_schema()/get_schemas() rather than trusting its callers:
+    -- otherwise any request-role caller would read any table's full schema, its select_rule
+    -- logic included, by calling this helper directly and skipping the wrappers. The four
+    -- in-tree callers check first, so for them the gate is redundant and harmless. The view
+    -- permission is that of every level an is_a or has_a entity's records are stored in, as
+    -- for reading them.
+    --
+    -- A missing table and one the caller may not view raise the same error from one RAISE
+    -- statement: the same SQLSTATE, message and DETAIL, and the same CONTEXT line, which a
+    -- client connected directly receives with the error. Two RAISE statements with the same
+    -- text would still differ in that line and tell a hidden table from a missing one.
+    -- 0700_test_get_schema.sql compares the two errors field by field.
+    IF NOT FOUND OR NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT dd_entity_viewable(p_table_name) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -18396,22 +18387,14 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Raise error if table not found
-    IF NOT FOUND THEN
+    -- A missing table and one the caller may not view (the table, or a base an
+    -- is_a/has_a entity's records are stored in) raise the same error from one
+    -- RAISE statement, so no field of it, the CONTEXT line included, tells the
+    -- caller that a hidden table exists; see build_schema_for_table.
+    IF NOT FOUND OR NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Check if user has view permission for this table (and for every base an
-    -- is_a/has_a entity's records are stored in)
-    -- Raise same error to avoid leaking table existence
-    IF NOT dd_entity_viewable(p_table_name) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -18421,8 +18404,8 @@ END;
 -- STABLE: writes no row.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION public.get_schema IS 
-'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
+COMMENT ON FUNCTION public.get_schema IS
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises undefined_table if the table is not found, and the same error if the caller may not view it.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
@@ -18436,9 +18419,9 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Accepts a comma-separated list of table names
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
--- Raises an error if any table is not found or the user lacks view permission
--- (same error behavior as get_schema() — use the same error code to avoid
---  leaking information about table existence)
+-- Raises an error if any table is not found or the user lacks view permission,
+-- the same error for both, as get_schema() does, so the answer does not say
+-- whether a table the caller may not view exists
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
 DECLARE
@@ -18457,19 +18440,15 @@ BEGIN
             CONTINUE;
         END IF;
 
-        -- Raise error if table not found in entities metadata
         SELECT * INTO v_table_record
         FROM entities
         WHERE table_name = v_table_name;
 
-        IF NOT FOUND THEN
+        -- One RAISE statement for a missing table and one the caller may not
+        -- view, so the two errors agree in every field, the CONTEXT line
+        -- included; see build_schema_for_table.
+        IF NOT FOUND OR NOT dd_entity_viewable(v_table_name) THEN
             RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
-                USING ERRCODE = 'undefined_table';
-        END IF;
-
-        -- Raise same error when user lacks view permission (avoid leaking table existence)
-        IF NOT dd_entity_viewable(v_table_name) THEN
-            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
                 USING ERRCODE = 'undefined_table';
         END IF;
 
@@ -18483,7 +18462,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, the same error for both, as get_schema() does. Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
@@ -18744,7 +18723,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd')
+        VALUES ('_core.0250_public_functions.sql', '20df0156a3ac097571871e88c6d4c2915bff1432e7af74221f0a2366a66070cd')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -27580,7 +27559,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e4dc38b3eee07db17f4f049b749320db818c5bcf156f5d65fff29094bce759d0","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"b49a50e1c69f98e88179d20616b5b23ecaf185432ed7c60845958238fe15089b","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"bbd1f44985c29d792c74b5284d4617cd2d3c5fa81cab5988812a6fb0c791cc4b","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"d36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"2ef70c5a164faf5b42ebd4134a706e5b4244465133095bb18c7b1705eb05dfc4","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"d32674ed2a0e4a18812d6bcddba0fbf24f479e9b69457504d160ed138d89353f","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"988d8933fd7c5fbc7cf9aac82cb1c08298e152e2a4660262a504ff127331732f","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"29af53b9ba887c76e931897bbd6b1b5789008898bf12aeadcbd3ac53d9909766","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"20df0156a3ac097571871e88c6d4c2915bff1432e7af74221f0a2366a66070cd","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e4dc38b3eee07db17f4f049b749320db818c5bcf156f5d65fff29094bce759d0","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"b49a50e1c69f98e88179d20616b5b23ecaf185432ed7c60845958238fe15089b","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"bbd1f44985c29d792c74b5284d4617cd2d3c5fa81cab5988812a6fb0c791cc4b","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -27644,7 +27623,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"42350a5eac6b619d110322b5a51e0244b6f39120e20d803a4a0b4010881903dc","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"6bd422952bfed291dcc9af871377ab1a4ed76c139b550b4a98d051549e49613d","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"492511d9cd6da220e8be4c53ca859e5b932ffe1f898022b21b7fff077de03538","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42","_core.0210_computed_validation.sql":"f219894566e3e59cb7d1600e06d04099ea6f2e7326ce4d0396e4cc5068e39235","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"6cd88f832b23c10e4e675a3c60e2009dac355cc4a9bcef2dad1fb0b0a58d64bd","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049","_core.0350_raci.jsonc":"e4dc38b3eee07db17f4f049b749320db818c5bcf156f5d65fff29094bce759d0","_core.0360_raci_setup.once.sql":"b49a50e1c69f98e88179d20616b5b23ecaf185432ed7c60845958238fe15089b","_core.0370_raci.sql":"bbd1f44985c29d792c74b5284d4617cd2d3c5fa81cab5988812a6fb0c791cc4b","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"3e5dbbd99bb849c4ffd6888ad7109fffe9cd0a483277d7cf5737ab9e6e9b3c0b","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"d36866dab397464550a847395572bb90060b4a2165b38821c40edc4fc29e9def","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"b1a53e4a52511b4a3376f4c1133ae8e0cfd9853625c8c4cfcb83d92415c9c793","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"9bf350cd2d11bfccb6372db5592acb3f302c2bbc37e6f3bd4ef16aaf207b8ab6","_core.0090_rbac_seed.once.sql":"9b3fa13c6d4917eec3ee6586ea372de3acc3406104ce1bb9aec48d4bdc24816d","_core.0100_rbac_rls.sql":"2ef70c5a164faf5b42ebd4134a706e5b4244465133095bb18c7b1705eb05dfc4","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"827c9f44b128579df576ceb59276bf8a56c18ba6c4f5876deea43308716a10e3","_core.0160_dd_functions.sql":"d32674ed2a0e4a18812d6bcddba0fbf24f479e9b69457504d160ed138d89353f","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"988d8933fd7c5fbc7cf9aac82cb1c08298e152e2a4660262a504ff127331732f","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"493447841bb14d859255c74bed15ac55d2909e6d57af4e7e92b1741da36adf42","_core.0210_computed_validation.sql":"29af53b9ba887c76e931897bbd6b1b5789008898bf12aeadcbd3ac53d9909766","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"2549c5c3bb25067ba7e5d6901db8c4c7a2e14818a39ad15858ddfaf9cb648569","_core.0250_public_functions.sql":"20df0156a3ac097571871e88c6d4c2915bff1432e7af74221f0a2366a66070cd","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"603222a33761c9018e29ecc93b261f3c8779611958155c2325fef714bb40b2a6","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"69aaf3678f4f3065c35ee215251d4d291c1c97679ea5d2c5fd654958a41eb049","_core.0350_raci.jsonc":"e4dc38b3eee07db17f4f049b749320db818c5bcf156f5d65fff29094bce759d0","_core.0360_raci_setup.once.sql":"b49a50e1c69f98e88179d20616b5b23ecaf185432ed7c60845958238fe15089b","_core.0370_raci.sql":"bbd1f44985c29d792c74b5284d4617cd2d3c5fa81cab5988812a6fb0c791cc4b","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"a3b73796d08eb97a1cc5aabc501fc3d28e86fadbbac3a5e745f942bcf7394deb","_core.9900_owner_hardening.sql":"39f9fbf11868d9805f3cd51ed399a7cb36fc4ca7eb335c0523f5b532e8829fd4"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

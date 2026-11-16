@@ -113,8 +113,8 @@ cp .env.example .env.local
 
 The build step:
 1. Compiles `@semantius/core` (shared migration logic) to CommonJS.
-2. Bundles all `apps/*/migrations/*.sql` files into `src/migrations-bundle.ts`
-   (the `test` app is excluded).
+2. Bundles all `apps/*/migrations/*.sql` and `*.jsonc` files into
+   `src/migrations-bundle.ts` (the `test` app is excluded).
 3. Compiles `@semantius/triggerdev` to CommonJS.
 
 ```bash
@@ -233,9 +233,11 @@ Returns the migrations for a specific app, sorted by filename.
 
 ```
 packages/
-├── core/        @semantius/core       — shared migration logic (Deno + Node.js)
-├── cli/         @semantius/cli        — Deno CLI (deno task migrate, dropall, etc.)
-└── triggerdev/  @semantius/triggerdev — TriggerDev integration (this package)
+├── core/              @semantius/core             — shared migration logic (Deno + Node.js)
+├── cli/               @semantius/cli              — Deno CLI (deno task migrate, dropall, etc.)
+├── neon-provisioner/  @semantius/neon-provisioner — Cloudflare Worker: provisions Neon databases, runs migrations
+├── provisioning/      @semantius/provisioning     — Cloudflare Worker: runs migrations
+└── triggerdev/        @semantius/triggerdev       — TriggerDev integration (this package)
 ```
 
 The migration logic (`ensureVersionsTable`, `executeSQL`, `executeMigrations`)

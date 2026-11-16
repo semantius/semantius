@@ -11,7 +11,8 @@ test is added, and the tooling produces them on demand.
 ./pgdocker/pg-ext-retest.sh  --coverage     # CREATE EXTENSION path
 ```
 
-Both forward the flag to `deno task test --coverage`. Either path reports the
+`pg-cli-retest.sh` forwards the flag to `deno task retest`, `pg-ext-retest.sh`
+to `deno task test`. Either path reports the
 same function and statement numbers; they differ only in how the schema was
 installed. Use the extension path when the change touches packaging, the migrate
 path otherwise - it is the faster loop.
@@ -49,9 +50,9 @@ Two sources, because neither is enough alone:
   the harness sets for the run.
 
 The universe is the five Semantius schemas on **both** install paths. It is
-deliberately not derived from extension membership: since the 0.5.0 thin
-installer, the extension's only members are the `semantius` schema and its
-functions, so that would report four objects.
+deliberately not derived from extension membership: the extension's only
+members are the `semantius` schema and its functions, so that would report four
+objects.
 
 The implementation is `packages/cli/commands/coverage.ts`.
 
@@ -74,9 +75,9 @@ pgmq ships is machinery Semantius never exposes: partman, partitioning, unlogged
 queues, FIFO indexes, grouped reads, topic routing, and a long tail of overload
 variants of entry points that are already covered. Those functions are
 permanently uncalled through no fault of the suite. Counted together with ours,
-they dragged the headline down far enough to hide the fact that every
+they would drag the headline down far enough to hide the fact that every
 hand-written function is exercised, and the only way to raise the number would
-have been to call vendored entry points the project does not use - which tests
+be to call vendored entry points the project does not use - which tests
 nothing. Reported apart, both numbers say something true.
 
 Functions and tables are split the same way on purpose. Splitting one and not the
@@ -107,7 +108,7 @@ against these two groups before treating an entry as a gap:
 
 What is left after those two is the real list.
 
-**Generated functions are no longer in that category.**
+**Generated functions are not in that category.**
 `apps/test/tests/0680_test_label_generator_sweep.sql` calls every `_label`,
 `<fk>_label` and single-argument `select_rule` function the data dictionary
 generated for the entities this deployment ships. Calling all of them is not
@@ -116,9 +117,7 @@ to compile, or raises at runtime, on a shape nobody wrote a fixture for - a
 junction, a self-reference, a spine chain, an unmanaged audit table.
 `0670_test_composed_labels.sql` cannot replace it, because pgTAP files roll back
 and a test's own entities take their generated functions with them; only shipped
-shapes survive to be measured. The sweep found a real defect on its first run:
-the single-argument `select_rule` overload raised `Authentication required` for
-any caller without JWT claims, which is why nothing had ever called it.
+shapes survive to be measured.
 
 ## Known structural gaps
 
@@ -130,18 +129,22 @@ slowly, which is why they are written down here rather than regenerated:
   rolls back, so there is nothing to observe; `pgdocker/pg-ext-lifecycle.sh`
   asserts it, where sessions commit. What `track_ddl_changes` and
   `track_ddl_drops` record is asserted in `0800` and `0810`.
-- **Scope-confined sessions** (`app.oauth_scopes`) and `anon` / no-role sessions
-  beyond `0270_test_unauthenticated_access.sql`.
+- **Scope-confined sessions** (`app.oauth_scopes`) beyond the permission
+  functions `0310_test_rbac_helpers.sql` calls: no test reads or writes a table
+  under a scope list. And `anon` / no-role sessions beyond
+  `0270_test_unauthenticated_access.sql`.
 - **Large inputs**: deep JsonLogic, huge enum sets, long text, a dictionary
   operation failing halfway.
 - **Concurrency.** pgTAP runs one session, so races - the first-user election,
   advisory locks - cannot be expressed in it. Those live in
   `pgdocker/pg-ext-lifecycle.sh`, which also covers install,
   `pg_dump`/single-pass `pg_restore`, `DROP EXTENSION`, schema pinning and the
-  refusals.
-- **Eleven files run as the RLS-exempt owner** (`0100`, `0120`, `0420`, `0560`,
-  `0680`, `0830`, `0870`, `0900`, `0910`, `0930`, `9900`), so their table access
-  exercises no policy. A test that must prove a policy has to authenticate.
+  refusals. Three more races have a script each: `pg-required-locks.sh`,
+  `pg-reference-delete-race.sh` and `pg-rollup-race.sh`.
+- **Thirteen files run as the RLS-exempt owner** (`0100`, `0120`, `0420`,
+  `0490`, `0560`, `0680`, `0870`, `0900`, `0910`, `0925`, `0930`, `0980`,
+  `9900`), so their table access exercises no policy. A test that must prove a
+  policy has to authenticate.
   `0680` is owner-run deliberately: it sweeps generated functions that are
   REVOKEd from PUBLIC, and a `select_rule` policy would reduce its value
   comparisons to zero rows and pass vacuously.
@@ -186,16 +189,15 @@ re-vendor.
 **It leaves a footprint, and so does `--coverage`.** Installing `plpgsql_check`
 creates schema `extensions` in the database it ran against. `pg-ext-lifecycle.sh`
 step 10 compares a schema-only `pg_dump` of the CLI container against the
-extension container, so a database that has been linted or coverage-measured is
-no longer byte-identical to one that has not, and that step fails on the
-difference. Run the lifecycle script first, or drop the extension and its schema
-afterwards.
+extension container, so a database that has been linted or coverage-measured
+differs from one that has not, and that step fails on the difference. Run the
+lifecycle script first, or drop the extension and its schema afterwards.
 
 ## When you add tests
 
 Re-run with `--coverage` and compare against the previous run. A drop in
 statement coverage after adding code means the new code is untested. A drop in
 function coverage means a function no test reaches at all - including a generated
-one, since the sweep covers those now, so a new entity shape the generator
+one, since the sweep covers those, so a new entity shape the generator
 mishandles shows up here rather than hiding in the denominator. If the number
 moves for a reason worth remembering, put the reason in the test file, not here.

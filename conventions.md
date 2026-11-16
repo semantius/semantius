@@ -8,8 +8,9 @@
 - Avoids SQL reserved words (`user` → `users`, `order` → `orders`)
 
 ### Primary Keys
-- **Always named `id`** (never prefixed)
-- Every table has exactly one primary key column named `id`
+- **Named `id`** (never prefixed), the default of `entities.id_column`; an entity keyed by another column names it there, as `entities` (`table_name`) and `permissions` (`permission_name`) do. The internal tables `_settings` and `_versions`, which are not entities, are keyed by `name`
+- Every table of the data dictionary, the internal tables included, has exactly one primary key column
+- Neither rule covers the vendored `pgmq` tables or `audit.generated_ddl`
 
 ```sql
 customers.id
@@ -20,7 +21,9 @@ products.id
 
 ### Foreign Keys
 - **Pattern**: `{singular_table_name}_id`
-- References the `id` column of the target table
+- References the key column of the target table: its `entities.id_column`, `id` by default (see Primary Keys)
+- The exceptions to the pattern are `user_roles.assigned_by`, `role_permissions.granted_by` and `user_permissions.granted_by` (to `users(id)`), Northwind's `employees.reports_to` and `orders.ship_via` (to `employees(id)` and `shippers(id)`), the foreign keys to `permissions(permission_name)` (for example `entities.view_permission`, `role_permissions.permission_name`) and to `entities(table_name)` (for example `fields.table_name`, `process_gates.entity`), and the key column of an is_a or has_a entity, which references its base entity's key column of the same name
+- Neither rule covers the vendored `pgmq` tables, whose foreign keys reference `pgmq.meta(queue_name)`, a UNIQUE column of a table with no primary key
 
 ```sql
 orders.customer_id → customers.id
@@ -77,8 +80,8 @@ JOIN users u ON d.owner_user_id = u.id;
 
 ## LLM Query Generation Rules
 
-1. **Primary keys**: Always `{table}.id`
-2. **Foreign key lookup**: `{child_table}.{singular_parent}_id = {parent_table}.id`
+1. **Primary keys**: the entity's `id_column` (`id` by default; `entities.table_name`, `permissions.permission_name`), and `name` for the internal tables `_settings` and `_versions`
+2. **Foreign key lookup**: `{child_table}.{singular_parent}_id = {parent_table}.{id_column}`, except the foreign keys named otherwise (see Foreign Keys)
 3. **Column prefixes**: Use singular form of entity name
 4. **Self-joins**: Append descriptive suffix to foreign key (e.g., `parent_customer_id`, `referred_by_user_id`)
 

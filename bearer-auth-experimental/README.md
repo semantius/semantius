@@ -5,9 +5,6 @@ production for our use cases, and the reasons are not ours to fix.** Read
 [docs/bearer-mode-status.md](../docs/bearer-mode-status.md) before building on
 anything here.
 
-Moved here from `examples/` on 2026-09-06, by decision, because leaving them
-under a plain `examples/` implied they were the recommended starting point.
-
 Bearer mode is the deployment where a client connects to PostgreSQL 18 directly
 with an OAuth access token over SASL `OAUTHBEARER`, the database verifies the
 token in-process through a validator module, and the session runs with the
@@ -93,7 +90,7 @@ browser SPA with no database access at all; it calls the Hono API.)
   18's OAuth machinery and is **built for Neon and Supabase** - pooler-safe
   unnamed statements, `sslmode=require`. It has **not been run against either**:
   both samples' own validation tables mark "Neon / Supabase" as *pending
-  (credentials)* (`bearer-auth-experimental/examples/nextjs/README.md:236`,
+  (credentials)* (`bearer-auth-experimental/examples/nextjs/README.md:233`,
   `bearer-auth-experimental/examples/spa-hono-backend/README.md:245`). Treat it as designed-for, not
   proven-on.
 
@@ -131,9 +128,9 @@ whose README applies to both.
 `transport/` and the three query-layer examples, and the app samples under
 `DB_AUTH_MODE=bearer`, need a PostgreSQL 18 server with the validator loaded;
 [`../pgdocker/README.md`](../pgdocker/README.md) has the wiring, and
-`pgdocker/pg-cli-start.sh` brings up an image that already has it. The app
-samples under `DB_AUTH_MODE=session` need only a connection string, and run
-against Neon, Supabase or the same local image - subject to the caveat above.
+`pgdocker/pg-cli-create.sh` builds and brings up an image that already has it.
+The app samples under `DB_AUTH_MODE=session` need only a connection string, and
+run against Neon, Supabase or the same local image - subject to the caveat above.
 
 Examples **vendor** copies of what they need so they run standalone: the
 query-layer ones vendor `pg-oauthbearer` and `get-auth-token` from

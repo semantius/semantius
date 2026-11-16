@@ -29,7 +29,7 @@ This example is **self-contained**: it vendors the dependency-free transport
 2. Connect as `authenticated`, presenting that token over SASL `OAUTHBEARER`.
 3. Call `public.get_userinfo()` once — first-login provisioning. It assigns the
    `User` role (which carries `user:read`), so the RLS `SELECT` policy on `users`
-   lets us read. Without it the list comes back empty.
+   lets us read. Without it the read fails with *User not found*.
 4. Run a direct `select … from users` and print the rows visible under RLS.
 
 ## Prerequisites
@@ -39,7 +39,8 @@ A running pgdocker stack with the Semantius `_core` present. From `pgdocker/`:
 - **CLI stack** (port **5432**): `./pg-cli-create.sh`, then deploy core —
   `export DATABASE_URL=… && deno task migrate --apps _core`.
 - **Extension stack** (port **5433**): `./pg-ext-create.sh` — `_core` is installed
-  by `CREATE EXTENSION` automatically. Run this example with `PGPORT=5433`.
+  automatically by its init script (`CREATE EXTENSION pg_semantius`, then
+  `CALL semantius.migrate()`). Run this example with `PGPORT=5433`.
 
 The container must reach the issuer's HTTPS JWKS endpoint outbound, and you need
 Node **≥ 20** (for global `fetch`).

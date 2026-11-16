@@ -286,8 +286,8 @@ BEGIN
     -- ── Secure the table ─────────────────────────────────────────────────
     -- Unconditionally, whatever the table carried before. Becoming managed means
     -- the dictionary owns the table, so it ends up configured the way a table
-    -- created managed would be: row-level security on, the four permission
-    -- policies from view_permission and edit_permission, the table grant. There
+    -- created managed would be: row-level security on, the four policies from
+    -- view_permission, edit_permission and select_rule, the table grant. There
     -- is no half-adopted state where an entity claims a permission model the
     -- table does not enforce.
     --
@@ -302,31 +302,25 @@ BEGIN
     -- table, named with a leading "_" - is refused by reserve_table_namespace
     -- below, before it can be registered.
     --
-    -- Access can widen. A table that carried its own policies keeps them, and
+    -- Access can widen. A table that carried policies of other names keeps them, and
     -- PostgreSQL ORs permissive policies together, so the permission model the
     -- entity declares is added to whatever was there. That is what adoption now
     -- means, and it is why the flip is a decision rather than a setting.
     --
-    -- The policy creations are guarded by a pg_policies lookup because
-    -- PostgreSQL has no CREATE POLICY IF NOT EXISTS; a policy that already
-    -- carries one of the four names keeps its own definition. Predicates use the
-    -- (SELECT rbac.has_permission(...)) InitPlan form, see the note in
-    -- create_dd_table; 0940_test_policy_subselect_form.sql fails on the bare
-    -- per-row form.
+    -- The INSERT policy is created only when no policy of its name exists,
+    -- because PostgreSQL has no CREATE POLICY IF NOT EXISTS; one that is there
+    -- keeps its own definition. SELECT, UPDATE and DELETE come from
+    -- build_select_rule_policy, the one generator of those three, which drops
+    -- and recreates them whatever the table carried: the select_rule when one is
+    -- set, else view_permission, and for UPDATE and DELETE the edit permission
+    -- as well. Calling it here rather than leaving it to the
+    -- manage_select_rule_policy AFTER trigger is deliberate: two AFTER triggers
+    -- on one table fire in name order, and the toggle must not depend on which
+    -- runs first. The predicates use the (SELECT rbac.has_permission(...))
+    -- InitPlan form, evaluated once per statement rather than once per row;
+    -- 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_select_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR SELECT TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_select_policy', NEW.table_name, NEW.view_permission
-        );
-    END IF;
     IF NOT EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = 'public' AND tablename = NEW.table_name
@@ -339,31 +333,7 @@ BEGIN
             NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
         );
     END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_update_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR UPDATE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_update_policy', NEW.table_name, NEW.edit_permission, NEW.edit_permission
-        );
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_delete_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR DELETE TO semantius_user
-                USING ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_delete_policy', NEW.table_name, NEW.edit_permission
-        );
-    END IF;
+    PERFORM build_select_rule_policy(NEW.table_name);
 
     EXECUTE format(
         'GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO semantius_user',
@@ -448,16 +418,6 @@ BEGIN
     SET searchable = dd_entity_searchable(NEW.table_name)
     WHERE table_name = NEW.table_name;
 
-    -- Build the canonical-predicate RLS policies (select_rule, or the permission-only default
-    -- when no rule is set) DETERMINISTICALLY here, rather than relying on the separate
-    -- manage_select_rule_policy AFTER-trigger firing in the right alphabetical order (F3). The
-    -- table-creation block above installs permission-only policies; this replaces the SELECT /
-    -- UPDATE / DELETE policies with the per-row rule when entities.select_rule is non-empty, so
-    -- the F→T toggle can never leave a select_rule-bearing entity gated by view_permission alone.
-    -- Idempotent: build_select_rule_policy drops + recreates, so the redundant manage_*-trigger
-    -- call is harmless.
-    PERFORM build_select_rule_policy(NEW.table_name);
-
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -465,19 +425,18 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
 creates the physical table and its updated_at trigger if it does not already
-exist, then secures it whatever it carried before - RLS enabled, the four permission
-policies created if absent, the request-role table and sequence grants issued -
-then adds any columns that were defined as field records while the table was
-unmanaged. An adopted table ends up configured as a table created managed would
-be; a table that carried policies of its own keeps them alongside, so access can
-widen, which is why 0200_audit_log.sql refuses the managed flip outright for the
-two entities whose protection is that the request role cannot write them. Finally
-calls build_select_rule_policy() directly, so an entity carrying a select_rule
-gets the per-row predicate rather than the permission-only policies installed
-above. Calling it here rather than leaving it to the manage_select_rule_policy
-AFTER-trigger is deliberate: two AFTER triggers on the same table fire in name
-order, and if that one ran first the toggle would leave a select_rule entity
-gated by view_permission alone.';
+exist, then secures it whatever it carried before - RLS enabled, the INSERT policy
+created if absent, the SELECT, UPDATE and DELETE policies built by
+build_select_rule_policy() (the select_rule when one is set, else view_permission,
+and for UPDATE and DELETE the edit permission as well), the request-role table and
+sequence grants issued - then adds any columns that were defined as field records
+while the table was unmanaged. An adopted table ends up configured as a table
+created managed would be; a table that carried policies of other names keeps them
+alongside, so access can widen, which is why 0200_audit_log.sql refuses the managed
+flip outright for the two entities whose protection is that the request role cannot
+write them. build_select_rule_policy() is called here rather than left to the
+manage_select_rule_policy AFTER-trigger deliberately: two AFTER triggers on the same
+table fire in name order, and the toggle must not depend on which runs first.';
 
 -- Apply trigger AFTER UPDATE on entities (only when managed changes F→T)
 CREATE OR REPLACE TRIGGER enable_table_trigger
