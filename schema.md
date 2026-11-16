@@ -533,7 +533,7 @@ Governance registry: maps entity transitions to processes
 | `name` (computed_label) | text | Name | Display label — mirrors the gate kind (computed) | string | false | - | 5 | required | default | computed_label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `process_id` | parent | Process | - | integer | false | - | 10 | required | default | - | false | - | 2 | processes | cascade | has | - | - | false | auto | - | - | - |
-| `entity` | text | Entity | - | string | false | - | 20 | required | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `entity` | reference | Entity | - | string | false | - | 20 | required | default | - | false | - | 2 | entities | cascade | is governed by | - | - | false | auto | - | - | - |
 | `gate_kind` | enum | Gate Kind | - | string | false | - | 30 | required | default | - | false | [{"label":"Approval","value":"approval"},{"label":"Submit lock","value":"submit_lock"},{"label":"Ownership","value":"ownership"},{"label":"Create","value":"create"},{"label":"Transition","value":"transition"}] | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `to_state` | text | To State | Target lifecycle state (empty for non-state-targeted gates) | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `state_column` | text | State Column | Column that holds the lifecycle state in the governed table | string | false | status | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |

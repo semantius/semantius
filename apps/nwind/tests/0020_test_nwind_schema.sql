@@ -9,15 +9,15 @@
 -- FK delete rules, unique and FK indexes, audit triggers, composed-label
 -- functions, the physical categories.sort_order order column, the
 -- order-insert queue trigger, full-text search on customers, the entity
--- type of every entity and the metadata of order_details.amount, orders.subtotal
--- and orders.total.
+-- type of every entity and the metadata of order_details.amount, orders.subtotal,
+-- orders.total and suppliers.product_count.
 -- Catalog reads run as user3 (Administrator). Nothing is written.
 -- Requires: deno task migrate --apps _core,nwind,test
 -- =====================================================
 
 BEGIN;
 
-SELECT plan(66);
+SELECT plan(67);
 
 SELECT authenticate_as('user3');
 
@@ -79,7 +79,8 @@ SELECT set_eq(
 SELECT set_eq(
     $$SELECT field_name FROM fields WHERE table_name = 'suppliers'$$,
     ARRAY['id', 'company_name', 'created_at', 'updated_at', 'contact_name', 'contact_title',
-          'address', 'city', 'region', 'postal_code', 'country', 'phone', 'fax', 'homepage'],
+          'address', 'city', 'region', 'postal_code', 'country', 'phone', 'fax', 'homepage',
+          'product_count'],
     'suppliers should have the expected field set'
 );
 
@@ -501,6 +502,16 @@ SELECT is(
       WHERE (table_name, field_name) IN (('orders', 'label'), ('order_details', 'label'))),
     'order_details.label:computed_label:required, orders.label:computed_label:required',
     'the orders and order_details labels should carry ctype computed_label'
+);
+
+-- Test 67: product_count counts every product of the supplier. The definition
+-- is compared as a whole, so a filter (on discontinued, say) does not pass
+SELECT is(
+    (SELECT jsonb_build_array(format, ctype, input_type, cube_type, rollup) FROM fields
+      WHERE table_name = 'suppliers' AND field_name = 'product_count'),
+    '["int64", "rollup", "default", "measure",
+      {"link_field": "products.supplier_id", "function": "count"}]'::jsonb,
+    'suppliers.product_count should be a count rollup of products and a cube measure'
 );
 
 SELECT * FROM finish();

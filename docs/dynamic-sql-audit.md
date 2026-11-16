@@ -44,7 +44,9 @@ helper, which lists it under its own name.
 
 "Relation" is the result of `dd_relation`: the table name of a plain entity,
 the table name plus `_ext` for an is_a or has_a entity. In the "Test" column,
-`none` marks a row that no test pins.
+`none` marks a row that no test pins, and `not reachable` a value that no
+caller can send down the path, with the reason and the test that pins the
+reason.
 
 ## Values
 
@@ -96,16 +98,16 @@ the table name plus `_ext` for an is_a or has_a entity. In the "Test" column,
 | `dd_relation` (returns a name) | table name | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` by every caller | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_id_type_data_type` | key type name | `entities.id_type` (CHECK `valid_id_type`) selects a branch of a `CASE` over literals (`ELSE 'TEXT'`) | allow-list | not needed: no caller text reaches the statement |
 | `dd_id_column_ddl` | which key column definition is returned | `entities.id_type` (CHECK `valid_id_type`) selects a branch of a `CASE` over literals; any other value raises | allow-list | not needed: no caller text reaches the statement |
-| `dd_id_column_ddl` | key column name | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_id_column_ddl` | key column name | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
 | `dd_id_column_ddl` | base relation of an is_a or has_a key | `entities.id_refentity` (foreign key to `entities.table_name`) through `dd_relation` | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_check_id_column`, `field_data_type`, `dd_index_name_free`, `dd_drop_own_index`, `dd_constraint_exists`, `dd_sync_typeid_prefix`, `dd_family_columns`, `dd_check_family_dependents` (name lookup) | relation name inside `to_regclass(format('public.%I', ...))` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
-| `dd_install_id_triggers` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` (column of the trigger), `%L` (trigger argument) | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_id_triggers` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` (column of the trigger), `%L` (trigger argument) | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
 | `dd_install_id_triggers` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_install_id_triggers` | id prefixes (trigger arguments) | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
-| `dd_typeid_trigger_args` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_typeid_trigger_args` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%L` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
 | `dd_typeid_trigger_args` | id prefixes | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_install_key_rule_checks` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
-| `dd_install_key_rule_checks` | key column (trigger argument) | `entities.id_column` (CHECK `valid_id_column`) | `%L`, helper `dd_typeid_trigger_args` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_install_key_rule_checks` | key column (trigger argument) | `entities.id_column` (CHECK `valid_id_column`) | `%L`, helper `dd_typeid_trigger_args` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
 | `dd_install_key_rule_checks` | id prefixes (trigger arguments) | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_install_key_rule_checks` | name of the trigger it drops | `pg_trigger.tgname`, filtered to `zz_key_check_insert` and `zz_key_check_update` | catalog, `%I` | not needed: no caller text reaches the statement |
 | `field_data_type` | column type | `pg_catalog.format_type` of the referenced entity's key column, upper-cased; otherwise the output of `dd_id_type_data_type` or `format_to_data_type` | catalog, allow-list | not needed: no caller text reaches the statement |
@@ -201,9 +203,9 @@ the table name plus `_ext` for an is_a or has_a entity. In the "Test" column,
 | `dd_key_prefix_sql` | id prefix | parameter `p_prefix`; the callers pass `entities.id_prefix` (CHECK `valid_id_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_key_prefix_sql` | table name | parameter `p_table`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_key_prefix_sql` | condition prefix `p_when` | parameter; every call site passes the source literal `NOT v_attach` or the default empty string, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
-| `dd_build_record_write` | table names and relations of the family, and the row type `public.<table>` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), for the entity, its ancestors, its base and its subtypes | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_record_write` | table names and relations of the family, and the row type `public.<table>` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), for the entity, its ancestors, its base and its subtypes; the lock statement built from them is used again as a `format()` string, which holds only because the CHECK keeps `%` out | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_build_record_write` | routine names `record_write_<table>` and `record_rules_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
-| `dd_build_record_write` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_build_record_write` | key column | `entities.id_column` (CHECK `valid_id_column`, which keeps `%` out of the lock statement that is used again as a `format()` string) | `%I` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_build_record_write` | column names | `fields.field_name` (CHECK `valid_field_name`) from `dd_family_columns`, which keeps only names that match a physical column exactly | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_build_record_write` | id prefixes | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity, of its base and of its subtypes | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_build_record_write` | depth and subtype numbers | `dd_ancestors.depth`, its maximum and a PL/pgSQL counter | typed integer | not needed: no caller text reaches the statement |
@@ -245,7 +247,7 @@ the table name plus `_ext` for an is_a or has_a entity. In the "Test" column,
 
 | Function | Value | Source of the value | How quoted | Test |
 |---|---|---|---|---|
-| `rename_dd_table` | old and new relation, old and new table name | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); the new name is spliced before its CHECK runs, because the trigger is a BEFORE trigger | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `rename_dd_table` | old and new relation, old and new table name | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); the new name is spliced before its CHECK runs, because the trigger is a BEFORE trigger, and the CHECK refusing it undoes the rename; the LIKE patterns are built from the old name only, and the CHECK keeps `%` and `\` out of it and the `:` that separates the two names in `dd.table_rename` out of both | `%I` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rename_dd_table` | existing trigger, constraint and index names | `pg_trigger.tgname`, `pg_constraint.conname`, `pg_indexes.indexname` | catalog, `%I` | not needed: no caller text reaches the statement |
 | `rename_dd_table` | new trigger names `update_<relation>_updated_at` and `a_auto_order_<relation>`, cast to `name` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
 | `rename_dd_table` | policy names `<relation>_<suffix>` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`); the suffix is an element of a literal array | `%I`, allow-list | `0535_test_identifier_hardening.sql` (part 2) |
@@ -384,12 +386,12 @@ the table name plus `_ext` for an is_a or has_a entity. In the "Test" column,
 |---|---|---|---|---|
 | `ensure_entities_insert_rows` | target table and its row type | parameter `p_table`; every call site passes a string literal | `%I` | not needed: no caller text reaches the statement |
 | `ensure_entities_insert_rows` | row index | `WITH ORDINALITY` counter | typed integer | not needed: no caller text reaches the statement |
-| `ensure_entities_insert_rows` | column names | JSON object keys of the document (`module`, `permissions[]`, `roles[]`, `entities[].entity`, `entities[].entity.fields[]`); each key is checked against the catalog column names of the target table before any write | `%I` | none |
+| `ensure_entities_insert_rows` | column names | JSON object keys of the document (`module`, `permissions[]`, `roles[]`, `entities[].entity`, `entities[].entity.fields[]`); each key is checked against the catalog column names of the target table before any write | `%I` | not reachable: only the installer runs `ensure_entities`, on the text of a migration file; the request role may execute neither it nor its two helpers, and no definer function calls them. `0537_test_dynamic_sql_values.sql` (part 1) pins that, and sends hostile keys as the installer |
 | `ensure_entities_row` | target table and its row type | parameter `p_table`; every call site passes a string literal | `%I` | not needed: no caller text reaches the statement |
 | `ensure_entities_row` | key column names | keys of parameter `p_key`: literal key names at every call site but one, where the keys are limited to three literals | `%I` | not needed: no caller text reaches the statement |
-| `ensure_entities_row` | names of the changed columns | a subset of the keys of parameter `p_row` (document keys, checked against the catalog column names) | `%I` | none |
+| `ensure_entities_row` | names of the changed columns | a subset of the keys of parameter `p_row` (document keys, checked against the catalog column names) | `%I` | not reachable: as for `ensure_entities_insert_rows`; `0537_test_dynamic_sql_values.sql` (part 1) |
 | `ensure_entities` (records) | table | `entities[].entity.table_name` of the document, an `entities` row by then (CHECK `valid_table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
-| `ensure_entities` (records) | column names | keys of the first object of `entities[].records`; every record must carry the same keys and each key must be a field of the entity | `%I` | none |
+| `ensure_entities` (records) | column names | keys of the first object of `entities[].records`; every record must carry the same keys and each key must be a field of the entity | `%I` | not reachable: as for `ensure_entities_insert_rows`; `0537_test_dynamic_sql_values.sql` (part 1) |
 | `ensure_entities` (records) | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `ensure_entities` (records) | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
 
@@ -401,18 +403,18 @@ and `delete`, always with `queues.queue_name`.
 
 | Function | Value | Source of the value | How quoted | Test |
 |---|---|---|---|---|
-| `pgmq.format_table_name` (returns a name) | queue name | parameter `queue_name`; in Semantius code always `queues.queue_name`; the helper refuses `$`, `;`, `--` and `'`, lower-cases the result and does not quote it | `%I` by the caller, except in the three raw rows below | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `pgmq.format_table_name` (returns a name) | queue name | parameter `queue_name`; in Semantius code always `queues.queue_name`; the helper refuses `$`, `;`, `--` and `'`, lower-cases the result and does not quote it | `%I` by the caller, except in the three raw rows below | `0537_test_dynamic_sql_values.sql` (parts 1 and 2) |
 | `pgmq.send`, `pgmq._send_batch`, `pgmq.read`, `pgmq.read_with_poll`, `pgmq.read_grouped`, `pgmq.read_grouped_rr`, `pgmq.read_grouped_head`, `pgmq.pop`, `pgmq.archive`, `pgmq.delete`, `pgmq.set_vt`, `pgmq.purge_queue`, `pgmq.metrics` | queue and archive table | parameter `queue_name`; in Semantius code always `queues.queue_name` | helper `pgmq.format_table_name`, then `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `pgmq.create_non_partitioned`, `pgmq.create_unlogged`, `pgmq.create_partitioned`, `pgmq.drop_queue` | queue and archive table | parameter `queue_name`; in Semantius code always `queues.queue_name` | helper `pgmq.format_table_name`, then `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `pgmq._create_fifo_index_if_not_exists`, `pgmq.enable_notify_insert`, `pgmq.disable_notify_insert` | queue table | parameter `queue_name`; in Semantius code always `queues.queue_name` | helper `pgmq.format_table_name`, then `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
-| create functions, `pgmq.metrics`, `pgmq._create_fifo_index_if_not_exists` | index and sequence names `<queue table>_vt_idx`, `<queue table>_part_idx`, `<queue table>_fifo_idx`, `archived_at_idx_<queue name>`, `<queue table>_msg_id_seq` | parameter `queue_name`; in Semantius code always `queues.queue_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| create functions, `pgmq.metrics`, `pgmq._create_fifo_index_if_not_exists` | index and sequence names `<queue table>_vt_idx`, `<queue table>_part_idx`, `<queue table>_fifo_idx`, `archived_at_idx_<queue name>`, `<queue table>_msg_id_seq` | parameter `queue_name`; in Semantius code always `queues.queue_name`, which `queue_after_insert` limits to 47 bytes, so `archived_at_idx_<queue name>` fits 63 | `%I` | `0537_test_dynamic_sql_values.sql` (parts 1 and 2) |
 | create functions, `pgmq.drop_queue`, `pgmq.metrics` | queue name as a value | parameter `queue_name`; in Semantius code always `queues.queue_name` | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | read functions | visibility timeout | INTEGER parameter `vt`, turned into an interval | typed integer, `%L` | not needed: no caller text reaches the statement |
-| `pgmq.read`, `pgmq.read_with_poll` | `conditional` | JSONB parameter; the Semantius wrapper `queue_read` never passes it | `%L` | none |
+| `pgmq.read`, `pgmq.read_with_poll` | `conditional` | JSONB parameter; the Semantius wrapper `queue_read` never passes it, but the request role may call both functions itself, which build the statement and are then refused the queue table | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `pgmq.drop_queue`, `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | pg_partman schema | `pgmq._get_pg_partman_schema()`: `extnamespace::regnamespace::text` from `pg_extension` | catalog, `%I` | not needed: no caller text reaches the statement |
 | `pgmq.drop_queue`, `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partman parent table names `pgmq.<queue table>` | parameter `queue_name`; in Semantius code always `queues.queue_name` | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partition column | `pgmq._get_partition_col` returns `msg_id` or `enqueued_at`; `archived_at` is a literal | allow-list, `%I`, `%L` | not needed: no caller text reaches the statement |
-| `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partition interval, retention interval | TEXT parameters | `%L` | none |
+| `pgmq.create_partitioned`, `pgmq.convert_archive_partitioned` | partition interval, retention interval | TEXT parameters | `%L` | not reachable: Semantius code calls neither function, `convert_archive_partitioned` is revoked from PUBLIC, and `create_partitioned` creates the queue table in schema `pgmq`, which the request role may not, before it splices an interval. `0537_test_dynamic_sql_values.sql` (part 1) pins that |
 | `pgmq.convert_archive_partitioned` (`CREATE TABLE ... LIKE`) | archive table name and its `_old` name | `pgmq.format_table_name(table_name, 'a')`, plus `_old`; `table_name` is the function's TEXT parameter | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `pgmq.convert_archive_partitioned` (`ALTER TABLE ... RENAME TO`) | new name `a_table_name_old` | `pgmq.format_table_name(table_name, 'a') \|\| '_old'`; `table_name` is the function's TEXT parameter | raw (`\|\|`) | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `pgmq.convert_archive_partitioned` (`ALTER INDEX ... RENAME TO`) | `table_name`, twice | the function's TEXT parameter | raw (`\|\|`) | `0537_test_dynamic_sql_values.sql` (part 1) |
@@ -422,12 +424,12 @@ and `delete`, always with `queues.queue_name`.
 
 | Function | Value | Source of the value | How quoted | Test |
 |---|---|---|---|---|
-| `queue_event_after_insert` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters), a literal event word and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
-| `queue_event_after_insert` | table | `queue_table_events.table_name` (a reference field to `entities`) | `%I` | none |
+| `queue_event_after_insert` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters), a literal event word and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (parts 1 and 2) |
+| `queue_event_after_insert` | table | `queue_table_events.table_name` (a reference field to `entities`: foreign key to `entities.table_name`, CHECK `valid_table_name`) | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `queue_event_after_insert` | event word | `event_handler` of the `queue_table_events` row selects a literal array in a `CASE` over five literals; the column value is never spliced | allow-list | not needed: no caller text reaches the statement |
 | `queue_event_after_insert` | `REFERENCING` clause | a `CASE` over two literals | allow-list | not needed: no caller text reaches the statement |
-| `queue_event_after_delete` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters), an element of a literal array and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
-| `queue_event_after_delete` | table | `queue_table_events.table_name` (a reference field to `entities`) | `%I` | none |
+| `queue_event_after_delete` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters), an element of a literal array and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (parts 1 and 2) |
+| `queue_event_after_delete` | table | `queue_table_events.table_name` of the mapping being deleted: what its foreign key to `entities.table_name` accepted when it was written | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `queue_after_insert`, `queue_before_delete`, `queue_build_record_json` | queue name | `queues.queue_name` (`pgmq.format_table_name` refuses `$`, `;`, `--` and `'`, `pgmq.validate_queue_name` refuses more than 47 characters) | helper `pgmq.create`, `pgmq.drop_queue`, `pgmq.send`, `pgmq.send_batch` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `queue_read`, `queue_pop`, `queue_archive`, `queue_delete` | queue name | parameter `p_queue_name`; `queue_authorize` requires an exact match with a `queues.queue_name` row first | helper `pgmq.read`, `pgmq.pop`, `pgmq.archive`, `pgmq.delete` | `0537_test_dynamic_sql_values.sql` (part 1) |
 
@@ -435,9 +437,9 @@ and `delete`, always with `queues.queue_name`.
 
 | Function | Value | Source of the value | How quoted | Test |
 |---|---|---|---|---|
-| `raci_sync_triggers` | entity table | `process_gates.entity`, or `entities.table_name` from `raci_entity_renamed` | `%I` | none |
+| `raci_sync_triggers` | entity table | `process_gates.entity` (a reference to `entities`: the foreign key refuses a name that is no entity), or `entities.table_name` from `raci_entity_renamed` | `%I` | `0537_test_dynamic_sql_values.sql` (parts 1 and 2) |
 | `raci_sync_triggers` | name of the trigger it drops | `pg_trigger.tgname` matching the expected names | catalog, `%I` | not needed: no caller text reaches the statement |
-| `raci_sync_triggers` | trigger names `a_raci_gate_on_<entity>`, `raci_gate_on_<entity>`, `raci_emit_on_<entity>`, cast to `name` | `process_gates.entity`, or `entities.table_name` from `raci_entity_renamed` | `%I` | none |
+| `raci_sync_triggers` | trigger names `a_raci_gate_on_<entity>`, `raci_gate_on_<entity>`, `raci_emit_on_<entity>`, cast to `name` | `process_gates.entity`, or `entities.table_name` from `raci_entity_renamed` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `raci_sync_triggers` | trigger kind | the literals `gate`, `emit` or NULL at the three call sites; a `CASE` selects a constant statement and the value is never spliced | allow-list | not needed: no caller text reaches the statement |
 
 ### 0420_module_version.sql
@@ -461,10 +463,10 @@ and `delete`, always with `queues.queue_name`.
 | `rollup_filter_date_arg` | date literal of a date operator | `fields.rollup -> 'filter'` (CHECK `rollup_is_object`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_filter_date_op` | unit, part, pattern and amount literals | `fields.rollup -> 'filter'` (CHECK `rollup_is_object`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_filter_date_op` | table and field name of the rollup field | `fields.table_name`, `fields.field_name`, as a JSON object | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
-| `rollup_filter_date_op` | operator name | the operator key of the filter object; it must be on a fixed list | `%L`, allow-list | none |
+| `rollup_filter_date_op` | operator name | the operator key of the filter object; it must be on a fixed list | `%L`, allow-list | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_filter_date_op` | result cast type | a `CASE` over literals | allow-list | not needed: no caller text reaches the statement |
 | `rollup_filter_cond`, `rollup_filter_sql` | `AND` or `OR`, the `NOT` prefix, `TRUE`, `FALSE` | a `CASE` over literals on the operator key | allow-list | not needed: no caller text reaches the statement |
-| `rollup_filter_cond` | comparison operator | the operator key of the filter object, spliced only in the branch for `<`, `<=`, `>`, `>=` | allow-list | none |
+| `rollup_filter_cond` | comparison operator | the operator key of the filter object, spliced only in the branch for `<`, `<=`, `>`, `>=` | allow-list | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_definition` | parent and child relation (name lookup) | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `rollup_value_sql` | value column | `fields.rollup ->> 'value_field'`, which must name a `fields` row of the child; `rollup_definition` validates the definition again at every build | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `rollup_value_sql` | aggregate function | `fields.rollup ->> 'function'`; `rollup_definition` validates the definition again at every build | allow-list in `rollup_definition` (`sum`, `min`, `max`, `avg`, `count`) | `0537_test_dynamic_sql_values.sql` (part 1) |

@@ -32,7 +32,13 @@ ALTER TABLE process_gates
     ADD CONSTRAINT process_gates_process_entity_gate_state_key
     UNIQUE (process_id, entity, gate_kind, to_state);
 
-CREATE INDEX idx_process_gates_entity ON process_gates(entity);
+-- process_gates.entity is a reference to entities, which the dictionary
+-- creates as a nullable TEXT column with its index idx_process_gates_entity.
+-- A gate without an entity means nothing, so the column is NOT NULL,
+-- defaulting to '' as every NOT NULL column does; the foreign key refuses ''.
+ALTER TABLE process_gates ALTER COLUMN entity SET DEFAULT '';
+ALTER TABLE process_gates ALTER COLUMN entity SET NOT NULL;
+
 CREATE INDEX idx_process_gates_emit   ON process_gates(entity) WHERE emits_events = TRUE;
 
 -- reference columns default to nullable in the DD model; target_role_id is mandatory

@@ -175,6 +175,12 @@ INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
 SELECT p.id, 'consulted', r.id, 'block'
 FROM processes p, roles r WHERE p.process_key = 'b9_proc' AND r.role_name = 'Northwind Sales';
 
+-- A gate names an entity (a foreign key), so the governed entity exists first.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('b9_ent', 'B9 Entity', 'B9 Entities', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('b9_ent', 'status', 'Status', 'text', 20);
+
 INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
 SELECT id, 'b9_ent', 'approval', 'done', 'status', FALSE
 FROM processes WHERE process_key = 'b9_proc';

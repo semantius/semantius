@@ -106,12 +106,16 @@
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
            "reference_table": "processes", "reference_delete_mode": "cascade"},
-          // entity is a plain TEXT natural key (the governed table name), not a
-          // reference: entities is keyed by a TEXT natural key, which the
-          // INTEGER-FK reference machinery cannot model.
-          {"field_name": "entity", "title": "Entity", "format": "text", "field_order": 20, "input_type": "required",
+          // entity is the governed entity, a reference to entities (a TEXT
+          // column, as entities.table_name is). The foreign key is what keeps a
+          // gate from naming an entity that does not exist: such a gate would
+          // never get its triggers, and would govern nothing without a word.
+          // A rename follows through ON UPDATE CASCADE, and the gates of an
+          // entity are deleted with it. Its NOT NULL and DEFAULT '' are set by
+          // 0360_raci_setup.once.sql.
+          {"field_name": "entity", "title": "Entity", "format": "reference", "field_order": 20, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
-           "reference_table": "", "reference_delete_mode": ""},
+           "reference_table": "entities", "reference_delete_mode": "cascade", "relationship_label": "is governed by"},
           {"field_name": "gate_kind", "title": "Gate Kind", "format": "enum", "field_order": 30, "input_type": "required",
            "description": "", "default_value": "",
            "enum_values": [{"value": "approval", "label": "Approval"}, {"value": "submit_lock", "label": "Submit lock"},

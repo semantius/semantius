@@ -9,12 +9,13 @@
 -- 0850 covers the emit trigger's runtime behavior and 0657 the gate's place
 -- around the rules; this file covers the INSTALLER: install, idempotent
 -- reinstall, keep-while-another-gate-needs-it, entity-move rerouting,
--- drop-on-delete, an entity rename, and the missing-table branch.
+-- drop-on-delete, an entity rename, and the gate's tie to its entity: a gate
+-- cannot name an entity that does not exist, and goes with the entity.
 --
 -- Fixtures (apps/test/migrations/0030_seed.once.sql): user3=admin.
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(17);
 
 SELECT authenticate_as('user3');
 
@@ -106,17 +107,21 @@ DELETE FROM process_gates WHERE entity = 'rgt_beta' AND to_state = 'rejected';
 SELECT is(pg_temp.raci_triggers('rgt_beta'), NULL,
     'every RACI trigger is dropped when the last gate is deleted');
 
--- Tests 9 + 10: a gate for a table that does not exist is accepted but installs nothing
--- (entity is a plain TEXT natural key, no FK — the installer must skip missing tables)
-SELECT lives_ok(
+-- Tests 9 + 10: a gate for an entity that does not exist is refused. Its
+-- triggers could not be built, and nothing would build them later, so the
+-- gate would govern nothing without a word. process_gates.entity is a
+-- reference to entities, and the foreign key says no.
+SELECT throws_ok(
     $$ INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
        SELECT pid, 'rgt_ghost', 'transition', 'approved', 'status', TRUE FROM _rgt $$,
-    'a gate for a nonexistent table is accepted (installer skips missing tables)'
+    '23503', NULL,
+    'a gate for an entity that does not exist is refused'
 );
 
 SELECT ok(
-    NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'raci_emit_on_rgt_ghost'),
-    'no trigger is created for a nonexistent table'
+    NOT EXISTS (SELECT 1 FROM process_gates WHERE entity = 'rgt_ghost')
+    AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'raci_emit_on_rgt_ghost'),
+    'and neither the gate nor a trigger is left'
 );
 
 -- Test 11: deleting a FALSE gate leaves the entity trigger-free
@@ -132,8 +137,33 @@ UPDATE entities SET table_name = 'rgt_gamma' WHERE table_name = 'rgt_beta';
 
 SELECT is(pg_temp.raci_triggers('rgt_gamma') || ' | '
           || (SELECT string_agg(DISTINCT entity, ', ') FROM process_gates WHERE process_id = (SELECT pid FROM _rgt)),
-    'a_raci_gate_on_rgt_gamma, raci_emit_on_rgt_gamma, raci_gate_on_rgt_gamma | rgt_gamma, rgt_ghost',
+    'a_raci_gate_on_rgt_gamma, raci_emit_on_rgt_gamma, raci_gate_on_rgt_gamma | rgt_gamma',
     'entity rename: the gates and every RACI trigger move to the new name');
+
+-- Tests 13 to 15: the gates of an entity go with it. Deleting the entity
+-- drops its table and the triggers on it, and the gate rows with them, so an
+-- entity created again under the same name starts with no gate rather than
+-- with gates whose triggers were never built.
+DELETE FROM entities WHERE table_name = 'rgt_gamma';
+
+SELECT is(
+    (SELECT count(*)::int FROM process_gates WHERE entity = 'rgt_gamma'),
+    0,
+    'deleting an entity deletes the gates that name it');
+
+INSERT INTO entities (table_name, singular, plural, singular_label, plural_label,
+                      description, module_id, view_permission, edit_permission,
+                      id_column, label_column)
+VALUES ('rgt_gamma', 'rgt_gamma', 'rgt_gammas', 'RGT Gamma', 'RGT Gammas',
+        'raci gate installer test', 1, 'public:read', 'admin', 'id', 'label');
+
+SELECT is(pg_temp.raci_triggers('rgt_gamma'), NULL,
+    'an entity created again under the name has no RACI trigger');
+
+SELECT is(
+    (SELECT count(*)::int FROM process_gates WHERE entity = 'rgt_gamma'),
+    0,
+    'and no gate');
 
 SELECT * FROM finish();
 ROLLBACK;

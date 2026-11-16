@@ -287,6 +287,12 @@ SELECT is(
     0,
     'raci_assignments: the deleted assignment is gone');
 
+-- A gate names an entity (a foreign key), so the governed entity exists first.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('sr_probe', 'SR Probe', 'SR Probes', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('sr_probe', 'status', 'Status', 'text', 20);
+
 SELECT lives_ok(
     $$INSERT INTO process_gates (process_id, entity, gate_kind, to_state, name)
       SELECT id, 'sr_probe', 'approval', 'approved', 'typed by the caller'

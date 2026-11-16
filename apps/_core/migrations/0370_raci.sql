@@ -477,19 +477,10 @@ DECLARE
 BEGIN
     -- A gate holds a state column of the entity's table in place and emits per
     -- row written; an is_a or has_a entity is a view whose records span
-    -- several tables, so neither trigger would see a whole record.
-    --
-    -- A gate may be written before its entity exists: the name is a plain
-    -- key, and the triggers are installed once the table is there. But a
-    -- table that is there and is no entity, an internal one such as _settings
-    -- among them, is not the dictionary's to put a gate's triggers on.
+    -- several tables, so neither trigger would see a whole record. That the
+    -- gate names an entity at all is the foreign key of process_gates.entity.
     IF TG_OP <> 'DELETE' THEN
         SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.entity;
-        IF NOT FOUND AND pg_catalog.to_regclass(format('public.%I', NEW.entity)) IS NOT NULL THEN
-            RAISE EXCEPTION 'Process gate: ${entity} is not an entity'
-                USING ERRCODE = '90279',
-                      HINT = jsonb_build_object('entity', NEW.entity)::text;
-        END IF;
         IF v_id_type IN ('is_a', 'has_a') THEN
             RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
                 USING ERRCODE = '90249',

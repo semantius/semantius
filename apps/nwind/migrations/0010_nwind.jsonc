@@ -155,7 +155,12 @@
           {"field_name": "country", "title": "Country", "format": "text", "field_order": 80, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": true, "ctype": ""},
           {"field_name": "phone", "title": "Phone", "format": "text", "field_order": 90, "input_type": "default", "width": "default", "description": "Primary phone number", "default_value": "", "searchable": false, "ctype": ""},
           {"field_name": "fax", "title": "Fax", "format": "text", "field_order": 100, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
-          {"field_name": "homepage", "title": "Homepage", "format": "url", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""}
+          {"field_name": "homepage", "title": "Homepage", "format": "url", "field_order": 110, "input_type": "default", "width": "default", "description": "", "default_value": "", "searchable": false, "ctype": ""},
+          // Counts discontinued products too: the supplier still supplies them
+          // as far as the catalog is concerned. It stays last in this array
+          // because a rollup column is added after every other field, so a
+          // fresh install and an upgraded database get the same column order.
+          {"field_name": "product_count", "title": "Product Count", "format": "int64", "field_order": 120, "input_type": "default", "width": "default", "description": "Number of products this supplier supplies", "default_value": "0", "searchable": false, "cube_type": "measure", "rollup": {"link_field": "products.supplier_id", "function": "count"}}
         ]
       }
     },
@@ -239,17 +244,19 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "label",
-        // the label is the order id (computed_fields below), which the
-        // column name does not say
+        // the label is built from the order id (computed_fields below), which
+        // the column name does not say
         "label_column_label": "Order Id",
         "entity_type": "operational_workflow",
         // composed label: an order is labeled by its customer and its number,
-        // "Vins et alcools Chevalier › 10248"; the local label is the order id
+        // "Vins et alcools Chevalier › Order 10248"; the local label is
+        // "Order " and the order id, so a bare number in a reference picker or
+        // a line's label still reads as an order
         "label_parent": "customer_id",
         // total reads the subtotal rollup; the rollup guard runs before this
         // rule, so a line write that moves the subtotal moves the total with it
         "computed_fields": [
-          {"name": "label", "jsonlogic": {"cat": [{"var": "id"}]}},
+          {"name": "label", "jsonlogic": {"cat": ["Order ", {"var": "id"}]}},
           {"name": "total", "jsonlogic": {"+": [{"var": "subtotal"}, {"var": "freight"}]}}
         ],
         "fields": [
@@ -356,7 +363,7 @@
         // catalog nor junction
         "entity_type": "operational_record",
         // composed label: an order line is labeled by its order and what it
-        // orders, "Vins et alcools Chevalier › 10248 › 12 × Queso Cabrales";
+        // orders, "Vins et alcools Chevalier › Order 10248 › 12 × Queso Cabrales";
         // the local label is quantity × product name, set when the line is
         // written
         "label_parent": "order_id",

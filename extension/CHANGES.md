@@ -52,12 +52,13 @@ installs the core schema as ordinary objects.
   tables take no other writes until the saving transaction commits.
 - **`ctype` marks derived fields.** A field one of the entity's
   `computed_fields` names carries `ctype = 'computed'`, derived like `rollup`
-  and never set by hand; both markers leave the field renameable and deletable
-  (`dd_ctype_is_core`). A label column that a rule computes carries
-  `computed_label` and keeps the label's protection. `input_type` stays as the
-  author set it: a client renders a visible `computed`, `computed_label` or
-  `rollup` field disabled from its `ctype`. A field has one derivation
-  (`90907`, `90261`).
+  and never set by hand. Neither marker makes the field core
+  (`dd_ctype_is_core`), so both leave it deletable; a `rollup` field stays
+  renameable, a `computed` one does not, because its rule names it (`90275`).
+  A label column that a rule computes carries `computed_label` and keeps the
+  label's protection. `input_type` stays as the author set it: a client
+  renders a visible `computed`, `computed_label` or `rollup` field disabled
+  from its `ctype`. A field has one derivation (`90907`, `90261`).
 - **The label marker follows `entities.label_column`.** Pointing it at another
   field makes that field the label (`label` or `computed_label`) and the
   previous one an ordinary field, and rebuilds `search_vector` when either is
@@ -425,9 +426,12 @@ installs the core schema as ordinary objects.
   reachable through PostgREST.
 - **Names the dictionary generates or matches by pattern.** An
   `order_column` that names a column the table already has is refused
-  (`90278`); clearing it dropped that column with its data. A process gate on
-  a table that exists and is no entity, such as `_settings`, is refused
-  (`90279`). The rule predicate of an entity whose
+  (`90278`); clearing it dropped that column with its data. A process gate
+  names an entity: `process_gates.entity` is a reference to `entities`, so a
+  gate for a name that is no entity is refused (23503), a rename carries the
+  gates along, and the gates of an entity are deleted with it. A gate written
+  for a name that was no entity, or left behind by a deleted entity, never got
+  its triggers before. The rule predicate of an entity whose
   name ends in `_label` is no longer dropped with its label functions. A
   rollup whose function would carry the name of another parent's guard is
   refused (`90280`). A queue name has to be lower case and at most 47 bytes

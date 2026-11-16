@@ -5,8 +5,9 @@
 -- (ALFKI / VINET / order 10248), the reports_to tree, order status vs
 -- shipped_date, sequences caught up after the load, categories.sort_order
 -- auto-assignment, composed labels, non-ASCII data, the CURRENT_DATE
--- defaults on hire_date / order_date, the computed order line amount, and the
--- order subtotal and total derived from it. Sequences are inspected as the owner
+-- defaults on hire_date / order_date, the computed order line amount, the
+-- order subtotal and total derived from it, and the supplier product count.
+-- Sequences are inspected as the owner
 -- (before authenticate_as); everything else is read as user2 (Northwind
 -- Sales), i.e. through nwind:view RLS. All writes roll back.
 -- Requires: deno task migrate --apps _core,nwind,test
@@ -14,7 +15,7 @@
 
 BEGIN;
 
-SELECT plan(53);
+SELECT plan(58);
 
 -- =====================================================
 -- SEQUENCES (owner): caught up with the explicit ids of the load
@@ -160,11 +161,12 @@ SELECT set_eq(
     'employees.title_of_courtesy should use exactly Dr., Mr., Mrs., Ms.'
 );
 
--- Test 24: supplier 2 keeps its raw homepage value through the url format
+-- Test 24: the Access hyperlinks of the original dataset ('#CAJUN.HTM#',
+-- microsoft.com sample pages) are not real homepages, so none is loaded
 SELECT is(
-    (SELECT homepage FROM suppliers WHERE id = 2),
-    '#CAJUN.HTM#',
-    'Supplier 2 homepage should be loaded verbatim (#CAJUN.HTM#)'
+    (SELECT COUNT(*)::integer FROM suppliers WHERE homepage <> ''),
+    0,
+    'No supplier should carry a homepage'
 );
 
 -- =====================================================
@@ -224,10 +226,11 @@ SELECT is(
     'employee_territories._label should compose employee › region › territory'
 );
 
--- Test 31: order label folds the customer in; the local label is the order id
+-- Test 31: order label folds the customer in; the local label is "Order " and
+-- the order id
 SELECT is(
     (SELECT public._label(o) FROM orders o WHERE o.id = 10248),
-    'Vins et alcools Chevalier › 10248',
+    'Vins et alcools Chevalier › Order 10248',
     'orders._label should compose customer › order id'
 );
 
@@ -235,7 +238,7 @@ SELECT is(
 -- quantity × product name, which the computed field set during the load
 SELECT is(
     (SELECT public._label(od) FROM order_details od WHERE od.order_id = 10248 AND od.product_id = 11),
-    'Vins et alcools Chevalier › 10248 › 12 × Queso Cabrales',
+    'Vins et alcools Chevalier › Order 10248 › 12 × Queso Cabrales',
     'order_details._label should compose customer › order id › quantity × product'
 );
 
@@ -425,6 +428,53 @@ SELECT is(
     (SELECT subtotal || ' ' || total FROM orders WHERE ship_name = 'Rollup Order'),
     '0.00 12.50',
     'Deleting the last line should return orders.subtotal and orders.total to the empty order'
+);
+
+-- =====================================================
+-- SUPPLIER PRODUCT COUNT (rollup), the writes as user2
+-- =====================================================
+
+-- Test 54: the import does not write product_count, so this proves the load
+-- counted every supplier's products
+SELECT is(
+    (SELECT COUNT(*)::integer FROM suppliers s
+      WHERE s.product_count IS DISTINCT FROM (SELECT COUNT(*) FROM products p WHERE p.supplier_id = s.id)),
+    0,
+    'Every supplier should carry the number of its products'
+);
+
+-- Test 55: Pavlova, Ltd. supplies five products
+SELECT is(
+    (SELECT product_count FROM suppliers WHERE id = 7),
+    5::bigint,
+    'suppliers.product_count should count the products of the supplier'
+);
+
+INSERT INTO products (product_name, supplier_id) VALUES ('Rollup Product', 7);
+
+-- Test 56
+SELECT is(
+    (SELECT product_count FROM suppliers WHERE id = 7),
+    6::bigint,
+    'A new product should move suppliers.product_count'
+);
+
+UPDATE products SET supplier_id = 13 WHERE product_name = 'Rollup Product';
+
+-- Test 57: Nord-Ost-Fisch supplies one product before the move
+SELECT is(
+    (SELECT string_agg(product_count::text, ' ' ORDER BY id) FROM suppliers WHERE id IN (7, 13)),
+    '5 2',
+    'Moving a product to another supplier should move both counts'
+);
+
+DELETE FROM products WHERE product_name = 'Rollup Product';
+
+-- Test 58
+SELECT is(
+    (SELECT product_count FROM suppliers WHERE id = 13),
+    1::bigint,
+    'Deleting a product should return suppliers.product_count to its count'
 );
 
 SELECT * FROM finish();
