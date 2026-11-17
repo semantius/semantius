@@ -14,13 +14,12 @@ SELECT plan(38);
 -- =====================================================
 -- PART 1: ctype coverage for the record-versioning timestamps
 -- =====================================================
--- Test (b7): ctype coverage for the managed record-versioning timestamps.
---
--- spec v2 I6 identifies a core column by `ctype <> ''`. created_at / updated_at are DD-managed
+-- docs/authorization.md I6 identifies a core column by its ctype. created_at / updated_at are DD-managed
 -- record-versioning columns, grouped under the single ctype 'audit' (room for created_by/
 -- updated_by later). They must carry ctype='audit' both in the valid_ctype CHECK / fields.ctype
--- enum and on every actual field row (bootstrap + newly created tables). Protection (the b7
--- guards) keys on ctype, and is_core is derived as (ctype <> '').
+-- enum and on every actual field row (bootstrap + newly created tables). Protection (the guards
+-- of core columns) keys on dd_ctype_is_core(ctype), under which rollup and computed are not
+-- core, and get_schema derives is_core from the same predicate.
 --
 -- Fixtures: user3 = Administrator.
 
@@ -34,7 +33,8 @@ SELECT is(
     0,
     'every created_at/updated_at field row has ctype = audit');
 
--- The ctype enum enumerates the b7 marker set, plus the derived markers:
+-- The ctype enum enumerates the markers of core columns (id, label, audit, core) and '' for
+-- none, plus the derived markers:
 -- rollup for a field the database aggregates (0440_rollup.sql), computed for
 -- a field one of the entity's computed_fields writes (0210), the two managed
 -- markers dd_ctype_is_core does not count as core, and computed_label for a
@@ -42,7 +42,7 @@ SELECT is(
 SELECT is(
     (SELECT enum_value_list(enum_values) FROM fields WHERE table_name = 'fields' AND field_name = 'ctype'),
     '["", "id", "label", "audit", "core", "rollup", "computed", "computed_label"]'::jsonb,
-    'fields.ctype enum_values are the b7 marker set plus rollup, computed and computed_label');
+    'fields.ctype enum_values are the core markers plus rollup, computed and computed_label');
 
 -- A freshly created managed table's auto-inserted timestamps carry ctype='audit'.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
@@ -85,15 +85,15 @@ SELECT is(
 -- =====================================================
 -- PART 2: ctype lock and core-column protection
 -- =====================================================
--- Test (b7): ctype is the single, un-tamperable core marker.
+-- ctype is the single, un-tamperable core marker.
 --
--- is_core was dropped; protection (no rename/format/default/delete of a core column) now keys on
--- `ctype <> ''`. For that to be sound, ctype must be settable ONLY by privileged DD code and
--- immutable thereafter — otherwise a tenant admin (who holds the fields edit permission 'admin')
--- could mint a ctype on a field, or clear the id column's ctype to "free" it for deletion.
--- The fields_ctype_lock trigger enforces this: non-privileged (NOBYPASSRLS) callers get ctype
--- forced to '' on INSERT and a hard rejection on any UPDATE that changes ctype. is_core is
--- derived in get_schema as (ctype <> '').
+-- Protection (no rename/format/default/delete of a core column) keys on dd_ctype_is_core(ctype),
+-- under which rollup and computed are not core. For that to be sound, ctype must be settable
+-- ONLY by privileged DD code and immutable thereafter — otherwise a tenant admin (who holds the
+-- fields edit permission 'admin') could mint a ctype on a field, or clear the id column's ctype
+-- to "free" it for deletion. The fields_ctype_lock trigger enforces this: non-privileged
+-- (NOBYPASSRLS) callers get ctype forced to '' on INSERT and a hard rejection on any UPDATE that
+-- changes ctype. get_schema derives is_core from the same predicate.
 --
 -- Fixtures: user3 = Administrator (holds 'admin' = the fields edit permission, yet still cannot
 -- set/clear ctype because the lock keys on BYPASSRLS, not on app permissions).
@@ -104,7 +104,7 @@ SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
 -- An entity created via the DD (create_dd_table runs SECURITY DEFINER = privileged) gets its
--- structural ctypes stamped (id/label/audit) — that privileged path is covered in 0339.
+-- structural ctypes stamped (id/label/audit) — that privileged path is covered in PART 1 above.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column)
 VALUES ('lk_probe', 'lk_probe', 'Lock Probe', 'Lock Probes', 'ctype lock probe',

@@ -496,7 +496,7 @@ DELETE FROM queues WHERE queue_name = 'test_q2';
 --
 -- The queue is created through the entity as the owner (as part 1 does) and the
 -- messages are sent with pgmq.send; the RPCs are then called as user3. The
--- second half pins the per-queue authorization added for release review S4:
+-- second half pins the per-queue authorization:
 -- queues.view_permission gates queue_read, queues.manage_permission gates the
 -- three mutators, unregistered names are refused, and the read arguments are
 -- clamped.
@@ -560,7 +560,7 @@ SELECT is((SELECT message->>'n' FROM pgmq.a_rpc_q), '2',
     'queue_archive: the archived payload is intact');
 
 -- =====================================================
--- Per-queue authorization (release review S4)
+-- Per-queue authorization
 -- =====================================================
 -- Still the owner here (RESET ROLE above). Both permission fields default to
 -- admin and are foreign keys to permissions(permission_name).

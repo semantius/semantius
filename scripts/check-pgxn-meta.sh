@@ -4,15 +4,14 @@
 #   ./scripts/check-pgxn-meta.sh extension/META.json
 #   ./scripts/check-pgxn-meta.sh /tmp/dist/pg_semantius-0.5.0/META.json
 #
-# Two layers, both of which used to live inline in the release workflow:
+# Two layers:
 #
 #   1. `pgxn_meta validate` against the PGXN spec, when it is installed. It ships
 #      as a RUBY gem (pgxn_utils), not a PyPI package, so it is frequently absent
 #      and its absence is a warning, never a failure.
-#   2. Explicit assertions for the four specific defects open item B10 named, none
-#      of which a generic spec validation catches: a git:// repository URL, a
-#      maintainer with no email, a missing release_status, and a missing
-#      CHANGES.md. These always run.
+#   2. Explicit assertions for four defects that a generic spec validation does
+#      not catch: a git:// repository URL, a maintainer with no email, a missing
+#      release_status, and a missing CHANGES.md. These always run.
 #
 # The CHANGES.md check looks NEXT TO the manifest, not at a fixed repo path, so
 # the same script validates the build in extension/ and the unpacked archive that
@@ -27,7 +26,7 @@ META="${1:-}"
 if command -v pgxn_meta >/dev/null 2>&1; then
   pgxn_meta validate "$META"
 else
-  echo "check-pgxn-meta: pgxn_meta unavailable (gem install pgxn_utils) - running the B10 checks only" >&2
+  echo "check-pgxn-meta: pgxn_meta unavailable (gem install pgxn_utils) - running its own checks only" >&2
 fi
 
 python3 - "$META" <<'PY'
@@ -68,7 +67,7 @@ if isinstance(prov, dict) and prov.get("file"):
         errors.append(f"provides.file does not exist: {prov['file']}")
 
 if errors:
-    sys.exit("META.json failed the B10 checks:\n  - " + "\n  - ".join(errors))
+    sys.exit("META.json failed the manifest checks:\n  - " + "\n  - ".join(errors))
 
 print(f"META.json passes: version={m['version']}, url={url}, "
       f"release_status={m['release_status']}, maintainer={m['maintainer']}")

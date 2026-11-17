@@ -685,7 +685,7 @@
     [ {"is_match":[{"var":"missing"}, "^$"]}, {}, false ],
     [ {"is_match":["abc", null]}, {}, false ],
 
-    "# String comparison (B20, B21): two strings compare as text in code-point order, as JavaScript does; a string against a number still coerces to a number",
+    "# String comparison: two strings compare as text in code-point order, as JavaScript does; a string against a number still coerces to a number",
     [ {">":["10","9"]}, {}, false ],
     [ {"<":["10","9"]}, {}, true ],
     [ {">":["b","a"]}, {}, true ],

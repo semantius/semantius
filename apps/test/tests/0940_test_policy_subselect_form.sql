@@ -81,13 +81,13 @@ SELECT is(
 -- create_dd_table (entity INSERT, managed by default)
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column)
-VALUES ('p1_initplan', 'p1_initplan_item', 'P1 InitPlan', 'P1 InitPlans',
+VALUES ('policy_form_initplan', 'policy_form_initplan_item', 'Policy Form InitPlan', 'Policy Form InitPlans',
     'policy form probe', 1, 'public:read', 'nwind:manage', 'id', 'label');
 
 SELECT is(
     (SELECT string_agg(policyname || ': ' || coalesce(qual, '-') || ' / ' || coalesce(with_check, '-'), '; ')
      FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
                           'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
            ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
@@ -96,7 +96,7 @@ SELECT is(
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
@@ -104,12 +104,12 @@ SELECT is(
 
 -- update_entity_policies (INSERT policy) + build_select_rule_policy, permission-only branch
 -- (SELECT/UPDATE/DELETE), both fired by an edit_permission change
-UPDATE entities SET edit_permission = 'admin' WHERE table_name = 'p1_initplan';
+UPDATE entities SET edit_permission = 'admin' WHERE table_name = 'policy_form_initplan';
 
 SELECT is(
     (SELECT string_agg(policyname || ': ' || coalesce(qual, '-') || ' / ' || coalesce(with_check, '-'), '; ')
      FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
                           'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
            ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
@@ -118,7 +118,7 @@ SELECT is(
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
@@ -127,12 +127,12 @@ SELECT is(
 -- build_select_rule_policy, rule branch: UPDATE/DELETE keep the permission check next to the
 -- per-row rule function; the permission half must still be the sub-select form
 UPDATE entities SET select_rule = '{"!=":[{"var":"label"},""]}'::jsonb
-WHERE table_name = 'p1_initplan';
+WHERE table_name = 'policy_form_initplan';
 
 SELECT is(
     (SELECT string_agg(policyname || ': ' || coalesce(qual, '-') || ' / ' || coalesce(with_check, '-'), '; ')
      FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
                           'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
            ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
@@ -141,10 +141,10 @@ SELECT is(
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_initplan'
-       AND policyname IN ('p1_initplan_update_policy', 'p1_initplan_delete_policy')
+     WHERE tablename = 'policy_form_initplan'
+       AND policyname IN ('policy_form_initplan_update_policy', 'policy_form_initplan_delete_policy')
        AND qual ~ 'SELECT rbac\.has_permission\('
-       AND qual ~ 'select_rule_p1_initplan\('),
+       AND qual ~ 'select_rule_policy_form_initplan\('),
     2,
     'select_rule set: UPDATE and DELETE combine the sub-select-form permission check with the rule function');
 
@@ -153,25 +153,25 @@ SELECT is(
 -- above passes just as well on policies that stopped calling it at all.
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND qual ~ 'SELECT \(*jl_request_context\('),
     3,
     'select_rule set: SELECT, UPDATE and DELETE all resolve the request context through a sub-select');
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_initplan'
-       AND qual ~ 'select_rule_p1_initplan\(.*jl_request_context'),
+     WHERE tablename = 'policy_form_initplan'
+       AND qual ~ 'select_rule_policy_form_initplan\(.*jl_request_context'),
     3,
     'select_rule set: the context is passed into the rule predicate rather than resolved inside it');
 
 -- build_select_rule_policy, permission-only branch again (rule removed)
-UPDATE entities SET select_rule = '{}'::jsonb WHERE table_name = 'p1_initplan';
+UPDATE entities SET select_rule = '{}'::jsonb WHERE table_name = 'policy_form_initplan';
 
 SELECT is(
     (SELECT string_agg(policyname || ': ' || coalesce(qual, '-') || ' / ' || coalesce(with_check, '-'), '; ')
      FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
                           'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
            ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
@@ -180,7 +180,7 @@ SELECT is(
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_initplan'
+     WHERE tablename = 'policy_form_initplan'
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,
@@ -189,15 +189,15 @@ SELECT is(
 -- enable_dd_table (0180_managed_enable.sql): entity defined unmanaged, then managed
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column, managed)
-VALUES ('p1_unmanaged', 'p1_unmanaged_item', 'P1 Unmanaged', 'P1 Unmanageds',
+VALUES ('policy_form_unmanaged', 'policy_form_unmanaged_item', 'Policy Form Unmanaged', 'Policy Form Unmanageds',
     'policy form probe, managed toggle', 1, 'public:read', 'nwind:manage', 'id', 'label', FALSE);
 
-UPDATE entities SET managed = TRUE WHERE table_name = 'p1_unmanaged';
+UPDATE entities SET managed = TRUE WHERE table_name = 'policy_form_unmanaged';
 
 SELECT is(
     (SELECT string_agg(policyname || ': ' || coalesce(qual, '-') || ' / ' || coalesce(with_check, '-'), '; ')
      FROM pg_policies
-     WHERE tablename = 'p1_unmanaged'
+     WHERE tablename = 'policy_form_unmanaged'
        AND regexp_replace(coalesce(qual, '') || ' ' || coalesce(with_check, ''),
                           'SELECT \(*(rbac\.has_(any_)?permission|jl_request_context)\(', '', 'g')
            ~ '(rbac\.has_(any_)?permission|jl_request_context)\('),
@@ -206,7 +206,7 @@ SELECT is(
 
 SELECT is(
     (SELECT count(*)::int FROM pg_policies
-     WHERE tablename = 'p1_unmanaged'
+     WHERE tablename = 'policy_form_unmanaged'
        AND (qual IS NULL OR qual ~ 'SELECT rbac\.has_permission\(')
        AND (with_check IS NULL OR with_check ~ 'SELECT rbac\.has_permission\(')),
     4,

@@ -107,7 +107,7 @@ GRANT  EXECUTE ON FUNCTION is_raci_actor(TEXT, TEXT, TEXT) TO semantius_user;
 
 -- has_consultation(entity, to_state, record_id) → boolean
 -- Returns TRUE when an "acted" consulted raci_events row exists for the
--- record's process, AND the caller participates in that process (b9 caller-scope).
+-- record's process, AND the caller participates in that process.
 
 CREATE OR REPLACE FUNCTION has_consultation(
     p_entity    TEXT,
@@ -126,7 +126,7 @@ BEGIN
     PERFORM rbac.uid();
     PERFORM rbac.ensure_context_initialized();
 
-    -- Caller-scope (b9): has_consultation is GRANTed to the request role and exposed as
+    -- Caller scope: has_consultation is GRANTed to the request role and exposed as
     -- /rpc/has_consultation, so without a caller gate it is a record-existence oracle — any user
     -- could probe any record's consultation state. Restrict it to PARTICIPANTS of the governing
     -- process: the caller must hold a role that carries some RACI assignment on the process that
@@ -272,10 +272,8 @@ REVOKE EXECUTE ON FUNCTION raci_emit_trigger_fn() FROM PUBLIC;
 -- =====================================================
 -- STEP 8b: A blocking consultation holds the process
 -- =====================================================
--- consult_mode is the opt-in, and until this existed nothing read it: read
--- (passive), notify (push) and block (gate) all behaved identically, because the
--- column was stored and displayed and consulted by no predicate anywhere. Only
--- block reaches this code; read and notify observe and never hold anything.
+-- consult_mode is the opt-in. Only block (gate) reaches this code; read
+-- (passive) and notify (push) observe and never hold anything.
 --
 -- What a blocking consultation blocks is the PROCESS, not the writer. A record
 -- with an unacted blocking consultation keeps accepting writes; what it will not
@@ -597,10 +595,12 @@ CREATE OR REPLACE TRIGGER raci_gates_manage_emit_trigger
 -- functions find the gates and consultations of a write by TG_TABLE_NAME, so
 -- a rename that left any of them behind would stop the gate holding and the
 -- emit trigger emitting, without an error, and leave triggers under the old
--- name that nothing removes. The triggers under the old name are dropped
--- here; moving the gates to the new name then installs them again under the
--- new one (raci_gates_manage_emit_trigger). AFTER the rename, so the table
--- already carries the new name (rename_dd_table, 0170_dd_rename.sql).
+-- name that nothing removes. The gates and the events follow the rename
+-- through the ON UPDATE CASCADE of their foreign keys, and the moved gates
+-- install their triggers again under the new name
+-- (raci_gates_manage_emit_trigger). The triggers under the old name are
+-- dropped here. AFTER the rename, so the table already carries the new name
+-- (rename_dd_table, 0170_dd_rename.sql).
 CREATE OR REPLACE FUNCTION raci_entity_renamed()
 RETURNS TRIGGER
 SECURITY DEFINER
@@ -614,14 +614,12 @@ BEGIN
               ('raci_gate_on_' || OLD.table_name)::name],
         FALSE,
         NULL);
-    UPDATE raci_events   SET entity = NEW.table_name WHERE entity = OLD.table_name;
-    UPDATE process_gates SET entity = NEW.table_name WHERE entity = OLD.table_name;
     RETURN NULL;
 END;
 $$;
 
 COMMENT ON FUNCTION raci_entity_renamed() IS
-'AFTER UPDATE OF table_name trigger function on entities: drops the RACI triggers carrying the old name and moves the process_gates and raci_events rows to the new name, which installs the triggers again under it.';
+'AFTER UPDATE OF table_name trigger function on entities: drops the RACI triggers carrying the old name. The process_gates and raci_events rows follow the rename through the ON UPDATE CASCADE of their foreign keys, and the moved gates install the triggers again under the new name.';
 
 REVOKE EXECUTE ON FUNCTION raci_entity_renamed() FROM PUBLIC;
 

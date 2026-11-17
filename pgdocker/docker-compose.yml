@@ -23,7 +23,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       # PG18 made PGDATA version-specific; mount the PARENT dir and the image
-      # creates /var/lib/postgresql/18/docker inside it. (Mounting the old
+      # creates /var/lib/postgresql/18/docker inside it. (Mounting the pre-18
       # /var/lib/postgresql/data path silently re-initdb's on every start.)
       - pgdata:/var/lib/postgresql
       # Custom HBA (oauth method) + ident map (token identity -> role).

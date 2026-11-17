@@ -419,7 +419,7 @@ does not disturb `appdb`:
 | 1e | two concurrent first logins elect exactly one administrator, the earlier one, and the other keeps the User role; a later login is not elected |
 | 1f | `fix_id_sequence` behind an open insert fails with 90232 instead of queueing; the retry succeeds |
 | 1g | a file failing mid-pass is named with its original error and not recorded, earlier files stay committed, the 9900 files still run and leave nothing owned by the installing superuser, and the next `CALL migrate()` resumes to an install equal to an uninterrupted one |
-| 1h | the same on the CLI runner (`deno task migrate`); like the procedure, it fails at once while another session holds the migration lock |
+| 1h | the CLI runner (`deno task migrate`): a failing file fails the run with its original error, the 9900 files still run and leave nothing owned by the installing superuser, and the next run resumes to an install equal to an uninterrupted one; like the procedure, it fails at once while another session holds the migration lock |
 | 2 | plain `pg_dump` → **single-pass** `pg_restore`, with a custom field on a core entity and a custom entity's rows; nothing is pending on the restored database |
 | 2b | the same dump through `-Fp \| psql`, `-j 4` and `-1` |
 | 4 | `DROP EXTENSION` is inert, with and without CASCADE: the schema `semantius` goes, the data and the four roles stay, and a re-created extension has nothing to migrate |

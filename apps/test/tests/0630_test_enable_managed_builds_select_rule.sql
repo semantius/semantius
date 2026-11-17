@@ -1,17 +1,18 @@
--- Test (b3, determinism guard): toggling entities.managed FALSE→TRUE must install the canonical
--- select_rule policy, not just the permission-only default policies. enable_dd_table() now calls
+-- Determinism guard: toggling entities.managed FALSE→TRUE must install the canonical
+-- select_rule policy, not just the permission-only default policies. enable_dd_table() calls
 -- build_select_rule_policy() itself (0180_managed_enable.sql), so the per-row rule is enforced regardless of the
--- alphabetical firing order of the separate manage_select_rule_policy AFTER-trigger (F3).
+-- alphabetical firing order of the separate manage_select_rule_policy AFTER-trigger: two AFTER
+-- triggers on one table fire in name order.
 --
 -- This pins the end-to-end invariant (I1/I10 enforcement consistency across the F→T toggle): an
--- entity defined while unmanaged WITH a select_rule, then enabled, enforces that rule. The
--- accompanying mutation check (see plan §7) confirms enable_dd_table's call carries the load:
--- with the manage_select_rule_policy managed-change arm disabled the rule is STILL enforced.
+-- entity defined while unmanaged WITH a select_rule, then enabled, enforces that rule, and it does
+-- so on enable_dd_table's call alone: with the manage_select_rule_policy managed-change arm
+-- disabled the rule is STILL enforced.
 --
 -- Fixtures: user3 = Administrator; user1/user2 = non-admin.
 BEGIN;
 
-SELECT plan(4);
+SELECT plan(6);
 
 SELECT authenticate_as('user3');
 
@@ -68,6 +69,32 @@ SELECT is(
     (SELECT count(*)::int FROM em_rule_test),
     1,
     'user1 sees only their own row — the select_rule is enforced after the toggle');
+
+-- ── Unmanaged, then deleted ────────────────────────────────────────────────
+-- Deleting a managed entity drops its table, and DROP TABLE ... CASCADE takes
+-- the rule functions typed by its row along. The table of an unmanaged entity
+-- is not the dictionary's to drop: deleting the entity leaves it, and only the
+-- DELETE arm of manage_select_rule_policy removes the two select_rule_<table>
+-- overloads.
+SELECT authenticate_as('user3');
+UPDATE entities SET managed = FALSE WHERE table_name = 'em_rule_test';
+
+SELECT ok(
+    to_regclass('public.em_rule_test') IS NOT NULL
+    AND EXISTS (SELECT 1 FROM pg_proc
+                WHERE proname = 'select_rule_em_rule_test'
+                  AND pronamespace = 'public'::regnamespace),
+    'made unmanaged, the entity keeps its table and its select_rule function');
+
+DELETE FROM entities WHERE table_name = 'em_rule_test';
+
+SELECT is(
+    concat_ws(' ', to_regclass('public.em_rule_test') IS NOT NULL,
+              (SELECT count(*) FROM pg_proc
+                WHERE proname = 'select_rule_em_rule_test'
+                  AND pronamespace = 'public'::regnamespace)),
+    't 0',
+    'deleted while unmanaged, the entity leaves its table but no select_rule function');
 
 SELECT * FROM finish();
 ROLLBACK;

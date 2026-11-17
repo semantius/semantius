@@ -496,8 +496,9 @@ async function collectTestDirs(apps?: string): Promise<string[]> {
 /**
  * Runs the pgTAP suite. With `coverage` enabled the same run also measures
  * which functions/statements/tables the suite executed (see coverage.ts) and
- * writes the reports before the exit code is decided; without it the output
- * and exit codes are exactly what they were before coverage existed.
+ * writes the reports before the exit code is decided; without it nothing is
+ * measured, no report is written and the exit code depends on the test run
+ * alone.
  */
 export async function testCommand(
   databaseUrl: string,

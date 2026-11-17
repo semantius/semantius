@@ -356,7 +356,7 @@ names generated from a long entity name (`<entity>_ext_<field>_fkey`,
 ## Security
 
 Everything in HINT is visible to the caller. A parameter must never carry data
-from a row or a column the caller cannot read; `docs/authz-spec.md` invariant
+from a row or a column the caller cannot read; `docs/authorization.md` invariant
 I1 counts error messages as a read path. Names of things the caller asked for
 (the permission, the table, the field) are fine; contents of other rows are
 not.
@@ -494,6 +494,8 @@ the JSON hint that fill their `${name}` placeholders.
 | `90277` | `90277` | `Field ${field_name} is the label_parent of ${table} and has to stay a reference or parent field` | - | `field_name`, `table` | Changing the format of a field away from `reference` or `parent` while its entity names it as `label_parent`. Clear `label_parent` first. |
 | `90278` | `90278` | `order_column ${order_column} of ${table} names a column the table already has` | - | `order_column`, `table` | The order column is the dictionary's own: it adds the column and drops it when the entity stops naming it. A name that a field or a core column of the entity carries is refused where it is newly given, on insert and on a change of `order_column`. |
 | `90280` | `90280` | `Rollup ${field_name} on ${table}: the function of link_field ${link_field} and the guard of a rollup parent would carry one name` | - | `table`, `field_name`, `link_field` | The maintenance function of a link is `common.rollup_<child>_<link>` and the guard of a parent `common.rollup_guard_<parent>`: a child entity named `guard` with link field `x` spells the guard of an entity named `x`. Rename the child entity or the link field. |
+| `90281` | `90281` | `Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}` | `Rename the child entity or the link field.` | `table`, `field_name`, `name`, `used_by` | The maintenance function of a link is `common.rollup_<child>_<link>`. A name longer than an identifier allows keeps 42 characters and 8 hex digits of md5, so two long links can spell one name, and a function name of 58 characters, the length of a shortened one, is not shortened and can spell another link's shortened name; building the second would drop the first one's function and triggers. `name` is the function name, `used_by` a rollup field over the other link, as `<table>.<field>`. Rollups over the same link share the function and are not refused. Checked wherever the definition is validated: when the rollup is saved, and when a rename changes the name of its function. |
+| `90282` | `90282` | `Field ${field_name} on ${table} is a parent field and cannot use delete mode clear` | `Use restrict or cascade, or make it a reference with clear.` | `table`, `field_name` | A `parent` column is `NOT NULL`, so `ON DELETE SET NULL` would make every delete of a parent record that has children fail (23502). Refused when the field is created with it, and when its delete mode or its format changes to it, so a field that already has it stays editable. |
 
 ### 903xx - schema and record RPCs
 
@@ -520,7 +522,7 @@ block has no rows yet.
 | `90502` | `90502` | `Cannot change table_name on a queue table event` | - | - | Except as the cascade of a table rename. |
 | `90503` | `90503` | `Parent queue not found for queue_id ${queue_id}` | - | `queue_id` | |
 | `90504` | `90504` | `Queue ${queue} is not registered` | - | `queue` | The answer an administrator gets; everyone else gets 90105. |
-| `90505` | `90505` | `Queue name ${queue} has to be lower case and at most 47 bytes long` | - | `queue` | pgmq names the tables of a queue after it in lower case and cuts them at 63 bytes, so two names that differ in case only, or in their tail only, would share their tables. |
+| `90505` | `90505` | `Queue name ${queue} has to start with a lower-case letter or an underscore, contain only lower-case letters, digits and underscores, and be at most 47 bytes long` | - | `queue` | A queue name has the shape of a table name. pgmq names the tables of a queue after it in lower case and cuts them at 63 bytes, so two names that differ in case only, or in their tail only, would share their tables; and the name goes into the triggers that map a table to the queue and into the statements pgmq builds. |
 | `90506` | `90506` | `Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes` | - | `queue`, `table`, `name` | Mapping a table to a queue creates triggers named `queue_<queue>_<event>_on_<table>`. A name cut at 63 bytes is one the rename of the table and the removal of the mapping no longer find. |
 
 ### 906xx - audit
@@ -577,8 +579,11 @@ A constraint violation is PostgreSQL's error, not ours: the write goes straight
 at the table, the row trigger runs before the constraint is evaluated, and
 there is no code of ours between the client and the refusal to give it a
 number or a JSON hint. What comes back is 23514, 23505 or 23503 with
-PostgreSQL's own sentence, and the only stable token in that sentence is the
-constraint's name. The one exception is a required field's check, generated as
+PostgreSQL's own sentence. A delete that a foreign key with
+`ON DELETE RESTRICT` refuses returns 23001 (`restrict_violation`) on
+PostgreSQL 18 and 23503 up to PostgreSQL 17: the code depends on the version,
+the constraint's name in the sentence does not. That name is the only stable
+token in the sentence. The one exception is a required field's check, generated as
 `<table>_<field>_assert`, which calls a function that raises 90258 instead.
 These are the names our own tables declare and the names we
 keep stable, so a translation keyed on one of them survives a rewrite of the
@@ -633,6 +638,8 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 | `process_gates_process_entity_gate_state_key` | `process_gates` | UNIQUE | one gate per (`process_id`, `entity`, `gate_kind`, `to_state`) |
 | `valid_process_key` | `processes` | CHECK | `process_key` is empty or a lowercase identifier |
 | `raci_assignments_process_role_raci_key` | `raci_assignments` | UNIQUE | one assignment per (`process_id`, `role_id`, `raci`) |
+| `raci_events_entity_fkey` | `raci_events` | FOREIGN KEY | `entity` must name an entity; an entity cannot be deleted while events name it (23001 on PostgreSQL 18, 23503 up to 17), and a rename carries its events along |
+| `raci_events_target_role_id_fkey` | `raci_events` | FOREIGN KEY | `target_role_id` must name a role; a role cannot be deleted while events name it (23001 on PostgreSQL 18, 23503 up to 17) |
 | `valid_role_origin` | `roles` | CHECK | `origin` is `system`, `model`, `model_master` or `user` |
 | `valid_role_slug` | `roles` | CHECK | `slug` is empty or lowercase letters, digits and underscores |
 | `users_external_id_not_empty` | `users` | CHECK | `external_id` cannot be blank |

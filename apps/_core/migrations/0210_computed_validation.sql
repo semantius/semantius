@@ -1482,13 +1482,6 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_fn_name TEXT;
 BEGIN
-    IF TG_OP = 'INSERT' THEN
-        IF NEW.managed AND NEW.select_rule IS NOT NULL AND NEW.select_rule != '{}'::jsonb THEN
-            PERFORM build_select_rule_policy(NEW.table_name);
-        END IF;
-        RETURN NEW;
-    END IF;
-
     IF TG_OP = 'UPDATE' THEN
         -- The rule function of an is_a or has_a entity reads its base by name.
         -- id_refentity changes only when the base is renamed (ON UPDATE
@@ -1504,23 +1497,20 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    IF TG_OP = 'DELETE' THEN
-        -- Both overloads, or the survivor blocks the next CREATE under this name.
-        v_fn_name := 'select_rule_' || OLD.table_name;
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
-        EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
-        RETURN OLD;
-    END IF;
-
-    RETURN NULL;
+    -- DELETE. Both overloads, or the survivor blocks the next CREATE under
+    -- this name.
+    v_fn_name := 'select_rule_' || OLD.table_name;
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
+    EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
+    RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
-'Trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions when the entity is deleted.';
+'AFTER UPDATE OR DELETE trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions when the entity is deleted. It does not fire on INSERT: create_dd_table builds the policies of a new managed entity itself, through create_entity_policies.';
 
 CREATE OR REPLACE TRIGGER manage_select_rule_policy_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON entities
+    AFTER UPDATE OR DELETE ON entities
     FOR EACH ROW
     EXECUTE FUNCTION manage_select_rule_policy();
 

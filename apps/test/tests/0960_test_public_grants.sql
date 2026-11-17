@@ -44,13 +44,12 @@ SELECT is(
 -- =====================================================
 -- TEST 2: no creation site was missed
 -- =====================================================
--- The counterweight to TEST 1, and the assertion this whole change needs most.
--- Removing the default privilege means every site that creates a table the
--- request role must reach now has to grant it, and the failure mode is silent:
--- a table added to a migration without a grant is simply unreachable through
--- the Data API, which nothing else here would notice. Every table and sequence
--- in public is ours and is reachable, so the expected list is empty and any
--- future omission names itself.
+-- The counterweight to TEST 1. With no default privilege, every site that
+-- creates a table the request role must reach has to grant it, and the failure
+-- mode is silent: a table added to a migration without a grant is simply
+-- unreachable through the Data API, which nothing else here would notice.
+-- Every table and sequence in public is ours and is reachable, so the expected
+-- list is empty and any future omission names itself.
 --
 -- Written as a list rather than a count so a failure says which object.
 
@@ -130,14 +129,14 @@ RESET ROLE;
 -- =====================================================
 -- TEST 5: adoption secures a hand-made table
 -- =====================================================
--- Flipping `managed` to true on an entity whose table already exists is the
--- one path that used to grant nothing and enable nothing. It now enables RLS,
--- creates the four permission policies if they are absent, and grants last.
+-- Flipping `managed` to true on an entity whose table already exists enables
+-- RLS, creates the four permission policies if they are absent, and grants
+-- last.
 --
 -- The table is handed to semantius_owner first because the adoption trigger is
 -- SECURITY DEFINER as that role, and PostgreSQL refuses ALTER TABLE, CREATE
--- POLICY and GRANT to anyone but a table's owner. That is not new to the
--- grant: adding a missing column at adoption has always needed it. On a
+-- POLICY and GRANT to anyone but a table's owner. Adding a missing column at
+-- adoption needs the same. On a
 -- managed platform, where owner hardening is a no-op, the installing role owns
 -- both the dictionary and the console-made table and nothing is needed.
 
@@ -223,10 +222,10 @@ SELECT ok(
 -- =====================================================
 -- The probe above has a policy of its own but row-level security switched off,
 -- which is how a hand-made table normally arrives. This one has RLS actually
--- enabled, and used to be skipped: adoption left it with its own policies, no
--- permission policies and no grant, so the entity claimed a permission model
--- the table did not enforce. A managed table is configured as a managed table
--- whatever it carried before.
+-- enabled, and adoption configures it all the same: skipping it would leave it
+-- with its own policies, no permission policies and no grant, so the entity
+-- would claim a permission model the table does not enforce. A managed table
+-- is configured as a managed table whatever it carried before.
 
 RESET ROLE;
 

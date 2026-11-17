@@ -6,9 +6,10 @@
 --   2. user_process_raci does not leak to non-admins
 --   3. no process gate on an is_a or has_a entity (90249)
 --   4. a request context that holds no user id
+--   5. the entity and the role an event names
 BEGIN;
 
-SELECT plan(85);
+SELECT plan(88);
 
 -- =====================================================
 -- PART 1: RACI system
@@ -768,9 +769,8 @@ SELECT authenticate_as('user3');
 -- =====================================================
 -- GROUP 13: consult_mode = block holds the process, not the write
 -- =====================================================
--- consult_mode was a column nothing read: read, notify and block all behaved
--- the same, because no predicate anywhere consulted it. It is the opt-in now,
--- and what it opts into is narrow - while a blocking consultation on a record is
+-- consult_mode is the opt-in: read and notify hold nothing, and what block
+-- opts into is narrow - while a blocking consultation on a record is
 -- unacted, that record does not change a state column any gate governs. Every
 -- other column still accepts writes, and the statement still succeeds; a
 -- consultation somebody else has to complete must not cost the editor in front
@@ -925,15 +925,13 @@ SELECT authenticate_as('user3');
 -- =====================================================
 -- PART 2: user_process_raci does not leak to non-admins
 -- =====================================================
--- Test (RED-FIRST): the user_process_raci view must not leak the RBAC/RACI graph to non-admins.
+-- The user_process_raci view must not leak the RBAC/RACI graph to non-admins.
 --
--- The view (user_process_raci in 0370_raci.sql) is created WITHOUT security_invoker, so it executes as its
--- owner (the BYPASSRLS migration role) and bypasses the admin-gated RLS on user_roles /
--- raci_assignments / processes. It is GRANTed to semantius_user, so any authenticated user
--- reads the entire user→role→raci→process graph. (spec v2 I-roles; fix = security_invoker=true.)
---
--- EXPECTED ON CURRENT main: the leak assertion FAILS (user1 sees user3's Administrator
--- assignment through the view). After the fix it goes green.
+-- The view (user_process_raci in 0370_raci.sql) is GRANTed to semantius_user. It is created
+-- WITH security_invoker = true, so it reads user_roles / raci_assignments / processes under the
+-- caller's admin-gated RLS. Without it the view would execute as its owner (the BYPASSRLS
+-- migration role), and any authenticated user would read the entire user→role→raci→process
+-- graph through it (docs/authorization.md I-roles).
 --
 -- Fixtures: user1=1001 (User role only), user3=1003 (Administrator).
 
@@ -1045,6 +1043,48 @@ SELECT is(
     FALSE,
     'has_consultation is FALSE when the cached context holds no user id'
 );
+
+-- =====================================================
+-- PART 5: the entity and the role an event names
+-- =====================================================
+-- raci_events.entity references entities and raci_events.target_role_id
+-- references roles, both with delete mode restrict: an entity or a role that
+-- events name cannot be deleted, and PostgreSQL refuses, naming the foreign
+-- key. ON DELETE RESTRICT raises 23001 (restrict_violation) on PostgreSQL 18
+-- but 23503 (foreign_key_violation) on PG<=17, so the message common to both,
+-- with the constraint's name, is matched rather than either code (as in
+-- 0550_test_foreign_keys.sql). A rename of the entity carries its events along.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id)
+VALUES ('evt_ref_ent', 'Event Ref', 'Event Refs', 1);
+INSERT INTO roles (role_name, description) VALUES ('Event Ref Role', 'Named by a raci event');
+INSERT INTO processes (module_id, process_key, name) VALUES (1, 'evt_ref', 'Event Ref');
+INSERT INTO raci_events (process_id, entity, record_id, raci, target_role_id, status)
+SELECT p.id, 'evt_ref_ent', '1', 'informed', r.id, 'pending'
+  FROM processes p, roles r
+ WHERE p.process_key = 'evt_ref' AND r.role_name = 'Event Ref Role';
+
+SELECT throws_like(
+    $$ DELETE FROM roles WHERE role_name = 'Event Ref Role' $$,
+    'update or delete on table "roles" violates %foreign key constraint "raci_events_target_role_id_fkey" on table "raci_events"',
+    'a role that a raci event names cannot be deleted');
+
+SELECT throws_like(
+    $$ DELETE FROM entities WHERE table_name = 'evt_ref_ent' $$,
+    'update or delete on table "entities" violates %foreign key constraint "raci_events_entity_fkey" on table "raci_events"',
+    'an entity that a raci event names cannot be deleted');
+
+UPDATE entities SET table_name = 'evt_ref_moved' WHERE table_name = 'evt_ref_ent';
+
+SELECT is(
+    (SELECT string_agg(entity, ', ') FROM raci_events
+      WHERE process_id = (SELECT id FROM processes WHERE process_key = 'evt_ref')),
+    'evt_ref_moved',
+    'an entity rename moves the raci events that name it');
 
 SELECT * FROM finish();
 ROLLBACK;

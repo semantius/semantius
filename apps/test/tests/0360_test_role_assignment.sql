@@ -8,7 +8,7 @@
 --   3. New permissions are granted to Administrator
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(22);
 
 -- =====================================================
 -- PART 1: User role auto-assignment and protection
@@ -264,6 +264,20 @@ SELECT authenticate_as('user3');
 SELECT ok(
     rbac.has_permission('test:new_permission') = TRUE,
     'Admin user should have the newly auto-granted permission through Administrator role'
+);
+
+-- The Administrator is role 2 whatever its name: role 2 is renamed and
+-- another role takes the name Administrator, and a new permission still goes
+-- to role 2 and to no other role.
+UPDATE roles SET role_name = 'Platform Administrator' WHERE id = 2;
+INSERT INTO roles (role_name, slug, description) VALUES ('Administrator', 'name_only', 'Carries the name only');
+INSERT INTO permissions (permission_name, description, module_id)
+VALUES ('test:after_rename', 'Test permission created after role 2 was renamed', 1);
+
+SELECT is(
+    (SELECT array_agg(role_id ORDER BY role_id) FROM role_permissions WHERE permission_name = 'test:after_rename'),
+    ARRAY[2]::bigint[],
+    'a permission created after role 2 was renamed is granted to role 2 and to no other role'
 );
 
 SELECT * FROM finish();

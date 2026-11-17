@@ -3,7 +3,7 @@
 -- =====================================================
 -- 9900_owner_hardening moves every Semantius core object to the dedicated
 -- semantius_owner role (NOLOGIN, NOSUPERUSER, BYPASSRLS) when the installer
--- was a superuser, so SECURITY DEFINER dictionary code no longer runs with
+-- was a superuser, so SECURITY DEFINER dictionary code does not run with
 -- superuser powers. On managed platforms (installer not a superuser) the
 -- migration is a no-op; every assertion below then reports a pass with a
 -- "skipped" note instead of failing, so the suite stays meaningful on both.
@@ -57,7 +57,7 @@ ELSE pass('owner hardening not active: function ownership check skipped') END;
 SELECT CASE WHEN (SELECT active FROM hardening_ctx) THEN
     is((SELECT r.rolsuper FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
          WHERE p.proname = 'add_dd_field' AND p.pronamespace = 'public'::regnamespace),
-       false, 'the DDL trigger functions no longer run as a superuser')
+       false, 'the DDL trigger functions do not run as a superuser')
 ELSE pass('owner hardening not active: definer check skipped') END;
 
 -- 5.-8. objects the dictionary creates at runtime are owned by semantius_owner

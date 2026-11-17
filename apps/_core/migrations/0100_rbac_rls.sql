@@ -16,7 +16,7 @@
 
 -- RAISE, not ASSERT: assertions are silently skipped when
 -- plpgsql.check_asserts is off, which would let the install proceed without
--- BYPASSRLS and fail much later, in the dictionary's definer code (B11).
+-- BYPASSRLS and fail much later, in the dictionary's definer code.
 DO $$
 BEGIN
   IF NOT (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
@@ -536,31 +536,6 @@ CREATE OR REPLACE TRIGGER default_granted_by_trigger
 
 COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
 'Defaults granted_by to the current session user when not provided on insert.';
-
--- =====================================================
--- SEEDED PERMISSION HIERARCHY: admin includes public:read
--- =====================================================
--- entities and fields are viewed with public:read and edited with admin, and
--- their UPDATE and DELETE policies check both, as every entity without a
--- select_rule does. A session confined by OAuth scopes holds only what its
--- scope list names and what that includes (rbac.scope_closure), so a token
--- scoped to admin alone could otherwise neither read nor change the catalog it
--- administers. With this row, admin includes public:read as user:manage
--- includes user:read (0090_rbac_seed.once.sql), and the same origin marks it
--- as a platform built-in.
---
--- Here and not in 0090_rbac_seed.once.sql: that file shipped in a released
--- version, and a .once. file never runs again on a database that has run it,
--- so the row would reach fresh installs only. ON CONFLICT DO NOTHING makes the
--- statement harmless on every later run of this file. The row is written only
--- while both permissions exist under these names, so a database where one of
--- them was renamed still migrates; such a database gets no row. A row an
--- administrator deletes is written again the next time this file runs.
-INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin)
-SELECT 'admin', 'public:read', 'system'
- WHERE EXISTS (SELECT 1 FROM permissions WHERE permission_name = 'admin')
-   AND EXISTS (SELECT 1 FROM permissions WHERE permission_name = 'public:read')
-ON CONFLICT DO NOTHING;
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;

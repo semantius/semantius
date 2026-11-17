@@ -1,13 +1,13 @@
--- Test (NEW CAPABILITY, mutation-checked): the record-logic trigger fires on DELETE with the
+-- Test (mutation-checked): the record-logic trigger fires on DELETE with the
 -- $mode and $old reserved variables, so validation_rules can govern deletes (I7).
 --
--- Before b5 the per-table trigger was BEFORE INSERT OR UPDATE only — deletes bypassed every
--- validation_rule entirely (spec v2 Appendix A I7). b5 extends it to BEFORE INSERT OR UPDATE OR
--- DELETE, injects $mode ('insert'|'update'|'delete'), and populates $old on DELETE (= the row
--- being removed). Computed-field output is discarded on DELETE; validation_rules may abort it.
+-- The per-table trigger is BEFORE INSERT OR UPDATE OR DELETE: on INSERT and UPDATE only, a delete
+-- would bypass every validation_rule (docs/authorization.md I7). It injects $mode
+-- ('insert'|'update'|'delete'), and populates $old on DELETE (= the row being removed).
+-- Computed-field output is discarded on DELETE; validation_rules may abort it.
 --
 -- MUTATION CHECK (why this test is not vacuous): the delete-blocking assertions below pass ONLY
--- because the trigger now runs on DELETE. On the pre-b5 trigger (no DELETE arm) the locked-row
+-- because the trigger runs on DELETE. On a trigger without a DELETE arm the locked-row
 -- DELETE would silently succeed, so `throws_ok` would fail and the count assertion would read 0.
 -- The unlocked-row DELETE succeeding (rather than every delete being blocked) further proves
 -- $old is non-null on DELETE — the old_present_on_delete rule would otherwise abort it.
@@ -45,7 +45,7 @@ VALUES ('rl_delete_test', 'rl_delete', 'Lockable', 'Lockables', 'DELETE-arm prob
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rl_delete_test', 'locked', 'Locked', 'boolean', 10);
 
--- The trigger must now be wired for DELETE as well as INSERT/UPDATE.
+-- The trigger must be wired for DELETE as well as INSERT/UPDATE.
 SELECT ok(
     EXISTS (SELECT 1 FROM pg_trigger
             WHERE tgrelid = 'public.rl_delete_test'::regclass

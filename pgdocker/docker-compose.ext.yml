@@ -8,7 +8,7 @@ name: semantius-ext
 # touches the CLI-testing stack's container, data volume, or image. It publishes
 # on a different host port (5433) so both can run side by side.
 #
-# Bring it up with pg-create-ext.sh / pg-create-ext.cmd (which build the base
+# Bring it up with pg-ext-create.sh / pg-ext-create.cmd (which build the base
 # OAuth image first, since Dockerfile.ext layers on top of it).
 services:
   postgres-ext:

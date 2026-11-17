@@ -1,22 +1,21 @@
 -- =====================================================
 -- Bearer-session context bypass and derived user id (0250)
 -- =====================================================
--- Release review S2: the transaction-scoped context cache (the app.* settings
--- written by rbac.ensure_context_initialized) is client-writable. Behind
--- PostgREST or an app server that is harmless, because the client never runs
--- SQL. A PostgreSQL 18 OAuth bearer session (system_user = 'oauth:<sub>') does
--- run SQL as the request role, so for such sessions ensure_context_initialized
--- no longer trusts the cache and re-derives the context on every call.
+-- The transaction-scoped context cache (the app.* settings written by
+-- rbac.ensure_context_initialized) is client-writable. Behind PostgREST or an
+-- app server that is harmless, because the client never runs SQL. A
+-- PostgreSQL 18 OAuth bearer session (system_user = 'oauth:<sub>') does run
+-- SQL as the request role, so for such sessions ensure_context_initialized
+-- does not trust the cache and re-derives the context on every call.
 --
 -- pgTAP cannot open a bearer session (system_user cannot be faked), so this
 -- file pins the parts that are testable here:
 --   * the detector is false for SCRAM/local sessions and whoami says so,
 --   * rbac.user_id_or_null() is NULL without a JWT and the user's id with one,
---   * the two readers that used to take app.current_user_id raw
---     (audit.current_user_id and the generated compute/validate trigger) go
---     through rbac now: they resolve the user even when nothing initialized
---     the context before the write, and a hand-written app.current_user_id
---     does not reach them.
+--   * the two readers of the user id outside rbac (audit.current_user_id and
+--     the generated compute/validate trigger) go through rbac: they resolve
+--     the user even when nothing initialized the context before the write, and
+--     a hand-written app.current_user_id does not reach them.
 BEGIN;
 
 SELECT plan(11);
@@ -49,7 +48,7 @@ SELECT is((SELECT value FROM rbac.whoami() WHERE context_type = 'status' AND key
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column,
     computed_fields)
-VALUES ('bearer_probe', 'bearer_probe', 'Probe', 'Probes', 'S2 user-id probe',
+VALUES ('bearer_probe', 'bearer_probe', 'Probe', 'Probes', 'user-id probe',
     1, 'public:read', 'admin', 'id', 'label',
     '[{"name": "writer_id", "jsonlogic": {"var": "$user_id"}}]'::jsonb);
 

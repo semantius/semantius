@@ -18,9 +18,12 @@
 --           the statement they are spliced into, then with values that need
 --           no semicolon, quote or dollar sign. What is accepted is stored as
 --           written and what is generated from it works, and afterward
---           nothing a value names exists and nothing it calls has run. Last,
---           the paths no caller reaches, ensure_entities and pgmq's
---           partitioned queues, and what keeps the request role out of them.
+--           nothing a value names exists and nothing it calls has run. The
+--           same values go, as a plain user, to every pgmq function the
+--           request role may call with a queue name: pgmq checks no
+--           permission of the dictionary. Last, the paths no caller reaches,
+--           ensure_entities and pgmq's partitioned queues, and what keeps the
+--           request role out of them.
 --   PART 2  names the dictionary generates or matches by pattern, where a
 --           correctly quoted name still reaches another object
 --   PART 3  a temporary table under the name of a dictionary table
@@ -31,7 +34,7 @@
 -- write the dictionary. Everything is rolled back.
 BEGIN;
 
-SELECT plan(437);
+SELECT plan(444);
 
 -- =====================================================
 -- Helpers
@@ -54,6 +57,14 @@ BEGIN
     END;
     RETURN v_state || coalesce(' ' || substring(v_message FROM 'check constraint "([^"]+)"'), '');
 END $f$;
+
+-- s1_outcome with client_min_messages at ERROR for the length of the call,
+-- for the deprecated pgmq overloads: they raise a deprecation WARNING on every
+-- call that gets past their queue name check, which says nothing about the
+-- value under test.
+CREATE FUNCTION pg_temp.s1_outcome_quiet(p_sql TEXT) RETURNS TEXT LANGUAGE sql
+SET client_min_messages = error
+AS $f$ SELECT pg_temp.s1_outcome(p_sql) $f$;
 
 -- Runs a statement and tells nothing: for a statement that only has to have
 -- run, such as a write that fires a generated trigger.
@@ -107,7 +118,7 @@ INSERT INTO s1_payloads VALUES
 
 -- Each of the three carries a semicolon, a comment marker and an upper case
 -- letter, so a filter that looks for any of those (pgmq's check of a queue
--- name, the lower case rule of queue names) refuses it before it reaches the
+-- name, the shape rule of queue names) refuses it before it reaches the
 -- statement behind the filter. These four carry none of them, nor a single
 -- quote or a dollar sign, and stay within 41 bytes, the longest table name,
 -- so they reach that statement. Each changes what a statement means if it is
@@ -257,7 +268,6 @@ CREATE FUNCTION pg_temp.s1_stored_sql(p_case TEXT, p_tag TEXT, p_value TEXT) RET
             length(p_tag) + 2, p_tag || ' ')
         -- Found by the value itself: text equality under the database's
         -- deterministic collation is equality byte for byte.
-        WHEN 'queue' THEN format($q$SELECT queue_name FROM queues WHERE queue_name = %L$q$, p_value)
         WHEN 'gate' THEN format(
             $q$SELECT entity FROM process_gates
                 WHERE process_id = current_setting('test.s1_process')::bigint AND entity = %L$q$, p_value)
@@ -271,9 +281,9 @@ $f$;
 -- as the text it is. A plain user is refused by the policies of the
 -- dictionary, or before them by the same check where it runs in a BEFORE
 -- trigger. The two sets differ where the filter is what refused the first
--- set: the quiet values pass the lower case rule of queue names and are
--- stored as queue names, and they fit the 41 bytes of a table name, so there
--- the CHECK refuses them, not the length. pgmq.read builds its statement with
+-- set: the quiet values fit the 41 bytes of a table name, so there the CHECK
+-- refuses them, not the length. A queue name has the shape of a table name,
+-- so both sets are refused as queue names (90505). pgmq.read builds its statement with
 -- the conditional for either user and is then refused the queue table, which
 -- the request role has no privilege on.
 CREATE TEMP TABLE s1_cases (ord INT PRIMARY KEY, code TEXT NOT NULL, place TEXT NOT NULL,
@@ -288,7 +298,7 @@ INSERT INTO s1_cases VALUES
     (3,  'vcode',  'the code of a validation rule',        '90905', '42501', '90905', '42501'),
     (4,  'cname',  'the name of a computed field',         'accepted', '42501', 'accepted', '42501'),
     (5,  'reft',   'fields.reference_table',               '90212', '90212', '90212', '90212'),
-    (6,  'queue',  'queues.queue_name',                    '90505', '42501', 'accepted', '42501'),
+    (6,  'queue',  'queues.queue_name',                    '90505', '42501', '90505', '42501'),
     (7,  'rlink',  'the link_field of a rollup',           '90262', '90262', '90262', '90262'),
     (8,  'rfunc',  'the function of a rollup',             '90263', '90263', '90263', '90263'),
     (9,  'rvalue', 'the value_field of a rollup',          '90264', '90264', '90264', '90264'),
@@ -309,6 +319,33 @@ INSERT INTO s1_cases VALUES
     (23, 'idcol',  'entities.id_column',                   '23514 valid_id_column', '42501',
                                                            '23514 valid_id_column', '42501'),
     (24, 'ensure', 'public.ensure_entities',               '42501', '42501', '42501', '42501');
+
+-- Every pgmq function the request role may execute that takes a queue name,
+-- as a statement that calls it with the queue name as %1$L and a value of its
+-- type for every other argument (NULL for a type not listed). Read from the
+-- catalog, so a function a later pgmq brings is called as well.
+CREATE TEMP TABLE s1_pgmq_calls AS
+SELECT p.oid::regprocedure::text AS fn,
+       format('SELECT %s(%s)', p.oid::regproc, string_agg(
+           CASE WHEN p.proargnames[a.i] = 'queue_name' THEN '%1$L::text'
+                WHEN a.typ = 'text'::regtype THEN '''x''::text'
+                WHEN a.typ IN ('integer'::regtype, 'bigint'::regtype) THEN '1::' || format_type(a.typ, NULL)
+                WHEN a.typ = 'bigint[]'::regtype THEN 'ARRAY[1]::bigint[]'
+                WHEN a.typ = 'jsonb'::regtype THEN '''{}''::jsonb'
+                WHEN a.typ = 'jsonb[]'::regtype THEN 'ARRAY[''{}''::jsonb]'
+                WHEN a.typ = 'timestamptz'::regtype THEN 'now()'
+                WHEN a.typ = 'boolean'::regtype THEN 'false'
+                ELSE 'NULL::' || format_type(a.typ, NULL)
+           END, ', ' ORDER BY a.i)) AS call
+  FROM pg_catalog.pg_proc p
+  JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+ CROSS JOIN LATERAL (SELECT g.i, p.proargtypes[g.i - 1] AS typ
+                       FROM generate_series(1, p.pronargs) AS g(i)) a
+ WHERE n.nspname = 'pgmq'
+   AND has_function_privilege('semantius_user', p.oid, 'EXECUTE')
+   AND 'queue_name' = ANY (p.proargnames[1:p.pronargs])
+ GROUP BY p.oid;
+GRANT SELECT ON s1_pgmq_calls TO semantius_user;
 
 -- =====================================================
 -- PART 1: hostile values, as an administrator and as a plain user
@@ -390,33 +427,6 @@ SELECT is(pg_temp.s1_value(format('SELECT %I FROM s1_parent', 'rlit_a' || p.n)),
           format('a literal in a rollup filter, as an administrator: %s counts the one child labeled with it', p.kind))
   FROM (SELECT * FROM s1_payloads UNION ALL SELECT * FROM s1_quiet ORDER BY n) p;
 
--- A queue under each accepted name works on every path that builds a
--- statement from the name: a table mapped to it gets its trigger and sends a
--- message on insert, queue_read reads it, and deleting the queue drops the
--- trigger of the mapping and the tables of the queue.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
-SELECT 's1_qmap_a' || n, 'Mapped', 'Mappeds', 1, 'public:read', 'admin' FROM s1_quiet;
-SELECT pg_temp.s1_try(format(
-           $q$INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
-              SELECT id, 'mapped', %L, 'insert' FROM queues WHERE queue_name = %L$q$,
-           's1_qmap_a' || n, val))
-  FROM s1_quiet;
-SELECT pg_temp.s1_try(format('INSERT INTO public.%I (label) VALUES (%L)', 's1_qmap_a' || n, 'm')) FROM s1_quiet;
-SELECT is(pg_temp.s1_value(format($q$SELECT queue_read(%L, 0, 10) -> 0 -> 'message' ->> 'table'$q$, p.val)),
-          's1_qmap_a' || p.n,
-          format('queues.queue_name, as an administrator: a table mapped to the queue %s sends to it, and queue_read reads it',
-                 p.kind))
-  FROM (SELECT * FROM s1_quiet ORDER BY n) p;
-SELECT pg_temp.s1_try(format('DELETE FROM queues WHERE queue_name = %L', val)) FROM s1_quiet;
-SELECT is(concat_ws(' ', to_regclass(format('pgmq.%I', 'q_' || p.val)) IS NULL,
-                         to_regclass(format('pgmq.%I', 'a_' || p.val)) IS NULL,
-                         (SELECT count(*) FROM pg_catalog.pg_trigger t
-                           WHERE t.tgrelid = to_regclass(format('public.%I', 's1_qmap_a' || p.n))
-                             AND t.tgname LIKE 'queue\_%')),
-          't t 0',
-          format('and deleting the queue %s drops the trigger of its mapping and its tables', p.kind))
-  FROM (SELECT * FROM s1_quiet ORDER BY n) p;
-
 SELECT authenticate_as('user1');
 
 SELECT is(pg_temp.s1_outcome(pg_temp.s1_sql(c.code, 'u' || p.n, p.val)), c.as_user,
@@ -428,6 +438,36 @@ SELECT is(pg_temp.s1_outcome(pg_temp.s1_sql(c.code, 'u' || p.n, p.val)), c.quiet
           format('%s, as a plain user: %s', c.place, p.kind))
   FROM (SELECT * FROM s1_cases ORDER BY ord) c
  CROSS JOIN LATERAL (SELECT * FROM s1_quiet ORDER BY n) p;
+
+-- Semantius code checks a queue name (90505) only on its own way into pgmq,
+-- and the request role may call most of pgmq itself, with every value above
+-- as the queue name. pgmq refuses a name with a semicolon, a comment marker or
+-- a single quote, and some functions refuse a queue that does not exist
+-- (P0001). Any other name it quotes into its statements, where it names no
+-- table (42P01), unless the call is refused a privilege first (42501). A
+-- function that builds no statement from the name accepts it. A name spliced
+-- raw would end in a syntax error (42601), or call s1_hit, which the count
+-- below would show. detach_archive and drop_queue(text, boolean) are called
+-- through s1_outcome_quiet, which keeps their deprecation WARNINGs out of the
+-- output.
+SELECT is(
+    (SELECT string_agg(DISTINCT c.fn || ': ' || o.outcome, '; ' ORDER BY c.fn || ': ' || o.outcome)
+       FROM s1_pgmq_calls c
+      CROSS JOIN (SELECT val FROM s1_payloads UNION ALL SELECT val FROM s1_quiet) p
+      CROSS JOIN LATERAL (SELECT CASE WHEN c.fn IN ('pgmq.detach_archive(text)', 'pgmq.drop_queue(text,boolean)')
+                                      THEN pg_temp.s1_outcome_quiet(format(c.call, p.val))
+                                      ELSE pg_temp.s1_outcome(format(c.call, p.val)) END) o(outcome)
+      WHERE split_part(o.outcome, ' ', 1) NOT IN ('accepted', 'P0001', '42P01', '42501')),
+    NULL::text,
+    'every pgmq function the request role may execute refuses a hostile queue name or quotes it into its statement');
+SELECT is(
+    (SELECT string_agg(f, ', ' ORDER BY f)
+       FROM unnest(ARRAY['archive', 'create', 'delete', 'drop_queue', 'metrics', 'pop',
+                         'purge_queue', 'read', 'send', 'set_vt']) AS f
+      WHERE NOT EXISTS (SELECT 1 FROM s1_pgmq_calls c
+                         WHERE split_part(c.fn, '(', 1) IN ('pgmq.' || f, 'pgmq."' || f || '"'))),
+    NULL::text,
+    'and those functions include send, read, pop, archive, delete, set_vt, purge_queue, metrics, drop_queue and create');
 
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
@@ -568,6 +608,155 @@ SELECT ok(
     OR (pg_temp.s1_value($$SELECT cnt FROM s1x$$) = '1' AND pg_temp.s1_value($$SELECT cnt FROM s1_top$$) = '1'),
     'a rollup function and a rollup guard that spell one name: the second is refused, or both work');
 
+-- A maintenance function name too long for an identifier keeps 42 characters
+-- and 8 hex digits of md5. The two link fields of this child share the 42
+-- characters, and were searched for so that they share the 8 digits too
+-- (60e2587a): their two functions would carry one name, so the rollup over
+-- the second link is refused (90281). The first assertion checks that search.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('s1_np',                          'NP',    'NPs',    1, 'public:read', 'admin'),
+       ('s1_long_rollup_link_child_name', 'Child', 'Childs', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('s1_long_rollup_link_child_name', 'parent_ref_qqqqqqaanko', 'A', 'reference', 10, 's1_np', 'restrict'),
+       ('s1_long_rollup_link_child_name', 'parent_ref_qqqqqqabb04', 'B', 'reference', 20, 's1_np', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('s1_np', 'cnt_a', 'Count A', 'int64', 20,
+        '{"link_field": "s1_long_rollup_link_child_name.parent_ref_qqqqqqaanko", "function": "count"}');
+
+-- rollup_object_name is not granted to the request role.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    rollup_object_name('s1_long_rollup_link_child_name', 'parent_ref_qqqqqqabb04'),
+    rollup_object_name('s1_long_rollup_link_child_name', 'parent_ref_qqqqqqaanko'),
+    'the two links shorten to one function name');
+SELECT authenticate_as('user3');
+SELECT throws_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+      VALUES ('s1_np', 'cnt_b', 'Count B', 'int64', 30,
+              '{"link_field": "s1_long_rollup_link_child_name.parent_ref_qqqqqqabb04", "function": "count"}')$$,
+    '90281',
+    'Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}',
+    'a rollup whose shortened function name another link''s rollup already uses is refused');
+SELECT is(
+    catch_error_hint($$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+      VALUES ('s1_np', 'cnt_b', 'Count B', 'int64', 30,
+              '{"link_field": "s1_long_rollup_link_child_name.parent_ref_qqqqqqabb04", "function": "count"}')$$),
+    jsonb_build_object('table', 's1_np', 'field_name', 'cnt_b',
+                       'name', 'rollup_s1_long_rollup_link_child_name_parent_ref__60e2587a',
+                       'used_by', 's1_np.cnt_a',
+                       'hint', 'Rename the child entity or the link field.'),
+    'and its hint names the shortened name and the rollup that uses it');
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+      VALUES ('s1_np', 'cnt_a2', 'Count A2', 'int64', 40,
+              '{"link_field": "s1_long_rollup_link_child_name.parent_ref_qqqqqqaanko", "function": "count"}')$$,
+    'a second rollup over the same link shares its function and is accepted');
+
+-- A shortened name has 58 characters, and a name of 58 characters is not
+-- shortened. This link field spells, with the child's name, the shortened name
+-- of the first link, so a rollup over it is refused as well.
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('s1_long_rollup_link_child_name', 'parent_ref__60e2587a', 'E', 'reference', 30, 's1_np', 'restrict');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    rollup_object_name('s1_long_rollup_link_child_name', 'parent_ref__60e2587a'),
+    'rollup_s1_long_rollup_link_child_name_parent_ref__60e2587a',
+    'a function name of 58 characters is kept as it is, and here it is the shortened name of the first link');
+SELECT authenticate_as('user3');
+SELECT throws_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+      VALUES ('s1_np', 'cnt_e', 'Count E', 'int64', 50,
+              '{"link_field": "s1_long_rollup_link_child_name.parent_ref__60e2587a", "function": "count"}')$$,
+    '90281',
+    'Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}',
+    'a rollup whose function name, not shortened, another link''s rollup already uses is refused');
+
+-- A rollup whose link changes is validated while its stored row still names
+-- the old link. As the only rollup over that link, it moves to the other link
+-- that shortens to the same name: the name it would take is its own.
+DELETE FROM fields WHERE table_name = 's1_np' AND field_name = 'cnt_a2';
+SELECT lives_ok(
+    $$UPDATE fields
+         SET rollup = '{"link_field": "s1_long_rollup_link_child_name.parent_ref_qqqqqqabb04", "function": "count"}'
+       WHERE table_name = 's1_np' AND field_name = 'cnt_a'$$,
+    'a rollup that moves to a link shortening to its own function name is accepted');
+
+-- The builder of the old link drops the function of that name before the
+-- builder of the new link creates it again, so the moved rollup keeps the
+-- function and its four triggers on the child, and counts through the new
+-- link.
+SELECT is(
+    (SELECT count(*)::int
+       FROM pg_catalog.pg_trigger t
+       JOIN pg_catalog.pg_proc p ON p.oid = t.tgfoid
+      WHERE p.pronamespace = 'common'::regnamespace
+        AND p.proname = 'rollup_s1_long_rollup_link_child_name_parent_ref__60e2587a'
+        AND t.tgrelid = 'public.s1_long_rollup_link_child_name'::regclass),
+    4,
+    'the moved rollup keeps its function and the four triggers that call it on the child');
+INSERT INTO s1_np (label) VALUES ('np');
+INSERT INTO s1_long_rollup_link_child_name (label, parent_ref_qqqqqqabb04) SELECT 'via b', id FROM s1_np;
+SELECT is((SELECT cnt_a FROM s1_np), 1::bigint,
+    'and counts a child written through the new link');
+
+-- One UPDATE that also renames the field is validated against the same stored
+-- row, which carries the old name until the update is done. cnt_a moves on,
+-- as cnt_e, to the link of 58 characters, whose function name is its own.
+SELECT lives_ok(
+    $$UPDATE fields
+         SET field_name = 'cnt_e',
+             rollup = '{"link_field": "s1_long_rollup_link_child_name.parent_ref__60e2587a", "function": "count"}'
+       WHERE table_name = 's1_np' AND field_name = 'cnt_a'$$,
+    'a rollup renamed and moved in one UPDATE to a link with its own function name is accepted');
+
+-- A rename of the link field validates the rollups over it again under the
+-- new name. cnt_e now aggregates over the link of 58 characters; a link field
+-- renamed to the first link's name would give its rollup the same function
+-- name.
+DELETE FROM fields WHERE table_name = 's1_long_rollup_link_child_name' AND field_name = 'parent_ref_qqqqqqaanko';
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('s1_long_rollup_link_child_name', 'parent_ref_c', 'C', 'reference', 40, 's1_np', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('s1_np', 'cnt_c', 'Count C', 'int64', 60,
+        '{"link_field": "s1_long_rollup_link_child_name.parent_ref_c", "function": "count"}');
+SELECT throws_ok(
+    $$UPDATE fields SET field_name = 'parent_ref_qqqqqqaanko'
+       WHERE table_name = 's1_long_rollup_link_child_name' AND field_name = 'parent_ref_c'$$,
+    '90281',
+    'Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}',
+    'a link field renamed so that its rollup takes another link''s function name is refused');
+
+-- A rename of the child entity rewrites the link_field of the rollups over it,
+-- which validates them again. Under its new name s1_ren_child_link, the second
+-- child and its link share the first 42 characters with the first child and
+-- its link, and the two links were searched for so that they share the 8 md5
+-- digits too (fe5774be). The first assertion checks that search.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('s1_ren_child', 'Child', 'Childs', 1, 'public:read', 'admin'),
+       ('s1_ren_other', 'Other', 'Others', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('s1_ren_child', 'link_qqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaaac9', 'A', 'reference', 10, 's1_np', 'restrict'),
+       ('s1_ren_other', 'qqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaahej',     'B', 'reference', 10, 's1_np', 'restrict');
+INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
+VALUES ('s1_np', 'cnt_ra', 'Count RA', 'int64', 70,
+        '{"link_field": "s1_ren_child.link_qqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaaac9", "function": "count"}'),
+       ('s1_np', 'cnt_rb', 'Count RB', 'int64', 80,
+        '{"link_field": "s1_ren_other.qqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaahej", "function": "count"}');
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT is(
+    rollup_object_name('s1_ren_child_link', 'qqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaahej'),
+    rollup_object_name('s1_ren_child', 'link_qqqqqqqqqqqqqqqqqqqqqqqqaaaaaaaaac9'),
+    'renamed to s1_ren_child_link, the second child''s link shortens to the first child''s function name');
+SELECT authenticate_as('user3');
+SELECT throws_ok(
+    $$UPDATE entities SET table_name = 's1_ren_child_link' WHERE table_name = 's1_ren_other'$$,
+    '90281',
+    'Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}',
+    'a child entity renamed so that its rollup takes another link''s function name is refused');
+
 -- order_column names a column the dictionary adds and, when the entity stops
 -- naming it, drops. A column that was there before, a field of the entity, is
 -- not the dictionary's to drop.
@@ -623,16 +812,33 @@ SELECT ok(
     NOT (current_setting('test.s1_queue_upper') = 'accepted' AND current_setting('test.s1_queue_lower') = 'accepted'),
     'two queue names that differ in case only are not both accepted');
 
--- pgmq allows 47 characters and counts them as characters, while
--- PostgreSQL cuts a table name at 63 bytes, so two long names of multi-byte
--- characters would share their tables. The limit is 47 bytes: archived_at_idx_
--- and the name fill exactly 63.
+-- A queue name has the shape of a table name: a name pgmq would take is still
+-- refused when it carries a character other than a lower-case letter, a digit
+-- or an underscore, or starts with a digit.
+SELECT throws_ok($$INSERT INTO queues (queue_name) VALUES ('s1-q')$$,
+    '90505',
+    'Queue name ${queue} has to start with a lower-case letter or an underscore, contain only lower-case letters, digits and underscores, and be at most 47 bytes long',
+    'a queue name with a hyphen is refused');
+SELECT is(pg_temp.s1_outcome($$INSERT INTO queues (queue_name) VALUES ('1s1_q')$$),
+    '90505',
+    'a queue name that starts with a digit is refused');
+
+-- pgmq allows 47 characters, and PostgreSQL cuts a table name at 63 bytes.
+-- The limit is 47 bytes: archived_at_idx_ and the name fill exactly 63. A
+-- name of multi-byte characters is refused for its characters, whatever its
+-- length.
+SELECT is(pg_temp.s1_outcome(format($q$INSERT INTO queues (queue_name) VALUES (%L)$q$, repeat('q', 48))),
+    '90505',
+    'a queue name of 48 bytes is refused');
+SELECT is(pg_temp.s1_outcome(format($q$INSERT INTO queues (queue_name) VALUES (%L)$q$, repeat('q', 47))),
+    'accepted',
+    'and one of 47 bytes is accepted');
 SELECT is(pg_temp.s1_outcome(format($q$INSERT INTO queues (queue_name) VALUES (%L)$q$, repeat(U&'\00e9', 24))),
     '90505',
     'a queue name of 24 two-byte characters, 48 bytes, is refused');
 SELECT is(pg_temp.s1_outcome(format($q$INSERT INTO queues (queue_name) VALUES (%L)$q$, repeat(U&'\00e9', 23) || 'x')),
-    'accepted',
-    'and one of 47 bytes is accepted');
+    '90505',
+    'and so is one of 47 bytes');
 
 -- A table mapped to a queue gets triggers named queue_<queue>_<event>_on_
 -- <table>. A name cut at 63 bytes is one the rename of the table and the

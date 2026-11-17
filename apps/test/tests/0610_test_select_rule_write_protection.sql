@@ -171,7 +171,7 @@ ROLLBACK TO sp_f;
 -- =====================================================
 -- G: UPDATE ... WHERE TRUE — "qualified" but reads no column, so PostgreSQL does NOT
 -- apply the SELECT policy. The protective axis is "reads-a-column", not "qualified"
--- (spec v2 A4). Must still not modify a hidden row.
+-- (docs/authorization.md A4). Must still not modify a hidden row.
 -- =====================================================
 SAVEPOINT sp_g;
 SELECT authenticate_as('user2');

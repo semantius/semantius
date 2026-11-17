@@ -118,9 +118,11 @@ not be allowed to edit):
 - The parent's `update_<parent>_updated_at` and `audit_i_u_d` triggers carry
   the rollup columns as ignored columns.
 
-Names longer than an identifier allows are shortened with an md5 tail, so two
-long names can never silently become one. Nothing here may be written by hand;
-`AGENTS.md` lists the generated objects.
+Names longer than an identifier allows are shortened with an md5 tail, which
+two links can share, and a name of 58 characters is kept as it is and can equal
+a shortened one. A rollup whose function name a rollup over another link
+already uses is refused (90281), so two names never silently become one.
+Nothing here may be written by hand; `AGENTS.md` lists the generated objects.
 
 ## What happens on the parent
 
@@ -177,6 +179,12 @@ rollup.
 
 A date literal compared with a date or date-time column has to be ISO 8601 and is
 read in UTC.
+
+A date operator in the filter costs one function call per sibling, with an
+exception block, a subtransaction each time (`rollup_date_value`); every other
+operator is SQL the aggregate evaluates itself. On the local pgdocker container,
+on 2026-11-15, one child write under a parent with 10,000 children took 89 to
+97 ms with a `date_part` filter and 1.1 to 1.9 ms with a plain one.
 
 **Where the compiled filter answers otherwise than the interpreter.** The
 filter compares values of the column's type, the interpreter the JSON a row

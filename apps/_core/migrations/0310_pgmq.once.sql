@@ -6,7 +6,7 @@
 ------------------------------------------------------------
 -- Semantius vendors pgmq rather than depending on the real extension. If the
 -- real one is installed, every `CREATE OR REPLACE FUNCTION pgmq.*` below would
--- silently overwrite a member of that extension, so refuse instead (B4). The
+-- silently overwrite a member of that extension, so refuse instead. The
 -- installer's own pre-flight raises the same 55000 earlier; this guard covers
 -- the CLI migrate path.
 DO

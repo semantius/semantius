@@ -1,6 +1,6 @@
 /**
- * Unit pins for the two generator helpers whose behaviour nothing else can
- * fail on: LF normalization and the manifest checksum (B13, R7).
+ * Unit pins for the two generator helpers whose behavior nothing else can
+ * fail on: LF normalization and the manifest checksum.
  *
  * Why a test and not a byte grep. On a fresh checkout `.gitattributes`
  * (`* text=auto eol=lf`) makes the whole tree LF, so the generator would keep

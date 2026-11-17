@@ -734,7 +734,12 @@ END $$;
 --   filter_sql               the compiled filter, NULL while the child table
 --                            or the field's own column does not exist yet
 --   hidden                   whether the child is more restricted than the parent
-CREATE OR REPLACE FUNCTION rollup_definition(p_field fields)
+-- p_old_table and p_old_field are the key the field's row is stored under
+-- while an UPDATE validates its new version (zz_validate_rollup_field): the
+-- update may rename the field. NULL when p_field is the stored row itself, or
+-- a new field.
+DROP FUNCTION IF EXISTS rollup_definition(fields);
+CREATE OR REPLACE FUNCTION rollup_definition(p_field fields, p_old_table TEXT DEFAULT NULL, p_old_field TEXT DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
     c_numeric  CONSTANT TEXT[] := ARRAY['number', 'integer', 'int32', 'int64', 'float', 'double', 'rating'];
@@ -766,6 +771,8 @@ DECLARE
     v_cur_field  TEXT;
     v_next       fields%ROWTYPE;
     v_steps      INTEGER := 0;
+    v_name       TEXT;
+    v_used_by    TEXT;
 BEGIN
     -- A definition that is not an object is left to the rollup_is_object CHECK,
     -- which runs after the BEFORE triggers that call this.
@@ -866,6 +873,38 @@ BEGIN
         PERFORM rollup_refuse('90280',
             'Rollup ${field_name} on ${table}: the function of link_field ${link_field} and the guard of a rollup parent would carry one name',
             v_ctx || jsonb_build_object('link_field', v_link));
+    END IF;
+
+    -- A function name too long for an identifier keeps 42 characters and 8 hex
+    -- digits of md5 (rollup_object_name), 32 bits, so two long links can share
+    -- it, and the builder of the second would drop the first one's function and
+    -- triggers with CASCADE. A name that is not shortened can equal a shortened
+    -- one as well: a 58-character name is the length of a shortened name. So
+    -- every function name that a rollup over another link already uses is
+    -- refused, as 90274 refuses an index name that is taken. used_by is the
+    -- first such rollup field. Rollups over the same link share their function
+    -- by design and do not count, and neither does the field's own stored row:
+    -- while an update changes the field's link, that row still names the old
+    -- one, and it is found by its old key, since the same update may rename the
+    -- field.
+    v_name := rollup_object_name(v_lf.table_name, v_lf.field_name);
+    SELECT f.table_name || '.' || f.field_name INTO v_used_by
+      FROM fields f
+     WHERE f.rollup <> '{}'::jsonb
+       AND jsonb_typeof(f.rollup -> 'link_field') = 'string'
+       AND (f.table_name, f.field_name) IS DISTINCT FROM
+           (COALESCE(p_old_table, p_field.table_name), COALESCE(p_old_field, p_field.field_name))
+       AND (split_part(f.rollup ->> 'link_field', '.', 1), split_part(f.rollup ->> 'link_field', '.', 2))
+           IS DISTINCT FROM (v_lf.table_name, v_lf.field_name)
+       AND rollup_object_name(split_part(f.rollup ->> 'link_field', '.', 1),
+                              split_part(f.rollup ->> 'link_field', '.', 2)) = v_name
+     ORDER BY f.table_name, f.field_name
+     LIMIT 1;
+    IF v_used_by IS NOT NULL THEN
+        PERFORM rollup_refuse('90281',
+            'Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}',
+            v_ctx || jsonb_build_object('name', v_name, 'used_by', v_used_by,
+                                        'hint', 'Rename the child entity or the link field.'));
     END IF;
     v_parent_rel := dd_relation(v_parent.table_name, v_parent.id_type);
 
@@ -1037,10 +1076,10 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION rollup_definition(fields) IS
-'Validates a field''s rollup definition (90261-90269, 90249) and resolves it: child and parent relations, link and value columns, function, result type, empty value, copied precision and the compiled filter. NULL for a field without a definition. The one authority for both the fields trigger and the builders.';
+COMMENT ON FUNCTION rollup_definition(fields, TEXT, TEXT) IS
+'Validates a field''s rollup definition (90261-90269, 90249, 90280, 90281) and resolves it: child and parent relations, link and value columns, function, result type, empty value, copied precision and the compiled filter. NULL for a field without a definition. The one authority for both the fields trigger and the builders. p_old_table and p_old_field name the stored row an UPDATE replaces, which the 90281 check leaves out.';
 
-REVOKE EXECUTE ON FUNCTION rollup_definition(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rollup_definition(fields, TEXT, TEXT) FROM PUBLIC;
 
 -- The builders run after validation, and during a cascade that is deleting
 -- the child or its fields a definition may no longer resolve. That is not an
@@ -1550,7 +1589,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    v_def := rollup_definition(NEW);
+    -- An UPDATE passes the key the row is stored under, which a rename changes.
+    IF TG_OP = 'UPDATE' THEN
+        v_def := rollup_definition(NEW, OLD.table_name, OLD.field_name);
+    ELSE
+        v_def := rollup_definition(NEW);
+    END IF;
 
     IF NEW.input_type = 'required' THEN
         PERFORM rollup_refuse('90261', 'Rollup ${field_name} on ${table} has an invalid definition: ${problem}',

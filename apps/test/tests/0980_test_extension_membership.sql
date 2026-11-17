@@ -16,8 +16,8 @@
 --      world-usable;
 --   5. `_versions` matches the bundle exactly and `pending()` is empty;
 --   6. a non-superuser cannot run migrate();
---   7. `pg_semantius.skip_audit` no longer silences anything (it was a
---      workaround for member tables and was removed with them);
+--   7. `pg_semantius.skip_audit` silences nothing: a session may set it, and
+--      the DDL audit ignores it (there are no member tables to need it);
 --   8. `DROP EXTENSION` is inert: it takes the schema and its functions and
 --      leaves every table, row, trigger, policy and event trigger behind.
 --
@@ -236,20 +236,20 @@ ELSE pass('migrate path (no extension): migrate() privilege check skipped') END;
 RESET ROLE;
 
 -- -----------------------------------------------------------------------
--- GROUP 7: skip_audit is gone (it was the member-table workaround)
+-- GROUP 7: skip_audit silences nothing
 -- -----------------------------------------------------------------------
 
 CREATE TABLE public.audit_gate_probe (id serial PRIMARY KEY, note text);
 
 SELECT lives_ok(
   $$SELECT set_config('pg_semantius.skip_audit', 'on', true)$$,
-  'pg_semantius.skip_audit can still be set (it is simply ignored)');
+  'pg_semantius.skip_audit can be set (it is ignored)');
 
 -- The DDL above is audited even though skip_audit is on.
 SELECT CASE WHEN (SELECT su FROM ext_ctx) THEN
     ok((SELECT count(*) FROM public.audit_ddl_logs
          WHERE object_identity LIKE '%audit_gate_probe%') > 0,
-       'skip_audit = on no longer silences the DDL audit trigger')
+       'skip_audit = on does not silence the DDL audit trigger')
 ELSE pass('not a superuser session: skip_audit DDL check skipped') END;
 
 -- -----------------------------------------------------------------------

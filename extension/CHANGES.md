@@ -122,6 +122,9 @@ installs the core schema as ordinary objects.
   are never changed. Changing a field to required, or adding a required field with
   no usable default to a table with rows, is refused with `90259` while rows have no
   value for it, and `required` with delete mode `clear` with `90257`.
+- A `parent` field cannot use delete mode `clear` (`90282`). Its column is
+  `NOT NULL`, so every delete of a parent record that had children failed
+  with 23502. Use `restrict` or `cascade`, or a `reference` with `clear`.
 - A required enum with no explicit default no longer takes its first value when a
   write leaves it out: the write fails with `90258`.
 - Deleting an entity that fields of other entities reference is refused with
@@ -354,15 +357,30 @@ installs the core schema as ordinary objects.
   view permission of `entities` and `fields`, whose `UPDATE` and `DELETE` now
   check it next to `admin`, so a session whose OAuth scopes name `admin` alone
   can read and change the catalog, and a role or user granted `admin` without
-  `public:read` holds it as well. The row is written by the repeatable
-  `0100_rbac_rls.sql` with `ON CONFLICT DO NOTHING`, so a database that already
-  ran the seed gets it too, and a deleted row is written again the next time
-  that file runs.
-- **`get_schema()`, `get_schemas()` and `build_schema_for_table()` answer a
-  table the caller may not view exactly as a missing one**: `42P01` with the
-  message `Table "<name>" not found in entities`, the same DETAIL and the same
-  CONTEXT. The message `Table "<name>" not found in tables metadata`, which
-  told the two apart, is no longer raised.
+  `public:read` holds it as well. The row is seeded by
+  `0090_rbac_seed.once.sql`, next to `user:manage -> user:read`, so a deleted
+  row stays deleted.
+- **A new permission is granted to role 2, whatever its name.** The grant
+  went to the role named `Administrator`, while every guard of the last
+  Administrator keys on role 2: a renamed role 2 got no new permission, and
+  another role that took the name got every one.
+- **Switching an entity back to managed rebuilds its `INSERT` policy.** An
+  existing `<table>_insert_policy` was kept, so an entity switched to
+  unmanaged, given another `edit_permission` and switched back kept `INSERT`
+  on the old permission. The policy is now dropped and recreated from the
+  current `edit_permission`, as the `SELECT`, `UPDATE` and `DELETE` policies
+  already were; a hand-written policy of that name on an adopted table is
+  replaced too. This happens only when `managed` goes from false to true.
+- **A role or an entity that RACI events name cannot be deleted.**
+  `raci_events.target_role_id` is a reference to `roles` with delete mode
+  `restrict`, where deleting the role deleted its events, and
+  `raci_events.entity` is a reference to `entities` with delete mode
+  `restrict`, where it was free text that kept the events of a deleted
+  entity under its name. PostgreSQL refuses the delete, naming
+  `raci_events_target_role_id_fkey` or `raci_events_entity_fkey` (SQLSTATE
+  23001 on PostgreSQL 18, 23503 on earlier versions); an event for a name
+  that is no entity is refused with 23503. Renaming an entity still carries
+  its events along.
 - **A `time` field is nullable**, like `date`, and has no default unless
   `default_value` sets one. A required `time` field refuses a missing value
   with `90258`.
@@ -457,7 +475,10 @@ installs the core schema as ordinary objects.
   its triggers before. The rule predicate of an entity whose
   name ends in `_label` is no longer dropped with its label functions. A
   rollup whose function would carry the name of another parent's guard is
-  refused (`90280`). A queue name has to be lower case and at most 47 bytes
+  refused (`90280`), and so is one whose function name is already used by a
+  rollup over another link (`90281`): a name too long for an identifier is
+  shortened with 8 digits of md5 and can equal another. A queue name has the
+  shape of a table name, `^[a-z_][a-z0-9_]*$`, and at most 47 bytes
   (`90505`), and a queue mapping whose trigger name would not fit 63 bytes is
   refused (`90506`). An `order_column` longer than 63 bytes is refused. The
   request role may no longer execute `pgmq.convert_archive_partitioned`.

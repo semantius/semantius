@@ -1,24 +1,23 @@
 -- =====================================================
 -- RBAC helper functions (0310)
 -- =====================================================
--- The first coverage run (docs/pg_semantius-test-coverage.md) showed these
--- rbac helpers were never executed by the suite: has_any_permission,
--- require_any_permission, user_has_permission, get_current_user_permissions,
--- validate_oauth_scopes, whoami, the OAuth-scope branches of has_permission,
--- and public.ping. This file pins their current behavior.
+-- This file executes and pins the behavior of these rbac helpers:
+-- has_any_permission, require_any_permission, user_has_permission,
+-- get_current_user_permissions, validate_oauth_scopes, whoami, the OAuth-scope
+-- branches of has_permission, and public.ping.
 --
 -- Fixtures are the seeded identities only: user1 (User role, no module
 -- permissions), user2 (Northwind Sales: nwind:view + nwind:manage), user3
 -- (Administrator). Nothing is persisted; the OAuth scope GUC is
 -- transaction-local and reset between groups.
 --
--- Scope format: there is one rule now. Every
+-- Scope format: there is one rule. Every
 -- reader of app.oauth_scopes - has_permission, has_any_permission and
 -- user_has_permission - and validate_oauth_scopes' request parameter split on
 -- any run of commas or whitespace, so "a,b", "a b" and " a ,, b " are the same
--- two scopes. Before that, has_permission and has_any_permission read commas
--- while user_has_permission read spaces, and a list in the "wrong" format
--- silently confined the session to nothing. GROUP 6 pins the agreement.
+-- two scopes. A reader that split on other separators would read a list in
+-- the other format as one unknown scope and silently confine the session to
+-- nothing. GROUP 6 pins the agreement.
 -- Normalizing separators does not make the confinement binding, and this file
 -- does not pretend otherwise. app.oauth_scopes is client-settable, so a session
 -- that can run SQL can blank it and walk out of its own confinement - and a
@@ -57,7 +56,7 @@ SELECT lives_ok($$SELECT rbac.require_any_permission('admin', 'nwind:view')$$,
 SELECT throws_ok($$SELECT rbac.require_any_permission('admin', 'user:manage')$$,
     '42501', NULL,
     'require_any_permission: raises insufficient_privilege when none is held');
--- The message is a template now, so the list of permissions travels in the
+-- The message is a template, so the list of permissions travels in the
 -- hint where a client can put it into its own sentence.
 SELECT is(
     catch_error_hint($$SELECT rbac.require_any_permission('admin', 'user:manage')$$),
@@ -177,11 +176,10 @@ SELECT throws_ok($$SELECT * FROM rbac.validate_oauth_scopes('', 'nwind:view')$$,
 -- and it must be the permissive one: user2 holds both nwind:view and
 -- nwind:manage, so a scope list naming both takes nothing away.
 --
--- Five of these assertions fail against the pre-normalization readers: the space
--- and mixed forms made has_permission and has_any_permission deny everything
--- (they split on commas), and the comma form made user_has_permission deny
--- everything (it split on spaces). The mixed form happened to survive the old
--- user_has_permission, because splitting it on spaces still yielded the scope.
+-- A reader that splits on commas only denies everything for the space and the
+-- mixed form; one that splits on spaces only denies everything for the comma
+-- form, and lets the mixed form through, because splitting it on spaces still
+-- yields the scope.
 SELECT set_config('app.oauth_scopes', '', true);
 SELECT authenticate_as('user3');   -- admin, so user_has_permission is allowed
 
@@ -225,16 +223,12 @@ SELECT ok(NOT rbac.has_permission('nwind:manage'),
     'normalized scopes still confine: nwind:manage is not in the list');
 
 
--- Whitespace that is not a space. These exist because the normalization was
--- once written as btrim(scopes, E', <TAB><CR><LF>') with those three characters
--- typed literally into the source rather than escaped. The migrations are CRLF
--- in the repository and the generated extension script is LF, so that literal
--- compiled to a DIFFERENT character set on the two install paths - and both
--- suites passed, because nothing fed a tab or a carriage return. The trim is
--- gone now, but the hazard is structural: 129 of 260 function bodies carry
--- carriage returns on the migrate path and none do on the extension path, so
--- any character set typed into a migration means two things. These assertions
--- are the tripwire for the scope readers.
+-- Whitespace that is not a space: a tab, a CRLF and a trailing carriage return
+-- separate scopes as a space does. A carriage return typed into a migration
+-- rather than escaped does not survive, because every loader turns it into a
+-- line feed, and a suite that fed no tab or carriage return would not notice a
+-- scope reader that lost one. These assertions are the tripwire for the scope
+-- readers.
 SELECT set_config('app.oauth_scopes', E'nwind:view\tnwind:manage', true);
 SELECT ok(rbac.has_permission('nwind:manage'),
     'tab-separated scopes: has_permission agrees');
@@ -260,10 +254,8 @@ SELECT results_eq(
     $$VALUES ('admin'::text, false), ('nwind:view'::text, true)$$,
     'validate_oauth_scopes: a comma-separated request is split the same way as a space-separated one');
 
--- This is the assertion that would have caught the two install paths compiling
--- different trim sets: with the old btrim, the trailing carriage return was
--- stripped on the CRLF migrate path and survived on the LF extension build,
--- where it split off a second, empty scope row.
+-- The request splits like the scope list: a trailing carriage return is a
+-- separator, not part of the scope, and splits off no second, empty scope row.
 SELECT is((SELECT count(*)::int FROM rbac.validate_oauth_scopes('user2', E'nwind:view\r')),
     1, 'validate_oauth_scopes: a trailing carriage return yields no extra empty scope');
 SELECT is((SELECT count(*)::int FROM rbac.validate_oauth_scopes('user2', ' , ')),
@@ -560,7 +552,7 @@ SELECT set_config('app.oauth_scopes', 'public:read', true);
 SELECT ok(NOT rbac.has_permission('user:read'),
     'memoized expansion: rewriting the list rebuilds rather than answering from the old one');
 
--- The second seeded edge: admin includes public:read (0100_rbac_rls.sql).
+-- The second seeded edge: admin includes public:read (0090_rbac_seed.once.sql).
 -- public:read is the view permission of entities and fields, and their UPDATE
 -- and DELETE policies check it next to admin, so a token scoped to admin alone
 -- reads and changes the catalog only through this edge. expand_scopes is

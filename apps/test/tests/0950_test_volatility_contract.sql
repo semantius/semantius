@@ -19,8 +19,8 @@
 -- GROUP 2: nothing in the installed schema has the shape the planner folds.
 -- estimate_expression_value() executes STABLE calls while estimating
 -- selectivity, and the shape that reaches an estimator is
--- `col <op> stable_fn(<const>)`. The first assertion is the property P7 asks
--- for: EXPLAIN of a policy-guarded query in a session with no claims plans
+-- `col <op> stable_fn(<const>)`. The first assertion is the property itself:
+-- EXPLAIN of a policy-guarded query in a session with no claims plans
 -- without raising. The second is what keeps the first from being vacuous - the
 -- same EXPLAIN over the foldable shape DOES raise, because the planner really
 -- does run rbac.user_id() there, and rbac.uid() refuses a session with no
@@ -116,9 +116,9 @@ SELECT authenticate_as('user3');
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column, audit_log)
-VALUES ('p7_fold', 'p7_fold_item', 'P7 Fold', 'P7 Folds', 'plan-time folding probe',
+VALUES ('plan_fold', 'plan_fold_item', 'Plan Fold', 'Plan Folds', 'plan-time folding probe',
     1, 'public:read', 'admin', 'id', 'label', FALSE);
-INSERT INTO p7_fold (label) VALUES ('a'), ('b'), ('c');
+INSERT INTO plan_fold (label) VALUES ('a'), ('b'), ('c');
 
 -- No policy in the catalog compares a column against a bare permission reader
 -- in a USING clause, which is where an estimator would reach it.
@@ -138,12 +138,12 @@ SELECT set_config('app.context_initialized', '', true);
 SELECT set_config('app.current_external_id', '', true);
 
 SELECT lives_ok(
-    $$ EXPLAIN (COSTS OFF) SELECT * FROM p7_fold $$,
+    $$ EXPLAIN (COSTS OFF) SELECT * FROM plan_fold $$,
     'a policy-guarded query plans without claims: the permission check is not evaluated at plan time'
 );
 
 SELECT throws_ok(
-    $$ EXPLAIN (COSTS OFF) SELECT * FROM p7_fold WHERE id = rbac.user_id() $$,
+    $$ EXPLAIN (COSTS OFF) SELECT * FROM plan_fold WHERE id = rbac.user_id() $$,
     '42501',
     NULL,
     'the foldable shape IS evaluated at plan time, so the assertion above is not vacuous'

@@ -8,11 +8,11 @@
 --     for the first row); records inserted WITH a value keep it.
 --   • Clearing order_column drops the column and its trigger.
 --   • order_column is surfaced in get_schema()'s `table` object and `properties`.
---   • The `fields` entity (order_column = 'field_order') still auto-assigns
+--   • The `fields` entity (order_column = 'field_order') auto-assigns
 --     field_order for a new field added to an existing table (nwind
 --     `customers`, 12 visible fields) AND for fields added to a brand-new
 --     table, where the pinned created_at/updated_at rows (999998/999999)
---     must not inflate the running max (formerly 0346).
+--     must not inflate the running max.
 --
 -- Fixtures: user3 = admin; `customers` is the nwind sample table (apps/nwind);
 -- the throwaway entities are created in-tx under module 1 (_core).
@@ -127,22 +127,23 @@ SELECT ok(
 );
 
 -- =====================================================
--- fields entity: order_column = 'field_order' (replaces auto_set_field_order)
+-- fields entity: order_column = 'field_order'
 -- =====================================================
--- The legacy trigger/function are gone...
+-- field_order is assigned through the order column alone: no separate
+-- auto_set_field_order() function exists...
 SELECT ok(
     NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auto_set_field_order'),
-    'legacy auto_set_field_order() function should be removed'
+    'no auto_set_field_order() function should exist'
 );
 
--- ...and the fields entity now declares field_order as its order column.
+-- ...and the fields entity declares field_order as its order column.
 SELECT is(
     (SELECT order_column FROM entities WHERE table_name = 'fields'),
     'field_order',
     'fields entity should declare field_order as its order column'
 );
 
--- A new field added to an EXISTING table (nwind customers) still auto-assigns
+-- A new field added to an EXISTING table (nwind customers) auto-assigns
 -- field_order to max(field_order below 900000)+10. The pinned created_at/updated_at
 -- audit columns (999998/999999) are at/above the 900000 ceiling and must not
 -- inflate the running max.
@@ -176,10 +177,11 @@ SELECT is(
 );
 
 -- =====================================================
--- fields entity: auto field_order on a BRAND-NEW table (formerly 0346)
+-- fields entity: auto field_order on a BRAND-NEW table
 -- =====================================================
--- Reproduces the bug where a new field on a freshly created table was assigned
--- a field_order of ~1,000,000+ instead of continuing the visible sequence.
+-- A new field on a freshly created table continues the visible sequence; a
+-- rule that counted the pinned rows would assign it a field_order of
+-- ~1,000,000+.
 --
 -- A newly created managed table is seeded with:
 --   id         -> field_order 10

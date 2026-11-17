@@ -716,9 +716,8 @@ BEGIN
         RETURN FALSE;
     END IF;
     
-    -- Check OAuth2 scopes if present. The expansion this function has always
-    -- applied now lives in rbac.scope_closure, so the two cached checkers apply
-    -- exactly the same one.
+    -- Check OAuth2 scopes if present. The expansion is rbac.scope_closure, the
+    -- same one the two cached checkers apply.
     v_scope_closure := rbac.scope_closure();
 
     -- If no OAuth scopes set (user-initiated request), allow
@@ -1458,32 +1457,30 @@ COMMENT ON FUNCTION rbac.whoami IS
 -- AUTO-GRANT NEW PERMISSIONS TO ADMINISTRATOR ROLE
 -- =====================================================
 
--- Trigger function to automatically grant new permissions to Administrator role
+-- Trigger function to automatically grant new permissions to the Administrator
+-- role, role 2. It is found by its id, not by its name: a role's name can be
+-- changed, and every guard of the last Administrator (0100_rbac_rls.sql) keys
+-- on role 2, so a lookup by name would grant to whichever role carries the name
+-- Administrator, or to none.
 CREATE OR REPLACE FUNCTION rbac.grant_permission_to_administrator()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_administrator_role_id BIGINT;
 BEGIN
-    -- Get Administrator role id (role_name = 'Administrator')
-    SELECT id INTO v_administrator_role_id
-    FROM roles
-    WHERE role_name = 'Administrator';
-    
-    -- If Administrator role exists, grant the new permission to it
-    IF v_administrator_role_id IS NOT NULL THEN
+    -- Role 2 does not exist yet while 0090_rbac_seed.once.sql seeds the first
+    -- permissions; that file grants role 2 its permissions itself.
+    IF EXISTS (SELECT 1 FROM roles WHERE id = 2) THEN
         -- Upsert into role_permissions - insert or update if already exists
         INSERT INTO role_permissions (role_id, permission_name)
-        VALUES (v_administrator_role_id, NEW.permission_name)
-        ON CONFLICT (role_id, permission_name) 
+        VALUES (2, NEW.permission_name)
+        ON CONFLICT (role_id, permission_name)
         DO UPDATE SET granted_at = CURRENT_TIMESTAMP;
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
 
-COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS 
-'Automatically grants newly created permissions to the Administrator role';
+COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS
+'Automatically grants newly created permissions to the Administrator role, role 2, found by its id whatever its name';
 
 -- Apply trigger AFTER INSERT on permissions table
 CREATE OR REPLACE TRIGGER auto_grant_permission_to_administrator

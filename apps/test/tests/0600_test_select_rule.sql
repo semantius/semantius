@@ -147,14 +147,13 @@ SELECT is(
 -- Test: $today / $now reserved variables must be available inside select_rule.
 --
 -- build_select_rule_policy generates the per-row FOR SELECT rule function. The
--- compute/validate trigger injects $today, $now, $user_id, $old and $mode, but the
--- SELECT rule function historically injected only $user_id. A select_rule that filters
--- rows by server time (e.g. "only show rows still valid today") therefore saw $today/$now
--- resolve to null -> jl_to_number(null)=0, so a ">=" comparison passed for EVERY row and
--- the temporal filter did nothing.
+-- compute/validate trigger injects $today, $now, $user_id, $old and $mode; the
+-- SELECT rule function injects $today, $now and $user_id. A select_rule that filters
+-- rows by server time (e.g. "only show rows still valid today") would otherwise see
+-- $today/$now resolve to null -> jl_to_number(null)=0, so a ">=" comparison would pass
+-- for EVERY row and the temporal filter would do nothing.
 --
 -- These tests pin the invariant that a select_rule can gate row visibility on server time.
--- They FAIL until $today/$now are injected into the generated select rule function.
 --
 -- Dates are chosen far in the past (2000) and far in the future (2999) so the result is
 -- independent of the actual server clock.

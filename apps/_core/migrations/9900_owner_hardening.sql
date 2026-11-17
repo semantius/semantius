@@ -2,12 +2,12 @@
 -- OWNER HARDENING: run the data dictionary as a non-superuser owner
 -- =====================================================
 -- Every data-dictionary trigger is SECURITY DEFINER and executes DDL as the
--- owner of the functions and tables. Until this migration that owner was
+-- owner of the functions and tables. Before this migration runs, that owner is
 -- whoever installed Semantius core: on self-hosted servers the `postgres`
 -- superuser, because the extension needs a superuser to install. Any flaw in
 -- the DDL assembly (see the fields.default_value hardening: the valid_default_value
 -- CHECK in 0130_dd_schema.once.sql and quote_default_value in 0160_dd_functions.sql) would
--- therefore have handed an application administrator superuser powers
+-- then hand an application administrator superuser powers
 -- (COPY ... TO PROGRAM, CREATE ROLE ... SUPERUSER, ALTER SYSTEM).
 --
 -- This migration moves ownership of everything Semantius core created to a

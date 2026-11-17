@@ -374,13 +374,13 @@ SELECT is(
 -- =====================================================
 -- GROUP 6: what one field insert costs
 -- =====================================================
--- Adding a field to an entity used to cost three audit rows, a full rebuild of
--- the entity's label functions and an unconditional entities UPDATE whose only
--- effect was to fire a dozen more triggers. What is left is the irreducible
--- part plus one deliberate extra: the fields row itself, and the modules row
--- whose version has to move because a field is part of the model. The counts
--- below are the standing check on that - they fail if either the label rebuild
--- or the no-op entities UPDATE comes back.
+-- Adding a plain field to an entity writes the irreducible part plus one
+-- deliberate extra: the fields row itself, and the modules row whose version
+-- has to move because a field is part of the model. It does not rebuild the
+-- entity's label functions, and it issues no entities UPDATE, whose only effect
+-- would be more audit rows and a dozen more triggers firing. The counts below
+-- are the standing check on that - they fail if either the label rebuild or a
+-- no-op entities UPDATE is added.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column, audit_log)
 VALUES ('field_cost', 'field_cost_item', 'Field Cost', 'Field Costs',

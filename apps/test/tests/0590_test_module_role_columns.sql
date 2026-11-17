@@ -1,4 +1,5 @@
--- Tests for model v3 refactor: new columns on modules, roles, permission_hierarchy
+-- Tests for columns of modules, roles and permission_hierarchy (module_type, the module's
+-- permission and role references, slug, origin) and the validation rules that guard them
 -- Fixtures: nwind permissions nwind:view / nwind:manage and role 'Northwind Sales' (apps/nwind);
 -- the in-test hierarchy edges are added under user:manage (no persisted edge from there).
 BEGIN;
@@ -235,7 +236,7 @@ SELECT is(
 );
 
 -- =====================================================
--- FIELD METADATA: new columns have field metadata
+-- FIELD METADATA: these columns have field metadata
 -- =====================================================
 
 SELECT is(
@@ -300,7 +301,7 @@ SELECT is(
 );
 
 -- =====================================================
--- §10.2 VALIDATION RULES: stored on entities
+-- VALIDATION RULES: stored on entities
 -- =====================================================
 
 -- Verify validation_rules are set on roles entity
@@ -355,7 +356,7 @@ SELECT is(
 );
 
 -- =====================================================
--- §10.2 RULE ENFORCEMENT: roles.origin
+-- RULE ENFORCEMENT: roles.origin
 -- =====================================================
 
 -- INSERT with origin=user should succeed (default)
@@ -392,7 +393,7 @@ SELECT throws_ok(
 );
 
 -- =====================================================
--- §10.2 RULE ENFORCEMENT: roles.slug immutability for system roles
+-- RULE ENFORCEMENT: roles.slug immutability for system roles
 -- =====================================================
 
 -- Changing slug on a system-origin role should be blocked
@@ -421,7 +422,7 @@ SELECT is(
 );
 
 -- =====================================================
--- §10.2 RULE ENFORCEMENT: permission_hierarchy.origin
+-- RULE ENFORCEMENT: permission_hierarchy.origin
 -- =====================================================
 
 -- UPDATE origin on permission_hierarchy should be blocked

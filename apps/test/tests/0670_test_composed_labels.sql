@@ -1,6 +1,6 @@
 -- Test composed record labels: label_parent + _label / <fk>_label
--- Covers §6 composition, §6 fallback/degrade, §7 security (viewer-relative, no leak),
--- §6 currency, junctions, §5.4 discovery, §9 name reservation, §10 validation,
+-- Covers composition, fallback/degrade, security (viewer-relative, no leak),
+-- currency, junctions, discovery, name reservation, validation,
 -- and the labels of is_a and has_a entities, which are functions of their views.
 BEGIN;
 
@@ -135,7 +135,7 @@ SELECT is(
     'D3: deleting the parent (ON DELETE clear) degrades to local');
 
 -- =====================================================
--- H. Discovery via get_schema (§5.4) — derived label columns are ORDINARY properties,
+-- H. Discovery via get_schema — derived label columns are ORDINARY properties,
 -- discriminated only by ctype (_label / fk_label); there is no separate list.
 -- =====================================================
 SELECT is(
@@ -163,7 +163,7 @@ SELECT ok(
     'no separate label_columns list — derived columns live in properties');
 
 -- =====================================================
--- F. Name reservation (§9) and label_parent validation (§10) — still admin
+-- F. Name reservation and label_parent validation — still admin
 -- =====================================================
 SELECT throws_ok(
     $$INSERT INTO fields (table_name, field_name, title, format) VALUES ('lt_scorecards', '_secret', 'X', 'text')$$,
@@ -202,7 +202,7 @@ SELECT throws_ok(
     '90226', NULL,
     'F7: label_parent naming a non-existent field is rejected');
 
--- self-reference (§2): a spine FK pointing at its own entity is rejected
+-- self-reference: a spine FK pointing at its own entity is rejected
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_candidates', 'self_ref', 'Self', 'reference', 50, 'lt_candidates', 'clear');
 SELECT throws_ok(
@@ -210,7 +210,7 @@ SELECT throws_ok(
     '90228', NULL,
     'F8a: self-referential label_parent is rejected');
 
--- cycle (§10): candidates -> applications -> candidates
+-- cycle: candidates -> applications -> candidates
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('lt_candidates', 'app_ref', 'App', 'reference', 60, 'lt_applications', 'clear');
 SELECT throws_ok(

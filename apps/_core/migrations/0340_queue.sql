@@ -39,12 +39,16 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 BEGIN
-    -- pgmq names the tables of a queue q_<name> and a_<name>, in lower case,
-    -- and counts the 47 it allows in characters. Two names that differ in case
-    -- only would share their tables, and so would two long names of
-    -- multi-byte characters once PostgreSQL cuts the table name at 63 bytes.
-    IF NEW.queue_name <> lower(NEW.queue_name) OR octet_length(NEW.queue_name) > 47 THEN
-        RAISE EXCEPTION 'Queue name ${queue} has to be lower case and at most 47 bytes long'
+    -- A queue name has the shape of a table name, ^[a-z_][a-z0-9_]*$, and at
+    -- most 47 bytes. pgmq names the tables of a queue q_<name> and a_<name>,
+    -- in lower case, and allows 47 characters, so two names that differ in
+    -- case only would share their tables. The name also goes into the
+    -- triggers that map a table to the queue and into the statements pgmq
+    -- builds; with letters, digits and underscores only, no quote, comment
+    -- marker, line break or backslash reaches any of them. pgmq itself accepts
+    -- more, and is vendored as it is.
+    IF NEW.queue_name !~ '^[a-z_][a-z0-9_]*$' OR octet_length(NEW.queue_name) > 47 THEN
+        RAISE EXCEPTION 'Queue name ${queue} has to start with a lower-case letter or an underscore, contain only lower-case letters, digits and underscores, and be at most 47 bytes long'
             USING ERRCODE = '90505',
                   HINT = jsonb_build_object('queue', NEW.queue_name)::text;
     END IF;
@@ -407,14 +411,18 @@ REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
 -- =====================================================
 -- STEP 5: RPC functions for PostgREST consumers
 -- =====================================================
--- Authorization (release review S4): every RPC resolves the queue through the
--- queues registry and requires the queue's view_permission (queue_read) or
--- manage_permission (queue_pop, queue_archive, queue_delete). Unregistered
--- names are refused. Callers without admin get the same 42501 for an
--- unregistered queue as for a denied one, so queue names cannot be
--- enumerated; admins get a clearer error. The request role never reaches the
--- pgmq tables directly (no table privileges), so these wrappers are the only
--- route to the messages and the check here is sufficient.
+-- Authorization: every RPC resolves the queue through the queues registry and
+-- requires the queue's view_permission (queue_read) or manage_permission
+-- (queue_pop, queue_archive, queue_delete). Unregistered names are refused.
+-- A caller without admin gets SQLSTATE 42501 for an unregistered queue and for
+-- one it may not use, but not the same answer: an unregistered queue gives
+-- "Permission denied for queue ${queue}" with hint code 90105, a registered
+-- one "Permission denied: ${permission} required" with 90101 and the
+-- permission, from another CONTEXT, so the answer tells whether a queue name
+-- is registered. An administrator gets 90504 for an unregistered queue. The
+-- request role never reaches the pgmq tables directly (no table privileges),
+-- so these wrappers are the only route to the messages and the check here is
+-- sufficient.
 
 CREATE OR REPLACE FUNCTION public.queue_authorize(
     p_queue_name TEXT,
@@ -455,7 +463,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.queue_authorize(TEXT, BOOLEAN) IS
-'Authorization gate for the queue RPCs: resolves p_queue_name through the queues registry and requires its view_permission (p_manage = false) or manage_permission (p_manage = true). Unregistered queues raise 42501 for non-admins and 42704 for admins. Internal: not granted to semantius_user, called only by the SECURITY DEFINER wrappers.';
+'Authorization gate for the queue RPCs: resolves p_queue_name through the queues registry and requires its view_permission (p_manage = false) or manage_permission (p_manage = true). Unregistered queues raise 42501 with hint code 90105 for non-admins and 90504 for admins. Internal: not granted to semantius_user, called only by the SECURITY DEFINER wrappers.';
 
 REVOKE EXECUTE ON FUNCTION public.queue_authorize(TEXT, BOOLEAN) FROM PUBLIC;
 

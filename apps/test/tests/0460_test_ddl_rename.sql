@@ -620,7 +620,7 @@ SELECT is(pg_temp.frn_rename('frn_parties', 'city'), '90275 frn_orgs computed_fi
 SELECT is(pg_temp.frn_rename('frn_parties', 'zone'), '90275 frn_vendors select_rule',
     'a base field the select_rule of a has_a entity reads is not renamed');
 
--- A field no rule names is renamed as before.
+-- A field no rule names is renamed as usual.
 SELECT is(pg_temp.frn_rename('frn_host', 'free'), 'renamed',
     'a field no rule names is renamed');
 SELECT has_column('public', 'frn_host', 'free_new',

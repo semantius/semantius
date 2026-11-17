@@ -1,7 +1,7 @@
 /**
  * `lint-sql`: plpgsql_check over every PL/pgSQL function in an installed
  * Semantius database, including the trigger functions a bare invocation cannot
- * reach (Q6).
+ * reach.
  *
  * plpgsql_check refuses a trigger function without `relid` ("missing trigger
  * relation"), and a statement-level trigger function whose body reads its
@@ -22,8 +22,9 @@
  * point of the report, and it is why this is a command rather than an
  * invocation somebody retypes.
  *
- * Not a gate. Style warnings do not fail builds here, so the exit code is
- * always 0 and the report is read, not enforced.
+ * Not a gate. Style warnings do not fail builds here, so the exit code is 0
+ * whatever the report says, and the report is read, not enforced. It is 1 when
+ * the command cannot run, for instance without plpgsql_check on the server.
  *
  *   deno task lint-sql --database-url postgresql://postgres:...@localhost:5432/appdb
  *
@@ -270,8 +271,8 @@ export async function lintSqlCommand(
         }
       } catch (error) {
         // plpgsql_check raised instead of reporting: the function could not be
-        // checked at all. Never silent - an unexpected skip is the signal Q6
-        // asked this command to make visible.
+        // checked at all. Never silent - an unexpected skip is what this
+        // command exists to make visible.
         skipped.push({
           identity: fn.identity,
           reason: oneLine(errorMessage(error)),

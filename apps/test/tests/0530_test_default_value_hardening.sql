@@ -1,15 +1,14 @@
 -- =====================================================
 -- fields.default_value hardening (0530)
 -- =====================================================
--- Regression test for the default-value SQL injection (release review S1):
--- quote_default_value() used to return any value containing "(" or "::"
--- unquoted, and the DDL triggers interpolate its result into
--- ALTER TABLE ... DEFAULT as the table owner. It now returns caller text
--- only as a quoted literal (or one of a fixed allow-list of argument-less
--- expressions), and fields.default_value carries a CHECK that rejects
--- statement separators and comment markers outright.
+-- The DDL triggers interpolate the result of quote_default_value() into
+-- ALTER TABLE ... DEFAULT as the table owner, so caller text it returned
+-- unquoted would run there as SQL. It returns caller text only as a quoted
+-- literal (or one of a fixed allow-list of argument-less expressions), and
+-- fields.default_value carries a CHECK that rejects statement separators and
+-- comment markers outright.
 --
--- Also covers the generated compute/validate trigger (S13): rule code,
+-- Also covers the generated compute/validate trigger: rule code,
 -- computed-field names and messages containing quotes or percent signs are
 -- emitted as proper literals.
 BEGIN;
@@ -115,7 +114,7 @@ SELECT is((SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d
     '''a (b)''::text', 'the column default is stored as a quoted literal');
 
 -- =====================================================
--- GROUP 4: generated compute/validate trigger quoting (S13)
+-- GROUP 4: generated compute/validate trigger quoting
 -- =====================================================
 UPDATE entities
    SET validation_rules = $$[{"code":"99401","message":"50% off isn't allowed","jsonlogic":{"!=":[{"var":"note"},"bad"]}}]$$::jsonb,

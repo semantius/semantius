@@ -8,8 +8,8 @@
 -- reaches the unique index instead, and the duplicate is pure write cost.
 --
 -- GROUP 1 sweeps the catalog for that shape rather than naming index names, so
--- it fails when a duplicate is reintroduced under any name. GROUP 2 is the half
--- a name sweep cannot prove: that the remaining composite can still resolve the
+-- it fails when a duplicate is added under any name. GROUP 2 is the half
+-- a name sweep cannot prove: that the composite can resolve the
 -- recursive permission walk through an index. It runs with enable_seqscan off,
 -- because these tables hold a handful of rows and the planner is right to scan
 -- them sequentially - asserting a plan shape without that would be asserting

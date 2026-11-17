@@ -26,13 +26,12 @@ apps/
 
 ## Development Workflow
 
-**CRITICAL**: Always execute these commands in this exact order for testing:
+The rules for agents are in [AGENTS.md](../../AGENTS.md). Run the test cycle on the local pgdocker containers, never on a remote database:
 
-1. **Reset database**: `deno task dropall --confirm`
-2. **Setup database**: `deno task migrate --apps _core,nwind,test --verbose` (nwind before test: the test seed assigns user2 to the Northwind Sales role)
-3. **Run tests**: `deno task test`
+1. **Migrate path**: `./pgdocker/pg-cli-retest.sh` (a fresh container, then drop all, `migrate --apps _core,nwind,test` and the pgTAP suite)
+2. **Extension path**: `./pgdocker/pg-ext-retest.sh` (the same suite on a `CREATE EXTENSION` install), when the change touches packaging or the extension build
 
-**AGENT RESPONSIBILITY**: The agent MUST execute this full cycle after making any changes to verify nothing is broken. This is a throwaway test database - it's safe and required to run these operations.
+**AGENT RESPONSIBILITY**: The agent MUST execute this cycle after making any changes to verify nothing is broken. Never run `deno task dropall` against a remote database such as the one `DATABASE_URL` may name, nor `retest` or `reset`, which drop everything first.
 
 ## Code Standards
 
@@ -52,7 +51,7 @@ apps/
 ### Testing
 - Write tests in pgTAP format
 - Store tests in `apps/test/tests/`
-- Always start with clean database state
+- Always start with clean database state on a local container
 - Test both positive and negative scenarios
 
 ## Environment Setup
@@ -60,6 +59,7 @@ apps/
 - Local development uses `.env.local` file  
 - Format: `postgresql://username:password@host:port/database`
 - Use `@postgres` client library for database connections
+- `DATABASE_URL` can name a remote database; the test cycle runs on the local pgdocker containers, which pass their own `--database-url`
 - **AGENT MUST EXECUTE TESTS**: Always run the full test cycle to verify changes
 
 ## Common Patterns
@@ -75,7 +75,6 @@ apps/
 3. Wire into `cli.ts`
 4. Follow existing patterns for error handling
 
-## Prototyping Mode
-- Always start with empty database (no migration compatibility needed)
-- Rapid iteration is preferred over backward compatibility
-- Use `dropall --confirm` liberally for clean testing
+## Migrations
+- After a release, migrations are forward only and additive only: never edit a released `.once.` file, never rename or remove a released file, never rename, drop or retype a table or column
+- Each test cycle starts from an empty database on a local container

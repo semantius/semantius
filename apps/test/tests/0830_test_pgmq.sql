@@ -85,15 +85,13 @@ SELECT ok(
 -- =====================================================
 -- PART 2: pgmq operations
 -- =====================================================
--- Part 1 only smoke-tests pgmq.create/send/read. The first coverage run
--- (docs/pg_semantius-test-coverage.md) showed 65 of the 75 vendored pgmq
--- functions never execute, although every database role can call them. This
--- part exercises the message lifecycle (send_batch, read_with_poll, set_vt,
--- pop, archive, delete, purge_queue, metrics, list_queues, drop_queue), topic
--- routing (validate_routing_key, validate_topic_pattern, bind_topic,
--- test_routing, send_topic, list_topic_bindings, unbind_topic) and the
--- insert-notify throttle (enable/update/disable_notify_insert,
--- list_notify_insert_throttles).
+-- Part 1 only smoke-tests pgmq.create/send/read, and every database role can
+-- call the vendored pgmq functions. This part exercises the message lifecycle
+-- (send_batch, read_with_poll, set_vt, pop, archive, delete, purge_queue,
+-- metrics, list_queues, drop_queue), topic routing (validate_routing_key,
+-- validate_topic_pattern, bind_topic, test_routing, send_topic,
+-- list_topic_bindings, unbind_topic) and the insert-notify throttle
+-- (enable/update/disable_notify_insert, list_notify_insert_throttles).
 --
 -- Runs as the owner like part 1: the pgmq schema is not a PostgREST surface
 -- and its tables carry no RLS. Queues live in the pgmq schema only (not in

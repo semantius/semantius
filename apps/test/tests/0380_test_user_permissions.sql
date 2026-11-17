@@ -164,18 +164,18 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST 11: rbac.get_user_permissions_by_id matches the CTE it replaced
+-- TEST 11: rbac.get_user_permissions_by_id matches a reference query
 -- =====================================================
--- pg_temp copy of the query get_user_permissions used to run inline, before it
--- delegated to get_user_permissions_by_id, keyed by internal id instead of
--- external_id (the same row, one join shorter). Swept against the real
+-- pg_temp reference query: the effective permissions written out with the joins
+-- through users and roles that get_user_permissions_by_id does without, and
+-- keyed by internal id as that function is. Swept against the real
 -- function for every seeded user plus fixtures built here for the shapes the
 -- seeded users don't cover: a direct user_permissions grant with no role, a
 -- three-level permission_hierarchy chain reached through a role, a disabled
 -- user who holds that same role, and a user with no roles or grants at all.
 RESET ROLE;
 
-CREATE FUNCTION pg_temp.old_get_user_permissions_by_id(p_user_id BIGINT)
+CREATE FUNCTION pg_temp.reference_user_permissions_by_id(p_user_id BIGINT)
 RETURNS TABLE (permission_name TEXT) AS $$
     WITH RECURSIVE permission_tree AS (
         SELECT DISTINCT rp.permission_name
@@ -237,16 +237,16 @@ UPDATE users SET is_disabled = TRUE WHERE external_id = 'hotpath-disabled';
 SELECT is(
     (SELECT count(*)::int FROM users u
      WHERE EXISTS (
-        (SELECT permission_name FROM pg_temp.old_get_user_permissions_by_id(u.id)
+        (SELECT permission_name FROM pg_temp.reference_user_permissions_by_id(u.id)
          EXCEPT
          SELECT permission_name FROM rbac.get_user_permissions_by_id(u.id))
         UNION ALL
         (SELECT permission_name FROM rbac.get_user_permissions_by_id(u.id)
          EXCEPT
-         SELECT permission_name FROM pg_temp.old_get_user_permissions_by_id(u.id))
+         SELECT permission_name FROM pg_temp.reference_user_permissions_by_id(u.id))
      )),
     0,
-    'get_user_permissions_by_id matches the old inline CTE for every user, seeded and ephemeral alike'
+    'get_user_permissions_by_id matches the reference query for every user, seeded and ephemeral alike'
 );
 
 -- A subset check, not exact equality: this user also keeps the role every new

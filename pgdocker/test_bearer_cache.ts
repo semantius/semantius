@@ -1,7 +1,7 @@
 #!/usr/bin/env -S deno run --allow-net
 /**
  * Hostile-client check of the permission cache over a REAL PostgreSQL 18
- * OAUTHBEARER session (release review S2).
+ * OAUTHBEARER session.
  *
  * A bearer client runs SQL directly as the request role, and the app.* context
  * settings written by rbac.ensure_context_initialized() are ordinary GUCs the

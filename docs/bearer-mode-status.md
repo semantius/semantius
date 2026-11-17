@@ -467,6 +467,6 @@ Ecosystem items that change the status above:
   reach this mode through `DB_AUTH_MODE=bearer` and are also built to run in
   `session` mode on Neon and Supabase - untested there so far, and resting
   entirely on app-tier discipline. The folder's README says what that costs.
-- Authorization spec: [authz-spec.md](authz-spec.md), invariant I-perm.
+- Authorization: [authorization.md](authorization.md), invariant I-perm.
 - pgdocker: [README.md](../pgdocker/README.md), sections "Identity comes from
   the validated session" and "Scalability & production caveats".

@@ -163,26 +163,3 @@ SELECT create_entity_policies(t)
   FROM unnest(ARRAY['entities', 'fields', 'users', 'modules', 'roles', 'permissions',
                     'user_roles', 'role_permissions', 'user_permissions',
                     'permission_hierarchy']) AS t;
-
--- =====================================================
--- SELECT_RULE POLICIES OF THE CORE TABLES
--- =====================================================
--- A core entity registered with a select_rule (modules) was never seen by
--- manage_select_rule_policy_trigger (0210_computed_validation.sql), which did
--- not exist yet. build_select_rule_policy drops and replaces the SELECT,
--- UPDATE and DELETE policies of its entity, while create_entity_policies
--- uses a plain CREATE POLICY that fails on an existing one, so the rule is
--- layered on last, as the dictionary does for every other entity.
-DO $$
-DECLARE
-    v_table_name TEXT;
-BEGIN
-    FOR v_table_name IN
-        SELECT e.table_name FROM entities e
-        WHERE e.managed AND e.select_rule <> '{}'::jsonb
-        ORDER BY e.table_name
-    LOOP
-        PERFORM build_select_rule_policy(v_table_name);
-    END LOOP;
-END;
-$$;

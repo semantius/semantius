@@ -304,16 +304,20 @@ BEGIN
     --
     -- Access can widen. A table that carried policies of other names keeps them, and
     -- PostgreSQL ORs permissive policies together, so the permission model the
-    -- entity declares is added to whatever was there. That is what adoption now
+    -- entity declares is added to whatever was there. That is what adoption
     -- means, and it is why the flip is a decision rather than a setting.
     --
-    -- The INSERT policy is created only when no policy of its name exists,
-    -- because PostgreSQL has no CREATE POLICY IF NOT EXISTS; one that is there
-    -- keeps its own definition. SELECT, UPDATE and DELETE come from
-    -- build_select_rule_policy, the one generator of those three, which drops
-    -- and recreates them whatever the table carried: the select_rule when one is
-    -- set, else view_permission, and for UPDATE and DELETE the edit permission
-    -- as well. Calling it here rather than leaving it to the
+    -- The INSERT policy is dropped and recreated from the current
+    -- edit_permission, whatever the table carried under its name. A policy of
+    -- that name may be the dictionary's own, left from an earlier managed
+    -- period: while the entity was unmanaged, update_entity_policies did not
+    -- run for it, so a change of edit_permission never reached that policy,
+    -- and keeping it would keep INSERT on the permission of that time. A
+    -- hand-written policy of that name is replaced as well. SELECT, UPDATE and
+    -- DELETE come from build_select_rule_policy, the one generator of those
+    -- three, which drops and recreates them the same way: the select_rule when
+    -- one is set, else view_permission, and for UPDATE and DELETE the edit
+    -- permission as well. Calling it here rather than leaving it to the
     -- manage_select_rule_policy AFTER trigger is deliberate: two AFTER triggers
     -- on one table fire in name order, and the toggle must not depend on which
     -- runs first. The predicates use the (SELECT rbac.has_permission(...))
@@ -321,18 +325,14 @@ BEGIN
     -- 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', NEW.table_name);
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies
-        WHERE schemaname = 'public' AND tablename = NEW.table_name
-          AND policyname = NEW.table_name || '_insert_policy'
-    ) THEN
-        EXECUTE format(
-            'CREATE POLICY %I ON %I
-                FOR INSERT TO semantius_user
-                WITH CHECK ((SELECT rbac.has_permission(%L)))',
-            NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
-        );
-    END IF;
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I',
+        NEW.table_name || '_insert_policy', NEW.table_name);
+    EXECUTE format(
+        'CREATE POLICY %I ON %I
+            FOR INSERT TO semantius_user
+            WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        NEW.table_name || '_insert_policy', NEW.table_name, NEW.edit_permission
+    );
     PERFORM build_select_rule_policy(NEW.table_name);
 
     EXECUTE format(
@@ -394,7 +394,7 @@ BEGIN
     -- above because on the hand-made path the column may only have been added by
     -- the loop above, and pg_get_serial_sequence raises on a column that does
     -- not exist. A table whose key is not a serial has no sequence and needs no
-    -- grant. The table grant is unconditional now, so this one is too: the
+    -- grant. The table grant is unconditional, so this one is too: the
     -- INSERT it completes has already been granted, and a serial key the request
     -- role cannot advance would refuse every insert it is allowed to make.
     IF EXISTS (
@@ -426,7 +426,7 @@ COMMENT ON FUNCTION enable_dd_table IS
 'AFTER UPDATE trigger on entities: when managed changes from FALSE to TRUE,
 creates the physical table and its updated_at trigger if it does not already
 exist, then secures it whatever it carried before - RLS enabled, the INSERT policy
-created if absent, the SELECT, UPDATE and DELETE policies built by
+dropped and recreated from edit_permission, the SELECT, UPDATE and DELETE policies built by
 build_select_rule_policy() (the select_rule when one is set, else view_permission,
 and for UPDATE and DELETE the edit permission as well), the request-role table and
 sequence grants issued - then adds any columns that were defined as field records
@@ -515,8 +515,9 @@ BEGIN
             END IF;
         END IF;
 
-        -- A required enum without an explicit default used to get its first value as the
-        -- column default, and must now refuse a write that leaves it out.
+        -- A required enum without an explicit default must refuse a write that leaves it
+        -- out, so a column default other than '' (an earlier release set its first value
+        -- there) is reset to ''.
         IF v_field.format = 'enum'
            AND coalesce(trim(v_field.default_value), '') = ''
            AND EXISTS (SELECT 1
@@ -595,7 +596,7 @@ AS $$ SELECT p_format IN ('reference', 'parent') $$;
 COMMENT ON FUNCTION dd_is_fk_format(TEXT) IS
 'TRUE when a field format denotes a foreign-key relationship (''reference'' or ''parent'').';
 
--- Junction recognition (§6): entity_type='junction' is authoritative; until it is stamped, the
+-- Junction recognition: entity_type='junction' is authoritative; until it is stamped, the
 -- fallback heuristic recognizes a pure pairing table — ≥2 parent legs and every non-leg field is an
 -- id/label/audit column (recognized audit names + ctype='audit'). A status/rating/note payload
 -- field disqualifies it (so an interview scorecard is NOT a junction).
@@ -852,7 +853,7 @@ For an is_a or has_a entity they are functions of its view: _label is its base''
 every reference field of the record gets its <fk>_label. The family refresh calls it for those.';
 
 -- =====================================================
--- §9 RESERVED FIELD-NAME NAMESPACE
+-- RESERVED FIELD-NAME NAMESPACE
 -- =====================================================
 -- Only the "_" prefix is reserved (protects the generated _label column and the system "_*"
 -- namespace). The "_label" SUFFIX is NOT reserved: real columns ending in _label (e.g. a
@@ -931,7 +932,7 @@ COMMENT ON TRIGGER a_field_name_length_trigger ON fields IS
 'Refuses creating a field, or renaming one, under a name whose generated names would be cut at 63 bytes.';
 
 -- =====================================================
--- §9b TABLE NAMES AN ENTITY CANNOT TAKE
+-- TABLE NAMES AN ENTITY CANNOT TAKE
 -- =====================================================
 -- A table whose name starts with "_" is an internal table (_settings, _apikeys,
 -- _versions). Such a table is protected by having no permission model at all:
@@ -1029,7 +1030,7 @@ COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
 'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes, and a rename under which a field''s generated names would be cut.';
 
 -- =====================================================
--- §10 label_parent VALIDATION  (+ §2/§11 acyclic, no self-reference)
+-- label_parent VALIDATION  (+ acyclic, no self-reference)
 -- =====================================================
 CREATE OR REPLACE FUNCTION validate_label_parent()
 RETURNS TRIGGER
@@ -1174,7 +1175,10 @@ BEGIN
     -- Skip the rebuild when the new field cannot change a generated body: it
     -- emits DDL per reference field, on every field insert. Miss a case and
     -- nothing raises - a stale <fk>_label keeps answering with the old body.
-    -- The parent-leg count is dd_is_junction(), which reads every field.
+    -- With two or more parent fields the table may be a junction, which shapes
+    -- its labels (dd_is_junction()), and any new field can change that. The
+    -- count reads the parent fields only, where dd_is_junction() reads every
+    -- field.
     -- Pinned by 0670_test_composed_labels.sql.
     IF TG_OP = 'INSERT' AND NOT (
             dd_is_fk_format(NEW.format)

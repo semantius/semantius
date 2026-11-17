@@ -111,7 +111,7 @@
           // gate from naming an entity that does not exist: such a gate would
           // never get its triggers, and would govern nothing without a word.
           // A rename follows through ON UPDATE CASCADE, and the gates of an
-          // entity are deleted with it. Its NOT NULL and DEFAULT '' are set by
+          // entity are deleted with it. Its NOT NULL is set by
           // 0360_raci_setup.once.sql.
           {"field_name": "entity", "title": "Entity", "format": "reference", "field_order": 20, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
@@ -166,16 +166,22 @@
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
            "reference_table": "processes", "reference_delete_mode": "cascade"},
-          {"field_name": "entity", "title": "Entity", "format": "text", "field_order": 20, "input_type": "required",
+          // entity is the governed entity, a reference to entities (a TEXT
+          // column, as entities.table_name is). An entity cannot be deleted
+          // while events name it (restrict); a rename carries its events along
+          // through ON UPDATE CASCADE. Its NOT NULL is set by
+          // 0360_raci_setup.once.sql.
+          {"field_name": "entity", "title": "Entity", "format": "reference", "field_order": 20, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
-           "reference_table": "", "reference_delete_mode": ""},
+           "reference_table": "entities", "reference_delete_mode": "restrict"},
           {"field_name": "raci", "title": "RACI", "format": "enum", "field_order": 40, "input_type": "required",
            "description": "RACI role of the actor. Only consulted and informed actors generate events, so these are the only values.",
            "default_value": "", "enum_values": [{"value": "consulted", "label": "Consulted (C)"}, {"value": "informed", "label": "Informed (I)"}],
            "reference_table": "", "reference_delete_mode": ""},
+          // A role cannot be deleted while events name it (restrict).
           {"field_name": "target_role_id", "title": "Target Role", "format": "reference", "field_order": 50, "input_type": "required",
            "description": "Role to be notified or consulted", "default_value": "", "enum_values": null,
-           "reference_table": "roles", "reference_delete_mode": "cascade"},
+           "reference_table": "roles", "reference_delete_mode": "restrict"},
           {"field_name": "status", "title": "Status", "format": "enum", "field_order": 60, "input_type": "required",
            "description": "pending → sent → acted; acted = the consultation input was received",
            "default_value": "pending", "enum_values": ["pending", "sent", "acted"],

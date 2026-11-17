@@ -96,7 +96,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = common, pg_temp;
 
 -- Grant schema usage to the installing role (database owner) for testing.
 -- Skipped for a superuser: it needs no grant and the ACL entry is a test
--- artifact that outlives the extension (B11).
+-- artifact that outlives the extension.
 DO $$
 BEGIN
     IF NOT (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user) THEN

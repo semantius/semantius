@@ -81,8 +81,13 @@ sudo mv deno /usr/local/bin/deno
 deno --version
 ```
 
-**DATABASE_URL** (`postgresql://username:password@host:port/database`) comes from
-the environment. **Never create a new database**; use the one it names.
+**DATABASE_URL** (`postgresql://username:password@host:port/database`)
+comes from the environment and names the database the CLI
+connects to, which may be a shared or cloud database.
+**Never create a new database**, and never run `dropall`,
+`migrate`, `reset`, `retest` or `test` against it: tests run
+on the local pgdocker containers (see the testing
+requirements).
 
 **DENO_TLS_CA_STORE=system** must be set for GitHub Copilot agents; without it
 Deno fails to download dependencies with "client error (Connect)".
@@ -168,12 +173,15 @@ validated with the complete test sequence before the task is complete. No
 exceptions.**
 
 ```bash
-deno task connect                                # 1. if this fails, STOP, tell the user and wait for a new connection string
-deno task dropall --confirm                      # 2. reset to a clean database
-deno task migrate --apps _core,nwind,test --verbose   # 3. nwind before test: the test seed assigns user2 to the Northwind Sales role
-deno task test                                   # 4. full suite
+./pgdocker/pg-cli-retest.sh   # CLI path: fresh local container,
+                              # migrate _core,nwind,test, full suite
+./pgdocker/pg-ext-retest.sh   # extension path: the same through
+                              # CREATE EXTENSION
 ```
 
+- Every run goes to the local pgdocker containers. DATABASE_URL may name a
+  shared or cloud database: never run dropall, migrate, reset, retest or test
+  against it.
 - Show the complete test output in your response, including pass/fail status.
 - Never mark a task complete until all tests pass; investigate and fix failures.
 
@@ -186,10 +194,10 @@ deno task test                                   # 4. full suite
 
 ### Database Schema Standards
 **CRITICAL: Primary Key Conventions and EXCEPTIONS**
-- Every table has a **single-column** primary key, and the data dictionary
-  depends on it: `entities.id_column` names one column, so a composite primary
-  key would make the entity unaddressable by the generated RPCs, by PostgREST's
-  `/table?id=eq.x` and by the UI.
+- Every table outside the vendored `pgmq` schema has a **single-column** primary
+  key, and the data dictionary depends on it: `entities.id_column` names one
+  column, so a composite primary key would make the entity unaddressable by the
+  generated RPCs, by PostgREST's `/table?id=eq.x` and by the UI.
 - Never build a key column by hand: the key column, the id field row and the
   key's triggers all come from `dd_id_column_ddl` / `dd_install_id_triggers` in
   `0160_dd_functions.sql`. TypeID is a key type, not a field format: the id
@@ -206,10 +214,6 @@ deno task test                                   # 4. full suite
   `date-time` and `uuid` are nullable (`is_nullable()`).
 - **Every NOT NULL column has a DEFAULT**: `''` for text, `0` for numbers,
   `FALSE` for booleans, `CURRENT_TIMESTAMP` for timestamps.
-- **The only columns without a default**: a TEXT primary key
-  (`entities.table_name`, `permissions.permission_name`), where a default would
-  let a row be saved under the empty string, and the foreign key columns of a
-  junction table, where a default would mask a referential integrity error.
 
 **CRITICAL: A column is a two-place change**
 - Touching a `CREATE TABLE` in `apps/_core/migrations/` is never finished until the

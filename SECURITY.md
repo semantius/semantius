@@ -53,9 +53,9 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   name leaves the four schemas and the event triggers owned by the restorer
   and drops those entries, so the request role loses its EXECUTE on future
   functions in `rbac`. `semantius.status()` reports the drift.
-  `pg_restore --no-owner` additionally loses `OWNER TO semantius_owner`, so the dictionary's SECURITY DEFINER code
-  would run as the restorer. Restore as the same superuser name, without
-  `--no-owner`.
+  `pg_restore --no-owner` additionally loses `OWNER TO semantius_owner`, so the
+  dictionary's SECURITY DEFINER code would run as the restorer. Restore as the
+  same superuser name, without `--no-owner`.
 - **A plain logical restore loses the database's UTC settings.** `timezone` and
   `intervalstyle` are set with `ALTER DATABASE`, and `pg_dump` and `pg_restore`
   carry those only with `--create`. Without them a date-time sent with no offset
@@ -123,13 +123,13 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   only constants and names no column in a `WHERE` or `RETURNING` - stores the
   row, and from then on no caller for whom the rule raises can read, update or
   delete it, an administrator included unless the rule decides for them before
-  the raising part; only the owner can. Wherever the rule is evaluated on a stored row - a read, the
-  `USING` of an `UPDATE` or `DELETE`, `get_record_by_id` - a rule that raises
-  counts as false for that row: the row is hidden and not written, and one
-  WARNING per transaction and entity names the entity and the SQLSTATE but not
-  the message, which can quote a value of the hidden row. An `INSERT` under a
-  key that is already stored is not marked, so it cannot be used to read the
-  row that holds the key.
+  the raising part; only the owner can. Wherever the rule is evaluated on a
+  stored row - a read, the `USING` of an `UPDATE` or `DELETE`,
+  `get_record_by_id` - a rule that raises counts as false for that row: the
+  row is hidden and not written, and one WARNING per transaction and entity
+  names the entity and the SQLSTATE but not the message, which can quote a
+  value of the hidden row. An `INSERT` under a key that is already stored is
+  not marked, so it cannot be used to read the row that holds the key.
 - **Bearer mode is experimental.** PostgreSQL 18 OAuth bearer authentication
   with `pg_oidc_validator` is a development configuration, not a deployment
   target. Its status and the remaining hardening are in
@@ -147,20 +147,18 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   `42501`. The dictionary grants each table it creates, after it has written
   that table's policies. Adoption (setting an entity's `managed` to `true`)
   does the same for a table made outside the dictionary, whatever that table
-  carried before: row-level security, the four permission policies, then the
-  grant. The table's `<table>_select_policy`, `<table>_update_policy` and
-  `<table>_delete_policy` are replaced by the entity's; a
-  `<table>_insert_policy` it already has keeps its definition, and so does
-  every policy of another name. PostgreSQL ORs permissive policies together,
-  so adoption can widen access: the entity's policies are added to the ones
-  kept, and an `INSERT` is held to a kept `<table>_insert_policy` instead of
-  to the entity's `edit_permission`. A
-  table that is protected by having no permission model at all is therefore
-  refused. A name that starts with `_` (`_settings`, `_apikeys`) cannot be
-  registered as an entity, managed or not, and the two audit log entities
-  cannot become managed. Exposing an unmanaged table yourself takes the same
-  two steps in the same order: write its policies, then
-  `GRANT ... TO semantius_user`.
+  carried before: row-level security, the four permission policies (with a
+  `select_rule`, three of them are rule policies: `SELECT`, `UPDATE` and
+  `DELETE`), then the grant. The table's `<table>_select_policy`,
+  `<table>_insert_policy`, `<table>_update_policy` and `<table>_delete_policy`
+  are replaced by the entity's; every policy of another name keeps its
+  definition. PostgreSQL ORs permissive policies together, so adoption can widen
+  access: the entity's policies are added to the ones kept. A table that is
+  protected by having no permission model at all is therefore refused. A name
+  that starts with `_` (`_settings`, `_apikeys`) cannot be registered as an
+  entity, managed or not, and the two audit log entities cannot become managed.
+  Exposing an unmanaged table yourself takes the same two steps in the same
+  order: write its policies, then `GRANT ... TO semantius_user`.
   Never the grant alone - it is what publishes the table, and without policies
   it publishes every row.
 - **Every principal carries a non-empty `external_id`, and that is its

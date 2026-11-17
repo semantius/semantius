@@ -386,8 +386,8 @@ DECLARE
     -- Each ignored column becomes its own quoted trigger argument (TG_ARGV
     -- inside audit.insert_update_delete_trigger), via %L so a name needing
     -- escaping cannot break the statement. Empty when p_ignored_columns is
-    -- empty, which leaves the call as audit.insert_update_delete_trigger() -
-    -- the same statement this function has always issued.
+    -- empty, which leaves the call as audit.insert_update_delete_trigger()
+    -- with no arguments.
     v_ignored_args TEXT = COALESCE(
         (SELECT string_agg(quote_literal(c), ', ') FROM unnest(p_ignored_columns) AS c),
         ''
@@ -500,7 +500,7 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- Scoped DDL audit. SECURITY DEFINER because the function calls
 -- audit.current_user_id(), which is revoked from PUBLIC: without it the
 -- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
--- other two audit triggers in this file are already definers.
+-- other two audit triggers in this file are definers as well.
 --
 -- The scope is the schema, not the command. track_ddl_changes below carries no
 -- WHEN TAG clause: a command is audited when it touches one of the five
@@ -508,7 +508,7 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- which commands matter, and a command type nobody thought to enumerate would
 -- pass through an evidence table leaving nothing behind.
 --
--- Three filters, in the order they are applied:
+-- Four filters, in the order they are applied:
 --   1. in_extension - objects an extension script created belong to that
 --      extension, not to this database's schema history.
 --   2. schema scope - only the schemas Semantius owns are evidence. DDL in a

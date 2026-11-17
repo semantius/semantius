@@ -21,10 +21,18 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
 -- =====================================================
--- user:manage implies user:read
+-- user:manage implies user:read, and admin implies public:read.
+--
+-- entities and fields are viewed with public:read and edited with admin, and
+-- their UPDATE and DELETE policies check both, as every entity without a
+-- select_rule does. A session confined by OAuth scopes holds only what its
+-- scope list names and what that includes (rbac.scope_closure), so a token
+-- scoped to admin alone could otherwise neither read nor change the catalog it
+-- administers.
 
 INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
-    ('user:manage', 'user:read', 'system');
+    ('user:manage', 'user:read', 'system'),
+    ('admin', 'public:read', 'system');
 
 -- =====================================================
 -- SEED ROLES

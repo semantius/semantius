@@ -6,9 +6,9 @@
 -- labels thoroughly: 0670 builds its own entity shapes and ends in ROLLBACK,
 -- like every pgTAP file here, so the functions it exercised no longer exist by
 -- the time anything looks at the database again. Only the shipped entities'
--- generated functions survive, and none of their <fk>_label companions had ever
--- been called by anything. A generated function that fails to compile, or that
--- raises at runtime on a shape nobody wrote a fixture for - a junction, a
+-- generated functions survive, and this sweep calls every one of them, the
+-- <fk>_label companions included. A generated function that fails to compile,
+-- or that raises at runtime on a shape nobody wrote a fixture for - a junction, a
 -- self-reference, a spine chain, an unmanaged audit table - would go unnoticed
 -- until a client asked for that computed column in production.
 --
@@ -145,8 +145,9 @@ SELECT is((SELECT string_agg(fn || ': ' || detail, '; ' ORDER BY fn) FROM _fk_mi
 
 -- The single-argument select_rule overload resolves jl_request_context() itself
 -- and delegates to the two-argument form the RLS policies use. It is SECURITY
--- DEFINER and granted to semantius_user, so it is reachable by any request role
--- while nothing had ever executed it; the two forms must agree on every row.
+-- DEFINER and granted to semantius_user, so it is reachable by any request role,
+-- and this sweep executes it for every shipped entity that has one; the two
+-- forms must agree on every row.
 CREATE TEMP TABLE _rule_mismatch (fn text, detail text) ON COMMIT DROP;
 
 CREATE TEMP TABLE _rule_rows (n bigint) ON COMMIT DROP;

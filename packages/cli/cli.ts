@@ -50,7 +50,7 @@ interface CliArgs {
   script?: boolean;
   failfast?: boolean;
   coverage?: boolean;
-  /** Deprecated no-op: the released-migration check is always on now. */
+  /** Deprecated no-op: the released-migration check is always on. */
   strict?: boolean;
   /** `extension --allow-edited-migrations`: waive the released-migration check. */
   "allow-edited-migrations"?: boolean;
@@ -180,25 +180,23 @@ function parseCoverageOptions(args: CliArgs): CoverageOptions | undefined {
 }
 
 function showHelp(): void {
-  // init, lint and format all need a checkout - init scaffolds a Deno project,
-  // the other two shell out to the deno executable - so the compiled binary
-  // does not offer them. Listing a command that can only refuse is worse than
-  // not listing it at all.
+  // lint and format need a checkout - they shell out to the deno executable
+  // over the checkout's own source - so the compiled binary does not offer
+  // them. Listing a command that can only refuse is worse than not listing it
+  // at all. init works from the binary too: it only writes a project skeleton
+  // into the current directory.
   const usage = RUNNING_UNDER_DENO
     ? `    deno task [COMMAND] [OPTIONS]
     deno task start [COMMAND] [OPTIONS]`
     : `    pg_semantius [COMMAND] [OPTIONS]`;
 
-  const initCommand = RUNNING_UNDER_DENO
-    ? "    init             Initialize a new project\n"
-    : "";
   const checkoutCommands = RUNNING_UNDER_DENO
     ? "    lint             Run linter\n" +
       "    format           Format code\n"
     : "";
 
   const examples = [
-    ...(RUNNING_UNDER_DENO ? ["init"] : []),
+    "init",
     "connect --verbose",
     "connect --database-url postgresql://user:pass@host:5432/db",
     "test --tap",
@@ -249,7 +247,7 @@ OPTIONS:
     --apps <APPS>           Comma-separated list of app names (for migrate, extension and test)
     --confirm               Skip confirmation prompt (for dropall, reset, and retest commands)
     --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
-    --failfast              Stop test execution after the first failed test file (for test and reset commands)
+    --failfast              Stop test execution after the first failed test file (for test and retest commands)
     --coverage              Measure which functions/statements/tables the suite executes (for test and retest);
                             writes coverage/summary.json, coverage/uncovered.md and coverage/lcov.info
     --coverage-min <PCT>    Exit 1 when function coverage is below PCT percent (implies --coverage)
@@ -257,12 +255,14 @@ OPTIONS:
     --database-url <URL>    Database connection URL (overrides DATABASE_URL env variable and .env file)
 
 COMMANDS:
-${initCommand}    connect          Test database connection
+    init             Initialize a new project
+    connect          Test database connection
     test             Run pgTAP tests
     test <PATTERN>   Run only tests matching PATTERN (glob-like, e.g. 03*)
     lint-sql         Run plpgsql_check over every PL/pgSQL function in a
                      migrated database and write coverage/lint.txt. Reports the
-                     functions it could not check; never fails the build.
+                     functions it could not check. Exits 0 whatever it reports,
+                     and 1 when it cannot run, as without plpgsql_check.
 ${checkoutCommands}    migrate          Process and validate app folders (requires --apps parameter)
     extension <VER>  Generate the PostgreSQL extension (control + SQL) into
                      ./extension at an explicit version (e.g. 0.5.0). The version
@@ -271,8 +271,8 @@ ${checkoutCommands}    migrate          Process and validate app folders (requir
                      versions.json. See RELEASE.md.
                      Only migrations ADDED in <VER> may be edited; editing one an
                      earlier version shipped fails the build. Waive with
-                     --allow-edited-migrations. (--strict is now the default and
-                     is accepted but ignored.)
+                     --allow-edited-migrations. (--strict is the default and
+                     is ignored.)
                      --check writes nothing and exits 1 when ./extension no
                      longer matches the migrations (the pgdocker extension
                      harnesses run it before installing the build).
@@ -390,7 +390,7 @@ async function main(): Promise<void> {
   // --database-url flag takes priority over env file / DATABASE_URL env var.
   //
   // An allowlist, not "everything except extension": init, lint, format,
-  // testgen_jsonlogic, an unknown command and the bare help all used to be
+  // testgen_jsonlogic, an unknown command and the bare help would otherwise be
   // stopped by "DATABASE_URL not found" before they could say anything of
   // their own, which is an answer to a question the user never asked.
   // `migrate --script` builds its SQL from the migration files alone, so it
@@ -436,7 +436,8 @@ async function main(): Promise<void> {
       break;
 
     // Deliberately not a gate and deliberately not `lint`: this one needs a
-    // migrated database, and its exit code is always 0 (see lint_sql.ts).
+    // migrated database. It exits 0 whatever it reports, and 1 when it cannot
+    // run, as without plpgsql_check (see lint_sql.ts).
     case "lint-sql":
       await lintSqlCommand(databaseUrl!);
       break;
@@ -456,9 +457,9 @@ async function main(): Promise<void> {
     }
 
     case "extension": {
-      // The version is required. The old fallback to the CLI package's own
-      // version wrote a full install at THAT version, pruned the current build
-      // and moved default_version backwards. See RELEASE.md.
+      // The version is required. A fallback to the CLI package's own version
+      // would write a full install at THAT version, prune the current build and
+      // move default_version backwards. See RELEASE.md.
       if (args._.length <= 1) {
         console.error(
           `extension: a version is required, e.g. \`${INVOCATION} extension 0.5.0\`.`,
@@ -471,11 +472,11 @@ async function main(): Promise<void> {
       const version = String(args._[1]);
       // --strict is kept parseable on purpose: it appears in committed workflows
       // and in muscle memory, and a hard "unknown flag" failure mid-release is a
-      // worse outcome than a warning. It is NOT an alias for the new flag - that
-      // would invert its meaning.
+      // worse outcome than a warning. It is NOT an alias for
+      // --allow-edited-migrations - that would invert its meaning.
       if (args.strict) {
         console.warn(
-          "extension: --strict is now the default and is ignored. The " +
+          "extension: --strict is the default and is ignored. The " +
             "released-migration check is always on; use " +
             "--allow-edited-migrations to waive it.",
         );

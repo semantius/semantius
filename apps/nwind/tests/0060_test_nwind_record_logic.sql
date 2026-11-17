@@ -46,7 +46,7 @@ VALUES ('RL Order A', (SELECT id FROM customers WHERE customer_id = 'ALFKI'), 5.
 
 SELECT is(
     (SELECT label FROM orders WHERE ship_name = 'RL Order A'),
-    'Order ' || pg_temp.ord('RL Order A'),
+    'SO-' || pg_temp.ord('RL Order A'),
     'orders: an insert derives label from the id');
 
 SELECT is(pg_temp.money('RL Order A'), '0.00 5.00',
@@ -61,7 +61,7 @@ UPDATE orders SET label = 'typed', total = 1 WHERE ship_name = 'RL Order A';
 
 SELECT is(
     (SELECT label || ' ' || total FROM orders WHERE ship_name = 'RL Order A'),
-    'Order ' || pg_temp.ord('RL Order A') || ' 7.50',
+    'SO-' || pg_temp.ord('RL Order A') || ' 7.50',
     'orders: an update that writes label and total gets the derived values back');
 
 SELECT lives_ok(

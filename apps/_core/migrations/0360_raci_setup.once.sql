@@ -34,9 +34,10 @@ ALTER TABLE process_gates
 
 -- process_gates.entity is a reference to entities, which the dictionary
 -- creates as a nullable TEXT column with its index idx_process_gates_entity.
--- A gate without an entity means nothing, so the column is NOT NULL,
--- defaulting to '' as every NOT NULL column does; the foreign key refuses ''.
-ALTER TABLE process_gates ALTER COLUMN entity SET DEFAULT '';
+-- A gate without an entity means nothing, so the column is NOT NULL. Like
+-- raci_events.entity it has no default: an insert that leaves it out is
+-- refused as a missing value (23502), where a default would turn that into a
+-- foreign key violation for a value nobody wrote.
 ALTER TABLE process_gates ALTER COLUMN entity SET NOT NULL;
 
 CREATE INDEX idx_process_gates_emit   ON process_gates(entity) WHERE emits_events = TRUE;
@@ -44,7 +45,16 @@ CREATE INDEX idx_process_gates_emit   ON process_gates(entity) WHERE emits_event
 -- reference columns default to nullable in the DD model; target_role_id is mandatory
 ALTER TABLE raci_events ALTER COLUMN target_role_id SET NOT NULL;
 
-CREATE INDEX idx_raci_events_entity ON raci_events(entity, record_id);
+-- raci_events.entity is a reference to entities, which the dictionary creates
+-- as a nullable TEXT column with its index idx_raci_events_entity. An event
+-- without an entity means nothing, so the column is NOT NULL. Like
+-- target_role_id it has no default: an insert that leaves it out is refused
+-- as a missing value (23502), where a default would turn that into a foreign
+-- key violation for a value nobody wrote. The lookups of a record's events
+-- name the entity and the record, so they have an index of their own on both.
+ALTER TABLE raci_events ALTER COLUMN entity SET NOT NULL;
+
+CREATE INDEX idx_raci_events_entity_record ON raci_events(entity, record_id);
 CREATE INDEX idx_raci_events_status ON raci_events(status) WHERE status != 'acted';
 
 -- =====================================================

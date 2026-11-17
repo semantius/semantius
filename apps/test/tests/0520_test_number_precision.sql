@@ -117,14 +117,14 @@ SELECT is(
     'nwind: order_details.discount should be NUMERIC (not REAL/float)'
 );
 
--- And no fields in nwind tables should still use 'float' format
+-- And no field in nwind tables should use the 'float' format
 SELECT is(
     (SELECT count(*)::INTEGER FROM fields f
        JOIN entities e ON e.table_name = f.table_name
       WHERE e.module_id = (SELECT id FROM modules WHERE module_slug = 'nwind')
         AND f.format = 'float'),
     0,
-    'nwind: no fields should still use the float format'
+    'nwind: no field should use the float format'
 );
 
 -- =====================================================

@@ -1,8 +1,8 @@
 /**
  * Locates the `apps/<name>/{migrations,tests}` SQL the CLI reads.
  *
- * Every read used to be `./apps/...`, which is only correct when the process
- * was started from a checkout. `deno compile --include apps` ships that SQL
+ * A read of `./apps/...` is only correct when the process was started from a
+ * checkout. `deno compile --include apps` ships that SQL
  * inside the executable, and the embedded copy is mounted under a temporary
  * directory that only exists while the binary runs - so nothing here may
  * assume the working directory holds the repository.

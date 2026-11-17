@@ -17,8 +17,7 @@ SELECT plan(20);
 -- Fixtures: harness identities from apps/test (user1 = 1001, User role only;
 -- user2 = 1002, User + Northwind Sales) and the persisted nwind module
 -- (products = 77 rows, view_permission 'nwind:view').
--- Also hosts the read-only lookup asserts for rbac.get_user_by_external_id()
--- (formerly in 0080_test_readonly_rls.sql).
+-- Also hosts the read-only lookup asserts for rbac.get_user_by_external_id().
 
 select authenticate_as('user1');
 

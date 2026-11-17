@@ -511,51 +511,51 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: rebuilds are skipped and coalesced (P11)
+-- TEST: rebuilds are skipped and coalesced
 -- =====================================================
 -- Rebuilding search_vector drops and re-adds the column, so every rebuild
 -- leaves exactly one dropped-attribute placeholder behind in pg_attribute.
 -- Counting those placeholders is a direct count of full table rewrites.
 
 INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
-VALUES ('test_p11_rebuild', 'test_p11_rebuild', 'P11 Rebuild', 'P11 Rebuilds', 'Rebuild accounting for P11', 1, 'public:read', 'admin', 'id', 'name', TRUE);
+VALUES ('test_search_rebuild', 'test_search_rebuild', 'Test Search Rebuild', 'Test Search Rebuilds', 'Rebuild accounting for search_vector', 1, 'public:read', 'admin', 'id', 'name', TRUE);
 
-CREATE TEMP TABLE p11_baseline AS
+CREATE TEMP TABLE rebuild_baseline AS
 SELECT count(*) AS dropped
 FROM pg_attribute
-WHERE attrelid = 'test_p11_rebuild'::regclass AND attisdropped;
+WHERE attrelid = 'test_search_rebuild'::regclass AND attisdropped;
 
 -- A non-text field can never appear in the generated expression, so switching
 -- its searchable flag on must not rebuild anything.
 INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description, searchable)
-VALUES ('test_p11_rebuild', 'rank_value', 'Rank', 'int64', FALSE, 20, 'default', 'default', 'Numeric field', TRUE);
+VALUES ('test_search_rebuild', 'rank_value', 'Rank', 'int64', FALSE, 20, 'default', 'default', 'Numeric field', TRUE);
 
 SELECT is(
     (SELECT count(*) FROM pg_attribute
-      WHERE attrelid = 'test_p11_rebuild'::regclass AND attisdropped),
-    (SELECT dropped FROM p11_baseline),
+      WHERE attrelid = 'test_search_rebuild'::regclass AND attisdropped),
+    (SELECT dropped FROM rebuild_baseline),
     'toggling searchable on a non-text field should not rebuild search_vector'
 );
 
 -- Two searchable text fields added by one statement must cost one rebuild.
 INSERT INTO fields(table_name, field_name, title, format, is_pk, field_order, input_type, width, description, searchable)
 VALUES
-    ('test_p11_rebuild', 'note_one', 'Note One', 'text', FALSE, 30, 'default', 'w', 'First note', TRUE),
-    ('test_p11_rebuild', 'note_two', 'Note Two', 'text', FALSE, 40, 'default', 'w', 'Second note', TRUE);
+    ('test_search_rebuild', 'note_one', 'Note One', 'text', FALSE, 30, 'default', 'w', 'First note', TRUE),
+    ('test_search_rebuild', 'note_two', 'Note Two', 'text', FALSE, 40, 'default', 'w', 'Second note', TRUE);
 
 SELECT is(
     (SELECT count(*) FROM pg_attribute
-      WHERE attrelid = 'test_p11_rebuild'::regclass AND attisdropped),
-    (SELECT dropped + 1 FROM p11_baseline),
+      WHERE attrelid = 'test_search_rebuild'::regclass AND attisdropped),
+    (SELECT dropped + 1 FROM rebuild_baseline),
     'two searchable fields added in one statement should rebuild search_vector once'
 );
 
 -- Both are in the vector afterwards, so the single rebuild used the final state.
-INSERT INTO test_p11_rebuild (name, note_one, note_two)
-VALUES ('P11 Row', 'Notefieldone content', 'Notefieldtwo content');
+INSERT INTO test_search_rebuild (name, note_one, note_two)
+VALUES ('Rebuild Row', 'Notefieldone content', 'Notefieldtwo content');
 
 SELECT ok(
-    (SELECT COUNT(*) FROM test_p11_rebuild
+    (SELECT COUNT(*) FROM test_search_rebuild
       WHERE search_vector @@ to_tsquery('simple', 'Notefieldone & Notefieldtwo')) = 1,
     'both fields added in the coalesced statement should be searchable'
 );

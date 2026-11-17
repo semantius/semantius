@@ -25,11 +25,11 @@
  * SHAPE: a THIN INSTALLER, not a concatenation of the migrations.
  *
  * The script creates only the cluster roles, the `semantius` schema and that
- * schema's functions. Everything else — 52 relations, their triggers, policies
+ * schema's functions. Everything else — the relations, their triggers, policies
  * and seed rows — is created later by `semantius.migrate()`, which runs OUTSIDE
  * any extension script, so none of it becomes an extension member. That single
  * property is what makes a plain `pg_dump`/single-pass `pg_restore` work and
- * `DROP EXTENSION` harmless; see plans/pg_semantius-extension-rebuild.md.
+ * `DROP EXTENSION` harmless.
  *
  * Install is therefore two statements:
  *   CREATE EXTENSION pg_semantius;
@@ -80,7 +80,7 @@ const MEMBERSHIP_ALLOWLIST = ["pgcrypto", "plpgsql_check"];
 /** Dollar tag wrapping the migrate() body. */
 const OUTER_TAG = "$pgsem_migrate_body$";
 
-/** LF-normalizes text (B13): local CRLF checkouts and CI's LF blobs must hash
+/** LF-normalizes text: local CRLF checkouts and CI's LF blobs must hash
  * and embed identically, or the release guard fails on line endings alone.
  * Exported for `extension_test.ts`, the only check that can fail on its
  * removal: the generated files are CR-free either way. */
@@ -308,7 +308,9 @@ export async function extensionCommand(
   if (superseded.length > 0) {
     console.error(
       `Error: version ${version} is frozen - ${manifestPath} already holds ` +
-        `${superseded.join(", ")}. Regenerating it would delete the higher full ` +
+        `${
+          superseded.join(", ")
+        }. Regenerating it would delete the higher full ` +
         `install and move default_version backwards. Generate ` +
         `${superseded[superseded.length - 1]} or a higher version instead.`,
     );
@@ -687,23 +689,24 @@ function buildControlFile(
     `default_version = '${version}'`,
     // Pins the extension to `public`: PostgreSQL then ignores the caller's
     // search_path for it and refuses `CREATE EXTENSION ... SCHEMA other` with
-    // `extension "<name>" must be installed in schema "public"` (B2). `public`
+    // `extension "<name>" must be installed in schema "public"`. `public`
     // always exists, so nothing is auto-created, and pg_dump emits
     // `WITH SCHEMA public`, which matches on restore.
     `schema = public`,
     `relocatable = false`,
     // The script creates cluster roles: superuser only.
     `superuser = true`,
-    // 16 migrations carry UTF-8 text. This rejects a LATIN1 database; the
+    // Migrations carry UTF-8 text. This rejects a LATIN1 database; the
     // script's own pg_encoding_to_char check additionally rejects SQL_ASCII,
-    // which would silently accept raw bytes (B9).
+    // which would silently accept raw bytes.
     `encoding = 'UTF8'`,
   ];
 
   // Deliberately NO `requires`. `CREATE EXTENSION ... CASCADE` would install
   // pgcrypto into the CALLER's default creation schema, and 0280_apikeys.sql
   // calls gen_random_bytes/crypt/gen_salt unqualified under
-  // `search_path = public`, so API keys would break in exactly B2's scenario.
+  // `search_path = public`, so API keys would break whenever that schema is
+  // not `public`.
   // 0010_core.sql creates pgcrypto
   // itself, from inside migrate(), under the pinned search_path; META keeps it
   // as a runtime prereq and migrate()'s pre-flight refuses a misplaced one.
@@ -759,7 +762,7 @@ function buildMetaJson(
     maintainer: ["adenin TECHNOLOGIES <support@adenin.com>"],
     license: "mit",
     // "testing" until a version is actually released; PGXN readers use
-    // this to decide whether a build is meant for production (B10).
+    // this to decide whether a build is meant for production.
     release_status: "testing",
     provides: {
       [name]: {
@@ -814,7 +817,7 @@ function buildMetaJson(
 }
 
 /**
- * Builds the CONSUMER README shipped inside the PGXN archive (B8).
+ * Builds the CONSUMER README shipped inside the PGXN archive.
  *
  * Consumer-only: it documents installing, upgrading, backing up, restoring and
  * uninstalling a released build. Repo paths, deno tasks and harness scripts
@@ -995,7 +998,7 @@ The code reads these settings from the session:
 | \`app.current_user_id\`, \`app.user_permissions\`, \`app.oauth_scopes\`, \`app.oauth_scopes_expanded\`, \`app.oauth_scopes_expanded_for\`, \`app.current_external_id\`, \`app.context_initialized\`, \`app.bumping_module_version\`, \`app.bearer_cache_notice\` | the RBAC code itself, per transaction |
 | \`app.row_move\`, \`app.select_rule_warned\` | the generated \`select_rule\` predicates and the \`zz_row_move\` triggers of an entity with a \`select_rule\`, per transaction |
 | \`dd.table_rename\` | the data dictionary, during a table rename |
-| \`semantius.notice_level\` | \`ensure_entities()\`, per transaction, to keep the caller's \`client_min_messages\` for its NOTICEs |
+| \`semantius.notice_level\` | \`ensure_entities()\`, per transaction, to keep the caller's \`client_min_messages\` for its NOTICEs: the dictionary code runs \`SET LOCAL client_min_messages = WARNING\` to silence the notices of the DDL it runs, and that lasts to the end of the transaction |
 
 DDL emits \`NOTIFY pgrst, 'reload schema'\` so PostgREST reloads its cache, and
 the audit event triggers record both DDL and drops in
@@ -1210,9 +1213,7 @@ function renderInstaller(
     const condition = isFinal(m.name)
       ? `v_ran OR (v_failed_file IS NULL AND ${due})`
       : `v_failed_file IS NULL AND ${due}`;
-    const appStart = m.app === prevApp
-      ? ""
-      : `
+    const appStart = m.app === prevApp ? "" : `
   -- App ${m.app}: v_ran records whether any of its files ran in this pass.
   v_ran := false;
 `;
@@ -1281,7 +1282,7 @@ function renderInstaller(
 
   return `-- =====================================================
 -- Thin installer. This script creates ONLY cluster roles, the ${S} schema
--- and its functions and procedure. The 52 core relations, their triggers, policies and seed
+-- and its functions and procedure. The core relations, their triggers, policies and seed
 -- rows are created by ${S}.migrate(), which runs OUTSIDE any extension
 -- script, so none of them becomes an extension member. That is what makes a
 -- plain pg_dump / single-pass pg_restore work and DROP EXTENSION harmless.
@@ -1393,7 +1394,11 @@ ${drops}
 --    settings the migrations assume with set_config() before every file
 --    (a procedure that commits cannot have SET clauses), so a hostile or
 --    merely unusual session cannot change what gets installed.
-${opts.upgrade ? `DROP FUNCTION IF EXISTS ${S}.migrate();\n` : ""}${orReplace} PROCEDURE ${S}.migrate(INOUT summary jsonb DEFAULT NULL)
+${
+    opts.upgrade
+      ? `DROP FUNCTION IF EXISTS ${S}.migrate();\n`
+      : ""
+  }${orReplace} PROCEDURE ${S}.migrate(INOUT summary jsonb DEFAULT NULL)
 LANGUAGE plpgsql
 AS ${OUTER_TAG}
 DECLARE
@@ -1482,9 +1487,7 @@ BEGIN
   -- Same ledger the CLI runner uses, so either path recognizes the other's work.
   BEGIN
     PERFORM pg_catalog.set_config('search_path', 'public', true);
-${
-    getVersionsTableSql().split("\n").map((l) => (l ? "    " + l : l)).join("\n")
-  }
+${getVersionsTableSql().split("\n").map((l) => (l ? "    " + l : l)).join("\n")}
   EXCEPTION WHEN OTHERS THEN
     PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
     RAISE;
@@ -1630,7 +1633,9 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY[${names.map((n) => `'${escapeSqlLiteral(n)}'`).join(", ")}];
+  v_all text[] := ARRAY[${
+    names.map((n) => `'${escapeSqlLiteral(n)}'`).join(", ")
+  }];
   v_once text[] := ARRAY[${
     migs.filter((m) => isOnce(m.name))
       .map((m) => `'${escapeSqlLiteral(`${m.app}.${m.name}`)}'`)

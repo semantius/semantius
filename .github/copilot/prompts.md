@@ -1,6 +1,6 @@
 # Semantius Core Coding Guidelines
 
-You are working on Semantius Core, a database-first backend system. Follow these specific guidelines:
+You are working on Semantius Core, a database-first backend system. The rules for agents are in AGENTS.md. Follow these specific guidelines:
 
 ## Architecture Understanding
 - This is NOT a typical web application
@@ -22,15 +22,16 @@ You are working on Semantius Core, a database-first backend system. Follow these
 
 ## Testing Requirements
 - Write pgTAP tests for all database functionality
-- **ALWAYS EXECUTE**: Run the full test cycle after any changes: dropall → migrate --apps _core,nwind,test → test
+- **ALWAYS EXECUTE**: Run the full test cycle after any changes on the local pgdocker containers: `./pgdocker/pg-cli-retest.sh`, and `./pgdocker/pg-ext-retest.sh` for the extension path
+- Never run `dropall` against a remote database, nor `retest` or `reset`, which drop everything first
 - Test both success and failure scenarios
 - Consider edge cases and security boundaries
 - **AGENT MUST VERIFY**: Execute tests to ensure nothing is broken before completing tasks
 
 ## Development Workflow
-- Prototype-first approach (no backward compatibility required)
-- Start fresh with each test cycle
-- Prioritize correctness over migration complexity
+- After a release, migrations are forward only and additive only (AGENTS.md)
+- Start each test cycle from a fresh local container
+- Prioritize correctness
 - Focus on PostgreSQL best practices
 
 ## Code Quality

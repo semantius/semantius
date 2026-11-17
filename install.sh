@@ -61,7 +61,8 @@ case "$OS" in
         ;;
 esac
 
-# Installation directory - prefer ~/.local/bin (no sudo needed)
+# Installation directory: /usr/local/bin when it is writable, otherwise
+# ~/.local/bin, which needs no sudo. INSTALL_DIR overrides both.
 if [ -z "${INSTALL_DIR:-}" ]; then
     if [ -w "/usr/local/bin" ]; then
         INSTALL_DIR="/usr/local/bin"

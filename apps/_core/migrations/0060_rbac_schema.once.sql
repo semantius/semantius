@@ -83,7 +83,7 @@ CREATE TABLE roles (
     role_name TEXT UNIQUE NOT NULL DEFAULT '',
     slug TEXT NOT NULL DEFAULT '' UNIQUE,
     -- Catalog/blueprint lineage (v0.1.2): the catalog persona this role was provisioned from.
-    -- Non-unique lineage; roles.slug stays the identity. No consumer yet (D5 insurance).
+    -- Non-unique lineage; roles.slug stays the identity. No consumer yet.
     catalog_role_code TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     origin TEXT NOT NULL DEFAULT 'user',

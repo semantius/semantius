@@ -165,7 +165,7 @@ The code reads these settings from the session:
 | `app.current_user_id`, `app.user_permissions`, `app.oauth_scopes`, `app.oauth_scopes_expanded`, `app.oauth_scopes_expanded_for`, `app.current_external_id`, `app.context_initialized`, `app.bumping_module_version`, `app.bearer_cache_notice` | the RBAC code itself, per transaction |
 | `app.row_move`, `app.select_rule_warned` | the generated `select_rule` predicates and the `zz_row_move` triggers of an entity with a `select_rule`, per transaction |
 | `dd.table_rename` | the data dictionary, during a table rename |
-| `semantius.notice_level` | `ensure_entities()`, per transaction, to keep the caller's `client_min_messages` for its NOTICEs |
+| `semantius.notice_level` | `ensure_entities()`, per transaction, to keep the caller's `client_min_messages` for its NOTICEs: the dictionary code runs `SET LOCAL client_min_messages = WARNING` to silence the notices of the DDL it runs, and that lasts to the end of the transaction |
 
 DDL emits `NOTIFY pgrst, 'reload schema'` so PostgREST reloads its cache, and
 the audit event triggers record both DDL and drops in

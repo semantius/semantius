@@ -22,9 +22,8 @@ SELECT plan(22);
 -- SETUP: Simulate a fresh system with no administrator
 -- =====================================================
 -- As the installer, so RLS is out of the way and no seeded identity has to hold
--- a permission for the setup to work. Clearing last_seen alone is not enough
--- any more: user3 holds role 2 from the seed, and that is now what the gate
--- reads.
+-- a permission for the setup to work. Clearing last_seen alone is not enough:
+-- user3 holds role 2 from the seed, and that is what the gate reads.
 
 RESET ROLE;
 UPDATE users SET last_seen = NULL;
@@ -153,8 +152,8 @@ SELECT ok(
 -- =====================================================
 -- TEST: bootstrap negatives - the role is taken, so nobody else gets it
 -- =====================================================
--- Insert as firstuser_ui, which now holds user:manage. Its own last_seen is
--- irrelevant to its permissions.
+-- Insert as firstuser_ui, which holds user:manage as the administrator elected
+-- above. Its own last_seen is irrelevant to its permissions.
 RESET ROLE;
 SELECT authenticate_as('firstuser_ui');
 
@@ -187,12 +186,12 @@ SELECT ok(
 );
 
 -- =====================================================
--- TEST: the state the old gate got wrong
+-- TEST: an administrator exists and nobody has a last_seen
 -- =====================================================
 -- An administrator exists, and NOT ONE user in the table has a last_seen. That
 -- is an ordinary state: every principal was pre-provisioned, or the column was
--- cleared. The old gate read "no other user has last_seen" as "nobody has ever
--- arrived" and elected the next principal to log in, handing Administrator to
+-- cleared. A gate that read "no other user has last_seen" as "nobody has ever
+-- arrived" would elect the next principal to log in, handing Administrator to
 -- whoever authenticated next.
 
 RESET ROLE;

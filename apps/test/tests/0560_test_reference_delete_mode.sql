@@ -10,7 +10,7 @@
 
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(30);
 
 -- =====================================================
 -- TEST 1: reference_delete_mode can be empty when reference_table is empty
@@ -315,6 +315,53 @@ SELECT is(
 );
 
 DELETE FROM fields WHERE table_name = 'test_table' AND field_name IN ('test_no_enum_val', 'test_obj_enum_val');
+
+-- =====================================================
+-- TEST 17: a parent field cannot use delete mode clear (90282)
+-- =====================================================
+-- A parent field's column is NOT NULL, so ON DELETE SET NULL would make every
+-- delete of a parent record that has children fail with 23502.
+SELECT throws_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+      VALUES ('test_table', 'test_parent_clear', 'Parent Clear', 'parent', 150, 'modules', 'clear')$$,
+    '90282',
+    'Field ${field_name} on ${table} is a parent field and cannot use delete mode clear',
+    'a new parent field with delete mode clear is refused'
+);
+
+SELECT is(
+    catch_error_hint($$INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+      VALUES ('test_table', 'test_parent_clear', 'Parent Clear', 'parent', 150, 'modules', 'clear')$$),
+    jsonb_build_object('table', 'test_table', 'field_name', 'test_parent_clear',
+                       'hint', 'Use restrict or cascade, or make it a reference with clear.'),
+    'its hint names the table and the field, and suggests restrict, cascade or a reference'
+);
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('test_table', 'test_parent_cascade', 'Parent Cascade', 'parent', 160, 'modules', 'cascade');
+
+SELECT throws_ok(
+    $$UPDATE fields SET reference_delete_mode = 'clear'
+       WHERE table_name = 'test_table' AND field_name = 'test_parent_cascade'$$,
+    '90282',
+    NULL,
+    'setting delete mode clear on an existing parent field is refused'
+);
+
+DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_parent_cascade';
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('test_table', 'test_reference_clear', 'Reference Clear', 'reference', 170, 'modules', 'clear');
+
+SELECT throws_ok(
+    $$UPDATE fields SET format = 'parent'
+       WHERE table_name = 'test_table' AND field_name = 'test_reference_clear'$$,
+    '90282',
+    NULL,
+    'changing a reference field with delete mode clear into a parent field is refused'
+);
+
+DELETE FROM fields WHERE table_name = 'test_table' AND field_name = 'test_reference_clear';
 
 -- Clean up
 DELETE FROM entities WHERE table_name = 'test_ref_table2';

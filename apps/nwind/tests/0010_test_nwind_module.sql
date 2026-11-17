@@ -5,9 +5,9 @@
 -- hierarchy, the Northwind Sales role, Administrator auto-grant, the
 -- `events` queue + order-insert mapping, and the sample platform rows
 -- (dashboard, RACI process/gate, webhook receiver + log). Also carries the
--- webhook enum coverage formerly in the central 0170 file and the
--- regression guards against the removed test seed (Sales User / sales:* /
--- CRM-HR-Inventory). Reads catalog tables as user3 (Administrator); pgmq
+-- webhook enum coverage and guards that Northwind is the only sample data:
+-- no Sales User role, no sales:* permission, no CRM, HR or Inventory
+-- module. Reads catalog tables as user3 (Administrator); pgmq
 -- internals are read as the owner (RESET ROLE), as 0310 does.
 -- Requires: deno task migrate --apps _core,nwind,test
 -- =====================================================
@@ -153,28 +153,28 @@ SELECT ok(
 );
 
 -- =====================================================
--- REGRESSION GUARDS: the old test seed is gone
+-- GUARDS: Northwind is the only sample data
 -- =====================================================
 
 -- Test 16: no role "Sales User"
 SELECT is(
     (SELECT COUNT(*)::integer FROM roles WHERE role_name = 'Sales User' OR slug = 'sales_user'),
     0,
-    'Legacy role "Sales User" should not exist'
+    'No role "Sales User" should exist'
 );
 
 -- Test 17: no sales:* permissions
 SELECT is(
     (SELECT COUNT(*)::integer FROM permissions WHERE permission_name LIKE 'sales:%'),
     0,
-    'Legacy sales:* permissions should not exist'
+    'No sales:* permission should exist'
 );
 
 -- Test 18: no CRM / HR / Inventory modules
 SELECT is(
     (SELECT COUNT(*)::integer FROM modules WHERE module_name IN ('CRM', 'HR', 'Inventory')),
     0,
-    'Legacy CRM/HR/Inventory modules should not exist'
+    'No CRM/HR/Inventory module should exist'
 );
 
 -- =====================================================
@@ -309,7 +309,7 @@ SELECT ok(
 );
 
 -- =====================================================
--- WEBHOOK ENUM COVERAGE (formerly central 0170)
+-- WEBHOOK ENUM COVERAGE
 -- =====================================================
 
 -- Test 33: auth_type none

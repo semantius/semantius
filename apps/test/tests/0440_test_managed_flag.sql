@@ -1,7 +1,7 @@
 -- Test managed flag functionality for tables and fields
 BEGIN;
 
-SELECT plan(19);
+SELECT plan(21);
 
 -- Authenticate as admin user
 SELECT authenticate_as('user3');
@@ -181,6 +181,32 @@ SELECT ok(
     NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'test_toggle_managed'),
     'Test toggle managed table should be cleaned up'
 );
+
+-- =====================================================
+-- TEST: managed true → false → true after an edit_permission change
+-- =====================================================
+-- While an entity is unmanaged, a change of edit_permission reaches none of
+-- its policies, so the table keeps the INSERT policy of its managed period.
+-- Switching it back to managed rebuilds that policy from the edit_permission
+-- the entity names now.
+INSERT INTO entities(table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
+VALUES ('test_readopt', 'test_readopt', 'Test Readopt', 'Test Readopts', 'Re-adoption test', 1, 'public:read', 'admin', 'id', 'label', TRUE);
+UPDATE entities SET managed = FALSE WHERE table_name = 'test_readopt';
+UPDATE entities SET edit_permission = 'user:manage' WHERE table_name = 'test_readopt';
+
+SELECT is(
+    (SELECT with_check FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'test_readopt' AND policyname = 'test_readopt_insert_policy'),
+    '( SELECT rbac.has_permission(''admin''::text) AS has_permission)',
+    'unmanaged: the INSERT policy still checks the edit_permission of the managed period');
+
+UPDATE entities SET managed = TRUE WHERE table_name = 'test_readopt';
+
+SELECT is(
+    (SELECT with_check FROM pg_policies
+      WHERE schemaname = 'public' AND tablename = 'test_readopt' AND policyname = 'test_readopt_insert_policy'),
+    '( SELECT rbac.has_permission(''user:manage''::text) AS has_permission)',
+    'managed again: the INSERT policy checks the edit_permission the entity names now');
 
 SELECT * FROM finish();
 ROLLBACK;

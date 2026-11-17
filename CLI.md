@@ -72,9 +72,10 @@ too. Beyond that the binary needs nothing at
 all — no Deno, no `node_modules`, no network other than the PostgreSQL
 connection.
 
-`init`, `lint` and `format` are the exceptions: they scaffold or lint a source
-tree, so they exist only when the CLI runs from a checkout and the binary does
-not offer them.
+`lint` and `format` are the exceptions: they lint or format a source tree, so
+they exist only when the CLI runs from a checkout and the binary does not offer
+them. `init`, which scaffolds a new project in the current directory, works from
+the binary too.
 
 ### Building it yourself
 
@@ -107,8 +108,8 @@ From anywhere else, give the full path —
 `.env.<name>` profile still resolve it against the _current_ directory, so run
 those from the repository root or pass `--database-url` instead.
 
-To type `pg_semantius` instead, copy it where the installers put it — the same
-destination, so a later `install.sh` / `install.ps1` replaces it cleanly:
+To type `pg_semantius` instead, copy it where the installers put it, so a later
+`install.sh` / `install.ps1` replaces it rather than leaving a second copy:
 
 ```bash
 mkdir -p ~/.local/bin
@@ -121,16 +122,18 @@ Copy-Item dist\pg_semantius-cli-windows-x64.exe "$env:LOCALAPPDATA\Programs\Sema
 
 On Windows that directory is created and added to PATH by `install.ps1`; if you
 have never run it, create the directory and add it to your PATH once. On
-Linux/macOS, `install.sh` uses `/usr/local/bin` instead when that directory is
-writable; `~/.local/bin` must be on your PATH.
+Linux/macOS, `install.sh` puts it in `/usr/local/bin` when that directory is
+writable, so copy it there in that case, and in `~/.local/bin` otherwise, which
+must be on your PATH.
 
 ---
 
 ## CLI usage (`packages/cli`)
 
 The command tasks are defined in the root `deno.json` and run
-`packages/cli/cli.ts`; `build-cli`, `bundle-sql` and `setup-session-role` run
-scripts in `scripts/`.
+`packages/cli/cli.ts`; `build-cli`, `build-cli:all`, `bundle-sql` and
+`setup-session-role` run scripts in `scripts/`, and `check` type-checks
+`packages/cli/cli.ts`.
 
 ```bash
 deno task [COMMAND] [OPTIONS]
@@ -160,10 +163,10 @@ deno task [COMMAND] [OPTIONS]
 
 | Command | Description |
 |---|---|
-| `init` | Initialize a new project (checkout only) |
+| `init` | Initialize a new project |
 | `connect` | Test the database connection |
 | `test` | Run pgTAP tests (`--apps <names>` to pick which apps' suites) |
-| `lint-sql` | Run `plpgsql_check` over every PL/pgSQL function of a migrated database and write `coverage/lint.txt`; always exits 0 |
+| `lint-sql` | Run `plpgsql_check` over every PL/pgSQL function of a migrated database and write `coverage/lint.txt`; exits 0 whatever it finds, and 1 when it cannot run, as without `plpgsql_check` on the server |
 | `lint` | Run Deno linter (checkout only) |
 | `format` / `fmt` | Format code (checkout only) |
 | `migrate` | Execute SQL migrations for specified apps |

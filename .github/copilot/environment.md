@@ -34,9 +34,11 @@ DATABASE_URL=postgresql://postgres:DD3ZR7NPSIu9dzVw@db.feuwllkajpvgwqovfjyh.supa
 ### Agent Execution Context:
 - Agent runs in GitHub's cloud environment
 - Accesses environment variables through GitHub's secure variable system
-- Test database is safe for cloud execution (throwaway instance)
+- `DATABASE_URL` names a remote database: never run `deno task dropall`
+  against it, nor `retest` or `reset`, which drop everything first
 
 ## Safety Notes:
-- This is a dedicated test database - safe for agent execution
-- Database can be dropped/recreated without data loss
-- No production data or sensitive information stored
+- The rules for agents are in [AGENTS.md](../../AGENTS.md).
+- Tests run on the local pgdocker containers (`./pgdocker/pg-cli-retest.sh`,
+  `./pgdocker/pg-ext-retest.sh`), never on a remote database.
+- After a release, migrations are forward only and additive only.

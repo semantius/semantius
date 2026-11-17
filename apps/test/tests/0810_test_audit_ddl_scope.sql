@@ -1,12 +1,12 @@
 -- Tests for the SCOPE of the DDL audit (audit.log_ddl_event / track_ddl_changes).
 --
 -- 0800 proves the DDL audit records what it should. This file proves it does
--- NOT record what it should not, and that it no longer blocks the request role:
+-- NOT record what it should not, and that it does not block the request role:
 --
 --   1. DDL in a schema Semantius does not own produces no audit row
 --   2. DDL in public still does                     (regression guard for 0800)
 --   3. CREATE TEMP TABLE produces no audit row
---   4. CREATE TEMP TABLE succeeds as the request role (S15)
+--   4. CREATE TEMP TABLE succeeds as the request role
 --   5. audit.log_ddl_event is SECURITY DEFINER, which is what makes 4 true
 --   6. track_ddl_changes carries no tag allowlist: the schema is the scope
 --   7. query_text is bounded to 8192 characters
@@ -79,12 +79,12 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST 4 (S15): the request role can run DDL again
+-- TEST 4: the request role can run DDL
 -- =====================================================
--- Before the fix this raised
+-- Run as the caller, audit.log_ddl_event() would raise
 --   ERROR: permission denied for function current_user_id
--- from audit.log_ddl_event(), because the event trigger ran as the caller and
--- audit.current_user_id() is revoked from PUBLIC.
+-- because audit.current_user_id() is revoked from PUBLIC; audit.log_ddl_event()
+-- is SECURITY DEFINER (TEST 5).
 
 SELECT authenticate_as('user1');
 
@@ -105,8 +105,8 @@ SELECT is(
 -- =====================================================
 -- TEST 5: log_ddl_event is SECURITY DEFINER
 -- =====================================================
--- The mechanism behind TEST 4, and what makes the three audit triggers
--- consistent (insert_update_delete_trigger and truncate_trigger already were).
+-- The mechanism behind TEST 4. insert_update_delete_trigger and
+-- truncate_trigger, the row audit triggers, are SECURITY DEFINER as well.
 
 SELECT ok(
     (SELECT p.prosecdef
@@ -196,8 +196,8 @@ SELECT is(
     'creating a hand-written *_label function is audited'
 );
 
--- The case this was written for: public.snake_to_label(text) ships with the
--- migrations and used to disappear from the log for no reason but its name.
+-- The shipped case: public.snake_to_label(text) comes with the migrations, and
+-- a filter on the name alone would drop it from the log.
 SELECT ok(
     (SELECT count(*) FROM audit_ddl_logs
       WHERE object_identity LIKE 'public.snake_to_label(%') > 0,
@@ -208,9 +208,9 @@ SELECT ok(
 -- =====================================================
 -- TEST 9: a command type nobody enumerated is audited
 -- =====================================================
--- CREATE STATISTICS was not on the tag list the trigger used to carry, and it
--- changes the planner's behavior on a table Semantius owns. It stands here for
--- every other command type nobody thought to name.
+-- CREATE STATISTICS is a command a tag list easily leaves out, and it changes
+-- the planner's behavior on a table Semantius owns. It stands here for every
+-- other command type nobody thought to name.
 
 CREATE TABLE public.audit_scope_drop (id serial PRIMARY KEY, label text NOT NULL DEFAULT '');
 CREATE INDEX audit_scope_drop_label_idx ON public.audit_scope_drop (label);
@@ -221,7 +221,7 @@ SELECT is(
       WHERE command_tag = 'CREATE STATISTICS'
         AND object_identity = 'public.audit_scope_stats'),
     1,
-    'a command type the old tag list never named is audited'
+    'a command type nobody enumerated (CREATE STATISTICS) is audited'
 );
 
 -- =====================================================

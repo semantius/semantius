@@ -851,8 +851,8 @@ COMMENT ON FUNCTION effective_enum_values IS
 -- required check refuses: a write that leaves it out fails rather than saving a
 -- value nobody chose.
 --
--- p_input_type and p_enum_values no longer decide anything, and the signature
--- keeps them on purpose. Each migration file commits on its own, and
+-- p_input_type and p_enum_values decide nothing, and the signature keeps them
+-- on purpose. Each migration file commits on its own, and
 -- 0250_public_functions.sql calls this function, so dropping the signature here
 -- would make get_schema() fail on a live database until that later file commits.
 CREATE OR REPLACE FUNCTION effective_enum_default(p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB)
@@ -1257,13 +1257,27 @@ $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_replace_enum_check(fields, TEXT) IS
 'Replaces the CHECK listing the allowed values of an enum field, or drops it when the field is no longer an enum with values.';
 
--- Refused only when the row is new or one of these columns changes: a field that
--- already has this combination from before this rule must stay editable, and a
--- cascade that renames the referenced entity must go through.
+-- ON DELETE SET NULL on a column that may not be NULL makes every delete of a
+-- referenced record fail (23502). A parent field's column is always NOT NULL,
+-- so clear is refused on it outright (90282); a reference is refused only while
+-- it is required (90257). Refused only when the row is new or one of these
+-- columns changes: a field that already has this combination from before this
+-- rule must stay editable, and a cascade that renames the referenced entity
+-- must go through.
 CREATE OR REPLACE FUNCTION validate_required_delete_mode()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF dd_required_test(NEW) IS NOT NULL
+    IF NEW.format = 'parent'
+       AND (TG_OP = 'INSERT'
+            OR OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode
+            OR OLD.format IS DISTINCT FROM NEW.format) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} is a parent field and cannot use delete mode clear'
+            USING ERRCODE = '90282',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'hint', 'Use restrict or cascade, or make it a reference with clear.')::text;
+    END IF;
+    IF NEW.format = 'reference'
+       AND dd_required_test(NEW) IS NOT NULL
        AND (TG_OP = 'INSERT'
             OR OLD.input_type IS DISTINCT FROM NEW.input_type
             OR OLD.input_type_rule IS DISTINCT FROM NEW.input_type_rule
@@ -1278,12 +1292,12 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION validate_required_delete_mode() IS
-'BEFORE INSERT/UPDATE guard on fields: refuses a required reference whose delete mode is clear, because ON DELETE SET NULL would make every delete of its parent fail.';
+'BEFORE INSERT/UPDATE guard on fields: refuses a parent field whose delete mode is clear (90282) and a required reference whose delete mode is clear (90257), because ON DELETE SET NULL on a column that may not be NULL would make every delete of a referenced record fail.';
 
 CREATE OR REPLACE TRIGGER validate_required_delete_mode_trigger
     BEFORE INSERT OR UPDATE ON fields
     FOR EACH ROW
-    WHEN (NEW.format = 'reference' AND NEW.reference_delete_mode = 'clear')
+    WHEN (NEW.format IN ('reference', 'parent') AND NEW.reference_delete_mode = 'clear')
     EXECUTE FUNCTION validate_required_delete_mode();
 
 -- =====================================================
@@ -1555,7 +1569,7 @@ BEGIN
     END IF;
 
     -- Insert field records for id, label, created_at, and updated_at columns.
-    -- All these are core fields (ctype <> '') that cannot be deleted, and cannot
+    -- All four are core fields (ctype id, label or audit) that cannot be deleted, and cannot
     -- be renamed except the label column, which validate_field_rename_and_format
     -- lets through; ctype is set
     -- here by privileged DD code (the fields_ctype_lock trigger forbids users from setting it).
@@ -1687,9 +1701,10 @@ GRANT EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) TO semantius_user;
 -- =====================================================
 -- ctype LOCK: ctype is the single, un-tamperable core marker
 -- =====================================================
--- ctype marks a DD-managed core column (id/label/audit/core); all structural protection
--- (no delete, no format or default change, and no rename but the label column's)
--- keys on `ctype <> ''`. For that to be sound the
+-- ctype marks a DD-managed core column (id/label/computed_label/audit/core); all structural
+-- protection (no delete, no format or default change, and no rename but the label column's)
+-- keys on dd_ctype_is_core(ctype), under which the derived markers rollup and computed are
+-- not core. For that to be sound the
 -- marker must be settable ONLY by DD/migration code and immutable thereafter — otherwise a
 -- tenant admin (who holds the fields edit permission) could mint a ctype, or clear the ctype
 -- of the id column to "free" it for deletion. Privilege is decided by BYPASSRLS: the migration
@@ -1724,7 +1739,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION lock_field_ctype IS
-'BEFORE INSERT/UPDATE guard on fields: only a BYPASSRLS (DD/migration) caller may set or change ctype. Non-privileged users get ctype forced to '''' on INSERT and a rejection on any UPDATE that changes ctype. Keeps ctype (the core marker that "core = ctype <> ''" depends on) un-tamperable.';
+'BEFORE INSERT/UPDATE guard on fields: only a BYPASSRLS (DD/migration) caller may set or change ctype. Non-privileged users get ctype forced to '''' on INSERT and a rejection on any UPDATE that changes ctype. Keeps ctype (the marker dd_ctype_is_core reads to decide which columns are core) un-tamperable.';
 
 REVOKE EXECUTE ON FUNCTION lock_field_ctype() FROM PUBLIC;
 
@@ -2927,11 +2942,11 @@ COMMENT ON FUNCTION apply_field_searchable_change IS
 --     instead of N times, and every rebuild is a full table rewrite;
 --   * AFTER STATEMENT triggers run after all AFTER ROW triggers, so the physical
 --     DDL from add_field_trigger and update_field_trigger has always been
---     applied by the time the tsvector expression is built. The row-level
---     version depended on trigger name ordering for that and only got it right
---     for add_field_trigger: update_field_trigger sorts after handle_field_*,
---     so an UPDATE changing both format and searchable used to build the
---     expression against the pre-ALTER column.
+--     applied by the time the tsvector expression is built. A row-level
+--     trigger would depend on trigger name ordering for that and get it right
+--     only for add_field_trigger: update_field_trigger sorts after
+--     handle_field_*, so an UPDATE changing both format and searchable would
+--     build the expression against the pre-ALTER column.
 
 CREATE OR REPLACE FUNCTION handle_field_searchable_insert()
 RETURNS TRIGGER AS $$
@@ -4853,7 +4868,7 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- Enforce the CANONICAL PREDICATE (spec authz-spec.md / D8), the SAME boundary
+    -- Enforce the CANONICAL PREDICATE (docs/authorization.md, D8), the SAME boundary
     -- the RLS SELECT policy uses — NOT view_permission alone — of every level
     -- the record is stored in: one for a plain entity, the root and each base
     -- for an is_a or has_a entity, whose security_invoker view applies all of

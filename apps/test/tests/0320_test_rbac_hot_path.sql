@@ -1,16 +1,16 @@
 -- =====================================================
 -- RBAC warm-path permission checks (0320)
 -- =====================================================
--- A warm permission check used to enter two PL/pgSQL frames and
--- resolve the caller's identity twice: rbac.has_permission called rbac.uid(),
--- then rbac.ensure_context_initialized(), which called rbac.uid() again before
--- reaching its "already initialized" shortcut. The shortcut therefore sat
--- behind all of the work it was meant to skip. The cache test is now inlined
--- into the checkers, so a warm check enters one frame and calls neither.
+-- A warm permission check enters one PL/pgSQL frame and does not resolve the
+-- caller's identity: the cache test is inlined into the checkers, so a warm
+-- check calls neither rbac.uid() nor rbac.ensure_context_initialized().
+-- Calling them would cost a second frame and resolve the identity before the
+-- "already initialized" shortcut, which would then sit behind all of the work
+-- it is meant to skip.
 --
--- Two properties have to survive that, and this file pins both.
+-- Two properties have to hold with the test inlined, and this file pins both.
 --
--- 1. ORDERING. Each checker now carries its own copy of the bearer-session
+-- 1. ORDERING. Each checker carries its own copy of the bearer-session
 --    test, and every copy must stay ahead of the cache read. The app.* settings
 --    are ordinary GUCs that whoever holds the session can overwrite, and no
 --    checker can tell a value written by rbac from one written by the client.
@@ -23,12 +23,13 @@
 --    ordering is asserted structurally here and exercised for real by
 --    `pgdocker/test_bearer_cache.ts`.
 --
--- 2. NO NEW WAY IN. The removed rbac.uid() calls had a side effect: they
---    refused a session carrying no valid claims at all. The warm path now
---    compares app.current_external_id with request.jwt.claim.sub, which keeps
---    that refusal. This is NOT a fix for the client-writable cache and is
---    not needed in a supported deployment - behind PostgREST or an app server
---    the client never runs SQL and cannot write app.* in the first place.
+-- 2. NO NEW WAY IN. A session carrying no valid claims at all is refused on
+--    the warm path too: it compares app.current_external_id with
+--    request.jwt.claim.sub, so such a session takes the cold path, where
+--    rbac.uid() refuses it. This is NOT a fix for the client-writable cache
+--    and is not needed in a supported deployment - behind PostgREST or an app
+--    server the client never runs SQL and cannot write app.* in the first
+--    place.
 --
 -- The speed itself is measured, not asserted: call counting needs
 -- track_functions, which is superuser-only, and the suite runs against
@@ -40,8 +41,9 @@ SELECT plan(21);
 -- =====================================================
 -- GROUP 1: structure - the inlined test, and its ordering
 -- =====================================================
--- These are the assertions that fail if the change is reverted: before it,
--- neither checker mentioned app.context_initialized at all.
+-- A checker that delegates the cache test to ensure_context_initialized()
+-- instead of carrying it does not mention app.context_initialized at all, so
+-- these are the assertions that fail for it.
 SELECT ok(strpos(p.prosrc, 'app.context_initialized') > 0,
     'has_permission: reads the context cache itself, rather than only delegating')
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -86,10 +88,9 @@ SELECT ok(strpos(p.prosrc, 'oauth:%') > 0
 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 WHERE n.nspname = 'rbac' AND p.proname = 'user_id';
 
--- ensure_context_initialized calls rbac.uid() exactly once now: the bearer
--- branch used to call it a second time, unconditionally, purely to feed the
--- once-per-transaction notice - the cold-path call below served the request
--- either way. strpos cannot count repeats, so this counts by string length
+-- ensure_context_initialized calls rbac.uid() exactly once: the cold-path call
+-- serves the bearer branch too, so its once-per-transaction notice needs no
+-- call of its own. strpos cannot count repeats, so this counts by string length
 -- instead: each occurrence removed by replace() shortens prosrc by exactly
 -- length('rbac.uid()').
 SELECT is(
@@ -100,8 +101,8 @@ SELECT is(
     'ensure_context_initialized: exactly one rbac.uid() call serves both the bearer and cold branches'
 );
 
--- The helper is no longer called on the hot path but must still exist: whoami
--- reports through it and 0250 pins its result.
+-- The hot path tests system_user itself rather than calling this helper, which
+-- must still exist: whoami reports through it and 0250 pins its result.
 SELECT is(rbac.is_bearer_session(), false,
     'is_bearer_session: still present and false in a SCRAM session');
 
@@ -142,8 +143,9 @@ SELECT is(rbac.user_id(), 1099::bigint,
 -- GROUP 3: a hand-written cache naming another subject is not used
 -- =====================================================
 -- user2 keeps its own valid claims and rewrites the cache to claim user3's
--- identity and the admin permission. Before this change both checkers returned
--- TRUE here, because the shortcut only asked whether the cache existed.
+-- identity and the admin permission. A shortcut that only asked whether the
+-- cache exists would return TRUE here; the warm path also compares the cached
+-- subject with request.jwt.claim.sub, so both checkers rebuild instead.
 SELECT set_config('app.user_permissions',    'admin', true);
 SELECT set_config('app.context_initialized', 'true',  true);
 SELECT set_config('app.current_external_id', 'user3', true);
@@ -156,7 +158,8 @@ SELECT is(rbac.has_any_permission('admin'), false,
 -- =====================================================
 -- GROUP 4: no claims at all is still refused
 -- =====================================================
--- The property the removed rbac.uid() calls used to provide.
+-- Property 2 of the header: a session with no valid claims is refused, even
+-- with a hand-written warm cache.
 RESET ROLE;
 SET ROLE semantius_user;
 SELECT set_config('request.jwt.claim.sub',  '', true);

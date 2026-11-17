@@ -4,15 +4,15 @@
 -- catches policies/views created DYNAMICALLY by the DD functions (build_select_rule_policy,
 -- create_dd_table, ...), not just the ones authored literally in the migrations.
 --
--- spec v2 I-roles: policies are authored ONLY `TO semantius_user` (never `TO authenticated`
+-- docs/authorization.md I-roles: policies are authored ONLY `TO semantius_user` (never `TO authenticated`
 -- / `TO public`); the request role is a non-owner, non-BYPASSRLS INHERIT member of
 -- semantius_user. Every public view is `security_invoker = true` so it cannot launder a read
--- past RLS as its (BYPASSRLS) owner — this is the structural backstop for the b4 fix
--- (user_process_raci), generalized to ALL views so a future view can't silently reintroduce
--- the leak.
+-- past RLS as its (BYPASSRLS) owner — the property 0850_test_raci.sql pins for
+-- user_process_raci, generalized to ALL views so a future view can't silently introduce
+-- such a leak.
 --
--- EXPECTED: green on current code (b4 set user_process_raci security_invoker). It goes red the moment any public policy is authored to a
--- role other than semantius_user, or any public view is created without security_invoker.
+-- It fails the moment any public policy is authored to a role other than semantius_user, or
+-- any public view is created without security_invoker.
 BEGIN;
 
 SELECT plan(2);

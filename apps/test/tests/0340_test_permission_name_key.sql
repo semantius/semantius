@@ -259,7 +259,7 @@ SELECT is(
 SELECT is(
     public.get_schema('entities')->'properties'->'view_permission'->>'type',
     'string',
-    'entities.view_permission is typed string now that it is a reference');
+    'entities.view_permission is typed string because it is a reference');
 
 -- A reference to an integer-keyed entity is unchanged: the rule is the key's
 -- type, not a list of tables that happen to be text-keyed.

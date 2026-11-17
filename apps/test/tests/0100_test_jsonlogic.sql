@@ -1773,7 +1773,7 @@ SELECT is(
     'false'::jsonb,
     'test 345'
 );
--- # String comparison (B20, B21): two strings compare as text in code-point order, as JavaScript does; a string against a number still coerces to a number
+-- # String comparison: two strings compare as text in code-point order, as JavaScript does; a string against a number still coerces to a number
 SELECT is(
     evaluate_json_logic('{">":["10","9"]}'::jsonb, '{}'::jsonb),
     'false'::jsonb,

@@ -140,7 +140,7 @@ SELECT is(
 );
 
 -- =====================================================
--- user3: Administrator (formerly central 0140)
+-- user3: Administrator
 -- =====================================================
 SELECT authenticate_as('user3');
 

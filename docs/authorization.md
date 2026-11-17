@@ -77,17 +77,20 @@ generates follows this table:
 | Path | Rule |
 |---|---|
 | SELECT policy | `access(row)` |
-| `get_record_by_id`, `set_record`, `build_schema_for_table`, reference labels | `access(row)`. `get_record_by_id` evaluates it on every level the record is stored in, and a record that fails it is answered with NULL, as a missing one is. `set_record` reads through `get_record_by_id`. The label functions are `SECURITY INVOKER`, so the referenced table's SELECT policy applies to them. `build_schema_for_table` returns no record: it answers a caller who lacks the `view_permission` of a level with SQLSTATE 42P01 and the message a missing entity gets |
+| `get_record_by_id`, `set_record`, `build_schema_for_table`, reference labels | `access(row)`, except in `build_schema_for_table`, which checks `view_permission` only. `get_record_by_id` evaluates it on every level the record is stored in, and a record that fails it is answered with NULL, as a missing one is. `set_record` reads through `get_record_by_id`. The label functions are `SECURITY INVOKER`, so the referenced table's SELECT policy applies to them. `build_schema_for_table` returns no record: it answers a caller who lacks the `view_permission` of a level with SQLSTATE 42P01, as it answers for a missing entity, but with another message: `Table "<name>" not found in tables metadata`, where a missing entity gets `Table "<name>" not found in entities` |
 | UPDATE and DELETE `USING` | `has_permission(edit_permission) AND access(row)`: a row the caller cannot read, it cannot write. Without a `select_rule` that is the edit permission and the view permission, one check when the two are the same |
 | INSERT and UPDATE `WITH CHECK` | `has_permission(edit_permission)`. No rule applies to the row as it will be |
-| The new row of a write that reads a column (`WHERE`, `RETURNING`) | PostgreSQL holds it to the SELECT policy as well. The row the statement is writing passes that one check, so a write may move a row out of the writer's own rule; `access(row)` applies to the row again once the statement has ended |
+| The new row of a write that reads a column (`WHERE`, `RETURNING`) | PostgreSQL holds it to the SELECT policy as well. On an entity with a `select_rule` the row the statement is writing passes that one check, so a write may move a row out of the writer's own rule; `access(row)` applies to the row again once the statement has ended. Without a `select_rule` the check is the view permission, and a writer that lacks it is refused |
 
 These are the rules of a managed entity. While an entity is unmanaged the dictionary does not
-maintain the policies of its table. Making an entity managed adopts its table, and the table
-keeps any policies of other names it carried; PostgreSQL ORs permissive policies together, so
-access to an adopted table can be wider than `access(row)`. That is why the flip to managed is
-a decision rather than a setting, and why it is refused for the two audit logs, whose
-protection is that the request role cannot write them.
+maintain the policies of its table. Making an entity managed adopts its table: the four
+policies under the dictionary's names are dropped and recreated from the entity's row, so one
+left from an earlier managed period, or written by hand under such a name, is replaced. The
+table keeps any policies of other names it carried; PostgreSQL ORs permissive policies
+together, so access to an adopted table can be wider than `access(row)`. That is why the flip
+to managed is a decision rather than a setting, and why it is refused for the two audit logs,
+whose protection is that the request role cannot insert into them or update them: it holds
+only SELECT and DELETE there, under policies that admit a holder of `admin`.
 
 ## Axes
 
@@ -97,6 +100,8 @@ The invariants hold across every value of these eight dimensions.
   view · view and edit · row owner or grantee · editor of rows it does not own · holder of
   `admin` · API key or JWT · an `is_agent` service principal · a disabled user · an OAuth
   bearer session · the request role, definer code, or a BYPASSRLS owner connection (D4).
+  OAuth bearer sessions are an experimental proof of concept, not production; the rules on
+  this page that name them describe that experiment.
 - **A2 · Object:** a data entity with or without `select_rule`, `validation_rules` and
   `computed_fields` · a parent or child through a foreign key · an `is_a` or `has_a` family ·
   the dictionary (`entities`, `fields`) · RBAC (`users`, `roles`, `permissions`,
@@ -150,7 +155,7 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   - `delete_api_key` answers a caller without `admin` who names a key of another user as it
     answers for a key that does not exist (`90402`).
 
-  Two exceptions:
+  Three exceptions:
   - `RETURNING` hands a writer the row its own statement wrote, also when the write moved
     that row out of `access(row)`. The writer supplied or could already read every value in
     it. A client that runs SQL itself can read that one row again until its transaction
@@ -159,6 +164,9 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     when its definition carries `"include_hidden_rows": true`, the administrator's decision
     on record; without the flag such a rollup is refused (`90269`). The rule is in
     `rollup-fields.md`.
+  - A table mapped to a queue puts the id of every row written to it into the queue, and a
+    holder of the queue's `view_permission` reads them through `queue_read` whatever the
+    entity's rules. Mapping a table to a queue is the administrator's decision.
 - **I2 · No write to a row the caller cannot read.** A subject cannot UPDATE or DELETE a row
   for which `access(row)` is false, under every statement shape (A4). The `USING` clauses of
   the UPDATE and DELETE policies enforce it; nothing relies on PostgreSQL applying the SELECT
@@ -220,21 +228,26 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   delete, and computed output is discarded. Computed fields are authoritative: a computed
   value replaces whatever the writer sent. An `is_a` or `has_a` entity runs its rules in its
   write routine, over the whole record.
-- **I8 · No side channel.** A unique or foreign key violation, an `EXPLAIN` estimate,
-  `has_consultation` and the metadata RPCs do not reveal that an inaccessible row exists or
-  what it holds.
+- **I8 · No side channel.** `has_consultation` and `get_record_by_id` do not reveal that an
+  inaccessible row exists or what it holds.
   - `get_schema`, `get_schemas` and `build_schema_for_table` answer an entity the caller may
-    not view exactly as a missing one: SQLSTATE 42P01 and the same message.
+    not view with the SQLSTATE of a missing one, 42P01, but with another message:
+    `Table "<name>" not found in tables metadata`, where a missing entity gets
+    `Table "<name>" not found in entities`.
   - `has_consultation` answers false to a caller who takes no part in the governing process,
     as it answers for a record that was not consulted.
   - `get_record_by_id` reports a malformed id (`90238`) only to a caller who may view the
     entity; anybody else gets the NULL of a missing entity.
-  - One residual is accepted: on an entity with a `select_rule`, a unique or foreign key
-    violation tells a writer that a key exists in a row it cannot read. PostgreSQL checks
-    those constraints over every row, and closing the channel would need a definer INSERT
-    wrapper.
-  - The dictionary's metadata is not secret: `entities` and `fields` are readable to every
-    holder of `public:read`, by design. What I8 protects is records.
+  - Accepted residuals:
+    - An `EXPLAIN` estimate shows the row count of a table the caller cannot read.
+    - A foreign key violation (23503) tells a writer that a parent row it cannot read exists,
+      or does not: PostgreSQL checks a foreign key past RLS.
+    - A unique violation (23505) tells a writer that a key exists in a row it cannot read, on
+      an entity with a `select_rule` and on one without. PostgreSQL checks a unique
+      constraint over every row.
+
+    Closing the last two would need a definer INSERT wrapper.
+  - Every holder of `public:read` reads `entities` and `fields`.
 - **I9 · Cascade safety.** A delete cascades through `ON DELETE CASCADE` and `SET NULL`
   foreign keys whatever the deleter's rights on the children: authority to delete the parent
   governs the cascade (D3), into credential and grant children as well (D9).
@@ -256,9 +269,9 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     them.
   - Outside a bearer session the permission set is computed once per transaction and kept in
     transaction-local settings, so a grant, revoke or disable committed meanwhile applies from
-    the caller's next transaction, never in the middle of one. The first check of a
-    transaction builds the set, and it refuses a user who has no row yet rather than caching
-    an empty set; `get_userinfo` creates the row on the first login.
+    the caller's next transaction, never in the middle of one while the claims are unchanged.
+    The first check of a transaction builds the set, and it refuses a user who has no row
+    yet rather than caching an empty set; `get_userinfo` creates the row on the first login.
   - In an OAuth bearer session (`rbac.is_bearer_session()`) the cache is not trusted and the
     context is derived again on every check, because there the client runs SQL as the
     request role and can write the `app.*` settings. Code that needs the user id outside a
@@ -305,12 +318,12 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   clauses of the writes. No separate rule on the row as it will be exists (I3).
 - **D9 · Cascades into credential and grant children are accepted.** Deleting a user removes
   its API keys and its grants, which is what deleting a user should do, and it needs
-  authority to delete the user. Deleting a role removes the `raci_events` rows that name it
-  as `target_role_id`.
+  authority to delete the user. Deleting a role that `raci_events` rows name as
+  `target_role_id` is refused until those events are removed.
 - **D10 · The definer read helpers apply `access(row)` themselves.** `get_record_by_id`, and
   through it `set_record`, evaluate the canonical predicate. `build_schema_for_table`, which
-  returns no record, answers a caller without the view permission as it answers for a
-  missing entity: 42P01, with the same message. The read path is closed at the helpers, so
+  returns no record, answers a caller without the view permission with 42P01, as it answers
+  for a missing entity, but with another message. The read path is closed at the helpers, so
   `evaluate_json_logic` stays callable by the request role and is not revoked; I-jsonlogic
   states the residual that is accepted for it.
 - **D11 · No FORCE ROW LEVEL SECURITY.** The BYPASSRLS owner is a role apart from the request

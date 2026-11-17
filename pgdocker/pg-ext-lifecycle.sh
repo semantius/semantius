@@ -13,15 +13,19 @@
 #   1d. transaction shape: CALL inside a transaction block is refused
 #   1g. a failing file: earlier files stay, the 9900 files still run and hand
 #       everything to semantius_owner, the next CALL resumes
-#   1h. the same on the CLI runner (deno task migrate), plus its lock refusal
+#   1h. the CLI runner (deno task migrate): a failing file fails the run with
+#       the original error, the 9900 files still run and hand everything to
+#       semantius_owner, a run fails at once while another session holds the
+#       lock, the next run resumes
 #   1e. first-user bootstrap: two concurrent logins elect exactly one admin
 #   1f. fix_id_sequence gives up on a busy table with 90232
-#   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)
+#   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data
 #   2b. restore variants: -Fp | psql, -j 4, -1
 #   4.  DROP EXTENSION is inert (no data loss), with and without CASCADE
-#   4b. the documented uninstall recipe leaves no leftovers
+#   4b. the documented uninstall recipe: what it leaves behind, and a reinstall
 #   6.  schema pinning: non-public search_path installs, SCHEMA other refuses
-#   6b. hostile session settings produce an identical install
+#   6b. hostile session settings: the install succeeds, with the plain one's
+#       counts and an intact default expression
 #   7.  refusals: a real pgmq, pgcrypto in the wrong schema, nested extension
 #   7d. 0310_pgmq.once.sql's own pgmq header guard on the CLI path
 #   8.  privileges: non-superuser cannot migrate(); functions are locked down
@@ -54,9 +58,11 @@ export MSYS_NO_PATHCONV=1
 
 pass_n=0
 fail_n=0
+skip_n=0
 step() { printf '\n== %s ==\n' "$*"; }
 ok()   { pass_n=$((pass_n + 1)); printf '   ok   %s\n' "$*"; }
 bad()  { fail_n=$((fail_n + 1)); printf '   FAIL %s\n' "$*" >&2; }
+skip() { skip_n=$((skip_n + 1)); printf '   skip %s\n' "$*"; }
 check() { # check <description> <expected> <actual>
   if [ "$2" = "$3" ]; then ok "$1"; else bad "$1 (expected [$2], got [$3])"; fi
 }
@@ -139,16 +145,19 @@ n_cfg=$(grep -c "PERFORM pg_catalog.pg_extension_config_dump" "$SQLFILE" || true
 check "script: exactly one config_dump call (migrate()'s guard)" "1" "$n_cfg"
 n_reg=$(grep -c "^SELECT pg_catalog.pg_extension_config_dump\|^SELECT pg_extension_config_dump" "$SQLFILE" || true)
 check "script: no table is registered for pg_dump" "0" "$n_reg"
-grep -q "skip_audit" "$SQLFILE" && bad "script: skip_audit must be gone" || ok "script: no skip_audit"
+grep -q "skip_audit" "$SQLFILE" && bad "script: skip_audit must be absent" || ok "script: no skip_audit"
 
-# B13 lives in the generator, not in the shipped bytes. On a fresh checkout
+# Line-ending normalization lives in the generator, not in the shipped bytes:
+# toLf() turns every embedded migration into LF before it is hashed, and every
+# file the generator writes, so a CRLF working tree and an LF checkout build
+# byte-identical files with the same checksums. On a fresh checkout
 # .gitattributes makes the whole tree LF, and toLf() could then be deleted with
 # every generated file still coming out CR-free - and that LF checkout is what
 # CI, and therefore the release guard, builds from. Only a check that hands the
 # normalizer CRLF itself fails on its removal, so that is a Deno unit test, run
 # here on the host where this script already runs.
 lftest=$(cd "$REPO_ROOT" && deno test --allow-read packages/cli/commands/extension_test.ts 2>&1) \
-  && ok "LF normalization and the manifest checksum are unit-pinned (B13)" \
+  && ok "LF normalization and the manifest checksum are unit-pinned" \
   || bad "deno test extension_test.ts failed: $(printf '%s' "$lftest" | tail -3 | tr '\n' ' ')"
 # Pins, not the assertion above: on an LF checkout they stay green with toLf()
 # removed. They fail if a CR reaches the shipped files by some other route.
@@ -221,13 +230,16 @@ step "[1b] Second database on the same cluster (roles already exist)"
 newdb life1b
 psqlrun life1b "CREATE EXTENSION pg_semantius" >/dev/null && psqlq life1b "CALL semantius.migrate()" >/dev/null \
   && ok "install succeeds when the roles already exist" || bad "second-database install failed"
-check "no postgres -> semantius_user membership (B11)" "0" \
+# 0010_core.sql grants semantius_user, and 0040_cache.sql USAGE on common, to
+# the installing role only when it is no superuser: a superuser needs neither,
+# and either grant would be an artifact that outlives DROP EXTENSION.
+check "no postgres -> semantius_user membership" "0" \
   "$(psqlq life1b "SELECT count(*) FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles n ON n.oid=m.member WHERE g.rolname='semantius_user' AND n.rolname='postgres'")"
 # `common` must look exactly like `rbac`, which never carried 0040_cache.sql's
 # `GRANT USAGE ... TO CURRENT_USER`. Testing for a `postgres=` entry directly
 # would be wrong: 9900's GRANT to semantius_owner materializes the owner's own
 # entry in every one of these schemas, artifact or not.
-check "schema common has no extra installer grant (B11)" \
+check "schema common has no extra installer grant" \
   "$(psqlq life1b "SELECT array_to_string(nspacl,',') FROM pg_namespace WHERE nspname='rbac'")" \
   "$(psqlq life1b "SELECT array_to_string(nspacl,',') FROM pg_namespace WHERE nspname='common'")"
 
@@ -456,7 +468,10 @@ else
 fi
 
 # --------------------------------------------------- 2 dump / single-pass restore
-step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data (B16)"
+step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data"
+# A field added to a core entity after the install is ordinary data: no table
+# is a member of the extension, so pg_dump keeps the column on users and its
+# fields row, and one pg_restore pass brings both back.
 docker exec -i "$CONTAINER" psql -U postgres -d life1 -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<'SQL'
 INSERT INTO public.fields (table_name, field_name, title, format, field_order)
 VALUES ('users', 'lifecycle_note', 'Lifecycle Note', 'text', 901);
@@ -478,9 +493,9 @@ else
   bad "pg_restore failed"
 fi
 check "restored signature matches the source" "$SIG1" "$(psqlq life2 "$SIGNATURE_SQL")"
-check "B16: the custom column survived" "lifecycle_note" \
+check "the custom column on users survived" "lifecycle_note" \
   "$(psqlq life2 "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='lifecycle_note'")"
-check "B16: its fields row survived" "users.lifecycle_note" \
+check "its fields row survived" "users.lifecycle_note" \
   "$(psqlq life2 "SELECT id FROM public.fields WHERE id='users.lifecycle_note'")"
 check "the custom entity's rows survived" "3" "$(psqlq life2 "SELECT count(*) FROM public.lifecycle_widgets")"
 check "pending() is empty on the restored database" "0" "$(psqlq life2 "SELECT count(*) FROM semantius.pending()")"
@@ -532,7 +547,7 @@ err_all=$(printf '%s\n' "$restore_out" | grep -c 'error:' || true)
 err_ext=$(printf '%s\n' "$restore_out" | grep 'error:' | grep -c 'pg_semantius' || true)
 check "every restore error concerns pg_semantius and nothing else" "$err_all" "$err_ext"
 check "the restored signature still matches the source" "$SIG1" "$(psqlq life5 "$SIGNATURE_SQL")"
-check "B16: the custom column survived without the extension" "lifecycle_note" \
+check "the custom column on users survived without the extension" "lifecycle_note" \
   "$(psqlq life5 "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='users' AND column_name='lifecycle_note'")"
 check "the custom entity's rows survived" "3" "$(psqlq life5 "SELECT count(*) FROM public.lifecycle_widgets")"
 check "no semantius schema, so no pending()/version()" "0" \
@@ -562,7 +577,7 @@ out=$(psqlq life2 "CALL semantius.migrate()")
 echo "$out" | grep -q '"applied": 0' && ok "migrate() after re-create is a no-op" || bad "expected a no-op, got: $out"
 
 # ------------------------------------------------------- 4b uninstall recipe
-step "[4b] The documented uninstall recipe leaves no leftovers"
+step "[4b] The documented uninstall recipe: what it leaves behind, and a reinstall"
 docker exec -i "$CONTAINER" psql -U postgres -d life2t -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<'SQL'
 DROP EXTENSION pg_semantius;
 DROP EVENT TRIGGER IF EXISTS track_ddl_changes;
@@ -587,8 +602,9 @@ check "only public remains"    "public" \
   "$(psqlq life2t "SELECT string_agg(nspname, ',' ORDER BY nspname) FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema'")"
 check "only plpgsql remains installed" "plpgsql" \
   "$(psqlq life2t "SELECT string_agg(extname, ',' ORDER BY extname) FROM pg_extension WHERE extname <> 'pgcrypto'")"
-# B6 named four leftovers. The schema/event-trigger/default-ACL ones are checked
-# above; these are the remaining three, each asserted rather than assumed.
+# Besides the event triggers, default ACLs, schemas and extensions checked
+# above, the recipe could leave the public schema ACL, role memberships and
+# pgcrypto behind; each is asserted here rather than assumed.
 # PostgreSQL 15+ gives `public` an explicit default ACL (pg_database_owner=UC
 # plus PUBLIC=U), so the target is a virgin database's value, not an empty one.
 newdb life_virgin
@@ -614,7 +630,12 @@ check "  the reinstall really recreated the core schema" "0" \
   "$(psqlq life2t "SELECT count(*) FROM semantius.pending()")"
 
 # --------------------------------------------------------- 6 schema pinning
-step "[6] Schema pinning (B2)"
+step "[6] Schema pinning"
+# The core functions run with search_path = public and name public. objects.
+# The control file says schema = public, so PostgreSQL refuses SCHEMA other.
+# The core objects land in public whatever the installer's search_path because
+# migrate() pins search_path = public itself, and 0010_core.sql creates
+# pgcrypto there under it.
 newdb life6
 psqlrun life6 "ALTER DATABASE life6 SET search_path = other, public" >/dev/null
 psqlrun life6 "CREATE SCHEMA other" >/dev/null
@@ -632,7 +653,7 @@ echo "$err" | grep -q 'must be installed in schema "public"' \
   && ok "SCHEMA other is refused with PostgreSQL's message" || bad "SCHEMA other: $err"
 
 # -------------------------------------------------- 6b hostile session settings
-step "[6b] Hostile session settings produce an identical install"
+step "[6b] Hostile session settings: the install succeeds, with the plain one's counts"
 newdb life6c
 docker exec -e PGOPTIONS='-c standard_conforming_strings=off -c check_function_bodies=off -c DateStyle=German -c IntervalStyle=sql_standard -c default_transaction_isolation=serializable -c session_replication_role=replica' \
   "$CONTAINER" psql -U postgres -d life6c -v ON_ERROR_STOP=1 -q \
@@ -655,7 +676,7 @@ docker exec -u root "$CONTAINER" sh -c "printf \"comment = 'stub'\ndefault_versi
 docker exec -u root "$CONTAINER" sh -c "printf 'CREATE SCHEMA IF NOT EXISTS pgmq_stub;\n' > $EXT_DIR/pgmq--1.0.sql"
 psqlrun life7 "CREATE EXTENSION pgmq" >/dev/null 2>&1 || true
 err=$(psqlq life7 "CALL semantius.migrate()")
-echo "$err" | grep -q "pgmq extension is installed" && ok "a real pgmq is refused (B4)" || bad "pgmq refusal: $err"
+echo "$err" | grep -q "pgmq extension is installed" && ok "a real pgmq is refused" || bad "pgmq refusal: $err"
 
 # 7d. The same refusal on the CLI path. migrate()'s pre-flight raises before any
 # migration runs, so 0310_pgmq.once.sql's own header guard is never reached above; `psql -f`
@@ -669,7 +690,7 @@ err=$(docker exec "$CONTAINER" psql -U postgres -d life7d -v ON_ERROR_STOP=1 -f 
 # This phrase is 0310_pgmq.once.sql's alone: the pre-flight says "is installed;", so the
 # assertion cannot pass by way of the pre-flight it is meant to bypass.
 echo "$err" | grep -q "installed in this database" \
-  && ok "0310_pgmq.once.sql's own header guard refuses a real pgmq on the CLI path (B4)" \
+  && ok "0310_pgmq.once.sql's own header guard refuses a real pgmq on the CLI path" \
   || bad "0310_pgmq.once.sql header guard: $err"
 # The stub creates schema pgmq_stub, so any pgmq schema here would be 0310_pgmq.once.sql's.
 check "  and creates no pgmq schema" "0" \
@@ -694,7 +715,7 @@ echo "$err" | grep -q "cannot run inside a CREATE/ALTER EXTENSION script" \
 docker exec -u root "$CONTAINER" rm -f "$EXT_DIR/pgsem_nested.control" "$EXT_DIR/pgsem_nested--1.0.sql"
 
 # ----------------------------------------------------------- 8 privileges
-step "[8] Privileges (B15)"
+step "[8] Privileges"
 err=$(psqlq life1 "SET ROLE authenticated; CALL semantius.migrate()")
 echo "$err" | grep -q "permission denied for schema semantius" \
   && ok "a request role cannot reach semantius.migrate()" || bad "role check: $err"
@@ -711,27 +732,27 @@ echo "$err" | grep -q "must be run by a superuser" \
   && ok "a granted non-superuser still gets the superuser message" || bad "rolsuper gate: $err"
 psqlrun life1 "REVOKE ALL ON PROCEDURE semantius.migrate(jsonb) FROM lifecycle_probe; REVOKE ALL ON SCHEMA semantius FROM lifecycle_probe; DROP ROLE lifecycle_probe" >/dev/null 2>&1 || true
 
-# B15 is about the CREATE EXTENSION refusal, which the checks above do NOT
-# cover: they all exercise migrate(). Install as a plain non-superuser and
-# assert PostgreSQL's own message, the one the shipped README quotes.
+# The control file says superuser = true, so CREATE EXTENSION itself refuses
+# a non-superuser, which the checks above do NOT cover: they all exercise
+# migrate(). Install as a plain non-superuser and assert PostgreSQL's own
+# message, the one the shipped README quotes.
 newdb life8c
 psqlrun life8c "CREATE ROLE ext_probe LOGIN" >/dev/null 2>&1 || true
 psqlrun life8c "GRANT CREATE ON DATABASE life8c TO ext_probe" >/dev/null 2>&1 || true
 err=$(docker exec "$CONTAINER" psql -U postgres -d life8c -tAc \
         "SET ROLE ext_probe; CREATE EXTENSION pg_semantius" 2>&1 || true)
 echo "$err" | grep -q "permission denied to create extension" \
-  && ok "a non-superuser cannot CREATE EXTENSION (B15)" || bad "CREATE EXTENSION as non-superuser: $err"
+  && ok "a non-superuser cannot CREATE EXTENSION" || bad "CREATE EXTENSION as non-superuser: $err"
 echo "$err" | grep -qi "must be superuser" \
   && ok "  and the hint names the superuser requirement" || bad "expected a superuser hint, got: $err"
 psqlrun life8c "DROP ROLE IF EXISTS ext_probe" >/dev/null 2>&1 || true
 
-# B11's other half: the BYPASSRLS gate in 0100_rbac_rls.sql must RAISE, not ASSERT, so it
-# cannot be switched off with plpgsql.check_asserts. Nothing else tests this.
-# Match STATEMENTS, not the comment that explains why RAISE beat ASSERT: an
-# earlier version of this check grepped for the word and failed on its own
-# documentation.
+# The BYPASSRLS gate in 0100_rbac_rls.sql must RAISE, not ASSERT, so it cannot
+# be switched off with plpgsql.check_asserts. Nothing else tests this.
+# Match STATEMENTS, not the comment that explains why the gate uses RAISE
+# rather than ASSERT: a grep for the word alone fails on that comment.
 n_assert=$(grep -cE "^[[:space:]]*ASSERT[[:space:]]" "$SQLFILE" || true)
-check "no ASSERT statement survives in the generated script (B11)" "0" "$n_assert"
+check "no ASSERT statement survives in the generated script" "0" "$n_assert"
 
 # ------------------------------------------------- 8d the BYPASSRLS gate fires
 step "[8d] The BYPASSRLS gate of 0100_rbac_rls.sql refuses an installer without the attribute"
@@ -746,7 +767,7 @@ psqlrun life8d "ALTER ROLE gate_probe NOBYPASSRLS" >/dev/null
 psqlrun life8d "CREATE EXTENSION pg_semantius" >/dev/null
 err=$(psqlseq life8d "SET ROLE gate_probe" "CALL semantius.migrate()")
 echo "$err" | grep -q "does not have BYPASSRLS" \
-  && ok "a superuser without BYPASSRLS is refused by the 0100_rbac_rls.sql gate (B11)" \
+  && ok "a superuser without BYPASSRLS is refused by the 0100_rbac_rls.sql gate" \
   || bad "BYPASSRLS gate: $err"
 # quote_ident() leaves a plain identifier unquoted, so the hint is verbatim.
 echo "$err" | grep -q "ALTER ROLE gate_probe BYPASSRLS" \
@@ -782,12 +803,18 @@ if [ "$(psqlq life8 "SELECT count(*) FROM pg_roles WHERE rolname='semantius_owne
     && ok "a squatted semantius_owner is refused" || bad "role squatting: $err"
   psqlq life8 "DROP ROLE IF EXISTS semantius_owner" >/dev/null 2>&1 || true
 else
-  ok "skipped: semantius_owner is in use by another database on this cluster"
+  skip "semantius_owner is in use by another database on this cluster"
 fi
 psqlq life8 "DROP ROLE IF EXISTS squatter" >/dev/null 2>&1 || true
 
 # ------------------------------------------------------------- 9 encodings
-step "[9] Non-UTF8 databases are refused (B9)"
+step "[9] Non-UTF8 databases are refused"
+# Runtime string literals carry non-ASCII characters (the separator of a
+# composed label among them). The control file says encoding = 'UTF8', so
+# PostgreSQL converts the script to the database encoding, and a LATIN1
+# database, which has no such characters, is refused. A SQL_ASCII database
+# converts nothing; the script and migrate() check the encoding themselves, so
+# it is refused too.
 docker exec "$CONTAINER" psql -U postgres -d postgres -qc "DROP DATABASE IF EXISTS life9" >/dev/null 2>&1
 docker exec "$CONTAINER" psql -U postgres -d postgres -qc \
   "CREATE DATABASE life9 TEMPLATE template0 ENCODING 'LATIN1' LC_COLLATE 'C' LC_CTYPE 'C'" >/dev/null 2>&1
@@ -831,11 +858,11 @@ if docker exec "$CLI_CONTAINER" psql -U postgres -d appdb -tAc "SELECT 1" >/dev/
   fi
   rm -f /tmp/lifecycle-cli.sql /tmp/lifecycle-ext.sql
 else
-  ok "skipped: needs appdb on both $CLI_CONTAINER (migrate path) and $CONTAINER"
+  skip "needs appdb on both $CLI_CONTAINER (migrate path) and $CONTAINER"
 fi
 
 # ------------------------------------------------------------ 11 event noise
-step "[11] Event-trigger noise: the DDL audit and NOTIFY pgrst are scoped (B5, P6, S15)"
+step "[11] Event-trigger noise: the DDL audit and NOTIFY pgrst are scoped"
 # life1 is the fresh install from step 1 and is untouched by the steps between.
 # The pgTAP suite proves the audit half of this (0810_test_audit_ddl_scope.sql);
 # the NOTIFY half can only be proved here, because a notification is queued at
@@ -917,18 +944,20 @@ check "public schema: a committed DROP TABLE is audited, as the table alone" \
   "DROP TABLE|table|public.lifecycle_dropped" \
   "$(psqlq life1 "SELECT coalesce(string_agg(command_tag||'|'||object_type||'|'||object_identity, ',' ORDER BY id), '') FROM audit_ddl_logs WHERE id > $drop_base")"
 
-# S15: before the SECURITY DEFINER fix this failed with
-# "permission denied for function current_user_id" from audit.log_ddl_event().
+# audit.log_ddl_event() is SECURITY DEFINER because it calls
+# audit.current_user_id(), which is revoked from PUBLIC: run as the caller, it
+# would refuse every DDL statement of the request role, a CREATE TEMP TABLE
+# included, with "permission denied for function current_user_id".
 # psqlrun, not psqlq: the statement succeeding IS the assertion, so its exit
 # status must propagate. psqlq swallows it and would report ok on any error
 # whose text happens not to contain "permission denied".
 if out=$(psqlrun life1 "SET ROLE semantius_user; CREATE TEMP TABLE lifecycle_tmp_user (id int)" 2>&1); then
-  ok "the request role can create a temp table (S15)"
+  ok "the request role can create a temp table"
 else
   bad "the request role still cannot create a temp table: $out"
 fi
 
-# P6: current_query() is the whole migration script on the CLI path, once per
+# current_query() is the whole migration script on the CLI path, once per
 # event. The column is bounded; the generated label companions are not logged.
 # Every statement life1 has seen is short (the install attributes migrate() as
 # the query), so asserting max(length) <= 8192 over what is already there would
@@ -957,6 +986,6 @@ else
 fi
 
 printf '\n=====================================\n'
-printf 'lifecycle: %d passed, %d failed\n' "$pass_n" "$fail_n"
+printf 'lifecycle: %d passed, %d failed, %d skipped\n' "$pass_n" "$fail_n" "$skip_n"
 printf '=====================================\n'
 [ "$fail_n" -eq 0 ] || exit 1

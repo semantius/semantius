@@ -226,11 +226,11 @@ SELECT is(
     'employee_territories._label should compose employee › region › territory'
 );
 
--- Test 31: order label folds the customer in; the local label is "Order " and
+-- Test 31: order label folds the customer in; the local label is "SO-" and
 -- the order id
 SELECT is(
     (SELECT public._label(o) FROM orders o WHERE o.id = 10248),
-    'Vins et alcools Chevalier › Order 10248',
+    'Vins et alcools Chevalier › SO-10248',
     'orders._label should compose customer › order id'
 );
 
@@ -238,7 +238,7 @@ SELECT is(
 -- quantity × product name, which the computed field set during the load
 SELECT is(
     (SELECT public._label(od) FROM order_details od WHERE od.order_id = 10248 AND od.product_id = 11),
-    'Vins et alcools Chevalier › Order 10248 › 12 × Queso Cabrales',
+    'Vins et alcools Chevalier › SO-10248 › 12 × Queso Cabrales',
     'order_details._label should compose customer › order id › quantity × product'
 );
 
