@@ -125,6 +125,16 @@ installs the core schema as ordinary objects.
 - A `parent` field cannot use delete mode `clear` (`90282`). Its column is
   `NOT NULL`, so every delete of a parent record that had children failed
   with 23502. Use `restrict` or `cascade`, or a `reference` with `clear`.
+- A `reference` or `parent` field to `users` takes `CURRENT_USER` or
+  `$user_id` as its default, the way a date field takes `CURRENT_DATE`: a write
+  that leaves the field out stores the signed-in user's id (NULL in a session
+  without claims), and `get_schema` returns the default as written. Such a field
+  could not be created before: PostgreSQL's own `CURRENT_USER`, the role name,
+  does not fit the key of `users`. A default never changes existing records, so
+  adding such a field to a table with rows leaves those rows empty, and a
+  required one or a `parent` is refused there with `90259`. The token is refused
+  where it cannot mean the user (`90283`); `CURRENT_USER` on a text field keeps
+  storing the role name.
 - A required enum with no explicit default no longer takes its first value when a
   write leaves it out: the write fails with `90258`.
 - Deleting an entity that fields of other entities reference is refused with

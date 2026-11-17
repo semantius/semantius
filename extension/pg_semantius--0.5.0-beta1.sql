@@ -3561,7 +3561,7 @@ $pgsem__core_0070_rbac_schema_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'be3e49f323a245c11f54ccc8525246d3fb5c2e02713f5f1892fc614693d01797') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
       EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
@@ -4872,6 +4872,7 @@ CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS BIGINT AS $$
 DECLARE
     v_external_id TEXT;
+    v_user_id     BIGINT;
 BEGIN
     IF system_user LIKE 'oauth:%' THEN
         PERFORM rbac.ensure_context_initialized();
@@ -4889,7 +4890,18 @@ BEGIN
             PERFORM rbac.ensure_context_initialized();
         END IF;
     END IF;
-    RETURN current_setting('app.current_user_id', true)::BIGINT;
+    -- ensure_context_initialized writes the id together with the rest of the
+    -- context, so a context that holds none was written by hand: the app.*
+    -- settings are ordinary GUCs. It names nobody, so it is refused as a session
+    -- without a user, which rbac.user_id_or_null() turns into NULL like any other.
+    -- A cached value that is not a number still fails its cast.
+    v_user_id := NULLIF(current_setting('app.current_user_id', true), '')::BIGINT;
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Authentication required: the request context holds no user id'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90012')::text;
+    END IF;
+    RETURN v_user_id;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
@@ -4897,13 +4909,20 @@ COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
 whose cached subject matches the live JWT sub) reads app.current_user_id
 straight back with no further call; a cold context is rebuilt via rbac.uid()
-(the authentication gate) and rbac.ensure_context_initialized().';
+(the authentication gate) and rbac.ensure_context_initialized(). A context
+that holds no user id raises 42501 (90012).';
 
 -- Same as rbac.user_id(), but NULL instead of an error when there is no
 -- authenticated user (migrations, seed scripts, anonymous sessions) or the
 -- user has no row yet. For trigger and audit code that must work in every
 -- context. Goes through ensure_context_initialized(), so the value is
 -- derived, never read raw from the client-writable app.current_user_id setting.
+--
+-- It is also the column default of every reference or parent field to users
+-- whose default is CURRENT_USER (dd_column_default, 0160_dd_functions.sql), so
+-- table columns depend on it in pg_depend. It can be replaced in place, never
+-- dropped: a DROP fails with 2BP01 while such a column exists, and DROP ...
+-- CASCADE would strip the default off every one of them.
 CREATE OR REPLACE FUNCTION rbac.user_id_or_null()
 RETURNS BIGINT AS $$
 BEGIN
@@ -5069,7 +5088,7 @@ REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
 $pgsem__core_0080_rbac_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0080_rbac_functions.sql', 'be3e49f323a245c11f54ccc8525246d3fb5c2e02713f5f1892fc614693d01797')
+        VALUES ('_core.0080_rbac_functions.sql', '0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5256,7 +5275,7 @@ $pgsem__core_0090_rbac_seed_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c4ecd2de2336d0d9ca5b80013e47272589c67f75b24cad787d7612c0f7e3d932') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
       EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
@@ -5734,20 +5753,14 @@ COMMENT ON TRIGGER assert_external_id_writer_trigger ON users IS
 -- When a user_role record is inserted without an assigned_by value,
 -- automatically set it to the current user ID from the session context
 
+-- A trigger rather than a column default because it also fills an explicit NULL.
+-- rbac.user_id_or_null() is the one place that resolves the user, and gives NULL in
+-- a session without one (a migration, a seed script).
 CREATE OR REPLACE FUNCTION rbac.default_assigned_by()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_current_user_id BIGINT;
 BEGIN
     IF NEW.assigned_by IS NULL THEN
-        BEGIN
-            v_current_user_id := rbac.user_id();
-        EXCEPTION WHEN OTHERS THEN
-            v_current_user_id := NULL;
-        END;
-        IF v_current_user_id IS NOT NULL THEN
-            NEW.assigned_by := v_current_user_id;
-        END IF;
+        NEW.assigned_by := rbac.user_id_or_null();
     END IF;
     RETURN NEW;
 END;
@@ -5768,20 +5781,12 @@ COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 -- TRIGGER: Default granted_by to current user for user_permissions
 -- =====================================================
 
+-- As rbac.default_assigned_by.
 CREATE OR REPLACE FUNCTION rbac.default_granted_by()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_current_user_id BIGINT;
 BEGIN
     IF NEW.granted_by IS NULL THEN
-        BEGIN
-            v_current_user_id := rbac.user_id();
-        EXCEPTION WHEN OTHERS THEN
-            v_current_user_id := NULL;
-        END;
-        IF v_current_user_id IS NOT NULL THEN
-            NEW.granted_by := v_current_user_id;
-        END IF;
+        NEW.granted_by := rbac.user_id_or_null();
     END IF;
     RETURN NEW;
 END;
@@ -5806,7 +5811,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
 $pgsem__core_0100_rbac_rls_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0100_rbac_rls.sql', 'c4ecd2de2336d0d9ca5b80013e47272589c67f75b24cad787d7612c0f7e3d932')
+        VALUES ('_core.0100_rbac_rls.sql', '1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7049,7 +7054,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'eca9f052ba787b45cee06c944e26dd77d96e7a7a9aac1bfaecd50826ce9d2108') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -7989,18 +7994,49 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION quote_default_value IS
 'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
 
+-- CURRENT_USER or $user_id as the default of a reference or parent field to
+-- users means the id of the signed-in user, the way CURRENT_DATE on a date field
+-- means today. PostgreSQL's own CURRENT_USER is the session's role name, the same
+-- for every signed-in user, and a BIGINT key column cannot hold it. This test is
+-- the one place that decides it, for the column default, for get_schema and for
+-- the guard on fields.
+CREATE OR REPLACE FUNCTION dd_is_current_user_default(p_format TEXT, p_reference_table TEXT, p_default_value TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT coalesce(p_format IN ('reference', 'parent')
+                    AND p_reference_table = 'users'
+                    AND upper(trim(p_default_value)) IN ('CURRENT_USER', '$USER_ID'), FALSE);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) IS
+'Whether a field''s default means the signed-in user''s id: CURRENT_USER or $user_id, in any case, on a reference or parent field to users.';
+
 -- The column default a field resolves to, shared by the ADD COLUMN and the
 -- SET DEFAULT paths. A blank default_value is not "no default": every NOT NULL
 -- column carries one, so a blank falls back to the zero value of the column
 -- type. Without that fallback, clearing a default would DROP it and leave an
 -- insert that omits the column failing on NOT NULL.
-CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT)
+--
+-- The current-user default is the fixed text rbac.user_id_or_null(). PostgreSQL
+-- evaluates it for every inserted row that leaves the column out, in the
+-- inserting session, so the row gets the id of whoever writes it, and NULL in a
+-- session without claims. rbac.user_id_or_null() is the one place that resolves
+-- the signed-in user; nothing here reads the client-writable app.* settings.
+--
+-- A new parameter list adds an overload instead of replacing the function, and
+-- two overloads make every five-argument call ambiguous, so the five-argument
+-- signature is dropped first.
+DROP FUNCTION IF EXISTS dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT);
+CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT, p_reference_table TEXT DEFAULT '')
 RETURNS TEXT AS $$
 DECLARE
     v_resolved TEXT := CASE WHEN p_format = 'enum'
                             THEN effective_enum_default(p_default_value, p_input_type, p_enum_values)
                             ELSE p_default_value END;
 BEGIN
+    IF dd_is_current_user_default(p_format, p_reference_table, p_default_value) THEN
+        RETURN 'rbac.user_id_or_null()';
+    END IF;
+
     IF v_resolved IS NOT NULL AND trim(v_resolved) <> '' THEN
         RETURN quote_default_value(v_resolved, p_data_type);
     END IF;
@@ -8027,8 +8063,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION dd_column_default IS
-'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+COMMENT ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) IS
+'The DDL default expression for a field: rbac.user_id_or_null() for the current-user default of a reference or parent field to users (dd_is_current_user_default), else its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
 
 -- =====================================================
 -- REQUIRED FIELDS
@@ -8177,6 +8213,12 @@ COMMENT ON FUNCTION dd_field_has_missing(fields, TEXT) IS
 -- Whether a new column's default already meets the field's condition. Every existing
 -- row takes that default, so this answers for all of them without reading one, which
 -- is what makes adding a column to a large table cheap.
+--
+-- The current-user default is the exception: a default never changes records that
+-- already exist, and this one would stamp every existing row with whoever saves the
+-- field. The column is added without it and the default is set afterwards, so the
+-- existing rows get no value at all. That fails a required field's condition, and a
+-- parent field, whose column is NOT NULL, cannot take the rows in any case.
 CREATE OR REPLACE FUNCTION dd_required_default_ok(p_field fields)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -8184,12 +8226,15 @@ DECLARE
     v_type TEXT := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
     v_ok   BOOLEAN;
 BEGIN
+    IF dd_is_current_user_default(p_field.format, p_field.reference_table, p_field.default_value) THEN
+        RETURN v_test IS NULL AND p_field.format <> 'parent';
+    END IF;
     IF v_test IS NULL THEN
         RETURN TRUE;
     END IF;
     EXECUTE format('SELECT (%s) IS TRUE FROM (SELECT %s::%s AS %I) s',
         v_test,
-        coalesce(dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_type), 'NULL'),
+        coalesce(dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_type, p_field.reference_table), 'NULL'),
         v_type,
         p_field.field_name) INTO v_ok;
     RETURN v_ok;
@@ -8197,7 +8242,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_default_ok(fields) IS
-'Whether the column default of a required field meets the field''s condition.';
+'Whether the rows of a table take a value from a new column''s default that meets the field''s condition. False for the current-user default on a required or parent field: existing rows never take that default.';
 
 -- The lock_timeout makes a busy table give up instead of queueing live traffic behind
 -- this ALTER: a waiting ACCESS EXCLUSIVE request blocks every session that arrives
@@ -8353,6 +8398,51 @@ CREATE OR REPLACE TRIGGER validate_required_delete_mode_trigger
     FOR EACH ROW
     WHEN (NEW.format IN ('reference', 'parent') AND NEW.reference_delete_mode = 'clear')
     EXECUTE FUNCTION validate_required_delete_mode();
+
+-- Whether a field carries CURRENT_USER or $user_id as its default where the token
+-- cannot work. Only a reference or parent field to users holds the signed-in
+-- user's id (dd_is_current_user_default). Anywhere else $user_id would be stored
+-- as its own text, and CURRENT_USER is PostgreSQL's role name, which a column of
+-- any type but TEXT refuses with 42804 when the default is set. A TEXT column
+-- keeps the role name, as it always has.
+CREATE OR REPLACE FUNCTION dd_default_token_misplaced(p_field fields)
+RETURNS BOOLEAN AS $$
+    SELECT upper(trim(coalesce(p_field.default_value, ''))) IN ('CURRENT_USER', '$USER_ID')
+       AND NOT dd_is_current_user_default(p_field.format, p_field.reference_table, p_field.default_value)
+       AND NOT (upper(trim(p_field.default_value)) = 'CURRENT_USER'
+                AND p_field.format NOT IN ('reference', 'parent')
+                AND field_data_type(p_field.format, p_field."precision", p_field.reference_table) = 'TEXT');
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_default_token_misplaced(fields) IS
+'Whether a field has CURRENT_USER or $user_id as its default where it cannot work: $user_id anywhere but a reference or parent field to users, CURRENT_USER on a reference or parent field to another entity or on a column that is not TEXT.';
+
+-- Refuses a field from coming to carry the current-user token where it cannot
+-- work. A field that already carried it before this guard existed is not refused
+-- for staying that way, so every other edit of it, and a rename of the entity its
+-- reference points at, still goes through.
+CREATE OR REPLACE FUNCTION validate_current_user_default()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF dd_default_token_misplaced(NEW)
+       AND (TG_OP = 'INSERT' OR NOT dd_default_token_misplaced(OLD)) THEN
+        RAISE EXCEPTION 'Default ${default_value} of field ${field_name} on ${table} only applies to a reference or parent field to users'
+            USING ERRCODE = '90283',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'default_value', NEW.default_value)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION validate_current_user_default() IS
+'BEFORE INSERT/UPDATE guard on fields: refuses CURRENT_USER or $user_id as a default where it cannot mean the signed-in user (90283), see dd_default_token_misplaced. A field that already carried it stays editable.';
+
+CREATE OR REPLACE TRIGGER validate_current_user_default_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    WHEN (upper(trim(NEW.default_value)) IN ('CURRENT_USER', '$USER_ID'))
+    EXECUTE FUNCTION validate_current_user_default();
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -8812,6 +8902,8 @@ DECLARE
     v_alter_sql TEXT;
     v_nullable_clause TEXT;
     v_default_clause TEXT;
+    v_default_expr TEXT;
+    v_default_later BOOLEAN;
     v_data_type TEXT;
     v_is_managed BOOLEAN;
     v_ref_id_column TEXT;
@@ -8869,7 +8961,8 @@ BEGIN
     END IF;
 
     -- Decided before the ALTER below locks the table. Every existing row takes the
-    -- column's default, so the default answers for all of them.
+    -- column's default, so the default answers for all of them. The current-user
+    -- default is the exception, which dd_required_default_ok answers for.
     IF dd_relation_has_rows(v_rel) THEN
         IF NOT dd_required_default_ok(NEW) THEN
             RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
@@ -8899,8 +8992,13 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
     
-    v_default_clause := coalesce('DEFAULT ' || dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values, v_data_type), '');
-    
+    -- A default never changes records that already exist. The current-user default
+    -- would stamp every existing row with whoever saves the field, so it is set only
+    -- once the column exists, and the existing rows stay empty.
+    v_default_expr := dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values, v_data_type, NEW.reference_table);
+    v_default_later := dd_is_current_user_default(NEW.format, NEW.reference_table, NEW.default_value);
+    v_default_clause := CASE WHEN v_default_later THEN '' ELSE coalesce('DEFAULT ' || v_default_expr, '') END;
+
     -- Build ALTER TABLE statement
     v_alter_sql := format(
         'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
@@ -8910,9 +9008,12 @@ BEGIN
         v_nullable_clause,
         v_default_clause
     );
-    
+
     -- Add the column
     EXECUTE v_alter_sql;
+    IF v_default_later THEN
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s', v_rel, NEW.field_name, v_default_expr);
+    END IF;
 
     -- Set column comment: title/format summary + description [+ enum values]
     v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
@@ -9274,10 +9375,17 @@ BEGIN
             NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
-    -- Allow updating default value; clearing it restores the type's zero value
-    IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+    -- Allow updating default value; clearing it restores the type's zero value.
+    -- Only the default of the column changes: rows already stored keep their values.
+    -- The current-user token turns into the user's id or back into a plain value when
+    -- the field starts or stops being a reference or parent to users, with the
+    -- default_value itself unchanged, so that change resets the default as well.
+    IF OLD.default_value IS DISTINCT FROM NEW.default_value
+       OR dd_is_current_user_default(OLD.format, OLD.reference_table, OLD.default_value)
+          <> dd_is_current_user_default(NEW.format, NEW.reference_table, NEW.default_value) THEN
         v_default_clause := dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values,
-                                              field_data_type(NEW.format, NEW."precision", NEW.reference_table));
+                                              field_data_type(NEW.format, NEW."precision", NEW.reference_table),
+                                              NEW.reference_table);
         IF v_default_clause IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
@@ -12051,7 +12159,8 @@ GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_unique_predicate(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_drop_own_index(TEXT, TEXT) FROM PUBLIC;
@@ -12067,6 +12176,8 @@ REVOKE EXECUTE ON FUNCTION dd_required_skip_reason(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_replace_enum_check(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_required_delete_mode() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_default_token_misplaced(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_current_user_default() FROM PUBLIC;
 -- A required check runs this function as the writer, so the request role needs it.
 -- All it can do is raise.
 REVOKE EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) FROM PUBLIC;
@@ -12083,7 +12194,9 @@ BEGIN
             dd_unique_predicate(fields),
             dd_index_name_free(TEXT, TEXT, TEXT, TEXT),
             dd_drop_own_index(TEXT, TEXT),
-            dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT),
+            dd_is_current_user_default(TEXT, TEXT, TEXT),
+            dd_default_token_misplaced(fields),
+            dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT),
             dd_required_test(fields),
             dd_required_check_expr(fields),
             dd_constraint_exists(TEXT, TEXT),
@@ -12124,7 +12237,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', 'eca9f052ba787b45cee06c944e26dd77d96e7a7a9aac1bfaecd50826ce9d2108')
+        VALUES ('_core.0160_dd_functions.sql', 'a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13005,7 +13118,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '09b286040d92ee8783c1b764a5568f3ecb880e9aa9a6ce3a8a5100e6242430c0') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -13036,6 +13149,8 @@ DECLARE
     v_alter_sql      TEXT;
     v_nullable_clause TEXT;
     v_default_clause  TEXT;
+    v_default_expr    TEXT;
+    v_default_later   BOOLEAN;
     v_data_type       TEXT;
     v_ref_id_column   TEXT;
     v_fk_name         TEXT;
@@ -13054,7 +13169,19 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
 
-    v_default_clause := coalesce('DEFAULT ' || dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_data_type), '');
+    -- A default never changes records that already exist, as in add_dd_field
+    -- (0160_dd_functions.sql): the current-user default is set only once the column
+    -- exists, so the rows of the adopted table stay empty. A parent column is NOT
+    -- NULL and cannot take rows that get no value, so it is refused here, before
+    -- the ALTER fails with nothing but PostgreSQL's 23502.
+    v_default_expr := dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_data_type, p_field.reference_table);
+    v_default_later := dd_is_current_user_default(p_field.format, p_field.reference_table, p_field.default_value);
+    v_default_clause := CASE WHEN v_default_later THEN '' ELSE coalesce('DEFAULT ' || v_default_expr, '') END;
+    IF v_default_later AND p_field.format = 'parent' AND dd_relation_has_rows(p_field.table_name) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
+            USING ERRCODE = '90259',
+                  HINT = jsonb_build_object('table', p_field.table_name, 'field_name', p_field.field_name)::text;
+    END IF;
 
     -- Add column (IF NOT EXISTS makes this idempotent)
     v_alter_sql := format(
@@ -13063,6 +13190,10 @@ BEGIN
         v_data_type, v_nullable_clause, v_default_clause
     );
     EXECUTE v_alter_sql;
+    IF v_default_later THEN
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
+            p_field.table_name, p_field.field_name, v_default_expr);
+    END IF;
 
     -- Add / refresh column comment: title/format summary + description [+ enum values]
     DECLARE
@@ -14266,7 +14397,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '09b286040d92ee8783c1b764a5568f3ecb880e9aa9a6ce3a8a5100e6242430c0')
+        VALUES ('_core.0180_managed_enable.sql', '347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14541,7 +14672,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '58dcc5ec6bd0646e587b242a265f7e3ee5239018b9ab51a272e2e491a5b575f6') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -15055,9 +15186,19 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- pass through an evidence table leaving nothing behind.
 --
 -- Four filters, in the order they are applied:
---   1. in_extension - objects an extension script created belong to that
+--   1. a family rebuild - every event while audit.generated_ddl holds a row
+--      for this transaction, i.e. while dd_refresh_family (0160_dd_functions.sql)
+--      regenerates an is_a/has_a family's views, routines and triggers. That
+--      DDL follows from the change that caused it, which is logged; the GRANT
+--      and REVOKE events among it carry no identity, so a shape filter like
+--      filter 4 could not reach them. The table is the owner's alone
+--      (0190_audit_log.once.sql says why that matters). This filter is checked
+--      once per event, before the loop over pg_event_trigger_ddl_commands(),
+--      and returns early; the other three filters act per object, inside the
+--      loop.
+--   2. in_extension - objects an extension script created belong to that
 --      extension, not to this database's schema history.
---   2. schema scope - only the schemas Semantius owns are evidence. DDL in a
+--   3. schema scope - only the schemas Semantius owns are evidence. DDL in a
 --      foreign schema, and temp objects (reported as schema 'pg_temp' here,
 --      'pg_temp_N' in the catalog), are not ours to record. A NULL
 --      schema_name is deliberately NOT filtered: GRANT, REVOKE and ALTER
@@ -15066,7 +15207,7 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      throw away the privilege history this table exists to keep. CREATE
 --      SCHEMA also reports no schema (its identity is the new schema's name),
 --      so creating a schema is always logged, foreign ones included.
---   3. generated label companions - rebuild_entity_label_functions (0180_managed_enable.sql)
+--   4. generated label companions - rebuild_entity_label_functions (0180_managed_enable.sql)
 --      drops and recreates the whole set of <name>_label(rowtype) functions on
 --      any field edit, so these events are churn, not history. This reaches
 --      only the CREATE/ALTER FUNCTION and COMMENT events: the matching GRANT
@@ -15079,22 +15220,15 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      lost. An entity whose name needs quoting is audited too, because the
 --      quotes travel into the identity and match no table_name; no such entity
 --      exists today.
---   4. a family rebuild - every event while audit.generated_ddl holds a row
---      for this transaction, i.e. while dd_refresh_family (0160_dd_functions.sql)
---      regenerates an is_a/has_a family's views, routines and triggers. That
---      DDL follows from the change that caused it, which is logged; the GRANT
---      and REVOKE events among it carry no identity, so a shape filter like
---      the one above could not reach them. The table is the owner's alone
---      (0190_audit_log.once.sql says why that matters).
 --
 -- Two limitations, both accepted:
---   - GRANT and REVOKE, kept for the reason filter 2 gives, cannot be
+--   - GRANT and REVOKE, kept for the reason filter 3 gives, cannot be
 --     recognized as label churn either, and on the extension install path their
 --     query_text is only the migrate() call that issued them. Recovering the
 --     target from the DDL text was considered and declined: that is a parser
 --     for an open-ended grammar, feeding an evidence table.
 --   - Dropping a schema is logged too, by the sibling below, for the reason
---     filter 2 gives for creating one and with the same consequence.
+--     filter 3 gives for creating one and with the same consequence.
 --
 -- Drops never reach this function: pg_event_trigger_ddl_commands() returns no
 -- rows for them whatever the tag, which is why audit.log_drop_event exists.
@@ -15170,7 +15304,7 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 -- unaudited - which is exactly the case where the audit itself is being
 -- destroyed, and where a row would have nowhere to go regardless.
 --
--- Four conditions decide what is recorded, and each removes a specific kind of
+-- Five conditions decide what is recorded, and each removes a specific kind of
 -- churn:
 --   - original only. A DROP TABLE reports the whole dependency closure of the
 --     table: measured on PostgreSQL 18, a table as plain as
@@ -15193,7 +15327,7 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
 --     same caveats as the sibling above.
---   - not a family rebuild, the sibling's filter 4: dd_refresh_family drops and
+--   - not a family rebuild, the sibling's filter 1: dd_refresh_family drops and
 --     recreates the views of a family on every field edit.
 CREATE OR REPLACE FUNCTION audit.log_drop_event()
 RETURNS event_trigger
@@ -15469,7 +15603,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', '58dcc5ec6bd0646e587b242a265f7e3ee5239018b9ab51a272e2e491a5b575f6')
+        VALUES ('_core.0200_audit_log.sql', 'd651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17706,7 +17840,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '717190508b7213fbc17ea109fe0c3dee8607acc1363ed652b7371c922f3b41e9') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -18108,6 +18242,12 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
                 jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
             WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                 CASE
+                    -- The current-user default comes back as written, as CURRENT_DATE does
+                    -- on a date: the schema describes the field, not one caller, and the
+                    -- database fills in the id when a write leaves the field out. It is
+                    -- not a number, so it never reaches the integer cast below.
+                    WHEN dd_is_current_user_default(format, reference_table, default_value)
+                        THEN jsonb_build_object('default', trim(default_value))
                     WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
                     WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
                     WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
@@ -18701,7 +18841,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '717190508b7213fbc17ea109fe0c3dee8607acc1363ed652b7371c922f3b41e9')
+        VALUES ('_core.0250_public_functions.sql', '55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -23992,7 +24132,7 @@ $pgsem__core_0360_raci_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0370_raci.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4c43e787a6634b3269b67e4a2eac16b465c74eceacf26c351067a2d9eff91726') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0370_raci.sql';
       EXECUTE $pgsem__core_0370_raci_sql$-- =====================================================
@@ -24060,8 +24200,10 @@ REVOKE EXECUTE ON FUNCTION assign_agent_external_id() FROM PUBLIC;
 -- is_raci_actor(entity, to_state, letter) → boolean
 -- Returns TRUE if the current user holds a role assigned the given
 -- RACI letter for the process that governs (entity, to_state).
--- Calls rbac.uid() to authenticate and resolve the current user;
--- joins user_roles ⋈ raci_assignments.
+-- rbac.uid() is called directly because 0900_test_security.sql requires it of
+-- every definer the request role can execute; the user's id comes from
+-- rbac.user_id(), the one place that resolves it, which raises rather than
+-- answer for a session without a user. Joins user_roles ⋈ raci_assignments.
 
 CREATE OR REPLACE FUNCTION is_raci_actor(
     p_entity   TEXT,
@@ -24078,11 +24220,7 @@ DECLARE
     v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
-    PERFORM rbac.ensure_context_initialized();
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
-    IF v_user_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
+    v_user_id := rbac.user_id();
     RETURN EXISTS (
         SELECT 1
         FROM   process_gates pg
@@ -24121,7 +24259,6 @@ DECLARE
     v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
-    PERFORM rbac.ensure_context_initialized();
 
     -- Caller scope: has_consultation is GRANTed to the request role and exposed as
     -- /rpc/has_consultation, so without a caller gate it is a record-existence oracle — any user
@@ -24130,10 +24267,7 @@ BEGIN
     -- governs (entity, to_state). A consulted-gate is always evaluated by an actor who is a RACI
     -- participant (R/A initiating the transition), so legitimate use is unaffected; a non-
     -- participant probe fails closed (FALSE), indistinguishable from "not yet consulted".
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
-    IF v_user_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
+    v_user_id := rbac.user_id();
 
     IF NOT EXISTS (
         SELECT 1
@@ -24628,7 +24762,7 @@ CREATE OR REPLACE TRIGGER raci_entity_renamed_trigger
 $pgsem__core_0370_raci_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0370_raci.sql', '4c43e787a6634b3269b67e4a2eac16b465c74eceacf26c351067a2d9eff91726')
+        VALUES ('_core.0370_raci.sql', '99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -27603,7 +27737,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"be3e49f323a245c11f54ccc8525246d3fb5c2e02713f5f1892fc614693d01797","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"d26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"c4ecd2de2336d0d9ca5b80013e47272589c67f75b24cad787d7612c0f7e3d932","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"eca9f052ba787b45cee06c944e26dd77d96e7a7a9aac1bfaecd50826ce9d2108","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"09b286040d92ee8783c1b764a5568f3ecb880e9aa9a6ce3a8a5100e6242430c0","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"58dcc5ec6bd0646e587b242a265f7e3ee5239018b9ab51a272e2e491a5b575f6","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"717190508b7213fbc17ea109fe0c3dee8607acc1363ed652b7371c922f3b41e9","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"4c43e787a6634b3269b67e4a2eac16b465c74eceacf26c351067a2d9eff91726","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"d26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -27667,7 +27801,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"be3e49f323a245c11f54ccc8525246d3fb5c2e02713f5f1892fc614693d01797","_core.0090_rbac_seed.once.sql":"d26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6","_core.0100_rbac_rls.sql":"c4ecd2de2336d0d9ca5b80013e47272589c67f75b24cad787d7612c0f7e3d932","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752","_core.0160_dd_functions.sql":"eca9f052ba787b45cee06c944e26dd77d96e7a7a9aac1bfaecd50826ce9d2108","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"09b286040d92ee8783c1b764a5568f3ecb880e9aa9a6ce3a8a5100e6242430c0","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"58dcc5ec6bd0646e587b242a265f7e3ee5239018b9ab51a272e2e491a5b575f6","_core.0210_computed_validation.sql":"68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"717190508b7213fbc17ea109fe0c3dee8607acc1363ed652b7371c922f3b41e9","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"4c43e787a6634b3269b67e4a2eac16b465c74eceacf26c351067a2d9eff91726","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"d26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752","_core.0160_dd_functions.sql":"a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","_core.0210_computed_validation.sql":"68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

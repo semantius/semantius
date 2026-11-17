@@ -11,7 +11,7 @@
 
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(33);
 
 SELECT authenticate_as('user2');
 
@@ -283,6 +283,21 @@ SELECT ok(
         WHERE s->'table'->>'table_name' = 'customers'
     ),
     'user2 get_user_cubes() should include customers'
+);
+
+-- =====================================================
+-- get_schema('orders'): a keyword default
+-- =====================================================
+-- A keyword default comes back as written, not evaluated: the schema describes
+-- the field, and the column default fills in the value when a write leaves it
+-- out. The current-user default of a users reference follows the same rule
+-- (0531_test_current_user_default.sql).
+
+-- Test 33
+SELECT is(
+    (public.get_schema('orders')::jsonb)->'properties'->'required_date'->>'default',
+    'CURRENT_DATE',
+    'orders.required_date default should be CURRENT_DATE as written'
 );
 
 SELECT * FROM finish();

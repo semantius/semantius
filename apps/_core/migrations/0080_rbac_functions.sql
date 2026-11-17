@@ -1306,6 +1306,7 @@ CREATE OR REPLACE FUNCTION rbac.user_id()
 RETURNS BIGINT AS $$
 DECLARE
     v_external_id TEXT;
+    v_user_id     BIGINT;
 BEGIN
     IF system_user LIKE 'oauth:%' THEN
         PERFORM rbac.ensure_context_initialized();
@@ -1323,7 +1324,18 @@ BEGIN
             PERFORM rbac.ensure_context_initialized();
         END IF;
     END IF;
-    RETURN current_setting('app.current_user_id', true)::BIGINT;
+    -- ensure_context_initialized writes the id together with the rest of the
+    -- context, so a context that holds none was written by hand: the app.*
+    -- settings are ordinary GUCs. It names nobody, so it is refused as a session
+    -- without a user, which rbac.user_id_or_null() turns into NULL like any other.
+    -- A cached value that is not a number still fails its cast.
+    v_user_id := NULLIF(current_setting('app.current_user_id', true), '')::BIGINT;
+    IF v_user_id IS NULL THEN
+        RAISE EXCEPTION 'Authentication required: the request context holds no user id'
+            USING ERRCODE = 'insufficient_privilege',
+                  HINT = jsonb_build_object('code', '90012')::text;
+    END IF;
+    RETURN v_user_id;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 
@@ -1331,13 +1343,20 @@ COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
 whose cached subject matches the live JWT sub) reads app.current_user_id
 straight back with no further call; a cold context is rebuilt via rbac.uid()
-(the authentication gate) and rbac.ensure_context_initialized().';
+(the authentication gate) and rbac.ensure_context_initialized(). A context
+that holds no user id raises 42501 (90012).';
 
 -- Same as rbac.user_id(), but NULL instead of an error when there is no
 -- authenticated user (migrations, seed scripts, anonymous sessions) or the
 -- user has no row yet. For trigger and audit code that must work in every
 -- context. Goes through ensure_context_initialized(), so the value is
 -- derived, never read raw from the client-writable app.current_user_id setting.
+--
+-- It is also the column default of every reference or parent field to users
+-- whose default is CURRENT_USER (dd_column_default, 0160_dd_functions.sql), so
+-- table columns depend on it in pg_depend. It can be replaced in place, never
+-- dropped: a DROP fails with 2BP01 while such a column exists, and DROP ...
+-- CASCADE would strip the default off every one of them.
 CREATE OR REPLACE FUNCTION rbac.user_id_or_null()
 RETURNS BIGINT AS $$
 BEGIN

@@ -509,9 +509,19 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 -- pass through an evidence table leaving nothing behind.
 --
 -- Four filters, in the order they are applied:
---   1. in_extension - objects an extension script created belong to that
+--   1. a family rebuild - every event while audit.generated_ddl holds a row
+--      for this transaction, i.e. while dd_refresh_family (0160_dd_functions.sql)
+--      regenerates an is_a/has_a family's views, routines and triggers. That
+--      DDL follows from the change that caused it, which is logged; the GRANT
+--      and REVOKE events among it carry no identity, so a shape filter like
+--      filter 4 could not reach them. The table is the owner's alone
+--      (0190_audit_log.once.sql says why that matters). This filter is checked
+--      once per event, before the loop over pg_event_trigger_ddl_commands(),
+--      and returns early; the other three filters act per object, inside the
+--      loop.
+--   2. in_extension - objects an extension script created belong to that
 --      extension, not to this database's schema history.
---   2. schema scope - only the schemas Semantius owns are evidence. DDL in a
+--   3. schema scope - only the schemas Semantius owns are evidence. DDL in a
 --      foreign schema, and temp objects (reported as schema 'pg_temp' here,
 --      'pg_temp_N' in the catalog), are not ours to record. A NULL
 --      schema_name is deliberately NOT filtered: GRANT, REVOKE and ALTER
@@ -520,7 +530,7 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      throw away the privilege history this table exists to keep. CREATE
 --      SCHEMA also reports no schema (its identity is the new schema's name),
 --      so creating a schema is always logged, foreign ones included.
---   3. generated label companions - rebuild_entity_label_functions (0180_managed_enable.sql)
+--   4. generated label companions - rebuild_entity_label_functions (0180_managed_enable.sql)
 --      drops and recreates the whole set of <name>_label(rowtype) functions on
 --      any field edit, so these events are churn, not history. This reaches
 --      only the CREATE/ALTER FUNCTION and COMMENT events: the matching GRANT
@@ -533,22 +543,15 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 --      lost. An entity whose name needs quoting is audited too, because the
 --      quotes travel into the identity and match no table_name; no such entity
 --      exists today.
---   4. a family rebuild - every event while audit.generated_ddl holds a row
---      for this transaction, i.e. while dd_refresh_family (0160_dd_functions.sql)
---      regenerates an is_a/has_a family's views, routines and triggers. That
---      DDL follows from the change that caused it, which is logged; the GRANT
---      and REVOKE events among it carry no identity, so a shape filter like
---      the one above could not reach them. The table is the owner's alone
---      (0190_audit_log.once.sql says why that matters).
 --
 -- Two limitations, both accepted:
---   - GRANT and REVOKE, kept for the reason filter 2 gives, cannot be
+--   - GRANT and REVOKE, kept for the reason filter 3 gives, cannot be
 --     recognized as label churn either, and on the extension install path their
 --     query_text is only the migrate() call that issued them. Recovering the
 --     target from the DDL text was considered and declined: that is a parser
 --     for an open-ended grammar, feeding an evidence table.
 --   - Dropping a schema is logged too, by the sibling below, for the reason
---     filter 2 gives for creating one and with the same consequence.
+--     filter 3 gives for creating one and with the same consequence.
 --
 -- Drops never reach this function: pg_event_trigger_ddl_commands() returns no
 -- rows for them whatever the tag, which is why audit.log_drop_event exists.
@@ -624,7 +627,7 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 -- unaudited - which is exactly the case where the audit itself is being
 -- destroyed, and where a row would have nowhere to go regardless.
 --
--- Four conditions decide what is recorded, and each removes a specific kind of
+-- Five conditions decide what is recorded, and each removes a specific kind of
 -- churn:
 --   - original only. A DROP TABLE reports the whole dependency closure of the
 --     table: measured on PostgreSQL 18, a table as plain as
@@ -647,7 +650,7 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
 --     same caveats as the sibling above.
---   - not a family rebuild, the sibling's filter 4: dd_refresh_family drops and
+--   - not a family rebuild, the sibling's filter 1: dd_refresh_family drops and
 --     recreates the views of a family on every field edit.
 CREATE OR REPLACE FUNCTION audit.log_drop_event()
 RETURNS event_trigger

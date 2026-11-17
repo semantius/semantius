@@ -473,20 +473,14 @@ COMMENT ON TRIGGER assert_external_id_writer_trigger ON users IS
 -- When a user_role record is inserted without an assigned_by value,
 -- automatically set it to the current user ID from the session context
 
+-- A trigger rather than a column default because it also fills an explicit NULL.
+-- rbac.user_id_or_null() is the one place that resolves the user, and gives NULL in
+-- a session without one (a migration, a seed script).
 CREATE OR REPLACE FUNCTION rbac.default_assigned_by()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_current_user_id BIGINT;
 BEGIN
     IF NEW.assigned_by IS NULL THEN
-        BEGIN
-            v_current_user_id := rbac.user_id();
-        EXCEPTION WHEN OTHERS THEN
-            v_current_user_id := NULL;
-        END;
-        IF v_current_user_id IS NOT NULL THEN
-            NEW.assigned_by := v_current_user_id;
-        END IF;
+        NEW.assigned_by := rbac.user_id_or_null();
     END IF;
     RETURN NEW;
 END;
@@ -507,20 +501,12 @@ COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 -- TRIGGER: Default granted_by to current user for user_permissions
 -- =====================================================
 
+-- As rbac.default_assigned_by.
 CREATE OR REPLACE FUNCTION rbac.default_granted_by()
 RETURNS TRIGGER AS $$
-DECLARE
-    v_current_user_id BIGINT;
 BEGIN
     IF NEW.granted_by IS NULL THEN
-        BEGIN
-            v_current_user_id := rbac.user_id();
-        EXCEPTION WHEN OTHERS THEN
-            v_current_user_id := NULL;
-        END;
-        IF v_current_user_id IS NOT NULL THEN
-            NEW.granted_by := v_current_user_id;
-        END IF;
+        NEW.granted_by := rbac.user_id_or_null();
     END IF;
     RETURN NEW;
 END;

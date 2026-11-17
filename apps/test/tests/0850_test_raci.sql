@@ -1005,12 +1005,13 @@ SELECT throws_ok(
 -- =====================================================
 -- PART 4: a request context that holds no user id
 -- =====================================================
--- is_raci_actor and has_consultation read the caller's id from the cached
--- request context. A context that is marked initialized for the caller's subject
--- but carries no id cannot name a participant, so both answer FALSE, the same
--- answer a non-participant gets, and neither raises. The app.* settings are
--- ordinary GUCs, so a direct SQL session can produce this state. Each call is
--- first made against the intact context as a control: user3 is accountable for
+-- is_raci_actor and has_consultation take the caller's id from rbac.user_id().
+-- A context that is marked initialized for the caller's subject but carries no id
+-- names nobody: ensure_context_initialized always writes the id with the rest, so
+-- only a session that writes the app.* settings by hand, as a direct SQL session
+-- can, produces this state. rbac.user_id() refuses it like a session without a
+-- user (42501, 90012), so both refuse instead of answering for nobody. Each call
+-- is first made against the intact context as a control: user3 is accountable for
 -- the make_offer gate and the consulted event of probe_a has been acted.
 
 RESET ROLE;
@@ -1033,15 +1034,15 @@ SELECT is(
 SELECT set_config('app.current_user_id', '', true);
 
 SELECT is(
-    is_raci_actor('raci_probe', 'approved', 'accountable'),
-    FALSE,
-    'is_raci_actor is FALSE when the cached context holds no user id'
+    catch_error_hint($$SELECT is_raci_actor('raci_probe', 'approved', 'accountable')$$) ->> 'code',
+    '90012',
+    'is_raci_actor refuses a cached context that holds no user id (90012)'
 );
 
-SELECT is(
-    has_consultation('raci_probe', 'approved', (SELECT a_id::text FROM _rp)),
-    FALSE,
-    'has_consultation is FALSE when the cached context holds no user id'
+SELECT throws_ok(
+    $$SELECT has_consultation('raci_probe', 'approved', (SELECT a_id::text FROM _rp))$$,
+    '42501', NULL,
+    'has_consultation refuses it as well'
 );
 
 -- =====================================================

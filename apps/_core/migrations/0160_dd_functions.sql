@@ -935,18 +935,49 @@ $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION quote_default_value IS
 'Quotes a fields.default_value for use in DDL. Returns bare text only for NULL, boolean and numeric literals and a fixed allow-list of argument-less SQL expressions (CURRENT_TIMESTAMP, now(), gen_random_uuid(), ...); every other value becomes a quoted string literal that PostgreSQL casts to the column type. Never returns caller-supplied text unquoted.';
 
+-- CURRENT_USER or $user_id as the default of a reference or parent field to
+-- users means the id of the signed-in user, the way CURRENT_DATE on a date field
+-- means today. PostgreSQL's own CURRENT_USER is the session's role name, the same
+-- for every signed-in user, and a BIGINT key column cannot hold it. This test is
+-- the one place that decides it, for the column default, for get_schema and for
+-- the guard on fields.
+CREATE OR REPLACE FUNCTION dd_is_current_user_default(p_format TEXT, p_reference_table TEXT, p_default_value TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT coalesce(p_format IN ('reference', 'parent')
+                    AND p_reference_table = 'users'
+                    AND upper(trim(p_default_value)) IN ('CURRENT_USER', '$USER_ID'), FALSE);
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) IS
+'Whether a field''s default means the signed-in user''s id: CURRENT_USER or $user_id, in any case, on a reference or parent field to users.';
+
 -- The column default a field resolves to, shared by the ADD COLUMN and the
 -- SET DEFAULT paths. A blank default_value is not "no default": every NOT NULL
 -- column carries one, so a blank falls back to the zero value of the column
 -- type. Without that fallback, clearing a default would DROP it and leave an
 -- insert that omits the column failing on NOT NULL.
-CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT)
+--
+-- The current-user default is the fixed text rbac.user_id_or_null(). PostgreSQL
+-- evaluates it for every inserted row that leaves the column out, in the
+-- inserting session, so the row gets the id of whoever writes it, and NULL in a
+-- session without claims. rbac.user_id_or_null() is the one place that resolves
+-- the signed-in user; nothing here reads the client-writable app.* settings.
+--
+-- A new parameter list adds an overload instead of replacing the function, and
+-- two overloads make every five-argument call ambiguous, so the five-argument
+-- signature is dropped first.
+DROP FUNCTION IF EXISTS dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT);
+CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT, p_reference_table TEXT DEFAULT '')
 RETURNS TEXT AS $$
 DECLARE
     v_resolved TEXT := CASE WHEN p_format = 'enum'
                             THEN effective_enum_default(p_default_value, p_input_type, p_enum_values)
                             ELSE p_default_value END;
 BEGIN
+    IF dd_is_current_user_default(p_format, p_reference_table, p_default_value) THEN
+        RETURN 'rbac.user_id_or_null()';
+    END IF;
+
     IF v_resolved IS NOT NULL AND trim(v_resolved) <> '' THEN
         RETURN quote_default_value(v_resolved, p_data_type);
     END IF;
@@ -973,8 +1004,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION dd_column_default IS
-'The DDL default expression for a field: its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+COMMENT ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) IS
+'The DDL default expression for a field: rbac.user_id_or_null() for the current-user default of a reference or parent field to users (dd_is_current_user_default), else its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
 
 -- =====================================================
 -- REQUIRED FIELDS
@@ -1123,6 +1154,12 @@ COMMENT ON FUNCTION dd_field_has_missing(fields, TEXT) IS
 -- Whether a new column's default already meets the field's condition. Every existing
 -- row takes that default, so this answers for all of them without reading one, which
 -- is what makes adding a column to a large table cheap.
+--
+-- The current-user default is the exception: a default never changes records that
+-- already exist, and this one would stamp every existing row with whoever saves the
+-- field. The column is added without it and the default is set afterwards, so the
+-- existing rows get no value at all. That fails a required field's condition, and a
+-- parent field, whose column is NOT NULL, cannot take the rows in any case.
 CREATE OR REPLACE FUNCTION dd_required_default_ok(p_field fields)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -1130,12 +1167,15 @@ DECLARE
     v_type TEXT := field_data_type(p_field.format, p_field."precision", p_field.reference_table);
     v_ok   BOOLEAN;
 BEGIN
+    IF dd_is_current_user_default(p_field.format, p_field.reference_table, p_field.default_value) THEN
+        RETURN v_test IS NULL AND p_field.format <> 'parent';
+    END IF;
     IF v_test IS NULL THEN
         RETURN TRUE;
     END IF;
     EXECUTE format('SELECT (%s) IS TRUE FROM (SELECT %s::%s AS %I) s',
         v_test,
-        coalesce(dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_type), 'NULL'),
+        coalesce(dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_type, p_field.reference_table), 'NULL'),
         v_type,
         p_field.field_name) INTO v_ok;
     RETURN v_ok;
@@ -1143,7 +1183,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_required_default_ok(fields) IS
-'Whether the column default of a required field meets the field''s condition.';
+'Whether the rows of a table take a value from a new column''s default that meets the field''s condition. False for the current-user default on a required or parent field: existing rows never take that default.';
 
 -- The lock_timeout makes a busy table give up instead of queueing live traffic behind
 -- this ALTER: a waiting ACCESS EXCLUSIVE request blocks every session that arrives
@@ -1299,6 +1339,51 @@ CREATE OR REPLACE TRIGGER validate_required_delete_mode_trigger
     FOR EACH ROW
     WHEN (NEW.format IN ('reference', 'parent') AND NEW.reference_delete_mode = 'clear')
     EXECUTE FUNCTION validate_required_delete_mode();
+
+-- Whether a field carries CURRENT_USER or $user_id as its default where the token
+-- cannot work. Only a reference or parent field to users holds the signed-in
+-- user's id (dd_is_current_user_default). Anywhere else $user_id would be stored
+-- as its own text, and CURRENT_USER is PostgreSQL's role name, which a column of
+-- any type but TEXT refuses with 42804 when the default is set. A TEXT column
+-- keeps the role name, as it always has.
+CREATE OR REPLACE FUNCTION dd_default_token_misplaced(p_field fields)
+RETURNS BOOLEAN AS $$
+    SELECT upper(trim(coalesce(p_field.default_value, ''))) IN ('CURRENT_USER', '$USER_ID')
+       AND NOT dd_is_current_user_default(p_field.format, p_field.reference_table, p_field.default_value)
+       AND NOT (upper(trim(p_field.default_value)) = 'CURRENT_USER'
+                AND p_field.format NOT IN ('reference', 'parent')
+                AND field_data_type(p_field.format, p_field."precision", p_field.reference_table) = 'TEXT');
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_default_token_misplaced(fields) IS
+'Whether a field has CURRENT_USER or $user_id as its default where it cannot work: $user_id anywhere but a reference or parent field to users, CURRENT_USER on a reference or parent field to another entity or on a column that is not TEXT.';
+
+-- Refuses a field from coming to carry the current-user token where it cannot
+-- work. A field that already carried it before this guard existed is not refused
+-- for staying that way, so every other edit of it, and a rename of the entity its
+-- reference points at, still goes through.
+CREATE OR REPLACE FUNCTION validate_current_user_default()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF dd_default_token_misplaced(NEW)
+       AND (TG_OP = 'INSERT' OR NOT dd_default_token_misplaced(OLD)) THEN
+        RAISE EXCEPTION 'Default ${default_value} of field ${field_name} on ${table} only applies to a reference or parent field to users'
+            USING ERRCODE = '90283',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'default_value', NEW.default_value)::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION validate_current_user_default() IS
+'BEFORE INSERT/UPDATE guard on fields: refuses CURRENT_USER or $user_id as a default where it cannot mean the signed-in user (90283), see dd_default_token_misplaced. A field that already carried it stays editable.';
+
+CREATE OR REPLACE TRIGGER validate_current_user_default_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    WHEN (upper(trim(NEW.default_value)) IN ('CURRENT_USER', '$USER_ID'))
+    EXECUTE FUNCTION validate_current_user_default();
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -1758,6 +1843,8 @@ DECLARE
     v_alter_sql TEXT;
     v_nullable_clause TEXT;
     v_default_clause TEXT;
+    v_default_expr TEXT;
+    v_default_later BOOLEAN;
     v_data_type TEXT;
     v_is_managed BOOLEAN;
     v_ref_id_column TEXT;
@@ -1815,7 +1902,8 @@ BEGIN
     END IF;
 
     -- Decided before the ALTER below locks the table. Every existing row takes the
-    -- column's default, so the default answers for all of them.
+    -- column's default, so the default answers for all of them. The current-user
+    -- default is the exception, which dd_required_default_ok answers for.
     IF dd_relation_has_rows(v_rel) THEN
         IF NOT dd_required_default_ok(NEW) THEN
             RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
@@ -1845,8 +1933,13 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
     
-    v_default_clause := coalesce('DEFAULT ' || dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values, v_data_type), '');
-    
+    -- A default never changes records that already exist. The current-user default
+    -- would stamp every existing row with whoever saves the field, so it is set only
+    -- once the column exists, and the existing rows stay empty.
+    v_default_expr := dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values, v_data_type, NEW.reference_table);
+    v_default_later := dd_is_current_user_default(NEW.format, NEW.reference_table, NEW.default_value);
+    v_default_clause := CASE WHEN v_default_later THEN '' ELSE coalesce('DEFAULT ' || v_default_expr, '') END;
+
     -- Build ALTER TABLE statement
     v_alter_sql := format(
         'ALTER TABLE %I ADD COLUMN IF NOT EXISTS %I %s %s %s',
@@ -1856,9 +1949,12 @@ BEGIN
         v_nullable_clause,
         v_default_clause
     );
-    
+
     -- Add the column
     EXECUTE v_alter_sql;
+    IF v_default_later THEN
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s', v_rel, NEW.field_name, v_default_expr);
+    END IF;
 
     -- Set column comment: title/format summary + description [+ enum values]
     v_comment := dd_field_comment(NEW.title, NEW.format, NEW.description, NEW.enum_values);
@@ -2220,10 +2316,17 @@ BEGIN
             NEW.field_name, is_nullable(NEW.format), NEW.table_name;
     END IF;
 
-    -- Allow updating default value; clearing it restores the type's zero value
-    IF OLD.default_value IS DISTINCT FROM NEW.default_value THEN
+    -- Allow updating default value; clearing it restores the type's zero value.
+    -- Only the default of the column changes: rows already stored keep their values.
+    -- The current-user token turns into the user's id or back into a plain value when
+    -- the field starts or stops being a reference or parent to users, with the
+    -- default_value itself unchanged, so that change resets the default as well.
+    IF OLD.default_value IS DISTINCT FROM NEW.default_value
+       OR dd_is_current_user_default(OLD.format, OLD.reference_table, OLD.default_value)
+          <> dd_is_current_user_default(NEW.format, NEW.reference_table, NEW.default_value) THEN
         v_default_clause := dd_column_default(NEW.format, NEW.default_value, NEW.input_type, NEW.enum_values,
-                                              field_data_type(NEW.format, NEW."precision", NEW.reference_table));
+                                              field_data_type(NEW.format, NEW."precision", NEW.reference_table),
+                                              NEW.reference_table);
         IF v_default_clause IS NULL THEN
             v_alter_sql := format(
                 'ALTER TABLE %I ALTER COLUMN %I DROP DEFAULT',
@@ -4997,7 +5100,8 @@ GRANT EXECUTE ON FUNCTION is_nullable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_unique_predicate(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_drop_own_index(TEXT, TEXT) FROM PUBLIC;
@@ -5013,6 +5117,8 @@ REVOKE EXECUTE ON FUNCTION dd_required_skip_reason(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_replace_enum_check(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_required_delete_mode() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_default_token_misplaced(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_current_user_default() FROM PUBLIC;
 -- A required check runs this function as the writer, so the request role needs it.
 -- All it can do is raise.
 REVOKE EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) FROM PUBLIC;
@@ -5029,7 +5135,9 @@ BEGIN
             dd_unique_predicate(fields),
             dd_index_name_free(TEXT, TEXT, TEXT, TEXT),
             dd_drop_own_index(TEXT, TEXT),
-            dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT),
+            dd_is_current_user_default(TEXT, TEXT, TEXT),
+            dd_default_token_misplaced(fields),
+            dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT),
             dd_required_test(fields),
             dd_required_check_expr(fields),
             dd_constraint_exists(TEXT, TEXT),

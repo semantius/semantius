@@ -981,7 +981,7 @@ else
            life9b life_virgin; do
     dropdb_ "$d"
   done
-  docker exec "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/listener.out /tmp/pgmq.sql || true
+  docker exec -u root "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/listener.out /tmp/pgmq.sql || true
   ok "scratch databases and files removed"
 fi
 

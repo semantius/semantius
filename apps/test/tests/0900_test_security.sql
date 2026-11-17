@@ -26,7 +26,7 @@
 --       exclusion list, which is the thing 2.3 exists to avoid.
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(13);
 
 -- =====================================================
 -- TEST 2.1: Check for tables not using RLS
@@ -302,6 +302,30 @@ SELECT is(
       WHERE NOT EXISTS (SELECT 1 FROM sec_sql_scan s WHERE s.name = b.name)),
     NULL::text,
     'Every function on the audited list still exists and still builds SQL'
+);
+
+-- =====================================================
+-- TEST 2.7: Only rbac reads the user id from its setting
+-- =====================================================
+-- app.current_user_id is a transaction-local setting, and a client that runs SQL
+-- directly can write it. rbac.user_id() reads it only after checking that the
+-- cached context belongs to the live JWT subject, and rebuilds the context
+-- otherwise; rbac.user_id_or_null() goes through it. A function that reads the
+-- setting itself skips that check and keeps a second copy of the logic, so every
+-- function outside rbac takes the user from those two. Writing the setting
+-- (get_userinfo) and naming it in a comment are fine; only the read is refused.
+-- Extension-owned functions are left out as in TEST 2.2: the installer carries the
+-- text of the migrations, rbac's own read among them.
+
+SELECT is(
+    (SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.oid::regprocedure::text)
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname IN ('public', 'common', 'audit')
+        AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.objid = p.oid AND d.deptype = 'e')
+        AND p.prosrc ~* 'current_setting\s*\(\s*''app\.current_user_id'''),
+    NULL::text,
+    'No function outside rbac reads app.current_user_id itself'
 );
 
 SELECT * FROM finish();

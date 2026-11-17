@@ -26,6 +26,8 @@ DECLARE
     v_alter_sql      TEXT;
     v_nullable_clause TEXT;
     v_default_clause  TEXT;
+    v_default_expr    TEXT;
+    v_default_later   BOOLEAN;
     v_data_type       TEXT;
     v_ref_id_column   TEXT;
     v_fk_name         TEXT;
@@ -44,7 +46,19 @@ BEGIN
         v_nullable_clause := 'NOT NULL';
     END IF;
 
-    v_default_clause := coalesce('DEFAULT ' || dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_data_type), '');
+    -- A default never changes records that already exist, as in add_dd_field
+    -- (0160_dd_functions.sql): the current-user default is set only once the column
+    -- exists, so the rows of the adopted table stay empty. A parent column is NOT
+    -- NULL and cannot take rows that get no value, so it is refused here, before
+    -- the ALTER fails with nothing but PostgreSQL's 23502.
+    v_default_expr := dd_column_default(p_field.format, p_field.default_value, p_field.input_type, p_field.enum_values, v_data_type, p_field.reference_table);
+    v_default_later := dd_is_current_user_default(p_field.format, p_field.reference_table, p_field.default_value);
+    v_default_clause := CASE WHEN v_default_later THEN '' ELSE coalesce('DEFAULT ' || v_default_expr, '') END;
+    IF v_default_later AND p_field.format = 'parent' AND dd_relation_has_rows(p_field.table_name) THEN
+        RAISE EXCEPTION 'Field ${field_name} on ${table} cannot be required while rows have no value for it'
+            USING ERRCODE = '90259',
+                  HINT = jsonb_build_object('table', p_field.table_name, 'field_name', p_field.field_name)::text;
+    END IF;
 
     -- Add column (IF NOT EXISTS makes this idempotent)
     v_alter_sql := format(
@@ -53,6 +67,10 @@ BEGIN
         v_data_type, v_nullable_clause, v_default_clause
     );
     EXECUTE v_alter_sql;
+    IF v_default_later THEN
+        EXECUTE format('ALTER TABLE %I ALTER COLUMN %I SET DEFAULT %s',
+            p_field.table_name, p_field.field_name, v_default_expr);
+    END IF;
 
     -- Add / refresh column comment: title/format summary + description [+ enum values]
     DECLARE

@@ -63,8 +63,10 @@ REVOKE EXECUTE ON FUNCTION assign_agent_external_id() FROM PUBLIC;
 -- is_raci_actor(entity, to_state, letter) → boolean
 -- Returns TRUE if the current user holds a role assigned the given
 -- RACI letter for the process that governs (entity, to_state).
--- Calls rbac.uid() to authenticate and resolve the current user;
--- joins user_roles ⋈ raci_assignments.
+-- rbac.uid() is called directly because 0900_test_security.sql requires it of
+-- every definer the request role can execute; the user's id comes from
+-- rbac.user_id(), the one place that resolves it, which raises rather than
+-- answer for a session without a user. Joins user_roles ⋈ raci_assignments.
 
 CREATE OR REPLACE FUNCTION is_raci_actor(
     p_entity   TEXT,
@@ -81,11 +83,7 @@ DECLARE
     v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
-    PERFORM rbac.ensure_context_initialized();
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
-    IF v_user_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
+    v_user_id := rbac.user_id();
     RETURN EXISTS (
         SELECT 1
         FROM   process_gates pg
@@ -124,7 +122,6 @@ DECLARE
     v_user_id BIGINT;
 BEGIN
     PERFORM rbac.uid();
-    PERFORM rbac.ensure_context_initialized();
 
     -- Caller scope: has_consultation is GRANTed to the request role and exposed as
     -- /rpc/has_consultation, so without a caller gate it is a record-existence oracle — any user
@@ -133,10 +130,7 @@ BEGIN
     -- governs (entity, to_state). A consulted-gate is always evaluated by an actor who is a RACI
     -- participant (R/A initiating the transition), so legitimate use is unaffected; a non-
     -- participant probe fails closed (FALSE), indistinguishable from "not yet consulted".
-    v_user_id := NULLIF(current_setting('app.current_user_id', TRUE), '')::BIGINT;
-    IF v_user_id IS NULL THEN
-        RETURN FALSE;
-    END IF;
+    v_user_id := rbac.user_id();
 
     IF NOT EXISTS (
         SELECT 1

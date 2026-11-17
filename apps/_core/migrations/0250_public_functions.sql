@@ -397,6 +397,12 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
                 jsonb_build_object('default', effective_enum_default(default_value, input_type, enum_values))
             WHEN default_value IS NOT NULL AND trim(default_value) != '' THEN
                 CASE
+                    -- The current-user default comes back as written, as CURRENT_DATE does
+                    -- on a date: the schema describes the field, not one caller, and the
+                    -- database fills in the id when a write leaves the field out. It is
+                    -- not a number, so it never reaches the integer cast below.
+                    WHEN dd_is_current_user_default(format, reference_table, default_value)
+                        THEN jsonb_build_object('default', trim(default_value))
                     WHEN json_type::text = '"integer"' THEN jsonb_build_object('default', (default_value::BIGINT))
                     WHEN json_type::text = '"number"' THEN jsonb_build_object('default', (default_value::NUMERIC))
                     WHEN json_type::text = '"boolean"' THEN jsonb_build_object('default', (default_value::BOOLEAN))
