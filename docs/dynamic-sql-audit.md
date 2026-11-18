@@ -347,6 +347,7 @@ reason.
 | `build_select_rule_policy` | policy names `<relation>_select_policy`, `_update_policy`, `_delete_policy` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
 | `build_select_rule_policy` | permission names | `entities.view_permission`, `entities.edit_permission` (foreign keys to `permissions.permission_name`, CHECK `permission_name_shape`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `build_select_rule_policy` | select rule | `entities.select_rule` (CHECK: object; trigger `check_entity_rules` refuses unknown operators) | `%L` | `0530_test_default_value_hardening.sql` |
+| `build_select_rule_policy` | permission name of a leading `has_permission` term, checked once per statement in the policies | the string argument of the term in `entities.select_rule` (any text the rule holds) | `%L` | `0530_test_default_value_hardening.sql` |
 | `build_select_rule_policy` | base table read for the row data | `entities.id_refentity` (foreign key to `entities.table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `build_select_rule_policy` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I`, `%L` (trigger argument and JSON key) | `0535_test_identifier_hardening.sql` (part 1) |
 | `build_select_rule_policy` | function bodies | the generated text | `dd_dollar_quote` | `0910_test_no_unsafe_functions.sql` |
@@ -382,7 +383,7 @@ reason.
 
 | Function | Value | Source of the value | How quoted | Test |
 |---|---|---|---|---|
-| `fix_id_sequence` | table | parameter `p_table`, which must equal an `entities.table_name`; the caller must hold that entity's edit permission | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
+| `fix_id_sequence` | table | parameter `p_table`, which must equal an `entities.table_name`; the caller must hold that entity's edit permission and see the entity in the catalog (`dd_entity_viewable`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `fix_id_sequence` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `fix_id_sequence` | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
 

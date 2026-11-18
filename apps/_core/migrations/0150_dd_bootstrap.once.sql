@@ -33,14 +33,36 @@
 -- modules carries a select_rule: a module row is visible to an administrator
 -- and to whoever holds that row's own view_permission. A non-empty select_rule
 -- replaces the entity's view_permission for row access, so the entity's
--- view_permission ('admin') then only decides who may fetch the modules schema
--- through get_schema() and its siblings. Expressing the rule as metadata rather
--- than as a hand-written policy is what lets get_record_by_id and set_record,
--- which apply the dictionary's predicate, return exactly what RLS returns.
+-- view_permission ('admin') then only decides who sees the modules entity
+-- itself: its row here, and its schema through get_schema() and its siblings.
+-- Expressing the rule as metadata rather than as a hand-written policy is what
+-- lets get_record_by_id and set_record, which apply the dictionary's
+-- predicate, return exactly what RLS returns.
+--
+-- entities carries one as well. The row of an entity, with its rules and the
+-- names of its permissions, is visible to a holder of admin and to a holder of
+-- the row's own view_permission or edit_permission: an editor has to find the
+-- entity to write its records. For an is_a or has_a entity the base has to be
+-- visible too, which the rule asks by reading the base's row through
+-- set_record: get_record_by_id applies this same rule to that row, and so on
+-- up to the root, because a record is stored at every level and an entity
+-- whose base the caller may not see is not one it can read. Anybody else
+-- learns nothing from the catalog about the entity. dd_entity_viewable asks
+-- the same question, so get_schema() and its siblings answer as for a missing
+-- entity exactly when the row is hidden here.
+--
+-- A field row is visible exactly when the entities row its table_name points
+-- at is. build_select_rule_policy (0210_computed_validation.sql) writes that
+-- rule into the policies of fields as one semi-join on entities, and
+-- get_record_by_id (0160_dd_functions.sql) asks the same question. It is built
+-- in rather than metadata because a select_rule on fields would read the
+-- entities row through set_record once per field row.
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule, id_type, icon_name, name_sort)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'catalog', TRUE, '', '{}'::jsonb, 'text', 'table', '220'),
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'catalog', TRUE, '',
+     '{"or": [{"has_permission": "admin"}, {"and": [{"or": [{"has_permission": {"var": "view_permission"}}, {"has_permission": {"var": "edit_permission"}}]}, {"or": [{"!": [{"var": "id_refentity"}]}, {"set_record": ["base", "entities", {"var": "id_refentity"}, {"!!": [{"var": "base"}]}]}]}]}]}'::jsonb,
+     'text', 'table', '220'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
      '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'catalog', TRUE, 'field_order', '{}'::jsonb, 'computed', 'columns-3', '900'),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'display_name', '[]'::jsonb, 'operational_record', TRUE, '', '{}'::jsonb, 'auto_increment', 'users', '100'),
@@ -198,8 +220,8 @@ VALUES
     ('entities', 'name_sort',      'Name Sort',      'Sort key that orders entities in navigation',            '',             'text',      FALSE, 250,  'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 70,  'default',  'w',       'core', TRUE,  '', '',        '', NULL),
     ('entities', 'module_id',      'Module',      '',                                                       '',             'reference', FALSE, 80,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains', NULL),
-    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table, and, next to the edit permission, to UPDATE and DELETE; a select_rule, when set, takes its place', 'public:read',  'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
-    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT, UPDATE and DELETE rows of this table; UPDATE and DELETE also need the view permission, or the select_rule when one is set', 'admin', 'reference', FALSE, 100,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table, and, next to the edit permission, to UPDATE and DELETE; a select_rule, when set, takes its place, and on fields the row of the field''s entity in entities does. A holder of it, of the edit permission or of admin sees this entity in the catalog: its entities and fields rows and its schema, for an is_a or has_a entity only when it sees every base as well', 'public:read',  'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT, UPDATE and DELETE rows of this table; UPDATE and DELETE also need the view permission, or the select_rule when one is set, or on fields the row of the field''s entity in entities. A holder of it sees this entity in the catalog, as a holder of the view permission does', 'admin', 'reference', FALSE, 100,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
     ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 150, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'label_column_label', 'Label Column Label', 'Title of the label field. Give it when the entity is created; left empty, it is derived from label_column without the entity''s own name (company_name on companies gives Name, region_description on regions gives Description), except that a column ending in _number, _no, _id or _code keeps it (offer_number gives Offer Number). Always equal to the label field''s title: changing either one changes both.', '', 'text', FALSE, 155, 'default', 'default', 'core', FALSE, '', '', '', NULL),

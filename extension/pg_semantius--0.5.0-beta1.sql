@@ -5153,12 +5153,16 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 -- =====================================================
 -- user:manage implies user:read, and admin implies public:read.
 --
--- entities and fields are viewed with public:read and edited with admin, and
--- their UPDATE and DELETE policies check both, as every entity without a
--- select_rule does. A session confined by OAuth scopes holds only what its
--- scope list names and what that includes (rbac.scope_closure), so a token
--- scoped to admin alone could otherwise neither read nor change the catalog it
--- administers.
+-- An entity is viewed with public:read and edited with admin unless it says
+-- otherwise (the column defaults in 0130_dd_schema.once.sql), and the UPDATE
+-- and DELETE policies of an entity without a select_rule check both, as its
+-- SELECT policy checks the first. A session confined by OAuth scopes holds
+-- only what its scope list names and what that includes (rbac.scope_closure),
+-- so a token scoped to admin alone could otherwise neither read nor change the
+-- records of such an entity, which it administers. The catalog itself does not
+-- need the edge: the rows of entities are visible to a holder of admin through
+-- the select_rule of entities, and a row of fields follows the entities row of
+-- its entity (0150_dd_bootstrap.once.sql).
 
 INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
     ('user:manage', 'user:read', 'system'),
@@ -5238,7 +5242,7 @@ ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
 $pgsem__core_0090_rbac_seed_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0090_rbac_seed.once.sql', 'd26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6')
+        VALUES ('_core.0090_rbac_seed.once.sql', '90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6708,14 +6712,36 @@ $pgsem__core_0140_dd_schema_sql$;
 -- modules carries a select_rule: a module row is visible to an administrator
 -- and to whoever holds that row's own view_permission. A non-empty select_rule
 -- replaces the entity's view_permission for row access, so the entity's
--- view_permission ('admin') then only decides who may fetch the modules schema
--- through get_schema() and its siblings. Expressing the rule as metadata rather
--- than as a hand-written policy is what lets get_record_by_id and set_record,
--- which apply the dictionary's predicate, return exactly what RLS returns.
+-- view_permission ('admin') then only decides who sees the modules entity
+-- itself: its row here, and its schema through get_schema() and its siblings.
+-- Expressing the rule as metadata rather than as a hand-written policy is what
+-- lets get_record_by_id and set_record, which apply the dictionary's
+-- predicate, return exactly what RLS returns.
+--
+-- entities carries one as well. The row of an entity, with its rules and the
+-- names of its permissions, is visible to a holder of admin and to a holder of
+-- the row's own view_permission or edit_permission: an editor has to find the
+-- entity to write its records. For an is_a or has_a entity the base has to be
+-- visible too, which the rule asks by reading the base's row through
+-- set_record: get_record_by_id applies this same rule to that row, and so on
+-- up to the root, because a record is stored at every level and an entity
+-- whose base the caller may not see is not one it can read. Anybody else
+-- learns nothing from the catalog about the entity. dd_entity_viewable asks
+-- the same question, so get_schema() and its siblings answer as for a missing
+-- entity exactly when the row is hidden here.
+--
+-- A field row is visible exactly when the entities row its table_name points
+-- at is. build_select_rule_policy (0210_computed_validation.sql) writes that
+-- rule into the policies of fields as one semi-join on entities, and
+-- get_record_by_id (0160_dd_functions.sql) asks the same question. It is built
+-- in rather than metadata because a select_rule on fields would read the
+-- entities row through set_record once per field row.
 INSERT INTO entities (table_name, singular, plural, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, validation_rules, entity_type, audit_log, order_column, select_rule, id_type, icon_name, name_sort)
 VALUES 
     ('entities', 'entity', 'entities', 'Entity', 'Entities', 'Catalog of tables in Semantius', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'table_name', 'singular_label',
-     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'catalog', TRUE, '', '{}'::jsonb, 'text', 'table', '220'),
+     '[{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]}},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]}},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]}},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","source_module":"platform","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'catalog', TRUE, '',
+     '{"or": [{"has_permission": "admin"}, {"and": [{"or": [{"has_permission": {"var": "view_permission"}}, {"has_permission": {"var": "edit_permission"}}]}, {"or": [{"!": [{"var": "id_refentity"}]}, {"set_record": ["base", "entities", {"var": "id_refentity"}, {"!!": [{"var": "base"}]}]}]}]}]}'::jsonb,
+     'text', 'table', '220'),
     ('fields', 'field', 'fields', 'Field', 'Fields', 'Catalog of the fields that make up a table', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'title',
      '[{"code":"90202","message":"catalog_field_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_field_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_field_code"},""]}]},true]}}]'::jsonb, 'catalog', TRUE, 'field_order', '{}'::jsonb, 'computed', 'columns-3', '900'),
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'display_name', '[]'::jsonb, 'operational_record', TRUE, '', '{}'::jsonb, 'auto_increment', 'users', '100'),
@@ -6873,8 +6899,8 @@ VALUES
     ('entities', 'name_sort',      'Name Sort',      'Sort key that orders entities in navigation',            '',             'text',      FALSE, 250,  'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'description',    'Description',    '',                                                       '',             'text',      FALSE, 70,  'default',  'w',       'core', TRUE,  '', '',        '', NULL),
     ('entities', 'module_id',      'Module',      '',                                                       '',             'reference', FALSE, 80,  'required', 'default', 'core', FALSE, 'modules', 'cascade', 'contains', NULL),
-    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table, and, next to the edit permission, to UPDATE and DELETE; a select_rule, when set, takes its place', 'public:read',  'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
-    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT, UPDATE and DELETE rows of this table; UPDATE and DELETE also need the view permission, or the select_rule when one is set', 'admin', 'reference', FALSE, 100,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
+    ('entities', 'view_permission','View Permission', 'Permission required to SELECT from this table, and, next to the edit permission, to UPDATE and DELETE; a select_rule, when set, takes its place, and on fields the row of the field''s entity in entities does. A holder of it, of the edit permission or of admin sees this entity in the catalog: its entities and fields rows and its schema, for an is_a or has_a entity only when it sees every base as well', 'public:read',  'reference', FALSE, 90,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates viewing', NULL),
+    ('entities', 'edit_permission','Edit Permission', 'Permission required to INSERT, UPDATE and DELETE rows of this table; UPDATE and DELETE also need the view permission, or the select_rule when one is set, or on fields the row of the field''s entity in entities. A holder of it sees this entity in the catalog, as a holder of the view permission does', 'admin', 'reference', FALSE, 100,  'default',  'default', 'core', FALSE, 'permissions', 'restrict', 'gates editing', NULL),
     ('entities', 'id_column',      'Id Column',      'Name of primary key column',                            'id',           'text',      FALSE, 110, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'label_column',   'Label Column',   'Name of label/display column',                          'label',        'text',      FALSE, 150, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'label_column_label', 'Label Column Label', 'Title of the label field. Give it when the entity is created; left empty, it is derived from label_column without the entity''s own name (company_name on companies gives Name, region_description on regions gives Description), except that a column ending in _number, _no, _id or _code keeps it (offer_number gives Offer Number). Always equal to the label field''s title: changing either one changes both.', '', 'text', FALSE, 155, 'default', 'default', 'core', FALSE, '', '', '', NULL),
@@ -7017,7 +7043,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', 'bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', '813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7054,7 +7080,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -7268,19 +7294,6 @@ $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_family_fields(TEXT) IS
 'The fields rows that make up a record of the entity, in order: for an is_a/has_a entity its key, the fields of its root and of each level (without their key and audit fields), its own fields, then its audit fields; for a plain entity its own fields in field_order. table_name names the entity that owns each field.';
-
--- An entity's records are readable only by who may view every level they are
--- stored in: the view is security_invoker and each table keeps its own RLS.
--- The schema RPCs and get_record_by_id gate on the same condition.
-CREATE OR REPLACE FUNCTION dd_entity_viewable(p_table_name TEXT)
-RETURNS BOOLEAN AS $$
-    SELECT COALESCE(bool_and(rbac.has_permission(e.view_permission)), FALSE)
-      FROM dd_ancestors(p_table_name) a
-      JOIN entities e ON e.table_name = a.table_name;
-$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
-'TRUE when the current user holds the view_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
 
 -- entities.searchable: some field of the record is searchable. One predicate
 -- for every place that computes the flag, so a derived entity is searchable
@@ -12018,7 +12031,7 @@ BEGIN
     EXECUTE format('SELECT pg_catalog.pg_input_is_valid($1, %L)', v_key_type)
        INTO v_valid USING p_id;
 
-    -- Only a caller who may see the entity's schema learns that the id was
+    -- Only a caller who sees the entity in the catalog learns that the id was
     -- malformed; anybody else gets the NULL that also answers "no such entity",
     -- so the refusal does not reveal that the entity exists or what its key is.
     IF NOT v_valid THEN
@@ -12045,7 +12058,17 @@ BEGIN
          WHERE NOT v_privileged
          ORDER BY a.depth
     LOOP
-        IF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
+        IF v_level.table_name = 'fields'
+           AND (v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb) THEN
+            -- A row of fields is readable exactly when the row of its entity in
+            -- entities is, in the place of view_permission, as the SELECT policy
+            -- of fields has it (build_select_rule_policy); this function answers
+            -- that for the entities row by asking itself.
+            IF public.get_record_by_id('entities',
+                   (SELECT f.table_name FROM fields f WHERE f.id = p_id)) IS NULL THEN
+                RETURN NULL;
+            END IF;
+        ELSIF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
             -- No row rule: view_permission is the access predicate (the default rule).
             IF NOT rbac.has_permission(v_level.view_permission) THEN
                 RETURN NULL;
@@ -12074,7 +12097,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who sees the entity in the catalog (dd_entity_viewable).';
 
 -- Numeric callers: a bigint or integer argument resolves here rather than to
 -- the TEXT version, since PostgreSQL casts neither to text implicitly. The
@@ -12090,6 +12113,21 @@ $$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, BIGINT) IS
 'Numeric-key convenience overload of get_record_by_id(TEXT, TEXT): same result, same access checks.';
+
+-- Whether the caller sees the entity in the catalog: its row in entities, and
+-- with it its fields rows and its schema. That is the entities row's own read
+-- predicate, the select_rule of entities (0150_dd_bootstrap.once.sql). It is
+-- asked through get_record_by_id rather than written out a second time, so
+-- the schema RPCs, the cubes and the 90238 test of get_record_by_id answer
+-- exactly as RLS on entities does, whatever that rule says. Defined after
+-- get_record_by_id: a SQL function's body is checked when it is created.
+CREATE OR REPLACE FUNCTION dd_entity_viewable(p_table_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT public.get_record_by_id('entities', p_table_name) IS NOT NULL;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
+'TRUE when the current user sees the entity''s row in entities, as get_record_by_id(''entities'', ...) answers it: a holder of admin, or of the view_permission or edit_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) FROM PUBLIC;
@@ -12237,7 +12275,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', 'a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105')
+        VALUES ('_core.0160_dd_functions.sql', '4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15640,7 +15678,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -16878,6 +16916,11 @@ DECLARE
     v_row_data TEXT;
     v_predicate TEXT;
     v_write_using TEXT;
+    v_parent_pred TEXT;
+    v_term JSONB;
+    v_arg JSONB;
+    v_lead TEXT;
+    v_rule_pred TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -16911,20 +16954,31 @@ BEGIN
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
+    -- On fields, the row of the field's entity in entities takes the place of the view
+    -- permission (the catalog rule, 0150_dd_bootstrap.once.sql): one semi-join on entities,
+    -- read as the caller, so the read policy of entities decides. The sub-select is
+    -- uncorrelated, so PostgreSQL runs it once per statement, as a hashed SubPlan, rather
+    -- than once per row. get_record_by_id in 0160_dd_functions.sql holds a row of fields to
+    -- the same question.
+    IF p_table_name = 'fields' THEN
+        v_parent_pred := '(fields.table_name IN (SELECT p.table_name FROM public.entities p))';
+    END IF;
+
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select: PostgreSQL then
     -- evaluates it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on
     -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     --
     -- If select_rule is empty, the row a caller may reach is the one its view permission
-    -- lets it read: SELECT on view_permission, UPDATE and DELETE on edit_permission AND
-    -- view_permission, no per-row rule.
+    -- lets it read, or on fields the semi-join on entities in its place: SELECT on it,
+    -- UPDATE and DELETE on edit_permission AND it, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
         -- No rule, so no row can leave it: the two row move triggers go.
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_policy_name, v_rel, v_entity.view_permission);
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
+            v_policy_name, v_rel,
+            COALESCE(v_parent_pred, format('(SELECT rbac.has_permission(%L))', v_entity.view_permission)));
         -- The view permission has to be in the USING of UPDATE and DELETE itself.
         -- PostgreSQL holds the rows an UPDATE or DELETE touches to the SELECT policy only
         -- when the statement reads a column of the table, so with the edit permission
@@ -16933,9 +16987,12 @@ BEGIN
         -- RETURNING 1. The new row of an UPDATE is held to the edit permission only, as an
         -- inserted row is. When the two permissions are the same, one check says it all.
         -- Both parts are quoted with %L before they are joined. Pinned by
-        -- 0610_test_select_rule_write_protection.sql.
+        -- 0610_test_select_rule_write_protection.sql. On fields the semi-join on entities
+        -- stands in for the view permission here as well.
         v_write_using := format('(SELECT rbac.has_permission(%L))', v_entity.edit_permission);
-        IF v_entity.view_permission IS DISTINCT FROM v_entity.edit_permission THEN
+        IF v_parent_pred IS NOT NULL THEN
+            v_write_using := v_write_using || ' AND ' || v_parent_pred;
+        ELSIF v_entity.view_permission IS DISTINCT FROM v_entity.edit_permission THEN
             v_write_using := v_write_using
                 || format(' AND (SELECT rbac.has_permission(%L))', v_entity.view_permission);
         END IF;
@@ -17084,9 +17141,55 @@ $SEL$, v_fn_name)));
     -- scanned row. It has to appear in all three policies: a USING clause is
     -- evaluated per row for every UPDATE and DELETE as well, so a policy left
     -- with a bare call keeps paying per row on the write path.
+    v_rule_pred := format('public.%I(%I.*, (SELECT public.jl_request_context()))', v_fn_name, v_rel);
+
+    -- The leading terms of a rule's top-level "or" that are has_permission of a
+    -- name written into the rule, such as {"has_permission": "admin"} in the rules
+    -- of entities and modules, are checked once per statement as well: each one
+    -- goes into the policy as its own uncorrelated sub-select, an InitPlan, ORed in
+    -- front of the per-row predicate, so a holder of one of those permissions pays
+    -- no per-row evaluation of the rule (a plpgsql call, to_jsonb of the row and
+    -- the JsonLogic evaluator, for every row a statement reads). The predicate
+    -- still evaluates the whole rule, and the answer is the same: "or" stops at
+    -- the first truthy term, left to right, so whenever one of these terms holds
+    -- the rule holds and no later term is evaluated, and when none holds the rule
+    -- is evaluated as before. Only the leading terms qualify: a term after any
+    -- other one is not reached when that one raises, which hides the row, and
+    -- hoisting it would admit that row. Only a literal name qualifies, a string: a
+    -- name read from the row ({"var": ...}) differs per row and cannot be checked
+    -- once. The request context comes first, in a sub-select of its own: it is
+    -- what refuses a session without valid claims (jl_request_context calls
+    -- rbac.uid()), which a warm has_permission does not ask again, so a statement
+    -- is refused exactly where the predicate alone would refuse it. Each name is
+    -- quoted with %L, and the terms are joined with || rather than concat_ws():
+    -- plpgsql_check's security check (deno task lint-sql) follows quoting through
+    -- || and not through concat_ws, and would report the three policy statements
+    -- below as built from unsanitized text.
+    IF jl_is_operation(v_entity.select_rule)
+       AND v_entity.select_rule ? 'or'
+       AND jsonb_typeof(v_entity.select_rule -> 'or') = 'array' THEN
+        FOR v_term IN
+            SELECT t.term
+              FROM jsonb_array_elements(v_entity.select_rule -> 'or') WITH ORDINALITY AS t(term, ord)
+             ORDER BY t.ord
+        LOOP
+            v_arg := NULL;
+            IF jsonb_typeof(v_term) = 'object' AND v_term - 'has_permission' = '{}'::jsonb
+               AND v_term ? 'has_permission' THEN
+                v_arg := v_term -> 'has_permission';
+            END IF;
+            EXIT WHEN v_arg IS NULL OR jsonb_typeof(v_arg) <> 'string';
+            v_lead := COALESCE(v_lead || ' OR ', '') || format('(SELECT rbac.has_permission(%L))', v_arg #>> '{}');
+        END LOOP;
+        IF v_lead IS NOT NULL THEN
+            v_rule_pred := format('((((SELECT public.jl_request_context()) IS NOT NULL) AND (%s)) OR %s)',
+                                  v_lead, v_rule_pred);
+        END IF;
+    END IF;
+
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_policy_name, v_rel, v_fn_name, v_rel);
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
+        v_policy_name, v_rel, v_rule_pred);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
@@ -17105,16 +17208,16 @@ $SEL$, v_fn_name)));
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel, v_entity.edit_permission);
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND %s) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_rule_pred, v_entity.edit_permission);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel);
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND %s)',
+        v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_rule_pred);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -17163,7 +17266,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd')
+        VALUES ('_core.0210_computed_validation.sql', 'b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -17840,7 +17943,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -18019,20 +18122,25 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 -- Each child entry includes: fields.id, fields.title, entities.singular_label,
 -- entities.plural_label, entities.id_column, entities.label_column
 --
--- The function is SECURITY DEFINER, because fields and entities are readable
--- with admin only, and it is reachable as an RPC by every signed-in user. So
--- it applies the view permissions itself: a child is listed only when the
--- caller may view the child's entity, and only under a parent the caller may
--- view. Without that, anyone could read the names, labels and key columns of
--- every entity that hangs off a table, whatever its view_permission. A parent
--- the caller may not view answers with the empty list, as a table that is
--- nobody's parent does, so the answer does not say whether the table exists.
+-- As SECURITY DEFINER this function reads entities and fields without their
+-- RLS, and it is reachable as an RPC by every signed-in user. So it applies
+-- the catalog's visibility rule (0150_dd_bootstrap.once.sql) itself, through
+-- dd_entity_viewable: a child is listed only when the caller sees the child's
+-- entity, and only under a parent the caller sees. Without that, it would
+-- hand any caller the names, labels and key columns of the entities that hang
+-- off a table, which RLS keeps from it. A parent the caller may not see
+-- answers with the empty list, as a table that does not exist or is nobody's
+-- parent does, so the answer does not say whether it exists.
 CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_result JSON;
 BEGIN
     PERFORM rbac.uid();
+
+    IF NOT dd_entity_viewable(p_table_name) THEN
+        RETURN '[]'::json;
+    END IF;
 
     SELECT COALESCE(
         json_agg(
@@ -18052,18 +18160,16 @@ BEGIN
     INTO v_result
     FROM fields f
     JOIN entities e ON f.table_name = e.table_name
-    JOIN entities p ON p.table_name = f.reference_table
     WHERE f.reference_table = p_table_name
       AND f.format = 'parent'
-      AND rbac.has_permission(p.view_permission)
-      AND rbac.has_permission(e.view_permission);
+      AND dd_entity_viewable(e.table_name);
 
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema_children IS 
-'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller may view; empty when the caller may not view the table itself. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
+'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller sees in the catalog (dd_entity_viewable); empty when the caller does not see the table itself, as for a table that does not exist. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
@@ -18112,16 +18218,26 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
             -- doesn't exist or is missing columns. The JSON assembly below emits
-            -- these four only for a field whose format is a reference and whose
-            -- reference_table is not empty, so an empty string never reaches the
-            -- output as a value.
+            -- these four only for a field whose format is a reference, whose
+            -- reference_table is not empty and whose referenced entity the
+            -- caller sees, so an empty string never reaches the output as a value.
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
             COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- Whether the caller sees the referenced entity in the catalog. The
+            -- four values above come from that entity's own row, which RLS hides
+            -- from a caller who does not see it, so they are left out for that
+            -- caller: of the target, the property keeps reference_table, the
+            -- name the field row itself holds, and the key type of the target,
+            -- which its own column follows (key_id_type and json_type below),
+            -- and nothing else.
+            (t.table_name IS NOT NULL AND dd_entity_viewable(t.table_name)) AS reference_visible,
             -- The key type the property holds a value of: the entity's own for
             -- its key column, the referenced entity's for a reference. Drives
-            -- the TypeID pattern below.
+            -- the TypeID pattern below. It describes the values of this field's
+            -- own column, so it stays when the referenced entity is hidden, as
+            -- the JSON type does.
             CASE
                 WHEN f.table_name = p_table_name AND f.field_name = ent.id_column THEN ent.id_type
                 WHEN f.format IN ('reference', 'parent') THEN t.id_type
@@ -18218,7 +18334,14 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             THEN jsonb_build_object(
                 'reference_table', reference_table,
                 'reference_delete_mode', reference_delete_mode,
-                'relationship_label', relationship_label,
+                'relationship_label', relationship_label
+            )
+            ELSE '{}'::jsonb
+        END ||
+        -- and what it takes from the referenced entity's row, for a caller who sees it
+        CASE
+            WHEN format IN ('reference', 'parent') AND reference_table != '' AND reference_visible
+            THEN jsonb_build_object(
                 'reference_table_id_column', reference_table_id_column,
                 'reference_table_label_column', reference_table_label_column,
                 'reference_table_singular_label', reference_table_singular_label,
@@ -18291,8 +18414,9 @@ REVOKE EXECUTE ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) FROM PUBLI
 -- =====================================================
 
 -- Helper that builds a schema JSON for a single table. Self-gating: it applies the
--- view_permission check itself and raises undefined_table for a table the caller
--- may not view, so it is safe to expose directly to the request role.
+-- catalog's visibility check itself and raises, for a table the caller may not
+-- see, the undefined_table of a missing one, so it is safe to expose directly to
+-- the request role.
 -- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
 CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
@@ -18311,26 +18435,21 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Permission gate. build_schema_for_table is GRANTed to the request role and reachable
-    -- directly as /rpc/build_schema_for_table, so it must apply the SAME view_permission check
-    -- as get_schema()/get_schemas() rather than trusting callers — otherwise any request-role
-    -- caller reads any table's full schema (including its select_rule logic) by calling this
-    -- helper directly and skipping the wrappers. The four
-    -- in-tree callers already pre-check, so the gate is redundant (and harmless) for them. The
-    -- view permission is that of every level an is_a or has_a entity's records are stored in,
-    -- as for reading them.
-    IF NOT FOUND THEN
+    -- The visibility check. build_schema_for_table is granted to the request
+    -- role and reachable as /rpc/build_schema_for_table, and as SECURITY
+    -- DEFINER it reads entities and fields without their RLS. So it applies
+    -- the check of get_schema() itself, and a direct call answers as
+    -- get_schema() does: the schema goes only to a caller who sees the
+    -- entity's row in entities (dd_entity_viewable). Anybody else gets the
+    -- error of a table that has no entities row, raised by the same
+    -- statement, so that no field of it, the context with its line number
+    -- included, tells the two apart. Without the check, every caller would
+    -- get here the entities and fields rows that RLS keeps from it. Its four
+    -- callers make the same check before they call.
+    IF NOT FOUND OR NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT dd_entity_viewable(p_table_name) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -18367,6 +18486,8 @@ BEGIN
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', f.title,
+                -- The referenced entity's label only for a caller who sees
+                -- that entity; anybody else gets the name the field holds.
                 'description', 'Composed label of the referenced '
                                || COALESCE(e2.singular_label, f.reference_table),
                 'inputMode', 'readonly', 'width', 'default',
@@ -18378,6 +18499,7 @@ BEGIN
             )
         FROM family f
         LEFT JOIN entities e2 ON e2.table_name = f.reference_table
+                             AND dd_entity_viewable(e2.table_name)
         WHERE public.dd_is_fk_format(f.format)
           AND f.reference_table <> ''
           -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
@@ -18400,7 +18522,7 @@ BEGIN
       INTO v_properties, v_required;
 
     -- A has_a base lists the extensions its records may have, those the
-    -- caller may view, each with its own fields.
+    -- caller sees, each with its own fields.
     SELECT json_agg(json_build_object(
                'table', x.table_name,
                'properties', COALESCE((SELECT json_object_agg(p.field_name, p.property ORDER BY p.sort_order)
@@ -18422,7 +18544,7 @@ BEGIN
     -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
     -- only the numeric id must fetch the module list before it can ask for the rest of the
     -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
-    -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+    -- policy protects, so handing it out to a caller who sees the entity leaks nothing.
     -- The rest of the module row is a different matter: settings, dashboard_config, the
     -- three permission columns and the default_*_role_ids are readable only with 'admin' or
     -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
@@ -18470,7 +18592,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: applies the view_permission check (of every level an is_a/has_a entity is stored in), matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a has_a base lists its extensions. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+'Builds a schema JSON for a single table. Self-gating: returns it only to a caller who sees the entity in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level an is_a/has_a entity is stored in) and raises for anybody else exactly the error of a missing table, matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a reference to an entity the caller does not see carries its name and nothing taken from its row. A has_a base lists the extensions the caller sees. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
@@ -18486,32 +18608,15 @@ GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
 CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
-    v_table_record RECORD;
     v_cache_version TEXT;
     v_db_version    TEXT;
 BEGIN
     PERFORM rbac.uid();
 
-    -- Check if table exists in entities metadata
-    SELECT * INTO v_table_record
-    FROM entities
-    WHERE table_name = p_table_name;
-
-    -- Raise error if table not found
-    IF NOT FOUND THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Check if user has view permission for this table (and for every base an
-    -- is_a/has_a entity's records are stored in)
     IF NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -18522,7 +18627,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema IS 
-'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises undefined_table, "not found in entities", if the table is not found or the caller does not see it in the catalog, the same error for both.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
@@ -18536,12 +18641,12 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Accepts a comma-separated list of table names
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
--- Raises an error if any table is not found or the user lacks view permission
+-- Raises an error if any table is not found or the caller does not see it in
+-- the catalog: one statement raises both, as in get_schema()
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_name TEXT;
-    v_table_record RECORD;
     v_schemas JSON[] := ARRAY[]::JSON[];
     v_schema JSON;
 BEGIN
@@ -18556,17 +18661,8 @@ BEGIN
         END IF;
 
         -- Raise error if table not found in entities metadata
-        SELECT * INTO v_table_record
-        FROM entities
-        WHERE table_name = v_table_name;
-
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
-                USING ERRCODE = 'undefined_table';
-        END IF;
-
         IF NOT dd_entity_viewable(v_table_name) THEN
-            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
+            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
                 USING ERRCODE = 'undefined_table';
         END IF;
 
@@ -18580,7 +18676,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user does not see it in the catalog, the same error for both, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
@@ -18655,8 +18751,8 @@ GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
 --   1. All entities that directly belong to the module.
 --   2. All entities referenced via the reference_table field of any field
 --      that belongs to one of those module entities.
--- Entities are sorted alphabetically and deduplicated. Tables the current user
--- lacks view permission for are silently skipped.
+-- Entities are sorted alphabetically and deduplicated. Tables the caller does
+-- not see in the catalog (dd_entity_viewable) are silently skipped.
 -- Returns a JSON array of schemas in the same format as get_schema().
 -- The p_module_name parameter is matched against modules.module_slug (URL-safe
 -- identifier), not modules.module_name. The parameter name is preserved for
@@ -18694,7 +18790,7 @@ BEGIN
         ORDER BY e.table_name
     LOOP
         -- build_schema_for_table checks again: it is self-gating as an RPC of
-        -- its own, and the repeat is a cached lookup.
+        -- its own, and the repeat is a second get_record_by_id of its row.
         IF dd_entity_viewable(v_table_record.table_name) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
@@ -18707,7 +18803,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the caller does not see in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level) are silently skipped.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
@@ -18717,9 +18813,9 @@ GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
 -- GET USER CUBES
 -- =====================================================
 
--- Returns schemas for all entities across all modules that the current user
--- has view permission for. Referenced tables are not additionally included —
--- they will already appear when the user has view permission on them directly.
+-- Returns schemas for all entities across all modules that the caller sees in
+-- the catalog (dd_entity_viewable). Referenced tables are not additionally
+-- included — they will already appear when the caller sees them directly.
 -- Returns a JSON array of schemas in the same format as get_schema().
 CREATE OR REPLACE FUNCTION public.get_user_cubes()
 RETURNS SETOF JSON AS $$
@@ -18746,7 +18842,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_user_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
+'Returns a JSON array of schemas (same format as get_schema()) for all entities that the caller sees in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level), across all modules.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
@@ -18759,9 +18855,13 @@ GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 -- After an import writes explicit ids, the id sequence lags behind them and the
 -- next ordinary insert fails with 23505. This moves the sequence past max(id).
 --
--- Callable by whoever may insert into the table: the entity's edit_permission.
--- Non-admins get the same 42501 for an unknown table as for a denied one, as
--- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
+-- Callable by whoever may insert into the table: the entity's edit_permission,
+-- held by a caller who sees the entity in the catalog (dd_entity_viewable).
+-- The edit permission alone does not show an is_a or has_a entity whose base
+-- the caller does not see, and without the second check such an entity would
+-- answer NULL, which says that it exists. Non-admins get the same 42501 for an
+-- unknown table as for a denied or hidden one, as with queues (90105). Never
+-- 42P01, whose 404 reads as "no such RPC".
 -- SECURITY DEFINER because the request role cannot setval, and under RLS its
 -- max(id) would miss the rows it cannot see.
 -- The lock keeps inserts out between max() and setval. While it waits, every
@@ -18792,7 +18892,8 @@ BEGIN
             USING ERRCODE = '90231',
                   HINT = jsonb_build_object('table', p_table)::text;
     END IF;
-    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
+    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission)
+       OR NOT dd_entity_viewable(p_table) THEN
         RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
@@ -18834,14 +18935,14 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET lock_timeout = '2s';
 
 COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
-'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission and that the caller sees the entity in the catalog (dd_entity_viewable); anybody else gets 42501 (90106). An unknown table answers that 42501 too, and 90231 to a holder of admin. Never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
 
 REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83')
+        VALUES ('_core.0250_public_functions.sql', '164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -27737,7 +27838,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"d26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -27801,7 +27902,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"d26aaafa35060e4aece2fd63a2cebc59330587e224910be696e272606a39bdf6","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"bd9b2d1ec4c0fa249619e4ff2f7e2dfd57dc11019c98a140eb7939c791de3752","_core.0160_dd_functions.sql":"a8ea1fe23ba3ee476a2ccfd241a886aaab5a48dfac6931eb490e4a43746f7105","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","_core.0210_computed_validation.sql":"68657b16f25f9e339eec4eac6a679a216352e68544946d89b62ba5c6fc3009bd","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"55bc25cb732432d8af1274694a8175754ddfb01886f1419d6e44e6f7080f1f83","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","_core.0160_dd_functions.sql":"4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","_core.0210_computed_validation.sql":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

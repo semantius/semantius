@@ -1233,6 +1233,11 @@ DECLARE
     v_row_data TEXT;
     v_predicate TEXT;
     v_write_using TEXT;
+    v_parent_pred TEXT;
+    v_term JSONB;
+    v_arg JSONB;
+    v_lead TEXT;
+    v_rule_pred TEXT;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
@@ -1266,20 +1271,31 @@ BEGIN
     -- Drop the existing select policy so we can recreate it
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_policy_name, v_rel);
 
+    -- On fields, the row of the field's entity in entities takes the place of the view
+    -- permission (the catalog rule, 0150_dd_bootstrap.once.sql): one semi-join on entities,
+    -- read as the caller, so the read policy of entities decides. The sub-select is
+    -- uncorrelated, so PostgreSQL runs it once per statement, as a hashed SubPlan, rather
+    -- than once per row. get_record_by_id in 0160_dd_functions.sql holds a row of fields to
+    -- the same question.
+    IF p_table_name = 'fields' THEN
+        v_parent_pred := '(fields.table_name IN (SELECT p.table_name FROM public.entities p))';
+    END IF;
+
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select: PostgreSQL then
     -- evaluates it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on
     -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     --
     -- If select_rule is empty, the row a caller may reach is the one its view permission
-    -- lets it read: SELECT on view_permission, UPDATE and DELETE on edit_permission AND
-    -- view_permission, no per-row rule.
+    -- lets it read, or on fields the semi-join on entities in its place: SELECT on it,
+    -- UPDATE and DELETE on edit_permission AND it, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
         -- No rule, so no row can leave it: the two row move triggers go.
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
         EXECUTE format(
-            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING ((SELECT rbac.has_permission(%L)))',
-            v_policy_name, v_rel, v_entity.view_permission);
+            'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
+            v_policy_name, v_rel,
+            COALESCE(v_parent_pred, format('(SELECT rbac.has_permission(%L))', v_entity.view_permission)));
         -- The view permission has to be in the USING of UPDATE and DELETE itself.
         -- PostgreSQL holds the rows an UPDATE or DELETE touches to the SELECT policy only
         -- when the statement reads a column of the table, so with the edit permission
@@ -1288,9 +1304,12 @@ BEGIN
         -- RETURNING 1. The new row of an UPDATE is held to the edit permission only, as an
         -- inserted row is. When the two permissions are the same, one check says it all.
         -- Both parts are quoted with %L before they are joined. Pinned by
-        -- 0610_test_select_rule_write_protection.sql.
+        -- 0610_test_select_rule_write_protection.sql. On fields the semi-join on entities
+        -- stands in for the view permission here as well.
         v_write_using := format('(SELECT rbac.has_permission(%L))', v_entity.edit_permission);
-        IF v_entity.view_permission IS DISTINCT FROM v_entity.edit_permission THEN
+        IF v_parent_pred IS NOT NULL THEN
+            v_write_using := v_write_using || ' AND ' || v_parent_pred;
+        ELSIF v_entity.view_permission IS DISTINCT FROM v_entity.edit_permission THEN
             v_write_using := v_write_using
                 || format(' AND (SELECT rbac.has_permission(%L))', v_entity.view_permission);
         END IF;
@@ -1439,9 +1458,55 @@ $SEL$, v_fn_name)));
     -- scanned row. It has to appear in all three policies: a USING clause is
     -- evaluated per row for every UPDATE and DELETE as well, so a policy left
     -- with a bare call keeps paying per row on the write path.
+    v_rule_pred := format('public.%I(%I.*, (SELECT public.jl_request_context()))', v_fn_name, v_rel);
+
+    -- The leading terms of a rule's top-level "or" that are has_permission of a
+    -- name written into the rule, such as {"has_permission": "admin"} in the rules
+    -- of entities and modules, are checked once per statement as well: each one
+    -- goes into the policy as its own uncorrelated sub-select, an InitPlan, ORed in
+    -- front of the per-row predicate, so a holder of one of those permissions pays
+    -- no per-row evaluation of the rule (a plpgsql call, to_jsonb of the row and
+    -- the JsonLogic evaluator, for every row a statement reads). The predicate
+    -- still evaluates the whole rule, and the answer is the same: "or" stops at
+    -- the first truthy term, left to right, so whenever one of these terms holds
+    -- the rule holds and no later term is evaluated, and when none holds the rule
+    -- is evaluated as before. Only the leading terms qualify: a term after any
+    -- other one is not reached when that one raises, which hides the row, and
+    -- hoisting it would admit that row. Only a literal name qualifies, a string: a
+    -- name read from the row ({"var": ...}) differs per row and cannot be checked
+    -- once. The request context comes first, in a sub-select of its own: it is
+    -- what refuses a session without valid claims (jl_request_context calls
+    -- rbac.uid()), which a warm has_permission does not ask again, so a statement
+    -- is refused exactly where the predicate alone would refuse it. Each name is
+    -- quoted with %L, and the terms are joined with || rather than concat_ws():
+    -- plpgsql_check's security check (deno task lint-sql) follows quoting through
+    -- || and not through concat_ws, and would report the three policy statements
+    -- below as built from unsanitized text.
+    IF jl_is_operation(v_entity.select_rule)
+       AND v_entity.select_rule ? 'or'
+       AND jsonb_typeof(v_entity.select_rule -> 'or') = 'array' THEN
+        FOR v_term IN
+            SELECT t.term
+              FROM jsonb_array_elements(v_entity.select_rule -> 'or') WITH ORDINALITY AS t(term, ord)
+             ORDER BY t.ord
+        LOOP
+            v_arg := NULL;
+            IF jsonb_typeof(v_term) = 'object' AND v_term - 'has_permission' = '{}'::jsonb
+               AND v_term ? 'has_permission' THEN
+                v_arg := v_term -> 'has_permission';
+            END IF;
+            EXIT WHEN v_arg IS NULL OR jsonb_typeof(v_arg) <> 'string';
+            v_lead := COALESCE(v_lead || ' OR ', '') || format('(SELECT rbac.has_permission(%L))', v_arg #>> '{}');
+        END LOOP;
+        IF v_lead IS NOT NULL THEN
+            v_rule_pred := format('((((SELECT public.jl_request_context()) IS NOT NULL) AND (%s)) OR %s)',
+                                  v_lead, v_rule_pred);
+        END IF;
+    END IF;
+
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_policy_name, v_rel, v_fn_name, v_rel);
+        'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
+        v_policy_name, v_rel, v_rule_pred);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
@@ -1460,16 +1525,16 @@ $SEL$, v_fn_name)));
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context()))) WITH CHECK ((SELECT rbac.has_permission(%L)))',
-        v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel, v_entity.edit_permission);
+        'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND %s) WITH CHECK ((SELECT rbac.has_permission(%L)))',
+        v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_rule_pred, v_entity.edit_permission);
     EXECUTE format(
-        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND public.%I(%I.*, (SELECT public.jl_request_context())))',
-        v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_fn_name, v_rel);
+        'CREATE POLICY %I ON %I FOR DELETE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND %s)',
+        v_rel || '_delete_policy', v_rel, v_entity.edit_permission, v_rule_pred);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 

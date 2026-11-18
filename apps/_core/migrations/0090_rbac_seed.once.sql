@@ -23,12 +23,16 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 -- =====================================================
 -- user:manage implies user:read, and admin implies public:read.
 --
--- entities and fields are viewed with public:read and edited with admin, and
--- their UPDATE and DELETE policies check both, as every entity without a
--- select_rule does. A session confined by OAuth scopes holds only what its
--- scope list names and what that includes (rbac.scope_closure), so a token
--- scoped to admin alone could otherwise neither read nor change the catalog it
--- administers.
+-- An entity is viewed with public:read and edited with admin unless it says
+-- otherwise (the column defaults in 0130_dd_schema.once.sql), and the UPDATE
+-- and DELETE policies of an entity without a select_rule check both, as its
+-- SELECT policy checks the first. A session confined by OAuth scopes holds
+-- only what its scope list names and what that includes (rbac.scope_closure),
+-- so a token scoped to admin alone could otherwise neither read nor change the
+-- records of such an entity, which it administers. The catalog itself does not
+-- need the edge: the rows of entities are visible to a holder of admin through
+-- the select_rule of entities, and a row of fields follows the entities row of
+-- its entity (0150_dd_bootstrap.once.sql).
 
 INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
     ('user:manage', 'user:read', 'system'),

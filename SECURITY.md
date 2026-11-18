@@ -130,6 +130,32 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   names the entity and the SQLSTATE but not the message, which can quote a
   value of the hidden row. An `INSERT` under a key that is already stored is
   not marked, so it cannot be used to read the row that holds the key.
+- **The catalog hides what an entity consists of, not that it exists.** An
+  entity's row in `entities`, its rows in `fields` and its schema are visible
+  only to a holder of its view permission, its edit permission or `admin`, on
+  every level of an `is_a` or `has_a` entity, and `get_schema` and its siblings
+  answer anybody else exactly as for a table that does not exist. These still
+  show that the entity exists, and part of what it holds:
+  - PostgREST's OpenAPI root lists every table the request role is granted,
+    which is every entity table, with its columns, types and foreign key
+    relationships, and `GET /<table>` answers `200 []` for a table whose rows
+    the caller cannot read where it answers 404 for a missing one.
+  - The table and column comments in the PostgreSQL catalog carry the
+    dictionary's labels, descriptions and enum values, and every role reads
+    them, directly and through the OpenAPI root.
+  - A visible row is returned as stored, with what it says of hidden
+    entities: `reference_table` and `id_refentity` hold a hidden entity's
+    name; a rollup definition is kept whole, so it names the child entity,
+    the child's link field, the fields it aggregates and filters on and the
+    values its filter compares them with; and the rules are kept whole, so a
+    rule that reads a record through `set_record` names the entity and the
+    fields it reads. A reference property in `get_schema` keeps the JSON
+    type and TypeID pattern of its own column, which follow the key type of
+    the entity it references. `get_schema` adds nothing else taken from a
+    hidden entity's row.
+  - Module rows are outside the rule: a visible module row shows its
+    `dashboard_config`, and `modules.version` moves with changes to the
+    entities and fields of the module.
 - **Bearer mode is experimental.** PostgreSQL 18 OAuth bearer authentication
   with `pg_oidc_validator` is a development configuration, not a deployment
   target. Its status and the remaining hardening are in

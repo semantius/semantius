@@ -3,18 +3,25 @@
 -- =====================================================
 -- Pins the RPC an importer calls after writing explicit ids: it moves the id
 -- sequence past max(id), never lowers it, answers NULL for keys without a
--- sequence, and is callable exactly by holders of the entity's edit_permission,
--- with an unknown table and a denied one looking alike to non-admins.
+-- sequence, and is callable exactly by holders of the entity's edit_permission
+-- who see the entity in the catalog, with an unknown table and a denied one
+-- looking alike to non-admins.
 --
 -- The lock-timeout path (90232) needs a second session holding a conflicting
 -- lock, which one pgTAP transaction cannot produce; pgdocker/pg-ext-lifecycle.sh
 -- section 1f proves it. Here only the 2 s bound itself is pinned.
 --
+-- An is_a entity whose base the caller does not see is hidden in the catalog
+-- even from a holder of its own edit permission, and answers as an unknown
+-- table does: the 42501, not the NULL of a key without a sequence.
+--
 -- Fixtures: user1 holds the User role only, user2 is Northwind Sales
--- (nwind:manage), user3 is the administrator.
+-- (nwind:manage), user3 is the administrator. fixseq_base is a typeid entity
+-- viewed and edited with admin, fixseq_sub an is_a entity below it viewed with
+-- public:read and edited with nwind:manage.
 BEGIN;
 
-SELECT plan(20);
+SELECT plan(21);
 
 -- A fresh transaction carries no claims, so this is an unauthenticated caller.
 SET ROLE semantius_user;
@@ -29,6 +36,10 @@ VALUES
     ('fixseq_empty', 'fixseq_empty', 'Fixseq Empty', 'Fixseq Empties', 'fix_id_sequence empty table', 1, 'public:read', 'nwind:manage', 'id', 'label');
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
 VALUES ('fixseq_unmanaged', 'fixseq_unmanaged', 'Fixseq Unmanaged', 'Fixseq Unmanaged', 'fix_id_sequence entity without a table', 1, 'public:read', 'admin', 'id', 'label', FALSE);
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, id_prefix)
+VALUES ('fixseq_base', 'fixseq_base', 'Fixseq Base', 'Fixseq Bases', 'fix_id_sequence base only an administrator sees', 1, 'admin', 'admin', 'typeid', 'fixseqbase');
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, id_prefix, id_refentity)
+VALUES ('fixseq_sub', 'fixseq_sub', 'Fixseq Sub', 'Fixseq Subs', 'fix_id_sequence is_a entity under a hidden base', 1, 'public:read', 'nwind:manage', 'is_a', 'fixseqsub', 'fixseq_base');
 
 -- =====================================================
 -- An import with explicit ids, then the repair
@@ -103,6 +114,13 @@ SELECT is(catch_error_hint($$SELECT public.fix_id_sequence('no_such_table')$$),
 SELECT is(catch_error_hint($$SELECT public.fix_id_sequence('fixseq_test')$$),
     '{"code": "90106", "table": "fixseq_test"}'::jsonb,
     'the denied-table refusal carries the same hint.code 90106');
+
+-- user2 holds nwind:manage, the edit permission of fixseq_sub, but not admin,
+-- which its base needs.
+SELECT authenticate_as('user2');
+SELECT throws_ok($$SELECT public.fix_id_sequence('fixseq_sub')$$,
+    '42501', 'Permission denied: cannot fix the id sequence of ${table}',
+    'a holder of the edit permission of an is_a entity whose base it does not see gets the 42501 of an unknown table');
 
 -- =====================================================
 -- Grants and settings

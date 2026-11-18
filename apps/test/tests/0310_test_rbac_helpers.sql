@@ -553,10 +553,13 @@ SELECT ok(NOT rbac.has_permission('user:read'),
     'memoized expansion: rewriting the list rebuilds rather than answering from the old one');
 
 -- The second seeded edge: admin includes public:read (0090_rbac_seed.once.sql).
--- public:read is the view permission of entities and fields, and their UPDATE
--- and DELETE policies check it next to admin, so a token scoped to admin alone
--- reads and changes the catalog only through this edge. expand_scopes is
--- asked as the owner: the request role cannot call it.
+-- public:read is the view permission an entity gets by default, which the
+-- UPDATE and DELETE policies of an entity without a select_rule check next to
+-- its edit permission, admin by default. A token scoped to admin alone keeps
+-- reading and changing the catalog as well: the rows of entities are visible
+-- to admin through the select_rule of entities, and a row of fields follows
+-- the entities row of its entity. expand_scopes is asked as the owner: the
+-- request role cannot call it.
 SELECT set_config('app.oauth_scopes', '', true);
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;

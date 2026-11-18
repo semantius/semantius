@@ -767,11 +767,11 @@ SELECT is(
 SELECT is(
     (SELECT string_agg(tablename || '.' || cmd || ': ' || qual, '; ' ORDER BY tablename, cmd) FROM pg_policies
       WHERE schemaname = 'public' AND tablename IN ('entities', 'fields') AND cmd IN ('UPDATE', 'DELETE')),
-    'entities.DELETE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND ( SELECT rbac.has_permission(''public:read''::text) AS has_permission)); '
-    'entities.UPDATE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND ( SELECT rbac.has_permission(''public:read''::text) AS has_permission)); '
-    'fields.DELETE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND ( SELECT rbac.has_permission(''public:read''::text) AS has_permission)); '
-    'fields.UPDATE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND ( SELECT rbac.has_permission(''public:read''::text) AS has_permission))',
-    'core tables: UPDATE and DELETE of entities and fields check admin and public:read');
+    'entities.DELETE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND (((( SELECT jl_request_context() AS jl_request_context) IS NOT NULL) AND ( SELECT rbac.has_permission(''admin''::text) AS has_permission)) OR select_rule_entities(entities.*, ( SELECT jl_request_context() AS jl_request_context)))); '
+    'entities.UPDATE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND (((( SELECT jl_request_context() AS jl_request_context) IS NOT NULL) AND ( SELECT rbac.has_permission(''admin''::text) AS has_permission)) OR select_rule_entities(entities.*, ( SELECT jl_request_context() AS jl_request_context)))); '
+    'fields.DELETE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND (table_name IN ( SELECT p.table_name' || E'\n' || '   FROM entities p))); '
+    'fields.UPDATE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND (table_name IN ( SELECT p.table_name' || E'\n' || '   FROM entities p)))',
+    'core tables: UPDATE and DELETE of entities check admin and the entities select_rule, whose leading admin term is checked once per statement, those of fields admin and the entities row a field belongs to');
 SELECT is(
     (SELECT string_agg(cmd || ': ' || qual, '; ' ORDER BY cmd) FROM pg_policies
       WHERE schemaname = 'public' AND tablename = 'roles' AND cmd IN ('UPDATE', 'DELETE')),

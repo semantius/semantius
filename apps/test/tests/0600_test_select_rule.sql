@@ -13,9 +13,10 @@
 --   6. A stored rule the save would refuse: it still builds, and what a reader
 --      sees under it
 --   7. The predicate handed no request context answers false
+--   8. The leading has_permission terms of a rule, checked once per statement
 BEGIN;
 
-SELECT plan(48);
+SELECT plan(50);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -601,6 +602,54 @@ SELECT is(
         jsonb_populate_record(NULL::public.modules, '{"id": 1, "view_permission": "public:read"}'::jsonb), NULL::jsonb),
     FALSE,
     'no context: a module whose view_permission everybody holds does not pass the rule of modules');
+
+-- =====================================================
+-- PART 8: The leading has_permission terms of a rule
+-- =====================================================
+-- The leading terms of a rule's top-level or that are has_permission of a
+-- name written into the rule are checked once per statement, in front of the
+-- per-row rule. The answer is the rule's own, because or stops at the first
+-- term that holds. A has_permission term after any other term stays in the
+-- per-row rule: a term before it that raises hides the row, and checking the
+-- later term up front would show that row. The request context is asked in
+-- front of the hoisted terms, so a statement is refused where the per-row
+-- rule would refuse it, also for a holder of the permission whose check is
+-- already answered from the transaction's cache.
+--
+-- Fixture, created as user3: spar_lead, whose rule is admin, then a term that
+-- raises on the row labeled boom, then public:read, with the rows boom and
+-- calm. pg_temp.spar_labels lists the rows of a table the caller reads.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.spar_labels(p_table TEXT) RETURNS TEXT AS $$
+DECLARE
+    v_labels TEXT;
+BEGIN
+    EXECUTE format('SELECT COALESCE(string_agg(label, '', '' ORDER BY label COLLATE "C"), '''') FROM public.%I', p_table)
+       INTO v_labels;
+    RETURN v_labels;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT authenticate_as('user3');
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+VALUES ('spar_lead', 'spar_lead_item', 'Spar Lead', 'Spar Leads', 'Rows under a rule with a permission term behind a raising one',
+        '{"or": [{"has_permission": "admin"}, {"if": [{"==": [{"var": "label"}, "boom"]}, {"throw_error": ["boom", "99001"]}, false]}, {"has_permission": "public:read"}]}'::jsonb, 1);
+INSERT INTO spar_lead (label) VALUES ('boom'), ('calm');
+
+SELECT authenticate_as('user1');
+SELECT is(pg_temp.spar_labels('spar_lead'), 'calm',
+    'leading terms: a has_permission term behind a term that raises is checked per row, so the row the term raises on stays hidden from a holder of that permission');
+SELECT authenticate_as('user3');
+
+SELECT rbac.has_permission('admin');
+SELECT set_config('request.jwt.claim.role', 'bogus_role', true);
+SELECT throws_ok(
+    $$SELECT count(*) FROM entities$$,
+    '42501', 'Authentication required: JWT role claim must be authenticated',
+    'leading terms: the request context is asked first, so claims that are no longer valid refuse the statement although admin is already answered from the cache');
+SELECT authenticate_as('user3');
 
 SELECT * FROM finish();
 ROLLBACK;

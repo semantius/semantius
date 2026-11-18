@@ -1226,7 +1226,9 @@ SELECT lives_ok($$UPDATE fcc_banks SET city = 'Nowhere' WHERE label = 'B1'$$,
 SELECT lives_ok($$UPDATE fcc_parties SET city = 'Bern' WHERE label = 'B1'$$,
     'with the rules cleared, a write through the root still works');
 
--- A middle level's view permission gates the levels below it.
+-- A middle level's view permission gates the records of the levels below it.
+-- The schema follows the catalog, where the middle level's edit permission
+-- counts as well: user2 holds nwind:manage, so it still sees both levels there.
 INSERT INTO fc_marks SELECT 'banks', count(*)::TEXT FROM fcc_banks;
 UPDATE entities SET view_permission = 'admin' WHERE table_name = 'fcc_orgs';
 SELECT authenticate_as('user2');
@@ -1234,9 +1236,8 @@ SELECT authenticate_as('user2');
 SELECT is((SELECT count(*)::INTEGER FROM fcc_banks), 0,
     'a middle level readable by administrators only hides the level below it from others');
 
-SELECT throws_ok($$SELECT public.get_schema('fcc_banks')$$,
-    '42P01', NULL,
-    'a middle level readable by administrators only hides the schema of the level below it from others');
+SELECT lives_ok($$SELECT public.get_schema('fcc_banks')$$,
+    'a middle level readable by administrators only leaves the schema of the level below it to a holder of the middle level''s edit permission');
 
 SELECT authenticate_as('user3');
 

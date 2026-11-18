@@ -10,10 +10,11 @@
 --
 -- Also covers the generated compute/validate trigger: rule code,
 -- computed-field names and messages containing quotes or percent signs are
--- emitted as proper literals.
+-- emitted as proper literals; and the select rule, whose text and leading
+-- permission names reach the generated function and policies the same way.
 BEGIN;
 
-SELECT plan(49);
+SELECT plan(50);
 
 -- =====================================================
 -- GROUP 1: quote_default_value never returns caller text bare
@@ -153,6 +154,21 @@ SELECT throws_ok($$INSERT INTO dv_probe (label, note) VALUES ('r6', '$TRIG$')$$,
     'a rule whose literal is a dollar tag compares it as text');
 SELECT lives_ok($$INSERT INTO dv_probe (label, note) VALUES ('r7', 'fine')$$,
     'and passes other values');
+
+-- The permission name of a leading has_permission term goes into the
+-- policies themselves (build_select_rule_policy checks it once per statement),
+-- as a literal: unquoted, this name would close the call and OR true into
+-- every policy of the entity.
+UPDATE entities
+   SET select_rule = $$ {"or": [{"has_permission": "x')) OR true OR ((rbac.has_permission('y"}, {"!=": [{"var": "label"}, "hidden"]}]} $$::jsonb
+ WHERE table_name = 'dv_probe';
+
+SELECT is(
+    (SELECT count(*)::int FROM pg_policies
+      WHERE tablename = 'dv_probe' AND cmd IN ('SELECT', 'UPDATE', 'DELETE')
+        AND strpos(qual, $q$rbac.has_permission('x'')) OR true OR ((rbac.has_permission(''y'::text)$q$) > 0),
+    3,
+    'a permission name in a leading has_permission term is one quoted literal in the SELECT, UPDATE and DELETE policies');
 
 -- Back to the rules of the first part of this group for what follows.
 UPDATE entities

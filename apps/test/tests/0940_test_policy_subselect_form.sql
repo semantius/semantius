@@ -35,7 +35,10 @@
 --   enable_dd_table            (0180_managed_enable.sql, managed FALSE -> TRUE)
 -- create_entity_policies, update_entity_policies and enable_dd_table emit only the INSERT policy
 -- themselves and hand SELECT, UPDATE and DELETE to build_select_rule_policy, so every policy text
--- the dictionary can generate is produced by one of the steps below.
+-- the dictionary can generate is produced by one of the steps below, or, for the semi-join on
+-- entities built into the policies of fields, by the policies of fields that Part 1 sweeps: that
+-- predicate calls no permission reader, and the policies of entities are swept on entities
+-- itself.
 --
 -- The same rule and the same reasoning cover public.jl_request_context(), the statement-constant
 -- JsonLogic context that the select_rule policies pass into the per-row predicate. A bare call

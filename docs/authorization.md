@@ -41,16 +41,25 @@ access(row) = select_rule(row)                   when select_rule is set   (the 
               has_permission(view_permission)    otherwise                 (the default rule)
 ```
 
+On `fields` alone, `access()` of the `entities` row of the field's entity takes the place
+of `has_permission(view_permission)` (the catalog, below).
+
 - **The rule replaces the permission.** A `select_rule` that is set is the whole read
   authorization of a row. It is not combined with `view_permission` by AND or by OR;
   `view_permission` is the predicate used when no rule is set. With a rule set,
-  `view_permission` still decides who may reach the entity, that is, who gets its schema
-  from `get_schema` and its siblings. It is never a see-everything override.
+  `view_permission` still decides, with `edit_permission` and `admin`, who sees the entity
+  in the catalog (below). It is never a see-everything override.
 - **Permissions are operators inside a rule.** "Support sees every ticket" is a
   `{"has_permission": "..."}` term of the rule, not the entity's `view_permission`. Grants of
   every kind (ownership, assignment, RACI, a blanket role) are OR-ed inside the one rule:
   one check expression, in which roles are terms. The rule of `modules` is an example:
   `{"or": [{"has_permission": "admin"}, {"has_permission": {"var": "view_permission"}}]}`.
+  The leading terms of a rule's top-level `or` that are `has_permission` of a name written
+  into the rule, like the `admin` term there, are checked once per statement in the
+  generated policies, in front of the per-row rule, so a holder of one of them pays no
+  per-row evaluation. The answer is the rule's own: `or` stops at the first term that
+  holds. A term after any other term, or one that reads the name from the row, stays in
+  the per-row rule.
 - **`is_raci_actor` is a grant to the caller:** it answers whether the caller holds a role
   with the given RACI letter on the process that governs the entity and state.
   **`has_consultation` is not one:** it answers whether the record has an acted
@@ -59,6 +68,18 @@ access(row) = select_rule(row)                   when select_rule is set   (the 
 - **A record of an `is_a` or `has_a` entity** is stored in one table per level, and only a
   caller who passes the predicate of every level reads it: each table carries its own
   entity's policies, and the entity's view is `security_invoker`.
+- **The catalog follows the same model.** An entity's row in `entities`, and every row of
+  that entity in `fields`, is visible to a holder of the entity's `view_permission`, its
+  `edit_permission` or `admin`, and to no one else: an editor has to find the entity to
+  write its records. For an `is_a` or `has_a` entity this holds on every level, because a
+  record is stored on every level: its rows are visible only when its base's are, up to
+  the root. `entities` says it with its own `select_rule`, which asks for the base's row
+  through `set_record`. A fields row follows the `entities` row its `table_name` points
+  at: the dictionary builds that rule into the policies of `fields` as one semi-join on
+  `entities`, read as the caller and run once per statement, and `get_record_by_id` asks
+  the same question. A user whom a `select_rule` admits to records without either
+  permission reads the records and sees no metadata of the entity. Writes to both tables
+  need `admin`.
 - **A rule fails closed.** A forgotten grant denies, which is the safe direction. So does a
   rule that cannot decide. A rule that raises on a row hides that row, and raises a WARNING
   once per transaction and entity that names the entity and the SQLSTATE but not the
@@ -77,10 +98,11 @@ generates follows this table:
 | Path | Rule |
 |---|---|
 | SELECT policy | `access(row)` |
-| `get_record_by_id`, `set_record`, `build_schema_for_table`, reference labels | `access(row)`, except in `build_schema_for_table`, which checks `view_permission` only. `get_record_by_id` evaluates it on every level the record is stored in, and a record that fails it is answered with NULL, as a missing one is. `set_record` reads through `get_record_by_id`. The label functions are `SECURITY INVOKER`, so the referenced table's SELECT policy applies to them. `build_schema_for_table` returns no record: it answers a caller who lacks the `view_permission` of a level with SQLSTATE 42P01, as it answers for a missing entity, but with another message: `Table "<name>" not found in tables metadata`, where a missing entity gets `Table "<name>" not found in entities` |
-| UPDATE and DELETE `USING` | `has_permission(edit_permission) AND access(row)`: a row the caller cannot read, it cannot write. Without a `select_rule` that is the edit permission and the view permission, one check when the two are the same |
+| `get_record_by_id`, `set_record`, reference labels | `access(row)`. `get_record_by_id` evaluates it on every level the record is stored in, for a row of `fields` by asking itself for the `entities` row, and a record that fails it is answered with NULL, as a missing one is. `set_record` reads through `get_record_by_id`. The label functions are `SECURITY INVOKER`, so the referenced table's SELECT policy applies to them |
+| `get_schema`, `get_schemas`, `build_schema_for_table`, `get_schema_children`, `get_module_cubes`, `get_user_cubes`, the 90238 test of `get_record_by_id` | `access(row)` of the entity's own row in `entities`, the catalog rule above (`dd_entity_viewable`, which asks `get_record_by_id`). They return no record. A caller who does not see the entity gets exactly the answer for a missing one: SQLSTATE 42P01 with `Table "<name>" not found in entities`, raised by the same statement, so no field of the error tells the two apart; the empty list from `get_schema_children`; nothing from the cubes; NULL instead of 90238. A schema names a referenced entity the caller does not see by its table name and gives nothing else from that entity's row: no labels, no key or label column, no label in the `<fk>_label` description. The extensions of a `has_a` base and the children of a parent are the ones the caller sees |
+| UPDATE and DELETE `USING` | `has_permission(edit_permission) AND access(row)`: a row the caller cannot read, it cannot write. Without a `select_rule` that is the edit permission and the view permission, one check when the two are the same, or on `fields` the edit permission and the `entities` row |
 | INSERT and UPDATE `WITH CHECK` | `has_permission(edit_permission)`. No rule applies to the row as it will be |
-| The new row of a write that reads a column (`WHERE`, `RETURNING`) | PostgreSQL holds it to the SELECT policy as well. On an entity with a `select_rule` the row the statement is writing passes that one check, so a write may move a row out of the writer's own rule; `access(row)` applies to the row again once the statement has ended. Without a `select_rule` the check is the view permission, and a writer that lacks it is refused |
+| The new row of a write that reads a column (`WHERE`, `RETURNING`) | PostgreSQL holds it to the SELECT policy as well. On an entity with a `select_rule` the row the statement is writing passes that one check, so a write may move a row out of the writer's own rule; `access(row)` applies to the row again once the statement has ended. Without a `select_rule` the check is the view permission, or on `fields` the `entities` row, and a writer that fails it is refused |
 
 These are the rules of a managed entity. While an entity is unmanaged the dictionary does not
 maintain the policies of its table. Making an entity managed adopts its table: the four
@@ -127,7 +149,8 @@ The invariants hold across every value of these eight dimensions.
 - **A6 · Enforcement layer:** an RLS policy (bypassed by the owner and any BYPASSRLS role) ·
   a BEFORE trigger (fires for the owner; bypassed under `session_replication_role = replica`)
   · definer logic (`/rpc/fix_id_sequence`, gated on the entity's `edit_permission` like its
-  INSERT policy) · PostgREST and RPC.
+  INSERT policy, and on the caller seeing the entity in the catalog, `dd_entity_viewable`)
+  · PostgREST and RPC.
 - **A7 · Grant path:** role to `role_permissions` · direct `user_permissions` · the recursive
   `permission_hierarchy` (it relates permissions, not roles: roles are flat) · OAuth scope
   intersection · the `is_disabled` gate · the transaction-scoped permission cache
@@ -147,8 +170,8 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   SELECT, RETURNING, a sub-select, `get_record_by_id`, `set_record`,
   `build_schema_for_table`, `get_schema_children`, a view, search, a reference label, a cube
   or an error message.
-  - `get_schema_children` lists a child only for a caller who may view the child's entity,
-    and nothing under a parent the caller may not view.
+  - `get_schema_children` lists a child only for a caller who sees the child's entity in the
+    catalog, and nothing under a parent the caller does not see.
   - The generated `select_rule_<entity>(row, context)` is executable by the request role, as
     a function an RLS policy calls has to be, and answers false for every row when it is
     handed no context.
@@ -229,15 +252,16 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   value replaces whatever the writer sent. An `is_a` or `has_a` entity runs its rules in its
   write routine, over the whole record.
 - **I8 · No side channel.** `has_consultation` and `get_record_by_id` do not reveal that an
-  inaccessible row exists or what it holds.
-  - `get_schema`, `get_schemas` and `build_schema_for_table` answer an entity the caller may
-    not view with the SQLSTATE of a missing one, 42P01, but with another message:
-    `Table "<name>" not found in tables metadata`, where a missing entity gets
-    `Table "<name>" not found in entities`.
+  inaccessible row exists or what it holds, and the catalog does not reveal what an entity
+  the caller may not see consists of.
+  - `get_schema`, `get_schemas` and `build_schema_for_table` answer an entity the caller does
+    not see in the catalog exactly as they answer a missing one: 42P01 with
+    `Table "<name>" not found in entities`, every field of the error the same, the context
+    included. A holder of `admin` sees every entity, so for it the error means missing.
   - `has_consultation` answers false to a caller who takes no part in the governing process,
     as it answers for a record that was not consulted.
-  - `get_record_by_id` reports a malformed id (`90238`) only to a caller who may view the
-    entity; anybody else gets the NULL of a missing entity.
+  - `get_record_by_id` reports a malformed id (`90238`) only to a caller who sees the
+    entity in the catalog; anybody else gets the NULL of a missing entity.
   - Accepted residuals:
     - An `EXPLAIN` estimate shows the row count of a table the caller cannot read.
     - A foreign key violation (23503) tells a writer that a parent row it cannot read exists,
@@ -247,7 +271,28 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
       constraint over every row.
 
     Closing the last two would need a definer INSERT wrapper.
-  - Every holder of `public:read` reads `entities` and `fields`.
+  - The catalog hides what an entity consists of, not that it exists. Accepted residuals:
+    - PostgREST's OpenAPI root lists every table the request role holds a grant on, which
+      is every entity table, with its columns, types and foreign key relationships, and
+      `GET /<table>` answers `200 []` for a table whose rows the caller cannot read where it
+      answers 404 for a missing one.
+    - The table and column comments in the PostgreSQL catalog carry the dictionary's
+      labels, descriptions and enum values, and every role can read them, through
+      `pg_description` and through the OpenAPI root.
+    - A visible row is returned as stored, with what it says of hidden entities.
+      `reference_table` and `id_refentity` hold a hidden entity's name. A rollup
+      definition is kept whole: its `link_field` names the child entity and the child's
+      link field, and its `value_field` and `filter` name fields of the child and the
+      values the filter compares them with. The rules (`select_rule`, `validation_rules`,
+      `computed_fields`, a field's `input_type_rule`) are kept whole too, and a rule that
+      reads a record through `set_record` names the entity and the fields it reads.
+      `get_schema` adds nothing taken from a hidden entity's row.
+    - A reference property in `get_schema` keeps the JSON type and the TypeID pattern of
+      its own column, which follow the key type of the entity it references, also when
+      that entity is hidden.
+    - The rows of `modules` are not covered: a visible module row shows its
+      `dashboard_config`, and its `version` moves with changes to the entities and fields
+      of the module.
 - **I9 · Cascade safety.** A delete cascades through `ON DELETE CASCADE` and `SET NULL`
   foreign keys whatever the deleter's rights on the children: authority to delete the parent
   governs the cascade (D3), into credential and grant children as well (D9).
@@ -263,10 +308,10 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     which are flat. A disabled user has none.
   - An OAuth scope list confines a session to the permissions it names and everything those
     include; it only takes permissions away, never adds one. The seeded hierarchy has
-    `admin` include `public:read`, as `user:manage` includes `user:read`: `entities` and
-    `fields` are viewed with `public:read`, and their UPDATE and DELETE policies check it
-    next to `admin`, so a token scoped to `admin` alone keeps read, update and delete on
-    them.
+    `admin` include `public:read`, as `user:manage` includes `user:read`: `public:read` and
+    `admin` are the view and edit permission an entity gets by default, and the UPDATE and
+    DELETE policies of an entity without a `select_rule` check both, so a token scoped to
+    `admin` alone keeps read, update and delete on the records of such an entity.
   - Outside a bearer session the permission set is computed once per transaction and kept in
     transaction-local settings, so a grant, revoke or disable committed meanwhile applies from
     the caller's next transaction, never in the middle of one while the claims are unchanged.
@@ -321,9 +366,10 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   authority to delete the user. Deleting a role that `raci_events` rows name as
   `target_role_id` is refused until those events are removed.
 - **D10 · The definer read helpers apply `access(row)` themselves.** `get_record_by_id`, and
-  through it `set_record`, evaluate the canonical predicate. `build_schema_for_table`, which
-  returns no record, answers a caller without the view permission with 42P01, as it answers
-  for a missing entity, but with another message. The read path is closed at the helpers, so
+  through it `set_record`, evaluate the canonical predicate. `build_schema_for_table` and the
+  other schema functions, which return no record, apply the predicate of the entity's own
+  row in `entities`, and answer a caller who does not see it exactly as they answer for a
+  missing entity. The read path is closed at the helpers, so
   `evaluate_json_logic` stays callable by the request role and is not revoked; I-jsonlogic
   states the residual that is accepted for it.
 - **D11 · No FORCE ROW LEVEL SECURITY.** The BYPASSRLS owner is a role apart from the request

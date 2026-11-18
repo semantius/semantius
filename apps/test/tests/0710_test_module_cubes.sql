@@ -5,9 +5,10 @@
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. get_module_cubes()
 --   2. get_user_cubes()
+--   3. get_module_cubes() and get_user_cubes() follow the catalog's visibility rule
 BEGIN;
 
-SELECT plan(12);
+SELECT plan(17);
 
 -- =====================================================
 -- PART 1: get_module_cubes()
@@ -174,6 +175,115 @@ SELECT ok(
     ),
     'user3 should see role_permissions (has admin permission)'
 );
+
+-- =====================================================
+-- PART 3: get_module_cubes() and get_user_cubes() follow the catalog's visibility rule
+-- =====================================================
+-- The cube of a module holds the schema of every entity of the module that
+-- the caller sees in the catalog (0300_test_rls.sql, 0700_test_get_schema.sql):
+-- through its view permission, its edit permission or admin, and for an is_a
+-- or has_a entity on every level of its chain. An entity the caller may not
+-- see is left out. The cubes of a user hold the same schemas, those of every
+-- entity the caller sees.
+--
+-- Fixtures, created as user3: the module cube_vis, viewed with public:read,
+-- with the entities
+--   cubev_open     view public:read, edit admin
+--   cubev_guarded  view cubev:view,  edit cubev:edit
+--   cubev_root     typeid base, view cubev:base, edit admin
+--   cubev_org      is_a cubev_root, view cubev:view, edit cubev:edit
+-- and the users cubev_editor (cubev:edit), cubev_base_editor (cubev:edit and
+-- cubev:base) and cubev_admin (admin), each with the User role every user
+-- gets. user1 holds none of the cubev permissions.
+--
+-- pg_temp.cubev_tables lists the tables of the cube_vis cube, and
+-- pg_temp.cubev_user_tables the cube_vis tables among the user's cubes, or the
+-- SQLSTATE of a refusal, so a refusal shows up in the assertion and does not
+-- abort the file.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.cubev_tables() RETURNS TEXT AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT string_agg(s #>> '{table,table_name}', ', ' ORDER BY s #>> '{table,table_name}' COLLATE "C")
+           FROM public.get_module_cubes('cube_vis') AS s),
+        '');
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pg_temp.cubev_user_tables() RETURNS TEXT AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT string_agg(s #>> '{table,table_name}', ', ' ORDER BY s #>> '{table,table_name}' COLLATE "C")
+           FROM public.get_user_cubes() AS s
+          WHERE s #>> '{table,table_name}' LIKE 'cubev\_%'),
+        '');
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO modules (module_name, module_slug, description, view_permission)
+VALUES ('Cube Visibility Probe', 'cube_vis', 'Ephemeral module for the cube visibility tests', 'public:read');
+
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('cubev:view', 'Views the guarded cube probes', 1),
+    ('cubev:edit', 'Edits the guarded cube probes', 1),
+    ('cubev:base', 'Views the hidden cube base',    1);
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+SELECT v.table_name, v.singular_label, v.plural_label, m.id, v.view_permission, v.edit_permission
+  FROM (VALUES ('cubev_open',    'Open Cube Probe',    'Open Cube Probes',    'public:read', 'admin'),
+               ('cubev_guarded', 'Guarded Cube Probe', 'Guarded Cube Probes', 'cubev:view',  'cubev:edit'))
+       AS v(table_name, singular_label, plural_label, view_permission, edit_permission)
+  CROSS JOIN modules AS m
+ WHERE m.module_slug = 'cube_vis';
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      view_permission, edit_permission)
+SELECT 'cubev_root', 'Root Cube Probe', 'Root Cube Probes', m.id, 'typeid', 'cubevrt', 'cubev:base', 'admin'
+  FROM modules AS m WHERE m.module_slug = 'cube_vis';
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      id_refentity, view_permission, edit_permission)
+SELECT 'cubev_org', 'Organization Cube Probe', 'Organization Cube Probes', m.id, 'is_a', 'cubevorg',
+       'cubev_root', 'cubev:view', 'cubev:edit'
+  FROM modules AS m WHERE m.module_slug = 'cube_vis';
+
+INSERT INTO users (external_id, email, display_name) VALUES
+    ('cubev_editor',      'cubev_editor@test.com',      'Cube Editor'),
+    ('cubev_base_editor', 'cubev_base_editor@test.com', 'Cube Base Editor'),
+    ('cubev_admin',       'cubev_admin@test.com',       'Cube Administrator');
+
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT u.id, g.permission_name
+  FROM (VALUES ('cubev_editor',      'cubev:edit'),
+               ('cubev_base_editor', 'cubev:edit'),
+               ('cubev_base_editor', 'cubev:base'),
+               ('cubev_admin',       'admin')) AS g(external_id, permission_name)
+  JOIN users AS u ON u.external_id = g.external_id;
+
+SELECT authenticate_as('user1');
+SELECT is(pg_temp.cubev_tables(), 'cubev_open',
+    'cube visibility, neither permission: the cube holds only the entity viewed with public:read');
+
+SELECT authenticate_as('cubev_editor');
+SELECT is(pg_temp.cubev_tables(), 'cubev_guarded, cubev_open',
+    'cube visibility, edit permission only: the cube holds the edited entity');
+SELECT is(pg_temp.cubev_user_tables(), 'cubev_guarded, cubev_open',
+    'cube visibility, edit permission only: the user''s cubes hold the edited entity and not the is_a entity on the hidden base');
+
+SELECT authenticate_as('cubev_base_editor');
+SELECT is(pg_temp.cubev_tables(), 'cubev_guarded, cubev_open, cubev_org, cubev_root',
+    'cube visibility, edit permission of the is_a entity and view permission of its base: the cube holds every entity');
+
+SELECT authenticate_as('cubev_admin');
+SELECT is(pg_temp.cubev_tables(), 'cubev_guarded, cubev_open, cubev_org, cubev_root',
+    'cube visibility, admin without the entities'' permissions: the cube holds every entity');
 
 SELECT * FROM finish();
 ROLLBACK;

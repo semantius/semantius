@@ -116,15 +116,22 @@ guard - is raised as itself and answers 400, because 403 would send a client to
 re-authenticate over something authentication cannot fix. The **Wire** column of
 each row settles which it is.
 
-42501 and 42P01 are the only standard codes we ever raise, and only paired
-with a `hint.code` from those blocks. PostgreSQL raises the same two codes
-itself, for a row-level security refusal, a missing grant or a missing
-relation; those carry no `hint.code`, which is how a client tells them apart.
+42501 and 42P01 are the only standard codes we ever raise. Every 42501 we
+raise carries a `hint.code` from the 900xx or 901xx block. No 42P01 we raise
+carries one: `get_schema`, `get_schemas` and `build_schema_for_table` raise
+`Table "<name>" not found in entities` without a hint, and the 903xx block has
+no numbers yet. PostgreSQL raises the same two codes itself, for a row-level
+security refusal, a missing grant or a missing relation, and its errors carry
+no `hint.code` either. So the `hint.code` tells a 42501 of ours from
+PostgreSQL's, and a 42P01 carries none either way.
 
-The 404 is also the existence-hiding answer: `get_schema`,
-`build_schema_for_table` and the record RPCs answer 42P01 both for a table
-that does not exist and for one the caller may not see, so the status alone
-never says which.
+The 404 is also the existence-hiding answer: `get_schema`, `get_schemas` and
+`build_schema_for_table` answer 42P01 both for a table that does not exist and
+for one the caller may not see, with exactly the same error, `Table "<name>"
+not found in entities`, raised by the same statement, so no field of it, the
+context included, says which. The record reads raise no error for either:
+`get_record_by_id` returns the same NULL for an entity or record that does not
+exist and for one the caller may not read.
 
 PostgREST's own 401 for a missing, expired or invalid token is unaffected: it
 rejects those before the database is reached. The mapping is PostgREST's and
@@ -412,7 +419,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.` | - | The lockout guard: a DELETE or UPDATE on `user_roles`, `users` or `roles` that would leave no enabled holder of role 2. |
 | `90104` | `42501` | `The Administrator role has to keep the admin permission` | `Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.` | - | The same guard for the grant itself: removing or re-pointing the `role_permissions` row of role 2 for `admin`, and deleting or renaming the permission `admin`. |
 | `90105` | `42501` | `Permission denied for queue ${queue}` | - | `queue` | Hides whether the queue exists from a caller who may not read it. |
-| `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`. Hides whether the entity exists, as 90105 does for queues. |
+| `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`, or on an entity the caller does not see in the catalog, such as an is_a or has_a entity whose base it does not see. Hides whether the entity exists, as 90105 does for queues. |
 | `90107` | `42501` | `Permission denied: only an administrator can set the external_id of a user` | `external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.` | - | A caller without `admin` inserted a user with an `external_id`, or changed the one of an existing user. An unchanged value and an agent saved without one pass. |
 
 ### 902xx - data dictionary: entities and fields
@@ -453,7 +460,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90235` | `90235` | `Table ${table} cannot be adopted: its key column ${id_column} is ${actual_type}, but id_type ${id_type} needs ${expected_type}` | `Change the table's key column to ${expected_type}, or declare the entity with the id_type that matches it.` | `table`, `id_column`, `actual_type`, `id_type`, `expected_type` | Registering an entity onto an existing table, or switching `managed` on for one, when the key column does not match `id_type`. `actual_type` is `missing` when there is no key column. |
 | `90236` | `90236` | `The key ${column} of ${table} cannot be changed` | - | `column`, `table` | A record key is set once. Writing the unchanged key back passes. Also raised by the write routine of an is_a or has_a entity, naming the entity. |
 | `90237` | `90237` | `Id ${id} does not carry the prefix ${prefix} of ${table}` | - | `id`, `prefix`, `table` | An insert into a typeid entity that brings its own id with another prefix, a former prefix of the entity included. Also an is_a insert whose id lacks the is_a entity's prefix, a direct insert into an is_a root with a subtype's prefix, and a has_a insert that creates its base record with an id lacking the base's prefix. |
-| `90238` | `90238` | `Invalid record id ${id} for entity ${table}` | - | `id`, `table` | `get_record_by_id` (and JsonLogic `set_record` through it) with an id that is not a valid value of the entity's key type. Raised only to a caller who may see the entity; anybody else gets the `NULL` of a missing record. |
+| `90238` | `90238` | `Invalid record id ${id} for entity ${table}` | - | `id`, `table` | `get_record_by_id` (and JsonLogic `set_record` through it) with an id that is not a valid value of the entity's key type. Raised only to a caller who sees the entity in the catalog (a holder of its view or edit permission, on every level of an is_a or has_a entity, or of `admin`); anybody else gets the `NULL` of a missing record. |
 | `90239` | `90239` | `Entity ${table} cannot be managed: its id field ${id_column} has format ${actual_format}, but id_type ${id_type} needs ${expected_format}` | `Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.` | `table`, `id_column`, `actual_format`, `id_type`, `expected_format` | Switching `managed` on for an entity whose id field row (written while it was unmanaged) describes another key type. Switching managed on never rewrites metadata, so the difference is refused, not fixed. |
 | `90240` | `90240` | `Entity ${table} cannot be based on ${base}` | `An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.` | `table`, `base` | Creating an is_a or has_a entity whose `id_refentity` has the wrong key type, is unmanaged, or is the entity itself. |
 | `90241` | `90241` | `id_refentity is set when an entity is created and cannot be changed` | - | `table` | The records of an is_a or has_a entity are stored in its base. A rename of the base, which `ON UPDATE CASCADE` carries to `id_refentity`, is the one change it takes. |
@@ -501,10 +508,10 @@ the JSON hint that fill their `${name}` placeholders.
 
 ### 903xx - schema and record RPCs
 
-Reserved. `get_schema`, `build_schema_for_table` and the record RPCs answer
+Reserved. `get_schema`, `get_schemas` and `build_schema_for_table` answer
 42P01 both for a table that does not exist and for one the caller may not see,
-and carry no `hint.code`. Those sites are deliberately left as they are, so the
-block has no rows yet.
+and carry no `hint.code`; `get_record_by_id` answers both with NULL. Those
+sites are deliberately left as they are, so the block has no rows yet.
 
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|

@@ -6,9 +6,12 @@
 --   2. get_schemas()
 --   3. get_schema of is_a and has_a entities
 --   4. get_schema_children()
+--   5. The schema functions follow the catalog's visibility rule
+--   6. An entity the caller may not see answers as a missing one
+--   7. A reference to an entity the caller may not see
 BEGIN;
 
-SELECT plan(175);
+SELECT plan(193);
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -298,11 +301,12 @@ SELECT ok(
     'user1 should not have admin permission'
 );
 
--- Test that get_schema() raises "not found" error for webhook_receivers table (requires admin)
+-- Test that get_schema() raises the "not found" error of a missing table for
+-- webhook_receivers (viewed and edited with admin), which user1 does not see
 SELECT throws_ok(
     'SELECT public.get_schema(''webhook_receivers'')',
     '42P01',
-    'Table "webhook_receivers" not found in tables metadata',
+    'Table "webhook_receivers" not found in entities',
     'get_schema() should raise "not found" error when user lacks view permission'
 );
 
@@ -1371,12 +1375,12 @@ SELECT throws_ok(
     'get_schemas() should raise an error even when only one table in the list does not exist'
 );
 
--- Test that a table the user cannot access raises an error
+-- Test that a table the user cannot access raises the error of a missing one
 -- (user2 does not have admin permission, so webhook_receivers is inaccessible)
 SELECT throws_ok(
     'SELECT public.get_schemas(''customers, webhook_receivers'')',
     '42P01',
-    'Table "webhook_receivers" not found in tables metadata',
+    'Table "webhook_receivers" not found in entities',
     'get_schemas() should raise an error when the user lacks view permission for any table in the list'
 );
 
@@ -1537,6 +1541,320 @@ SELECT set_config('app.current_external_id', '', true);
 SET ROLE semantius_user;
 SELECT is(pg_temp.child_ids('orders'), 'raised 42501',
     'get_schema_children: a session without claims is refused');
+
+-- =====================================================
+-- PART 5: The schema functions follow the catalog's visibility rule
+-- =====================================================
+-- get_schema, get_schemas, build_schema_for_table and get_schema_children
+-- describe an entity to exactly the users who see its rows in entities and
+-- fields (0300_test_rls.sql): a holder of its view permission, its edit
+-- permission or admin, and for an is_a or has_a entity on every level of its
+-- chain. The extensions a has_a base lists, and the children a parent lists,
+-- follow the same rule.
+--
+-- Fixtures, created as user3:
+--   permissions  gsv:view, gsv:edit, and gsv:base and gsv:base_edit for the base
+--   entities     gsv_guarded      view gsv:view, edit gsv:edit
+--                gsv_line         view gsv:view, edit gsv:edit, parent field guarded_id to gsv_guarded
+--                gsv_root         typeid base, view gsv:base, edit gsv:base_edit
+--                gsv_org          is_a gsv_root,  view gsv:view, edit gsv:edit
+--                gsv_org_line     view gsv:view, edit gsv:edit, parent field org_id to gsv_org
+--                gsv_party        typeid base, view public:read, edit admin
+--                gsv_party_addon  has_a gsv_party, view gsv:view, edit gsv:edit
+--   users        gsv_viewer (gsv:view), gsv_editor (gsv:edit), gsv_base_editor
+--                (gsv:edit and gsv:base_edit), gsv_admin (admin), each with the
+--                User role every user gets
+-- user1 holds none of the gsv permissions. user3's Administrator role holds
+-- every one of them, so the holder of admin without them is gsv_admin.
+--
+-- pg_temp.gsv_tables runs a statement that returns a schema or an array of
+-- them and reports the tables they describe, pg_temp.gsv_extensions reports
+-- the extensions get_schema lists for a has_a base, and pg_temp.child_ids
+-- (PART 4) the children; each reports a refusal by its SQLSTATE, so it shows
+-- up in the assertion and does not abort the file.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.gsv_tables(p_sql TEXT) RETURNS TEXT AS $$
+DECLARE
+    v_result JSON;
+BEGIN
+    EXECUTE p_sql INTO v_result;
+    IF json_typeof(v_result) = 'array' THEN
+        RETURN COALESCE((SELECT string_agg(s #>> '{table,table_name}', ', ' ORDER BY n)
+                           FROM json_array_elements(v_result) WITH ORDINALITY AS t(s, n)), '');
+    END IF;
+    RETURN v_result #>> '{table,table_name}';
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pg_temp.gsv_extensions(p_table TEXT) RETURNS TEXT AS $$
+BEGIN
+    RETURN COALESCE(
+        (SELECT string_agg(e ->> 'table', ', ' ORDER BY e ->> 'table' COLLATE "C")
+           FROM json_array_elements(public.get_schema(p_table) -> 'extensions') AS e),
+        '');
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('gsv:view',      'Views the guarded schema probes', 1),
+    ('gsv:edit',      'Edits the guarded schema probes', 1),
+    ('gsv:base',      'Views the hidden schema base',    1),
+    ('gsv:base_edit', 'Edits the hidden schema base',    1);
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('gsv_guarded', 'Guarded Schema Probe', 'Guarded Schema Probes', 1, 'gsv:view', 'gsv:edit');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      view_permission, edit_permission)
+VALUES ('gsv_root',  'Root Schema Probe',  'Root Schema Probes',  1, 'typeid', 'gsvrt',  'gsv:base',    'gsv:base_edit'),
+       ('gsv_party', 'Party Schema Probe', 'Party Schema Probes', 1, 'typeid', 'gsvpty', 'public:read', 'admin');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      id_refentity, view_permission, edit_permission)
+VALUES ('gsv_org', 'Organization Schema Probe', 'Organization Schema Probes', 1, 'is_a', 'gsvorg',
+        'gsv_root', 'gsv:view', 'gsv:edit');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type,
+                      id_refentity, view_permission, edit_permission)
+VALUES ('gsv_party_addon', 'Party Extension Schema Probe', 'Party Extension Schema Probes', 1, 'has_a',
+        'gsv_party', 'gsv:view', 'gsv:edit');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('gsv_line',     'Line Schema Probe',              'Line Schema Probes',              1, 'gsv:view', 'gsv:edit'),
+       ('gsv_org_line', 'Organization Line Schema Probe', 'Organization Line Schema Probes', 1, 'gsv:view', 'gsv:edit');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order) VALUES
+    ('gsv_line',     'guarded_id', 'Guarded',      'parent', 'gsv_guarded', 'cascade',  30),
+    ('gsv_org_line', 'org_id',     'Organization', 'parent', 'gsv_org',     'restrict', 30);
+INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES
+    ('gsv_party_addon', 'rating', 'Rating', 'int32', 30);
+
+INSERT INTO users (external_id, email, display_name) VALUES
+    ('gsv_viewer',      'gsv_viewer@test.com',      'Schema Viewer'),
+    ('gsv_editor',      'gsv_editor@test.com',      'Schema Editor'),
+    ('gsv_base_editor', 'gsv_base_editor@test.com', 'Schema Base Editor'),
+    ('gsv_admin',       'gsv_admin@test.com',       'Schema Administrator');
+
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT u.id, g.permission_name
+  FROM (VALUES ('gsv_viewer',      'gsv:view'),
+               ('gsv_editor',      'gsv:edit'),
+               ('gsv_base_editor', 'gsv:edit'),
+               ('gsv_base_editor', 'gsv:base_edit'),
+               ('gsv_admin',       'admin')) AS g(external_id, permission_name)
+  JOIN users AS u ON u.external_id = g.external_id;
+
+-- ---------------------------------------------------------------------------
+-- The view permission of the entity, not of its base
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('gsv_viewer');
+
+SELECT is(pg_temp.child_ids('gsv_org'), '',
+    'schema visibility, is_a parent, own view permission, base hidden: get_schema_children lists no child');
+
+-- ---------------------------------------------------------------------------
+-- The edit permission alone
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('gsv_editor');
+
+SELECT is(pg_temp.gsv_tables($$SELECT public.get_schema('gsv_guarded')$$), 'gsv_guarded',
+    'schema visibility, edit permission only: get_schema returns the schema');
+SELECT is(pg_temp.gsv_tables($$SELECT public.get_schemas('gsv_guarded')$$), 'gsv_guarded',
+    'schema visibility, edit permission only: get_schemas returns the schema');
+SELECT is(pg_temp.gsv_tables($$SELECT public.build_schema_for_table('gsv_guarded')$$), 'gsv_guarded',
+    'schema visibility, edit permission only: build_schema_for_table returns the schema');
+SELECT is(pg_temp.child_ids('gsv_guarded'), 'gsv_line.guarded_id',
+    'schema visibility, edit permission only: get_schema_children lists the child');
+SELECT is(pg_temp.gsv_extensions('gsv_party'), 'gsv_party_addon',
+    'schema visibility, edit permission only: a has_a base lists the extension');
+
+-- ---------------------------------------------------------------------------
+-- The edit permission of every level
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('gsv_base_editor');
+
+SELECT is(pg_temp.gsv_tables($$SELECT public.get_schema('gsv_org')$$), 'gsv_org',
+    'schema visibility, is_a entity, edit permission of every level: get_schema returns the schema');
+
+-- ---------------------------------------------------------------------------
+-- admin as a direct grant
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('gsv_admin');
+
+SELECT is(pg_temp.gsv_tables($$SELECT public.get_schema('gsv_org')$$), 'gsv_org',
+    'schema visibility, admin without the permissions of any level: get_schema returns the schema');
+
+-- =====================================================
+-- PART 6: An entity the caller may not see answers as a missing one
+-- =====================================================
+-- A caller who may not see an entity gets exactly the answer it gets for an
+-- entity that does not exist, so the answer does not tell it that the entity
+-- exists: every field of the error is the same, the table name aside. A
+-- holder of admin sees every entity, so it tells a missing entity from an
+-- existing one by the answer itself: "not found in entities" for the first,
+-- the schema (PART 5) for the second.
+--
+-- pg_temp.gsv_error fills the table name into a statement, runs it, and
+-- returns every field of the error it raises with the name replaced by
+-- <table>. The context is one of the fields: a client connected directly, as
+-- an OAuth bearer session is, receives it with the error, and its line number
+-- tells two raising statements apart.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.gsv_error(p_sql TEXT, p_table TEXT) RETURNS JSONB AS $$
+DECLARE
+    v_sqlstate   TEXT;
+    v_message    TEXT;
+    v_detail     TEXT;
+    v_hint       TEXT;
+    v_context    TEXT;
+    v_schema     TEXT;
+    v_table      TEXT;
+    v_column     TEXT;
+    v_datatype   TEXT;
+    v_constraint TEXT;
+BEGIN
+    EXECUTE format(p_sql, p_table);
+    RETURN jsonb_build_object('raised', FALSE);
+EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS
+        v_sqlstate   = RETURNED_SQLSTATE,
+        v_message    = MESSAGE_TEXT,
+        v_detail     = PG_EXCEPTION_DETAIL,
+        v_hint       = PG_EXCEPTION_HINT,
+        v_context    = PG_EXCEPTION_CONTEXT,
+        v_schema     = SCHEMA_NAME,
+        v_table      = TABLE_NAME,
+        v_column     = COLUMN_NAME,
+        v_datatype   = PG_DATATYPE_NAME,
+        v_constraint = CONSTRAINT_NAME;
+    RETURN replace(
+        jsonb_build_object('sqlstate', v_sqlstate, 'message', v_message, 'detail', v_detail,
+                           'hint', v_hint, 'context', v_context, 'schema', v_schema,
+                           'table', v_table, 'column', v_column, 'datatype', v_datatype,
+                           'constraint', v_constraint)::text,
+        p_table, '<table>')::jsonb;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ---------------------------------------------------------------------------
+-- Neither permission
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('user1');
+
+SELECT is(
+    (SELECT (e ->> 'sqlstate') || ' ' || (e ->> 'message')
+       FROM pg_temp.gsv_error('SELECT public.get_schema(%L)', 'gsv_missing') AS e),
+    '42P01 Table "<table>" not found in entities',
+    'schema answer, missing entity: get_schema raises undefined_table, not found in entities');
+SELECT is(
+    pg_temp.gsv_error('SELECT public.get_schema(%L)', 'gsv_guarded'),
+    pg_temp.gsv_error('SELECT public.get_schema(%L)', 'gsv_missing'),
+    'schema answer, neither permission: get_schema raises exactly the error of a missing entity');
+SELECT is(
+    pg_temp.gsv_error('SELECT public.get_schemas(%L)', 'gsv_guarded'),
+    pg_temp.gsv_error('SELECT public.get_schemas(%L)', 'gsv_missing'),
+    'schema answer, neither permission: get_schemas raises exactly the error of a missing entity');
+SELECT is(
+    pg_temp.gsv_error('SELECT public.build_schema_for_table(%L)', 'gsv_guarded'),
+    pg_temp.gsv_error('SELECT public.build_schema_for_table(%L)', 'gsv_missing'),
+    'schema answer, neither permission: build_schema_for_table raises exactly the error of a missing entity');
+
+-- =====================================================
+-- PART 7: A reference to an entity the caller may not see
+-- =====================================================
+-- A field that references an entity the caller may not see keeps the
+-- target's table name, as its fields row does, and nothing more:
+-- get_schema adds no label, no key column and no <fk>_label text taken from
+-- the hidden target's entities row. The JSON type and the TypeID pattern
+-- describe the field's own column, so they stay. A caller who may see the
+-- target gets them.
+--
+-- Fixture, created as user3: gsv_pointer, viewed with public:read, with the
+-- reference fields target_id to gsv_guarded and org_id to gsv_org (PART 5),
+-- whose key is a TypeID. user1 may see neither target; gsv_viewer may see
+-- gsv_guarded. gsv_targets keeps, as stored, what a reference property takes
+-- from that target.
+--
+-- pg_temp.gsv_schema returns the schema of a table, or the SQLSTATE of the
+-- refusal; pg_temp.gsv_from_target returns what a reference property holds of
+-- its target's entities row: its two labels and its two key columns, the
+-- empty ones left out.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.gsv_schema(p_table TEXT) RETURNS JSONB AS $$
+BEGIN
+    RETURN public.get_schema(p_table)::jsonb;
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('raised', SQLSTATE);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE FUNCTION pg_temp.gsv_from_target(p_property JSONB) RETURNS TEXT AS $$
+    SELECT concat_ws(' | ',
+        NULLIF(p_property ->> 'reference_table_singular_label', ''),
+        NULLIF(p_property ->> 'reference_table_plural_label', ''),
+        NULLIF(p_property ->> 'reference_table_id_column', ''),
+        NULLIF(p_property ->> 'reference_table_label_column', ''));
+$$ LANGUAGE sql;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('gsv_pointer', 'Pointer Schema Probe', 'Pointer Schema Probes', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order) VALUES
+    ('gsv_pointer', 'target_id', 'Target',       'reference', 'gsv_guarded', 'restrict', 30),
+    ('gsv_pointer', 'org_id',    'Organization', 'reference', 'gsv_org',     'restrict', 40);
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE TEMP TABLE gsv_targets AS
+SELECT table_name,
+       concat_ws(' | ', NULLIF(singular_label, ''), NULLIF(plural_label, ''),
+                 NULLIF(id_column, ''), NULLIF(label_column, '')) AS from_target
+  FROM entities
+ WHERE table_name = 'gsv_guarded';
+GRANT SELECT ON gsv_targets TO semantius_user;
+
+-- ---------------------------------------------------------------------------
+-- Neither target visible
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('user1');
+
+SELECT is(pg_temp.gsv_schema('gsv_pointer') #>> '{properties,target_id,reference_table}', 'gsv_guarded',
+    'schema reference, hidden target: the property keeps the target''s table name');
+SELECT is(pg_temp.gsv_from_target(pg_temp.gsv_schema('gsv_pointer') #> '{properties,target_id}'), '',
+    'schema reference, hidden target: the property holds no label and no key column of the target');
+SELECT unalike(COALESCE(pg_temp.gsv_schema('gsv_pointer') #>> '{properties,target_id_label,description}', ''),
+    '%Guarded Schema Probe%',
+    'schema reference, hidden target: the <fk>_label property does not describe the target by its label');
+SELECT is(
+    (SELECT jsonb_build_object('type', p -> 'type', 'pattern', p -> 'pattern')
+       FROM (SELECT pg_temp.gsv_schema('gsv_pointer') #> '{properties,org_id}' AS p) AS s),
+    jsonb_build_object('type', 'string',
+                       'pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$'),
+    'schema reference, hidden target: the property keeps the JSON type and the TypeID pattern of its own column');
+
+-- ---------------------------------------------------------------------------
+-- A visible target
+-- ---------------------------------------------------------------------------
+SELECT authenticate_as('gsv_viewer');
+
+SELECT is(pg_temp.gsv_from_target(pg_temp.gsv_schema('gsv_pointer') #> '{properties,target_id}'),
+    (SELECT from_target FROM gsv_targets WHERE table_name = 'gsv_guarded'),
+    'schema reference, visible target: the property holds the target''s labels and key columns');
+SELECT alike(COALESCE(pg_temp.gsv_schema('gsv_pointer') #>> '{properties,target_id_label,description}', ''),
+    '%Guarded Schema Probe%',
+    'schema reference, visible target: the <fk>_label property describes the target by its label');
 
 SELECT * FROM finish();
 ROLLBACK;

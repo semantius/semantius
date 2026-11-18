@@ -7,9 +7,11 @@
 --   2. Read-helper completeness
 --   3. get_record_by_id over an is_a chain
 --   4. get_record_by_id in a privileged direct session
+--   5. get_record_by_id's 90238 follows the catalog's visibility rule
+--   6. get_record_by_id over entities and fields
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(28);
 
 -- =====================================================
 -- PART 1: get_record_by_id honors select_rule
@@ -331,6 +333,134 @@ SELECT throws_ok(
     $$ SELECT get_record_by_id('products', '11') $$,
     '42501', NULL,
     'get_record_by_id: the same login after SET ROLE to the request role, without claims, is refused');
+
+-- =====================================================
+-- PART 5: get_record_by_id's 90238 follows the catalog's visibility rule
+-- =====================================================
+-- An id that is not a valid value of the key type is refused with 90238 only
+-- to a caller who sees the entity in the catalog (0300_test_rls.sql): a
+-- holder of its view permission, its edit permission or admin, and for an
+-- is_a entity on every level of its chain. Anybody else gets the NULL that
+-- also answers an entity that does not exist, so the refusal does not tell
+-- that the entity exists or what its key is. Reading a record is a separate
+-- check, the read predicate of every level (PART 1, PART 3); every id below
+-- is malformed, so no record is read.
+--
+-- Fixtures, created as user3:
+--   permissions  grbv:view, grbv:edit, grbv:base
+--   entities     grbv_guarded  view grbv:view, edit grbv:edit, an auto_increment key
+--                grbv_root     typeid base, view grbv:base, edit admin
+--                grbv_org      is_a grbv_root, view grbv:view, edit grbv:edit, a TypeID key
+--   users        grbv_editor (grbv:edit), grbv_base_editor (grbv:edit and
+--                grbv:base), grbv_admin (admin), each with the User role every
+--                user gets
+-- user1 holds none of the grbv permissions.
+--
+-- pg_temp.grbv_answer reports what get_record_by_id answers for an id: NULL,
+-- a record, or the SQLSTATE it raised, so a refusal shows up in the assertion
+-- and does not abort the file.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE FUNCTION pg_temp.grbv_answer(p_entity TEXT, p_id TEXT) RETURNS TEXT AS $$
+BEGIN
+    RETURN CASE WHEN public.get_record_by_id(p_entity, p_id) IS NULL THEN 'NULL' ELSE 'a record' END;
+EXCEPTION WHEN OTHERS THEN
+    RETURN 'raised ' || SQLSTATE;
+END;
+$$ LANGUAGE plpgsql;
+
+SELECT authenticate_as('user3');
+
+INSERT INTO permissions (permission_name, description, module_id) VALUES
+    ('grbv:view', 'Views the guarded record probes', 1),
+    ('grbv:edit', 'Edits the guarded record probes', 1),
+    ('grbv:base', 'Views the hidden record base',    1);
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('grbv_guarded', 'Guarded Record Probe', 'Guarded Record Probes', 1, 'grbv:view', 'grbv:edit');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      view_permission, edit_permission)
+VALUES ('grbv_root', 'Root Record Probe', 'Root Record Probes', 1, 'typeid', 'grbvrt', 'grbv:base', 'admin');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+                      id_refentity, view_permission, edit_permission)
+VALUES ('grbv_org', 'Organization Record Probe', 'Organization Record Probes', 1, 'is_a', 'grbvorg',
+        'grbv_root', 'grbv:view', 'grbv:edit');
+
+INSERT INTO users (external_id, email, display_name) VALUES
+    ('grbv_editor',      'grbv_editor@test.com',      'Record Editor'),
+    ('grbv_base_editor', 'grbv_base_editor@test.com', 'Record Base Editor'),
+    ('grbv_admin',       'grbv_admin@test.com',       'Record Administrator');
+
+INSERT INTO user_permissions (user_id, permission_name)
+SELECT u.id, g.permission_name
+  FROM (VALUES ('grbv_editor',      'grbv:edit'),
+               ('grbv_base_editor', 'grbv:edit'),
+               ('grbv_base_editor', 'grbv:base'),
+               ('grbv_admin',       'admin')) AS g(external_id, permission_name)
+  JOIN users AS u ON u.external_id = g.external_id;
+
+SELECT authenticate_as('grbv_editor');
+SELECT is(pg_temp.grbv_answer('grbv_guarded', 'not-a-key'), 'raised 90238',
+    'get_record_by_id 90238, edit permission only: a malformed id is refused');
+SELECT is(pg_temp.grbv_answer('grbv_org', 'not-a-key'), 'NULL',
+    'get_record_by_id 90238, is_a entity, own edit permission, base hidden: a malformed id is NULL');
+
+SELECT authenticate_as('grbv_base_editor');
+SELECT is(pg_temp.grbv_answer('grbv_org', 'not-a-key'), 'raised 90238',
+    'get_record_by_id 90238, is_a entity, own edit permission and view permission of the base: a malformed id is refused');
+
+SELECT authenticate_as('grbv_admin');
+SELECT is(pg_temp.grbv_answer('grbv_org', 'not-a-key'), 'raised 90238',
+    'get_record_by_id 90238, admin without the permissions of any level: a malformed id is refused');
+
+-- =====================================================
+-- PART 6: get_record_by_id over entities and fields
+-- =====================================================
+-- get_record_by_id applies the read predicate of the table it reads, so it
+-- returns a row of entities or fields exactly to a caller who reads that row
+-- under RLS (0300_test_rls.sql): an entity's row and its fields rows to a
+-- holder of the entity's view permission, its edit permission or admin, on
+-- every level of an is_a entity, and the NULL of a missing record to anybody
+-- else. A fields row is decided by its entity's row, which get_record_by_id
+-- asks itself for in turn. The fixtures are those of PART 5.
+--
+-- grbv_catalog holds the key of every row of both tables, taken on the owner
+-- connection, so a caller can be asked about rows RLS hides from it.
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+CREATE TEMP TABLE grbv_catalog AS
+    SELECT 'entities'::text AS tbl, table_name AS id FROM entities
+    UNION ALL
+    SELECT 'fields', id FROM fields;
+GRANT SELECT ON grbv_catalog TO semantius_user;
+
+SELECT authenticate_as('user1');
+SELECT set_eq(
+    $$SELECT id FROM grbv_catalog WHERE tbl = 'entities' AND public.get_record_by_id('entities', id) IS NOT NULL$$,
+    $$SELECT table_name FROM entities$$,
+    'get_record_by_id over the catalog, user1: it returns exactly the entities rows RLS returns');
+SELECT set_eq(
+    $$SELECT id FROM grbv_catalog WHERE tbl = 'fields' AND public.get_record_by_id('fields', id) IS NOT NULL$$,
+    $$SELECT id FROM fields$$,
+    'get_record_by_id over the catalog, user1: it returns exactly the fields rows RLS returns');
+
+SELECT authenticate_as('grbv_editor');
+SELECT is(pg_temp.grbv_answer('fields', 'grbv_guarded.id'), 'a record',
+    'get_record_by_id over the catalog, edit permission only: a fields row of the entity is returned');
+SELECT is(pg_temp.grbv_answer('fields', 'grbv_org.id'), 'NULL',
+    'get_record_by_id over the catalog, is_a entity, own edit permission, base hidden: a fields row is NULL');
+
+SELECT authenticate_as('grbv_base_editor');
+SELECT is(pg_temp.grbv_answer('fields', 'grbv_org.id'), 'a record',
+    'get_record_by_id over the catalog, is_a entity, own edit permission and view permission of the base: a fields row is returned');
+
+SELECT authenticate_as('grbv_admin');
+SELECT is(pg_temp.grbv_answer('fields', 'grbv_org.id'), 'a record',
+    'get_record_by_id over the catalog, admin without the permissions of any level: a fields row is returned');
 
 SELECT * FROM finish();
 ROLLBACK;

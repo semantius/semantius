@@ -174,20 +174,25 @@ GRANT EXECUTE ON FUNCTION public.get_userinfo() TO semantius_user;
 -- Each child entry includes: fields.id, fields.title, entities.singular_label,
 -- entities.plural_label, entities.id_column, entities.label_column
 --
--- The function is SECURITY DEFINER, because fields and entities are readable
--- with admin only, and it is reachable as an RPC by every signed-in user. So
--- it applies the view permissions itself: a child is listed only when the
--- caller may view the child's entity, and only under a parent the caller may
--- view. Without that, anyone could read the names, labels and key columns of
--- every entity that hangs off a table, whatever its view_permission. A parent
--- the caller may not view answers with the empty list, as a table that is
--- nobody's parent does, so the answer does not say whether the table exists.
+-- As SECURITY DEFINER this function reads entities and fields without their
+-- RLS, and it is reachable as an RPC by every signed-in user. So it applies
+-- the catalog's visibility rule (0150_dd_bootstrap.once.sql) itself, through
+-- dd_entity_viewable: a child is listed only when the caller sees the child's
+-- entity, and only under a parent the caller sees. Without that, it would
+-- hand any caller the names, labels and key columns of the entities that hang
+-- off a table, which RLS keeps from it. A parent the caller may not see
+-- answers with the empty list, as a table that does not exist or is nobody's
+-- parent does, so the answer does not say whether it exists.
 CREATE OR REPLACE FUNCTION public.get_schema_children(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_result JSON;
 BEGIN
     PERFORM rbac.uid();
+
+    IF NOT dd_entity_viewable(p_table_name) THEN
+        RETURN '[]'::json;
+    END IF;
 
     SELECT COALESCE(
         json_agg(
@@ -207,18 +212,16 @@ BEGIN
     INTO v_result
     FROM fields f
     JOIN entities e ON f.table_name = e.table_name
-    JOIN entities p ON p.table_name = f.reference_table
     WHERE f.reference_table = p_table_name
       AND f.format = 'parent'
-      AND rbac.has_permission(p.view_permission)
-      AND rbac.has_permission(e.view_permission);
+      AND dd_entity_viewable(e.table_name);
 
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema_children IS 
-'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller may view; empty when the caller may not view the table itself. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
+'Returns array of child relationships (fields with format=''parent'') that reference the given table, limited to the child entities the caller sees in the catalog (dd_entity_viewable); empty when the caller does not see the table itself, as for a table that does not exist. Each entry contains field id, title, and the child entity''s singular_label, plural_label, id_column, and label_column.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema_children(TEXT) FROM PUBLIC;
@@ -267,16 +270,26 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             -- Join with tables to get id_column and label_column when reference_table is set
             -- COALESCE to empty string is intentional: provides consistent output when referenced table
             -- doesn't exist or is missing columns. The JSON assembly below emits
-            -- these four only for a field whose format is a reference and whose
-            -- reference_table is not empty, so an empty string never reaches the
-            -- output as a value.
+            -- these four only for a field whose format is a reference, whose
+            -- reference_table is not empty and whose referenced entity the
+            -- caller sees, so an empty string never reaches the output as a value.
             COALESCE(t.id_column, '') AS reference_table_id_column,
             COALESCE(t.label_column, '') AS reference_table_label_column,
             COALESCE(t.singular_label, '') AS reference_table_singular_label,
             COALESCE(t.plural_label, '') AS reference_table_plural_label,
+            -- Whether the caller sees the referenced entity in the catalog. The
+            -- four values above come from that entity's own row, which RLS hides
+            -- from a caller who does not see it, so they are left out for that
+            -- caller: of the target, the property keeps reference_table, the
+            -- name the field row itself holds, and the key type of the target,
+            -- which its own column follows (key_id_type and json_type below),
+            -- and nothing else.
+            (t.table_name IS NOT NULL AND dd_entity_viewable(t.table_name)) AS reference_visible,
             -- The key type the property holds a value of: the entity's own for
             -- its key column, the referenced entity's for a reference. Drives
-            -- the TypeID pattern below.
+            -- the TypeID pattern below. It describes the values of this field's
+            -- own column, so it stays when the referenced entity is hidden, as
+            -- the JSON type does.
             CASE
                 WHEN f.table_name = p_table_name AND f.field_name = ent.id_column THEN ent.id_type
                 WHEN f.format IN ('reference', 'parent') THEN t.id_type
@@ -373,7 +386,14 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             THEN jsonb_build_object(
                 'reference_table', reference_table,
                 'reference_delete_mode', reference_delete_mode,
-                'relationship_label', relationship_label,
+                'relationship_label', relationship_label
+            )
+            ELSE '{}'::jsonb
+        END ||
+        -- and what it takes from the referenced entity's row, for a caller who sees it
+        CASE
+            WHEN format IN ('reference', 'parent') AND reference_table != '' AND reference_visible
+            THEN jsonb_build_object(
                 'reference_table_id_column', reference_table_id_column,
                 'reference_table_label_column', reference_table_label_column,
                 'reference_table_singular_label', reference_table_singular_label,
@@ -446,8 +466,9 @@ REVOKE EXECUTE ON FUNCTION public.dd_schema_properties(TEXT, BOOLEAN) FROM PUBLI
 -- =====================================================
 
 -- Helper that builds a schema JSON for a single table. Self-gating: it applies the
--- view_permission check itself and raises undefined_table for a table the caller
--- may not view, so it is safe to expose directly to the request role.
+-- catalog's visibility check itself and raises, for a table the caller may not
+-- see, the undefined_table of a missing one, so it is safe to expose directly to
+-- the request role.
 -- Used by get_schema()/get_schemas()/get_*_cubes() so any future change applies to all.
 CREATE OR REPLACE FUNCTION public.build_schema_for_table(p_table_name TEXT)
 RETURNS JSON AS $$
@@ -466,26 +487,21 @@ BEGIN
     FROM entities
     WHERE table_name = p_table_name;
 
-    -- Permission gate. build_schema_for_table is GRANTed to the request role and reachable
-    -- directly as /rpc/build_schema_for_table, so it must apply the SAME view_permission check
-    -- as get_schema()/get_schemas() rather than trusting callers — otherwise any request-role
-    -- caller reads any table's full schema (including its select_rule logic) by calling this
-    -- helper directly and skipping the wrappers. The four
-    -- in-tree callers already pre-check, so the gate is redundant (and harmless) for them. The
-    -- view permission is that of every level an is_a or has_a entity's records are stored in,
-    -- as for reading them.
-    IF NOT FOUND THEN
+    -- The visibility check. build_schema_for_table is granted to the request
+    -- role and reachable as /rpc/build_schema_for_table, and as SECURITY
+    -- DEFINER it reads entities and fields without their RLS. So it applies
+    -- the check of get_schema() itself, and a direct call answers as
+    -- get_schema() does: the schema goes only to a caller who sees the
+    -- entity's row in entities (dd_entity_viewable). Anybody else gets the
+    -- error of a table that has no entities row, raised by the same
+    -- statement, so that no field of it, the context with its line number
+    -- included, tells the two apart. Without the check, every caller would
+    -- get here the entities and fields rows that RLS keeps from it. Its four
+    -- callers make the same check before they call.
+    IF NOT FOUND OR NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
         RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    IF NOT dd_entity_viewable(p_table_name) THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -522,6 +538,8 @@ BEGIN
             jsonb_build_object(
                 'type', 'string', 'format', 'text',
                 'title', f.title,
+                -- The referenced entity's label only for a caller who sees
+                -- that entity; anybody else gets the name the field holds.
                 'description', 'Composed label of the referenced '
                                || COALESCE(e2.singular_label, f.reference_table),
                 'inputMode', 'readonly', 'width', 'default',
@@ -533,6 +551,7 @@ BEGIN
             )
         FROM family f
         LEFT JOIN entities e2 ON e2.table_name = f.reference_table
+                             AND dd_entity_viewable(e2.table_name)
         WHERE public.dd_is_fk_format(f.format)
           AND f.reference_table <> ''
           -- collision-aware: a real column owning the <fk>_label name wins, so add no phantom
@@ -555,7 +574,7 @@ BEGIN
       INTO v_properties, v_required;
 
     -- A has_a base lists the extensions its records may have, those the
-    -- caller may view, each with its own fields.
+    -- caller sees, each with its own fields.
     SELECT json_agg(json_build_object(
                'table', x.table_name,
                'properties', COALESCE((SELECT json_object_agg(p.field_name, p.property ORDER BY p.sort_order)
@@ -577,7 +596,7 @@ BEGIN
     -- for a client: get_module_cubes() matches on modules.module_slug, so a consumer holding
     -- only the numeric id must fetch the module list before it can ask for the rest of the
     -- cube. The slug is the module's URL identifier and carries nothing the modules RLS
-    -- policy protects, so handing it out under the entity's view_permission leaks nothing.
+    -- policy protects, so handing it out to a caller who sees the entity leaks nothing.
     -- The rest of the module row is a different matter: settings, dashboard_config, the
     -- three permission columns and the default_*_role_ids are readable only with 'admin' or
     -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
@@ -625,7 +644,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: applies the view_permission check (of every level an is_a/has_a entity is stored in), matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a has_a base lists its extensions. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+'Builds a schema JSON for a single table. Self-gating: returns it only to a caller who sees the entity in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level an is_a/has_a entity is stored in) and raises for anybody else exactly the error of a missing table, matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a reference to an entity the caller does not see carries its name and nothing taken from its row. A has_a base lists the extensions the caller sees. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
@@ -641,32 +660,15 @@ GRANT EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) TO semantius_user;
 CREATE OR REPLACE FUNCTION public.get_schema(p_table_name TEXT)
 RETURNS JSON AS $$
 DECLARE
-    v_table_record RECORD;
     v_cache_version TEXT;
     v_db_version    TEXT;
 BEGIN
     PERFORM rbac.uid();
 
-    -- Check if table exists in entities metadata
-    SELECT * INTO v_table_record
-    FROM entities
-    WHERE table_name = p_table_name;
-
-    -- Raise error if table not found
-    IF NOT FOUND THEN
-        SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
-        SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
-            USING ERRCODE = 'undefined_table',
-                  DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
-    END IF;
-
-    -- Check if user has view permission for this table (and for every base an
-    -- is_a/has_a entity's records are stored in)
     IF NOT dd_entity_viewable(p_table_name) THEN
         SELECT value INTO v_cache_version FROM _settings WHERE name = 'cache_version';
         SELECT value INTO v_db_version    FROM _settings WHERE name = 'db_version';
-        RAISE EXCEPTION 'Table "%" not found in tables metadata', p_table_name
+        RAISE EXCEPTION 'Table "%" not found in entities', p_table_name
             USING ERRCODE = 'undefined_table',
                   DETAIL = json_build_object('cache_current', v_cache_version IS NOT NULL AND v_db_version IS NOT NULL AND v_cache_version >= v_db_version)::text;
     END IF;
@@ -677,7 +679,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schema IS 
-'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises an error if table not found.';
+'Returns table schema in extended JSON Schema format with table metadata in a table object and fields as properties. Raises undefined_table, "not found in entities", if the table is not found or the caller does not see it in the catalog, the same error for both.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schema(TEXT) FROM PUBLIC;
@@ -691,12 +693,12 @@ GRANT EXECUTE ON FUNCTION public.get_schema(TEXT) TO semantius_user;
 -- Accepts a comma-separated list of table names
 -- Returns a JSON array of schemas, one per table
 -- Each schema uses the same format as get_schema()
--- Raises an error if any table is not found or the user lacks view permission
+-- Raises an error if any table is not found or the caller does not see it in
+-- the catalog: one statement raises both, as in get_schema()
 CREATE OR REPLACE FUNCTION public.get_schemas(p_table_names TEXT)
 RETURNS JSON AS $$
 DECLARE
     v_table_name TEXT;
-    v_table_record RECORD;
     v_schemas JSON[] := ARRAY[]::JSON[];
     v_schema JSON;
 BEGIN
@@ -711,17 +713,8 @@ BEGIN
         END IF;
 
         -- Raise error if table not found in entities metadata
-        SELECT * INTO v_table_record
-        FROM entities
-        WHERE table_name = v_table_name;
-
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
-                USING ERRCODE = 'undefined_table';
-        END IF;
-
         IF NOT dd_entity_viewable(v_table_name) THEN
-            RAISE EXCEPTION 'Table "%" not found in tables metadata', v_table_name
+            RAISE EXCEPTION 'Table "%" not found in entities', v_table_name
                 USING ERRCODE = 'undefined_table';
         END IF;
 
@@ -735,7 +728,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_schemas IS 
-'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user lacks view permission, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
+'Returns an array of table schemas in extended JSON Schema format for the given comma-separated list of table names. Raises an error (undefined_table) if any table is not found or the current user does not see it in the catalog, the same error for both, matching the error behavior of get_schema(). Delegates per-table schema building to build_schema_for_table().';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_schemas(TEXT) FROM PUBLIC;
@@ -810,8 +803,8 @@ GRANT EXECUTE ON FUNCTION public.has_permission(TEXT) TO semantius_user;
 --   1. All entities that directly belong to the module.
 --   2. All entities referenced via the reference_table field of any field
 --      that belongs to one of those module entities.
--- Entities are sorted alphabetically and deduplicated. Tables the current user
--- lacks view permission for are silently skipped.
+-- Entities are sorted alphabetically and deduplicated. Tables the caller does
+-- not see in the catalog (dd_entity_viewable) are silently skipped.
 -- Returns a JSON array of schemas in the same format as get_schema().
 -- The p_module_name parameter is matched against modules.module_slug (URL-safe
 -- identifier), not modules.module_name. The parameter name is preserved for
@@ -849,7 +842,7 @@ BEGIN
         ORDER BY e.table_name
     LOOP
         -- build_schema_for_table checks again: it is self-gating as an RPC of
-        -- its own, and the repeat is a cached lookup.
+        -- its own, and the repeat is a second get_record_by_id of its row.
         IF dd_entity_viewable(v_table_record.table_name) THEN
             v_schema := public.build_schema_for_table(v_table_record.table_name);
             IF v_schema IS NOT NULL THEN
@@ -862,7 +855,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_module_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the current user lacks view permission for are silently skipped.';
+'Returns a JSON array of schemas (same format as get_schema()) for the distinct set of entities that form the logical cube for a given module: all entities belonging to the module plus all entities referenced via reference_table from fields of those entities. The p_module_name parameter is matched against modules.module_slug (URL-safe identifier), not modules.module_name; the parameter name is preserved for PostgREST RPC wire compatibility. Tables the caller does not see in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level) are silently skipped.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_module_cubes(TEXT) FROM PUBLIC;
@@ -872,9 +865,9 @@ GRANT EXECUTE ON FUNCTION public.get_module_cubes(TEXT) TO semantius_user;
 -- GET USER CUBES
 -- =====================================================
 
--- Returns schemas for all entities across all modules that the current user
--- has view permission for. Referenced tables are not additionally included —
--- they will already appear when the user has view permission on them directly.
+-- Returns schemas for all entities across all modules that the caller sees in
+-- the catalog (dd_entity_viewable). Referenced tables are not additionally
+-- included — they will already appear when the caller sees them directly.
 -- Returns a JSON array of schemas in the same format as get_schema().
 CREATE OR REPLACE FUNCTION public.get_user_cubes()
 RETURNS SETOF JSON AS $$
@@ -901,7 +894,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.get_user_cubes IS
-'Returns a JSON array of schemas (same format as get_schema()) for all entities that the current user has view permission for, across all modules.';
+'Returns a JSON array of schemas (same format as get_schema()) for all entities that the caller sees in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level), across all modules.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.get_user_cubes() FROM PUBLIC;
@@ -914,9 +907,13 @@ GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 -- After an import writes explicit ids, the id sequence lags behind them and the
 -- next ordinary insert fails with 23505. This moves the sequence past max(id).
 --
--- Callable by whoever may insert into the table: the entity's edit_permission.
--- Non-admins get the same 42501 for an unknown table as for a denied one, as
--- with queues (90105). Never 42P01, whose 404 reads as "no such RPC".
+-- Callable by whoever may insert into the table: the entity's edit_permission,
+-- held by a caller who sees the entity in the catalog (dd_entity_viewable).
+-- The edit permission alone does not show an is_a or has_a entity whose base
+-- the caller does not see, and without the second check such an entity would
+-- answer NULL, which says that it exists. Non-admins get the same 42501 for an
+-- unknown table as for a denied or hidden one, as with queues (90105). Never
+-- 42P01, whose 404 reads as "no such RPC".
 -- SECURITY DEFINER because the request role cannot setval, and under RLS its
 -- max(id) would miss the rows it cannot see.
 -- The lock keeps inserts out between max() and setval. While it waits, every
@@ -947,7 +944,8 @@ BEGIN
             USING ERRCODE = '90231',
                   HINT = jsonb_build_object('table', p_table)::text;
     END IF;
-    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission) THEN
+    IF v_edit_permission IS NULL OR NOT rbac.has_permission(v_edit_permission)
+       OR NOT dd_entity_viewable(p_table) THEN
         RAISE EXCEPTION 'Permission denied: cannot fix the id sequence of ${table}'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
@@ -989,7 +987,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET lock_timeout = '2s';
 
 COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
-'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission; never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission and that the caller sees the entity in the catalog (dd_entity_viewable); anybody else gets 42501 (90106). An unknown table answers that 42501 too, and 90231 to a holder of admin. Never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
 
 REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;

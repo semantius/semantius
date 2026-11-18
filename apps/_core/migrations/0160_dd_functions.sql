@@ -210,19 +210,6 @@ $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_family_fields(TEXT) IS
 'The fields rows that make up a record of the entity, in order: for an is_a/has_a entity its key, the fields of its root and of each level (without their key and audit fields), its own fields, then its audit fields; for a plain entity its own fields in field_order. table_name names the entity that owns each field.';
 
--- An entity's records are readable only by who may view every level they are
--- stored in: the view is security_invoker and each table keeps its own RLS.
--- The schema RPCs and get_record_by_id gate on the same condition.
-CREATE OR REPLACE FUNCTION dd_entity_viewable(p_table_name TEXT)
-RETURNS BOOLEAN AS $$
-    SELECT COALESCE(bool_and(rbac.has_permission(e.view_permission)), FALSE)
-      FROM dd_ancestors(p_table_name) a
-      JOIN entities e ON e.table_name = a.table_name;
-$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
-'TRUE when the current user holds the view_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
-
 -- entities.searchable: some field of the record is searchable. One predicate
 -- for every place that computes the flag, so a derived entity is searchable
 -- when one of its inherited fields is, the way its view's search_vector is.
@@ -4959,7 +4946,7 @@ BEGIN
     EXECUTE format('SELECT pg_catalog.pg_input_is_valid($1, %L)', v_key_type)
        INTO v_valid USING p_id;
 
-    -- Only a caller who may see the entity's schema learns that the id was
+    -- Only a caller who sees the entity in the catalog learns that the id was
     -- malformed; anybody else gets the NULL that also answers "no such entity",
     -- so the refusal does not reveal that the entity exists or what its key is.
     IF NOT v_valid THEN
@@ -4986,7 +4973,17 @@ BEGIN
          WHERE NOT v_privileged
          ORDER BY a.depth
     LOOP
-        IF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
+        IF v_level.table_name = 'fields'
+           AND (v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb) THEN
+            -- A row of fields is readable exactly when the row of its entity in
+            -- entities is, in the place of view_permission, as the SELECT policy
+            -- of fields has it (build_select_rule_policy); this function answers
+            -- that for the entities row by asking itself.
+            IF public.get_record_by_id('entities',
+                   (SELECT f.table_name FROM fields f WHERE f.id = p_id)) IS NULL THEN
+                RETURN NULL;
+            END IF;
+        ELSIF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
             -- No row rule: view_permission is the access predicate (the default rule).
             IF NOT rbac.has_permission(v_level.view_permission) THEN
                 RETURN NULL;
@@ -5015,7 +5012,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who may see the entity.';
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who sees the entity in the catalog (dd_entity_viewable).';
 
 -- Numeric callers: a bigint or integer argument resolves here rather than to
 -- the TEXT version, since PostgreSQL casts neither to text implicitly. The
@@ -5031,6 +5028,21 @@ $$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, BIGINT) IS
 'Numeric-key convenience overload of get_record_by_id(TEXT, TEXT): same result, same access checks.';
+
+-- Whether the caller sees the entity in the catalog: its row in entities, and
+-- with it its fields rows and its schema. That is the entities row's own read
+-- predicate, the select_rule of entities (0150_dd_bootstrap.once.sql). It is
+-- asked through get_record_by_id rather than written out a second time, so
+-- the schema RPCs, the cubes and the 90238 test of get_record_by_id answer
+-- exactly as RLS on entities does, whatever that rule says. Defined after
+-- get_record_by_id: a SQL function's body is checked when it is created.
+CREATE OR REPLACE FUNCTION dd_entity_viewable(p_table_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT public.get_record_by_id('entities', p_table_name) IS NOT NULL;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
+'TRUE when the current user sees the entity''s row in entities, as get_record_by_id(''entities'', ...) answers it: a holder of admin, or of the view_permission or edit_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
 
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) FROM PUBLIC;

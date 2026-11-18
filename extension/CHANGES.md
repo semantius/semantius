@@ -98,7 +98,9 @@ installs the core schema as ordinary objects.
 - New `public.fix_id_sequence(p_table)`: after an import that wrote explicit
   ids, moves the table's id sequence past `max(id)` so the next ordinary insert
   does not fail with 23505. Callable by holders of the entity's
-  `edit_permission`; never lowers a sequence; answers `90232` (retry) when the
+  `edit_permission` who see the entity in the catalog; anybody else gets
+  `42501`. An unknown table answers that `42501` too, and `90231` to a holder
+  of `admin`. It never lowers a sequence and answers `90232` (retry) when the
   table stays locked by another writer for 2 s.
 - `modules.module_slug` is optional: a module saved with an empty slug gets
   one derived from `module_name` (lowercase, each run of other characters
@@ -363,13 +365,13 @@ installs the core schema as ordinary objects.
   `UPDATE` and `DELETE` now require both permissions; an `INSERT` and the new
   values of an `UPDATE` still need the edit permission only.
 - **`admin` includes `public:read`.** A second seeded `permission_hierarchy`
-  row, `origin` `system` like `user:manage -> user:read`. `public:read` is the
-  view permission of `entities` and `fields`, whose `UPDATE` and `DELETE` now
-  check it next to `admin`, so a session whose OAuth scopes name `admin` alone
-  can read and change the catalog, and a role or user granted `admin` without
-  `public:read` holds it as well. The row is seeded by
-  `0090_rbac_seed.once.sql`, next to `user:manage -> user:read`, so a deleted
-  row stays deleted.
+  row, `origin` `system` like `user:manage -> user:read`. `public:read` and
+  `admin` are the view and edit permission an entity gets by default, and the
+  `UPDATE` and `DELETE` of an entity without a `select_rule` check both, so a
+  session whose OAuth scopes name `admin` alone can read and change the records
+  of such an entity, and a role or user granted `admin` without `public:read`
+  holds it as well. The row is seeded by `0090_rbac_seed.once.sql`, next to
+  `user:manage -> user:read`, so a deleted row stays deleted.
 - **A new permission is granted to role 2, whatever its name.** The grant
   went to the role named `Administrator`, while every guard of the last
   Administrator keys on role 2: a renamed role 2 got no new permission, and
@@ -400,8 +402,41 @@ installs the core schema as ordinary objects.
 - **A rollup filter with a date operator refuses a child it cannot read**
   with `90272`, naming the rollup, in place of `90915`, `22003` or `22008`: a
   date of `infinity`, a year beyond 9999, an amount beyond the integer range.
-- `get_schema_children()` lists a child only for a caller who may view it,
-  and nothing under a parent the caller may not view.
+- **An entity's rows in `entities` and `fields` are visible only to whoever
+  may view or edit it.** `entities` carries a `select_rule`: a row is visible
+  to a holder of `admin`, or of the entity's `view_permission` or
+  `edit_permission`, and for an `is_a` or `has_a` entity only when its base's
+  row is visible too, every level up to the root. A row of `fields` is visible
+  exactly when the row of its entity in `entities` is: one semi-join on
+  `entities` in the policies of `fields`, applied by `get_record_by_id()` as
+  well. Every holder of `public:read` read every row of both tables.
+  Non-admins no longer see the entity rows of `modules`, `roles`,
+  `permissions` and the other entities they may not view, and a user whom a
+  `select_rule` admits to records without either permission sees no metadata
+  of the entity. Writes to both tables still need `admin`.
+- **The schema functions follow the same rule.** `get_schema()`,
+  `get_schemas()`, `build_schema_for_table()`, `get_schema_children()`,
+  `get_module_cubes()`, `get_user_cubes()` and the `90238` of
+  `get_record_by_id()` describe an entity to exactly the callers who see its
+  row in `entities`: the edit permission and `admin` count as well as the view
+  permission, on every level. A caller who may not see an entity gets exactly
+  the answer for a missing one, `Table "<name>" not found in entities` in
+  every field of the error; the message `not found in tables metadata` is
+  gone. `get_schema_children()` lists a child only for a caller who sees it,
+  and nothing under a parent the caller does not see. A reference to an entity
+  the caller does not see keeps `reference_table` and the type and TypeID
+  pattern of its own column, and loses `reference_table_id_column`,
+  `reference_table_label_column`, `reference_table_singular_label` and
+  `reference_table_plural_label`; its `<fk>_label` description names the
+  table instead of its label. `docs/authorization.md` (I8) and `SECURITY.md`
+  list what still shows that an entity exists.
+- **A rule's leading `has_permission` terms are checked once per statement.**
+  The terms at the start of a `select_rule`'s top-level `or` that name their
+  permission in the rule, such as the `admin` term of the rules of `entities`
+  and `modules`, go into the generated `SELECT`, `UPDATE` and `DELETE` policies
+  as sub-selects in front of the per-row rule, so a holder of one of them no
+  longer pays a rule evaluation per row. Which rows are visible to whom does
+  not change.
 - A role moved from a module to no module bumps the version of the module it
   left.
 - **The API key of a disabled user does not validate.** `validate_api_key()`
