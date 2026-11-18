@@ -19,7 +19,7 @@
         "_core/0130_dd_schema.once.sql": "7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4",
         "_core/0140_dd_schema.sql": "54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e",
         "_core/0150_dd_bootstrap.once.sql": "813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af",
-        "_core/0160_dd_functions.sql": "4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8",
+        "_core/0160_dd_functions.sql": "4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a",
         "_core/0170_dd_rename.sql": "cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014",
         "_core/0180_managed_enable.sql": "347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510",
         "_core/0190_audit_log.once.sql": "c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79",

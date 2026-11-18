@@ -938,6 +938,70 @@ $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) IS
 'Whether a field''s default means the signed-in user''s id: CURRENT_USER or $user_id, in any case, on a reference or parent field to users.';
 
+-- What a date or time default means, decided in one place for the column default
+-- and the guard on fields. Two problems meet here:
+--
+-- today, tomorrow, yesterday and now, and $today and $now (the names a rule reads),
+-- are PostgreSQL input strings, not expressions. As a quoted literal PostgreSQL
+-- converts them once, when the default is set, and every record would get the day
+-- the field was saved.
+--
+-- The SQL keywords run on every insert, but CURRENT_DATE, LOCALTIME and a moment
+-- cast to a date or a time read the calendar and the clock in the inserting
+-- session's time zone, which a client can change. Two rows written at the same
+-- moment could get different days. A rule's $today and $now run in UTC
+-- (build_record_logic_trigger pins timezone UTC for the same reason), so a default
+-- read in the session's zone could also disagree with the rule that checks it.
+--
+-- So each of them becomes a fixed expression that reads the day or the clock in
+-- UTC. A moment on a date-time column needs nothing: it does not depend on a time
+-- zone, so the keywords stay as written there. CURRENT_DATE on a date-time column
+-- means midnight and becomes UTC midnight, as today does. tomorrow and yesterday
+-- count the day on the date before it becomes a timestamp, because adding an
+-- interval of one day to a timestamptz follows the session's daylight saving time.
+--
+-- The result is built from the constants below only; no text of the caller reaches
+-- it. NULL means the value is none of these, or names what the column cannot hold
+-- (a day on a time column, a clock time on a date column). The value then goes to
+-- quote_default_value like any other.
+CREATE OR REPLACE FUNCTION dd_date_token_default(p_default_value TEXT, p_data_type TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_value CONSTANT TEXT := upper(trim(coalesce(p_default_value, '')));
+    v_day   CONSTANT BOOLEAN := v_value IN ('TODAY', '$TODAY', 'TOMORROW', 'YESTERDAY');
+    v_now   CONSTANT BOOLEAN := v_value IN ('NOW', '$NOW');
+    v_shift CONSTANT TEXT := CASE v_value WHEN 'TOMORROW' THEN ' + 1' WHEN 'YESTERDAY' THEN ' - 1' ELSE '' END;
+    -- The moment each value reads: statement_timestamp() and clock_timestamp()
+    -- keep their own, everything else the start of the transaction, as now() does.
+    v_base  CONSTANT TEXT := CASE
+        WHEN v_day OR v_now OR v_value IN ('CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'LOCALTIME',
+                                           'LOCALTIMESTAMP', 'NOW()', 'TRANSACTION_TIMESTAMP()')
+            THEN 'CURRENT_TIMESTAMP'
+        WHEN v_value = 'STATEMENT_TIMESTAMP()' THEN 'statement_timestamp()'
+        WHEN v_value = 'CLOCK_TIMESTAMP()' THEN 'clock_timestamp()'
+    END;
+BEGIN
+    IF v_base IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN CASE p_data_type
+        WHEN 'DATE' THEN
+            CASE WHEN v_value NOT IN ('CURRENT_TIME', 'LOCALTIME')
+                 THEN '((' || v_base || ' AT TIME ZONE ''UTC'')::date' || v_shift || ')' END
+        WHEN 'TIMESTAMPTZ' THEN
+            CASE WHEN v_day OR v_value = 'CURRENT_DATE'
+                 THEN '(((' || v_base || ' AT TIME ZONE ''UTC'')::date' || v_shift || ')::timestamp AT TIME ZONE ''UTC'')'
+                 WHEN v_now THEN v_base END
+        WHEN 'TIME' THEN
+            CASE WHEN NOT v_day AND v_value <> 'CURRENT_DATE'
+                 THEN '((' || v_base || ' AT TIME ZONE ''UTC'')::time)' END
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_date_token_default(TEXT, TEXT) IS
+'The column default of a date, date-time or time field whose default is a relative day or moment: today, tomorrow, yesterday, now, $today or $now in any case, or a date or time keyword (CURRENT_DATE, now(), LOCALTIME, ...) on a column where the session''s time zone would change what it stores. Returns a fixed expression that reads the day or the clock in UTC, or NULL for any other value.';
+
 -- The column default a field resolves to, shared by the ADD COLUMN and the
 -- SET DEFAULT paths. A blank default_value is not "no default": every NOT NULL
 -- column carries one, so a blank falls back to the zero value of the column
@@ -950,6 +1014,10 @@ COMMENT ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) IS
 -- session without claims. rbac.user_id_or_null() is the one place that resolves
 -- the signed-in user; nothing here reads the client-writable app.* settings.
 --
+-- A relative day or moment on a date, date-time or time column is the fixed text
+-- dd_date_token_default returns, which reads the day or the clock in UTC on
+-- every insert.
+--
 -- A new parameter list adds an overload instead of replacing the function, and
 -- two overloads make every five-argument call ambiguous, so the five-argument
 -- signature is dropped first.
@@ -960,9 +1028,14 @@ DECLARE
     v_resolved TEXT := CASE WHEN p_format = 'enum'
                             THEN effective_enum_default(p_default_value, p_input_type, p_enum_values)
                             ELSE p_default_value END;
+    v_relative TEXT := dd_date_token_default(v_resolved, p_data_type);
 BEGIN
     IF dd_is_current_user_default(p_format, p_reference_table, p_default_value) THEN
         RETURN 'rbac.user_id_or_null()';
+    END IF;
+
+    IF v_relative IS NOT NULL THEN
+        RETURN v_relative;
     END IF;
 
     IF v_resolved IS NOT NULL AND trim(v_resolved) <> '' THEN
@@ -992,7 +1065,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) IS
-'The DDL default expression for a field: rbac.user_id_or_null() for the current-user default of a reference or parent field to users (dd_is_current_user_default), else its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+'The DDL default expression for a field: rbac.user_id_or_null() for the current-user default of a reference or parent field to users (dd_is_current_user_default), else the UTC expression of a relative day or moment on a date, date-time or time column (dd_date_token_default), else its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
 
 -- =====================================================
 -- REQUIRED FIELDS
@@ -1371,6 +1444,53 @@ CREATE OR REPLACE TRIGGER validate_current_user_default_trigger
     FOR EACH ROW
     WHEN (upper(trim(NEW.default_value)) IN ('CURRENT_USER', '$USER_ID'))
     EXECUTE FUNCTION validate_current_user_default();
+
+-- Whether a date, date-time or time field carries today, tomorrow, yesterday or now
+-- in a default that dd_date_token_default does not turn into an expression:
+-- 'tomorrow 09:00', '$today + 1', today on a time field. quote_default_value would
+-- quote it, and PostgreSQL either refuses the literal or converts it once, when the
+-- default is set, so every record would get the day the field was saved, with no
+-- error anywhere. An allow-listed expression such as now() is emitted bare and is
+-- not one of these. coalesce keeps a NULL default from making the guard's test
+-- NULL, which would wave the change through.
+CREATE OR REPLACE FUNCTION dd_date_word_misplaced(p_field fields)
+RETURNS BOOLEAN AS $$
+    SELECT coalesce(t.data_type IN ('DATE', 'TIMESTAMPTZ', 'TIME')
+                    AND coalesce(p_field.default_value, '') ~* '\m(now|today|tomorrow|yesterday)\M'
+                    AND dd_date_token_default(p_field.default_value, t.data_type) IS NULL
+                    AND left(quote_default_value(p_field.default_value, t.data_type), 1) = '''', FALSE)
+      FROM (SELECT field_data_type(p_field.format, p_field."precision", p_field.reference_table) AS data_type) t;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_date_word_misplaced(fields) IS
+'Whether a date, date-time or time field has a default naming today, tomorrow, yesterday or now that is no relative day or moment of dd_date_token_default and no allow-listed expression: as a literal it would store one fixed day, or be refused.';
+
+-- Refuses a field from coming to carry such a default. A field that already
+-- carried one before this guard existed is not refused for staying that way, so
+-- every other edit of it still goes through.
+CREATE OR REPLACE FUNCTION validate_date_word_default()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF dd_date_word_misplaced(NEW)
+       AND (TG_OP = 'INSERT' OR NOT dd_date_word_misplaced(OLD)) THEN
+        RAISE EXCEPTION 'Default ${default_value} of field ${field_name} on ${table} is not a relative day or time a default can hold'
+            USING ERRCODE = '90284',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'default_value', NEW.default_value,
+                                            'hint', 'Write today, tomorrow, yesterday, now, $today or $now on its own; a time field takes only now or $now.')::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION validate_date_word_default() IS
+'BEFORE INSERT/UPDATE guard on fields: refuses a date, date-time or time default that names today, tomorrow, yesterday or now in any form other than the word on its own (90284), see dd_date_word_misplaced. A field that already carried one stays editable.';
+
+CREATE OR REPLACE TRIGGER validate_date_word_default_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    WHEN (NEW.default_value ~* '(now|today|tomorrow|yesterday)')
+    EXECUTE FUNCTION validate_date_word_default();
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -5113,6 +5233,7 @@ REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_date_token_default(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_unique_predicate(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -5131,6 +5252,8 @@ REVOKE EXECUTE ON FUNCTION dd_replace_enum_check(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_required_delete_mode() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_default_token_misplaced(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_current_user_default() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_date_word_misplaced(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_date_word_default() FROM PUBLIC;
 -- A required check runs this function as the writer, so the request role needs it.
 -- All it can do is raise.
 REVOKE EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) FROM PUBLIC;
@@ -5149,6 +5272,8 @@ BEGIN
             dd_drop_own_index(TEXT, TEXT),
             dd_is_current_user_default(TEXT, TEXT, TEXT),
             dd_default_token_misplaced(fields),
+            dd_date_token_default(TEXT, TEXT),
+            dd_date_word_misplaced(fields),
             dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT),
             dd_required_test(fields),
             dd_required_check_expr(fields),

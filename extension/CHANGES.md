@@ -137,6 +137,18 @@ installs the core schema as ordinary objects.
   required one or a `parent` is refused there with `90259`. The token is refused
   where it cannot mean the user (`90283`); `CURRENT_USER` on a text field keeps
   storing the role name.
+- A date, date-time or time field takes `today`, `tomorrow`, `yesterday`, `now`,
+  `$today` or `$now` as its default, and every record reads the day or the clock
+  again when it is written. Before, the words were quoted, PostgreSQL converted
+  them once when the default was set, and every record got the day the field was
+  saved. The day is the UTC day, as `$today` in a rule: `CURRENT_DATE`, `now()`,
+  `LOCALTIME` and the other keywords on a date or time field, and `CURRENT_DATE`
+  on a date-time field (midnight), now mean the UTC day or clock as well, where
+  they read the session's time zone before. In a session in UTC, the default, they
+  store what they did. A moment on a date-time field is unchanged. A column keeps
+  the default it has until the field's default is set again. Any other default
+  naming one of the words, such as `tomorrow 09:00` or `$today + 1`, is refused
+  (`90284`); `get_schema` returns the default as written.
 - A required enum with no explicit default no longer takes its first value when a
   write leaves it out: the write fails with `90258`.
 - Deleting an entity that fields of other entities reference is refused with

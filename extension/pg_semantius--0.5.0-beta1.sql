@@ -7080,7 +7080,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -8023,6 +8023,70 @@ $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) IS
 'Whether a field''s default means the signed-in user''s id: CURRENT_USER or $user_id, in any case, on a reference or parent field to users.';
 
+-- What a date or time default means, decided in one place for the column default
+-- and the guard on fields. Two problems meet here:
+--
+-- today, tomorrow, yesterday and now, and $today and $now (the names a rule reads),
+-- are PostgreSQL input strings, not expressions. As a quoted literal PostgreSQL
+-- converts them once, when the default is set, and every record would get the day
+-- the field was saved.
+--
+-- The SQL keywords run on every insert, but CURRENT_DATE, LOCALTIME and a moment
+-- cast to a date or a time read the calendar and the clock in the inserting
+-- session's time zone, which a client can change. Two rows written at the same
+-- moment could get different days. A rule's $today and $now run in UTC
+-- (build_record_logic_trigger pins timezone UTC for the same reason), so a default
+-- read in the session's zone could also disagree with the rule that checks it.
+--
+-- So each of them becomes a fixed expression that reads the day or the clock in
+-- UTC. A moment on a date-time column needs nothing: it does not depend on a time
+-- zone, so the keywords stay as written there. CURRENT_DATE on a date-time column
+-- means midnight and becomes UTC midnight, as today does. tomorrow and yesterday
+-- count the day on the date before it becomes a timestamp, because adding an
+-- interval of one day to a timestamptz follows the session's daylight saving time.
+--
+-- The result is built from the constants below only; no text of the caller reaches
+-- it. NULL means the value is none of these, or names what the column cannot hold
+-- (a day on a time column, a clock time on a date column). The value then goes to
+-- quote_default_value like any other.
+CREATE OR REPLACE FUNCTION dd_date_token_default(p_default_value TEXT, p_data_type TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_value CONSTANT TEXT := upper(trim(coalesce(p_default_value, '')));
+    v_day   CONSTANT BOOLEAN := v_value IN ('TODAY', '$TODAY', 'TOMORROW', 'YESTERDAY');
+    v_now   CONSTANT BOOLEAN := v_value IN ('NOW', '$NOW');
+    v_shift CONSTANT TEXT := CASE v_value WHEN 'TOMORROW' THEN ' + 1' WHEN 'YESTERDAY' THEN ' - 1' ELSE '' END;
+    -- The moment each value reads: statement_timestamp() and clock_timestamp()
+    -- keep their own, everything else the start of the transaction, as now() does.
+    v_base  CONSTANT TEXT := CASE
+        WHEN v_day OR v_now OR v_value IN ('CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'LOCALTIME',
+                                           'LOCALTIMESTAMP', 'NOW()', 'TRANSACTION_TIMESTAMP()')
+            THEN 'CURRENT_TIMESTAMP'
+        WHEN v_value = 'STATEMENT_TIMESTAMP()' THEN 'statement_timestamp()'
+        WHEN v_value = 'CLOCK_TIMESTAMP()' THEN 'clock_timestamp()'
+    END;
+BEGIN
+    IF v_base IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN CASE p_data_type
+        WHEN 'DATE' THEN
+            CASE WHEN v_value NOT IN ('CURRENT_TIME', 'LOCALTIME')
+                 THEN '((' || v_base || ' AT TIME ZONE ''UTC'')::date' || v_shift || ')' END
+        WHEN 'TIMESTAMPTZ' THEN
+            CASE WHEN v_day OR v_value = 'CURRENT_DATE'
+                 THEN '(((' || v_base || ' AT TIME ZONE ''UTC'')::date' || v_shift || ')::timestamp AT TIME ZONE ''UTC'')'
+                 WHEN v_now THEN v_base END
+        WHEN 'TIME' THEN
+            CASE WHEN NOT v_day AND v_value <> 'CURRENT_DATE'
+                 THEN '((' || v_base || ' AT TIME ZONE ''UTC'')::time)' END
+    END;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_date_token_default(TEXT, TEXT) IS
+'The column default of a date, date-time or time field whose default is a relative day or moment: today, tomorrow, yesterday, now, $today or $now in any case, or a date or time keyword (CURRENT_DATE, now(), LOCALTIME, ...) on a column where the session''s time zone would change what it stores. Returns a fixed expression that reads the day or the clock in UTC, or NULL for any other value.';
+
 -- The column default a field resolves to, shared by the ADD COLUMN and the
 -- SET DEFAULT paths. A blank default_value is not "no default": every NOT NULL
 -- column carries one, so a blank falls back to the zero value of the column
@@ -8035,6 +8099,10 @@ COMMENT ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) IS
 -- session without claims. rbac.user_id_or_null() is the one place that resolves
 -- the signed-in user; nothing here reads the client-writable app.* settings.
 --
+-- A relative day or moment on a date, date-time or time column is the fixed text
+-- dd_date_token_default returns, which reads the day or the clock in UTC on
+-- every insert.
+--
 -- A new parameter list adds an overload instead of replacing the function, and
 -- two overloads make every five-argument call ambiguous, so the five-argument
 -- signature is dropped first.
@@ -8045,9 +8113,14 @@ DECLARE
     v_resolved TEXT := CASE WHEN p_format = 'enum'
                             THEN effective_enum_default(p_default_value, p_input_type, p_enum_values)
                             ELSE p_default_value END;
+    v_relative TEXT := dd_date_token_default(v_resolved, p_data_type);
 BEGIN
     IF dd_is_current_user_default(p_format, p_reference_table, p_default_value) THEN
         RETURN 'rbac.user_id_or_null()';
+    END IF;
+
+    IF v_relative IS NOT NULL THEN
+        RETURN v_relative;
     END IF;
 
     IF v_resolved IS NOT NULL AND trim(v_resolved) <> '' THEN
@@ -8077,7 +8150,7 @@ END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) IS
-'The DDL default expression for a field: rbac.user_id_or_null() for the current-user default of a reference or parent field to users (dd_is_current_user_default), else its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
+'The DDL default expression for a field: rbac.user_id_or_null() for the current-user default of a reference or parent field to users (dd_is_current_user_default), else the UTC expression of a relative day or moment on a date, date-time or time column (dd_date_token_default), else its default_value (resolved through effective_enum_default for an enum, quoted by quote_default_value), else the zero value of a NOT NULL column type, else NULL for a nullable format.';
 
 -- =====================================================
 -- REQUIRED FIELDS
@@ -8456,6 +8529,53 @@ CREATE OR REPLACE TRIGGER validate_current_user_default_trigger
     FOR EACH ROW
     WHEN (upper(trim(NEW.default_value)) IN ('CURRENT_USER', '$USER_ID'))
     EXECUTE FUNCTION validate_current_user_default();
+
+-- Whether a date, date-time or time field carries today, tomorrow, yesterday or now
+-- in a default that dd_date_token_default does not turn into an expression:
+-- 'tomorrow 09:00', '$today + 1', today on a time field. quote_default_value would
+-- quote it, and PostgreSQL either refuses the literal or converts it once, when the
+-- default is set, so every record would get the day the field was saved, with no
+-- error anywhere. An allow-listed expression such as now() is emitted bare and is
+-- not one of these. coalesce keeps a NULL default from making the guard's test
+-- NULL, which would wave the change through.
+CREATE OR REPLACE FUNCTION dd_date_word_misplaced(p_field fields)
+RETURNS BOOLEAN AS $$
+    SELECT coalesce(t.data_type IN ('DATE', 'TIMESTAMPTZ', 'TIME')
+                    AND coalesce(p_field.default_value, '') ~* '\m(now|today|tomorrow|yesterday)\M'
+                    AND dd_date_token_default(p_field.default_value, t.data_type) IS NULL
+                    AND left(quote_default_value(p_field.default_value, t.data_type), 1) = '''', FALSE)
+      FROM (SELECT field_data_type(p_field.format, p_field."precision", p_field.reference_table) AS data_type) t;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_date_word_misplaced(fields) IS
+'Whether a date, date-time or time field has a default naming today, tomorrow, yesterday or now that is no relative day or moment of dd_date_token_default and no allow-listed expression: as a literal it would store one fixed day, or be refused.';
+
+-- Refuses a field from coming to carry such a default. A field that already
+-- carried one before this guard existed is not refused for staying that way, so
+-- every other edit of it still goes through.
+CREATE OR REPLACE FUNCTION validate_date_word_default()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF dd_date_word_misplaced(NEW)
+       AND (TG_OP = 'INSERT' OR NOT dd_date_word_misplaced(OLD)) THEN
+        RAISE EXCEPTION 'Default ${default_value} of field ${field_name} on ${table} is not a relative day or time a default can hold'
+            USING ERRCODE = '90284',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'default_value', NEW.default_value,
+                                            'hint', 'Write today, tomorrow, yesterday, now, $today or $now on its own; a time field takes only now or $now.')::text;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION validate_date_word_default() IS
+'BEFORE INSERT/UPDATE guard on fields: refuses a date, date-time or time default that names today, tomorrow, yesterday or now in any form other than the word on its own (90284), see dd_date_word_misplaced. A field that already carried one stays editable.';
+
+CREATE OR REPLACE TRIGGER validate_date_word_default_trigger
+    BEFORE INSERT OR UPDATE ON fields
+    FOR EACH ROW
+    WHEN (NEW.default_value ~* '(now|today|tomorrow|yesterday)')
+    EXECUTE FUNCTION validate_date_word_default();
 
 -- =====================================================
 -- HELPER FUNCTIONS: BUILD OBJECT COMMENTS
@@ -12198,6 +12318,7 @@ REVOKE EXECUTE ON FUNCTION format_to_json_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION field_json_type(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION quote_default_value(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_is_current_user_default(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_date_token_default(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_unique_predicate(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_index_name_free(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -12216,6 +12337,8 @@ REVOKE EXECUTE ON FUNCTION dd_replace_enum_check(fields, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_required_delete_mode() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_default_token_misplaced(fields) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION validate_current_user_default() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_date_word_misplaced(fields) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION validate_date_word_default() FROM PUBLIC;
 -- A required check runs this function as the writer, so the request role needs it.
 -- All it can do is raise.
 REVOKE EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) FROM PUBLIC;
@@ -12234,6 +12357,8 @@ BEGIN
             dd_drop_own_index(TEXT, TEXT),
             dd_is_current_user_default(TEXT, TEXT, TEXT),
             dd_default_token_misplaced(fields),
+            dd_date_token_default(TEXT, TEXT),
+            dd_date_word_misplaced(fields),
             dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT, TEXT),
             dd_required_test(fields),
             dd_required_check_expr(fields),
@@ -12275,7 +12400,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8')
+        VALUES ('_core.0160_dd_functions.sql', '4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -27838,7 +27963,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -27902,7 +28027,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","_core.0160_dd_functions.sql":"4cd120bbb720ea6e5ff94d21f1a1f14b065250278704a811947fc5e83ee111b8","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","_core.0210_computed_validation.sql":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","_core.0160_dd_functions.sql":"4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","_core.0210_computed_validation.sql":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
