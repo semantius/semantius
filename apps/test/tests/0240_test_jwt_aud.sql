@@ -2,11 +2,14 @@
 --
 -- The row is optional by design: without it rbac.uid() accepts any token from
 -- the trusted issuer, which is also what Neon does when a provider's audience
--- is left blank. What the install owes the operator is therefore not
--- enforcement but visibility, and semantius.status() is where that lives.
+-- is left blank. An empty value means the same as no row, because the column
+-- is NOT NULL DEFAULT '' and blanking the value is how an operator switches
+-- the check off without deleting the row. What the install owes the operator
+-- is therefore not enforcement but visibility, and semantius.status() is
+-- where that lives.
 BEGIN;
 
-SELECT plan(9);
+SELECT plan(12);
 
 -- semantius.status() exists only on the extension install path, and its name is
 -- resolved when a statement is PARSED, so naming it directly would make this
@@ -108,6 +111,16 @@ SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'semanti
 SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
 
+-- Every authentication failure in rbac.uid() raises 42501, so a test that
+-- checks only the SQLSTATE also passes when the token is refused for some
+-- other reason (a lost role or sub claim, say). The hint code says which
+-- check refused it: 90004 for a missing audience, 90005 for a mismatch.
+-- Both JSON nulls when rbac.uid() does not raise.
+CREATE FUNCTION pg_temp.uid_rejection() RETURNS jsonb LANGUAGE sql AS $fn$
+    SELECT jsonb_build_object('sqlstate', e ->> 'code', 'hint', (e ->> 'hint')::jsonb)
+    FROM catch_error('SELECT rbac.uid()') AS e
+$fn$;
+
 -- =====================================================
 -- TEST b) aud matches single plain-string value
 -- =====================================================
@@ -139,11 +152,11 @@ SELECT lives_ok(
 SELECT set_config('request.jwt.claim.aud', 'wrongapp', true);
 SELECT set_config('app.context_initialized', NULL, false);
 
-SELECT throws_ok(
-    $$ SELECT rbac.uid() $$,
-    '42501',
-    NULL,
-    'uid() fails when aud single value does not match'
+SELECT is(
+    pg_temp.uid_rejection(),
+    '{"sqlstate": "42501",
+      "hint": {"code": "90005", "expected": "myapp", "actual": "wrongapp"}}'::jsonb,
+    'uid() fails with 90005 when aud single value does not match'
 );
 
 -- =====================================================
@@ -153,11 +166,46 @@ SELECT throws_ok(
 SELECT set_config('request.jwt.claim.aud', '["wrongapp","notmyapp"]', true);
 SELECT set_config('app.context_initialized', NULL, false);
 
-SELECT throws_ok(
+SELECT is(
+    pg_temp.uid_rejection(),
+    '{"sqlstate": "42501",
+      "hint": {"code": "90005", "expected": "myapp", "actual": "[\"wrongapp\",\"notmyapp\"]"}}'::jsonb,
+    'uid() fails with 90005 when none of the aud array values match'
+);
+
+-- =====================================================
+-- TEST f) an empty jwt_aud value switches the check off
+-- =====================================================
+-- If rbac.uid() enforced an empty value, a blanked row would refuse every
+-- token that has an aud claim and every token that has none, while status()
+-- reported the check as off.
+
+RESET ROLE;
+
+UPDATE _settings SET value = '' WHERE name = 'jwt_aud';
+
+SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'semantius')
+    THEN pass('migrate path: semantius.status() absent, jwt_aud_set check skipped')
+    ELSE is(pg_temp.ext_status_jwt_aud_set(), false,
+            'status() reports jwt_aud_set = false while the row holds an empty value') END;
+
+SET ROLE semantius_user;
+SELECT set_config('search_path', 'pgtap, public', true);
+
+SELECT set_config('request.jwt.claim.aud', 'wrongapp', true);
+SELECT set_config('app.context_initialized', NULL, false);
+
+SELECT lives_ok(
     $$ SELECT rbac.uid() $$,
-    '42501',
-    NULL,
-    'uid() fails when none of the aud array values match'
+    'uid() accepts any aud when the jwt_aud value is empty'
+);
+
+SELECT set_config('request.jwt.claim.aud', '', true);
+SELECT set_config('app.context_initialized', NULL, false);
+
+SELECT lives_ok(
+    $$ SELECT rbac.uid() $$,
+    'uid() accepts a token without aud when the jwt_aud value is empty'
 );
 
 SELECT * FROM finish();

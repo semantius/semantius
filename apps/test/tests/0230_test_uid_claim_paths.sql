@@ -4,17 +4,18 @@
 -- authenticate_as() always sets Neon-style request.jwt.claim.* settings, so
 -- the suite never exercised the Supabase-style single JSON blob path of
 -- rbac.uid() (0080_rbac_functions.sql, "Step 2") nor the JSON-scalar audience
--- form, nor the `roles`-array stand-in for a missing `role` claim ("Step 3"),
--- nor the entra.<tid>.<oid> subject of a Microsoft Entra ID token ("Step 4").
--- 0240 covers plain-string and JSON-array audiences, 0270 covers the no-claims
--- session. This file fills the remaining branches.
+-- form, nor an audience that arrives inside the blob, nor the `roles`-array
+-- stand-in for a missing `role` claim ("Step 3"), nor the entra.<tid>.<oid>
+-- subject of a Microsoft Entra ID token ("Step 4"). 0240 covers plain-string
+-- and JSON-array audiences set directly, 0270 covers the no-claims session.
+-- This file fills the remaining branches.
 --
 -- Every group starts from a semantius_user session whose Neon-style role/sub
 -- settings are blank, so rbac.uid() has to fall back to request.jwt.claims.
 -- All settings are transaction-local and vanish with the ROLLBACK.
 BEGIN;
 
-SELECT plan(33);
+SELECT plan(38);
 
 SET ROLE semantius_user;
 SELECT set_config('search_path', 'pgtap, public', true);
@@ -29,6 +30,15 @@ CREATE FUNCTION pg_temp.blank_neon_claims() RETURNS void LANGUAGE sql AS $$
     SELECT set_config('request.jwt.claim.iss', '', true);
     SELECT set_config('request.jwt.claim.tid', '', true);
     SELECT set_config('request.jwt.claim.oid', '', true);
+$$;
+
+-- Helper: the SQLSTATE and the parsed hint of the error rbac.uid() raises,
+-- both JSON nulls when it does not raise. Every authentication failure is
+-- 42501, so only the hint code (90004 missing audience, 90005 mismatch) shows
+-- that the audience check is what refused the token.
+CREATE FUNCTION pg_temp.uid_rejection() RETURNS jsonb LANGUAGE sql AS $$
+    SELECT jsonb_build_object('sqlstate', e ->> 'code', 'hint', (e ->> 'hint')::jsonb)
+    FROM catch_error('SELECT rbac.uid()') AS e
 $$;
 
 -- =====================================================
@@ -221,12 +231,55 @@ SELECT lives_ok($$SELECT rbac.uid()$$,
     'uid: a JSON string audience equal to jwt_aud is accepted');
 
 SELECT set_config('request.jwt.claim.aud', '"otherapp"', true);
-SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
-    'uid: a JSON string audience that differs from jwt_aud is rejected');
+SELECT is(pg_temp.uid_rejection(),
+    '{"sqlstate": "42501",
+      "hint": {"code": "90005", "expected": "myapp", "actual": "\"otherapp\""}}'::jsonb,
+    'uid: a JSON string audience that differs from jwt_aud is rejected with 90005');
 
 SELECT set_config('request.jwt.claim.aud', '', true);
-SELECT throws_ok($$SELECT rbac.uid()$$, '42501', NULL,
-    'uid: a missing audience is rejected when jwt_aud is configured');
+SELECT is(pg_temp.uid_rejection(),
+    '{"sqlstate": "42501", "hint": {"code": "90004", "expected": "myapp"}}'::jsonb,
+    'uid: a missing audience is rejected with 90004 when jwt_aud is configured');
+
+-- =====================================================
+-- GROUP 6: an audience carried inside the request.jwt.claims blob
+-- =====================================================
+-- Step 2 fans the blob out with jsonb_each_text, which hands a string aud
+-- over as bare text, not JSON, and an array as jsonb's own text form, with a
+-- space after each comma. The audience check has to read both correctly, and
+-- the Neon-style tests above never produce either shape because they set
+-- request.jwt.claim.aud by hand. jwt_aud = 'myapp' still applies from group 5.
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"authenticated","aud":"myapp"}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a blob whose string aud equals jwt_aud is accepted');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"authenticated","aud":["other","myapp"]}', true);
+SELECT is(rbac.uid(), 'user2', 'uid: a blob whose aud array contains jwt_aud is accepted');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"authenticated","aud":"otherapp"}', true);
+SELECT is(pg_temp.uid_rejection(),
+    '{"sqlstate": "42501",
+      "hint": {"code": "90005", "expected": "myapp", "actual": "otherapp"}}'::jsonb,
+    'uid: a blob whose string aud differs from jwt_aud is rejected with 90005');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims',
+    '{"sub":"user2","role":"authenticated","aud":["other","notmyapp"]}', true);
+SELECT is(pg_temp.uid_rejection(),
+    '{"sqlstate": "42501",
+      "hint": {"code": "90005", "expected": "myapp", "actual": "[\"other\", \"notmyapp\"]"}}'::jsonb,
+    'uid: a blob whose aud array lacks jwt_aud is rejected with 90005');
+
+SELECT pg_temp.blank_neon_claims();
+SELECT set_config('request.jwt.claims', '{"sub":"user2","role":"authenticated"}', true);
+SELECT is(pg_temp.uid_rejection(),
+    '{"sqlstate": "42501", "hint": {"code": "90004", "expected": "myapp"}}'::jsonb,
+    'uid: a blob without aud is rejected with 90004 when jwt_aud is configured');
 
 SELECT * FROM finish();
 ROLLBACK;
