@@ -2,7 +2,7 @@
 -- DO NOT EDIT - modify 0100_test_jsonlogic.json and run deno task testgen_jsonlogic
 BEGIN;
 
-SELECT plan(486);
+SELECT plan(524);
 
 -- # Non-rules get passed through
 SELECT is(
@@ -2493,6 +2493,209 @@ SELECT is(
     evaluate_json_logic('{"map":[[1],{"let":["x",7,{"var":""}]}]}'::jsonb, '{}'::jsonb),
     '[{"x":7}]'::jsonb,
     'test 486'
+);
+-- # let in a branch that is not taken is never evaluated: if, or and and dispatch before their arguments are evaluated
+SELECT is(
+    evaluate_json_logic('{"if":[false,{"let":["n",{"throw_error":["not evaluated"]},{"var":"n"}]},"ok"]}'::jsonb, '{}'::jsonb),
+    '"ok"'::jsonb,
+    'test 487'
+);
+SELECT is(
+    evaluate_json_logic('{"or":[true,{"let":["n",{"throw_error":["not evaluated"]},{"var":"n"}]}]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 488'
+);
+SELECT is(
+    evaluate_json_logic('{"and":[false,{"let":["n",{"throw_error":["not evaluated"]},{"var":"n"}]}]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 489'
+);
+-- # let inside map, filter and reduce reads the element, not the record
+SELECT is(
+    evaluate_json_logic('{"map":[{"var":"lines"},{"let":["p",{"var":"q"},{"*":[{"var":"p"},2]}]}]}'::jsonb, '{"lines":[{"q":10},{"q":20}]}'::jsonb),
+    '[20,40]'::jsonb,
+    'test 490'
+);
+SELECT is(
+    evaluate_json_logic('{"filter":[{"var":"lines"},{"let":["q",{"var":"q"},{">":[{"var":"q"},15]}]}]}'::jsonb, '{"lines":[{"q":10},{"q":20}]}'::jsonb),
+    '[{"q":20}]'::jsonb,
+    'test 491'
+);
+SELECT is(
+    evaluate_json_logic('{"reduce":[[1,2,3],{"let":["s",{"+":[{"var":"current"},{"var":"accumulator"}]},{"var":"s"}]},0]}'::jsonb, '{}'::jsonb),
+    '6'::jsonb,
+    'test 492'
+);
+-- # a let whose value is an object hands the object back as a value; it is not read as an operation
+SELECT is(
+    evaluate_json_logic('{"if":[true,{"let":["o",{"var":"row"},{"var":"o"}]},null]}'::jsonb, '{"row":{"a":1}}'::jsonb),
+    '{"a":1}'::jsonb,
+    'test 493'
+);
+-- # cat and concat render anything that is not text as its jsonb text: a space after each comma and colon, and object keys shorter first, then bytewise
+SELECT is(
+    evaluate_json_logic('{"cat":["a",[1,2]]}'::jsonb, '{}'::jsonb),
+    '"a[1, 2]"'::jsonb,
+    'test 494'
+);
+SELECT is(
+    evaluate_json_logic('{"cat":[{"var":"o"}]}'::jsonb, '{"o":{"b":1,"a":2}}'::jsonb),
+    '"{\"a\": 2, \"b\": 1}"'::jsonb,
+    'test 495'
+);
+SELECT is(
+    evaluate_json_logic('{"cat":[{"var":"o"}]}'::jsonb, '{"o":{"aa":1,"b":2}}'::jsonb),
+    '"{\"b\": 2, \"aa\": 1}"'::jsonb,
+    'test 496'
+);
+SELECT is(
+    evaluate_json_logic('{"cat":[{"var":"x"}]}'::jsonb, '{"x":[1,[2,{"a":null}],"s"]}'::jsonb),
+    '"[1, [2, {\"a\": null}], \"s\"]"'::jsonb,
+    'test 497'
+);
+SELECT is(
+    evaluate_json_logic('{"concat":["a",[1,2]]}'::jsonb, '{}'::jsonb),
+    '"a[1, 2]"'::jsonb,
+    'test 498'
+);
+SELECT is(
+    evaluate_json_logic('{"concat":[{"var":"o"}]}'::jsonb, '{"o":{"a":1}}'::jsonb),
+    '"{\"a\": 1}"'::jsonb,
+    'test 499'
+);
+-- # substr: null and a missing value are the empty text, not 'null'
+SELECT is(
+    evaluate_json_logic('{"substr":[null,0,3]}'::jsonb, '{}'::jsonb),
+    '""'::jsonb,
+    'test 500'
+);
+SELECT is(
+    evaluate_json_logic('{"substr":[{"var":"missing"},0,3]}'::jsonb, '{}'::jsonb),
+    '""'::jsonb,
+    'test 501'
+);
+-- # substr counts characters, so a character outside the Basic Multilingual Plane counts once
+SELECT is(
+    evaluate_json_logic('{"substr":["😀abc",1,2]}'::jsonb, '{}'::jsonb),
+    '"ab"'::jsonb,
+    'test 502'
+);
+SELECT is(
+    evaluate_json_logic('{"substr":["ab😀",-1]}'::jsonb, '{}'::jsonb),
+    '"😀"'::jsonb,
+    'test 503'
+);
+-- # substr rounds a fractional start or length to the nearest whole number
+SELECT is(
+    evaluate_json_logic('{"substr":["abcdef",1.6,2]}'::jsonb, '{}'::jsonb),
+    '"cd"'::jsonb,
+    'test 504'
+);
+SELECT is(
+    evaluate_json_logic('{"substr":["abcdef",1,2.5]}'::jsonb, '{}'::jsonb),
+    '"bcd"'::jsonb,
+    'test 505'
+);
+-- # substr of something that is not text takes its jsonb text
+SELECT is(
+    evaluate_json_logic('{"substr":[[1,2],0,4]}'::jsonb, '{}'::jsonb),
+    '"[1, "'::jsonb,
+    'test 506'
+);
+-- # in compares a needle with the elements of an array by value, so an array or an object can be found
+SELECT is(
+    evaluate_json_logic('{"in":[{"var":"x"},[[1]]]}'::jsonb, '{"x":[1]}'::jsonb),
+    'true'::jsonb,
+    'test 507'
+);
+SELECT is(
+    evaluate_json_logic('{"in":[{"var":"o"},{"var":"list"}]}'::jsonb, '{"o":{"a":1},"list":[{"a":1}]}'::jsonb),
+    'true'::jsonb,
+    'test 508'
+);
+-- # in searches a text for the jsonb text of a needle that is not text
+SELECT is(
+    evaluate_json_logic('{"in":[[1,2],"x[1, 2]y"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 509'
+);
+SELECT is(
+    evaluate_json_logic('{"in":[[1,2],"x1,2y"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 510'
+);
+SELECT is(
+    evaluate_json_logic('{"in":[{"var":"o"},"x{\"a\": 1}y"]}'::jsonb, '{"o":{"a":1}}'::jsonb),
+    'true'::jsonb,
+    'test 511'
+);
+-- # var walks the keys of objects and the digit indexes of arrays only: text, a number or a boolean has no keys, and nothing reaches JavaScript properties
+SELECT is(
+    evaluate_json_logic('{"var":"tags.length"}'::jsonb, '{"tags":["a","b"]}'::jsonb),
+    'null'::jsonb,
+    'test 512'
+);
+SELECT is(
+    evaluate_json_logic('{"var":"name.0"}'::jsonb, '{"name":"Bob"}'::jsonb),
+    'null'::jsonb,
+    'test 513'
+);
+SELECT is(
+    evaluate_json_logic('{"var":"name.length"}'::jsonb, '{"name":"Bob"}'::jsonb),
+    'null'::jsonb,
+    'test 514'
+);
+SELECT is(
+    evaluate_json_logic('{"var":["name.0","none"]}'::jsonb, '{"name":"Bob"}'::jsonb),
+    '"none"'::jsonb,
+    'test 515'
+);
+SELECT is(
+    evaluate_json_logic('{"var":"x.constructor"}'::jsonb, '{"x":{}}'::jsonb),
+    'null'::jsonb,
+    'test 516'
+);
+SELECT is(
+    evaluate_json_logic('{"var":"n.toFixed"}'::jsonb, '{"n":1}'::jsonb),
+    'null'::jsonb,
+    'test 517'
+);
+-- # missing and missing_some read through var, so they follow
+SELECT is(
+    evaluate_json_logic('{"missing":["tags.length"]}'::jsonb, '{"tags":["a"]}'::jsonb),
+    '["tags.length"]'::jsonb,
+    'test 518'
+);
+SELECT is(
+    evaluate_json_logic('{"missing":["name.0"]}'::jsonb, '{"name":"Bob"}'::jsonb),
+    '["name.0"]'::jsonb,
+    'test 519'
+);
+SELECT is(
+    evaluate_json_logic('{"missing_some":[1,["tags.length","x"]]}'::jsonb, '{"tags":["a"]}'::jsonb),
+    '["tags.length","x"]'::jsonb,
+    'test 520'
+);
+-- # two texts compare by code point, so a character outside the Basic Multilingual Plane sorts after every character inside it (JavaScript compares UTF-16 code units and differs there)
+SELECT is(
+    evaluate_json_logic('{"<":["😀","Ａ"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 521'
+);
+SELECT is(
+    evaluate_json_logic('{">":["😀","Ａ"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 522'
+);
+SELECT is(
+    evaluate_json_logic('{"<=":["Ａ","😀"]}'::jsonb, '{}'::jsonb),
+    'true'::jsonb,
+    'test 523'
+);
+SELECT is(
+    evaluate_json_logic('{">=":["Ａ","😀"]}'::jsonb, '{}'::jsonb),
+    'false'::jsonb,
+    'test 524'
 );
 -- EOF
 
