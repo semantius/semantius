@@ -8,7 +8,7 @@
         "_core/0040_cache.sql": "6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389",
         "_core/0045_typeid.sql": "cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98",
         "_core/0046_typeid.once.sql": "b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d",
-        "_core/0050_jsonlogic.sql": "dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb",
+        "_core/0050_jsonlogic.sql": "4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a",
         "_core/0060_rbac_schema.once.sql": "b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2",
         "_core/0070_rbac_schema.sql": "c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c",
         "_core/0080_rbac_functions.sql": "38fdc3a2d65a80c2c0eff3e77db17aa9e9967146b1b0a1b24dadd2c5904e0f79",
@@ -24,7 +24,7 @@
         "_core/0180_managed_enable.sql": "038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb",
         "_core/0190_audit_log.once.sql": "c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79",
         "_core/0200_audit_log.sql": "0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587",
-        "_core/0210_computed_validation.sql": "7b518911c9b6f6ec161531baa33d5dfa2b25acf531f6741509ca4c8a4832a1bc",
+        "_core/0210_computed_validation.sql": "dc8daf2ff51d3e676b2fbb92e6aae7cf72fcaa7643008d00935ed3e09dc5560f",
         "_core/0220_entity_insert_defaults.sql": "bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53",
         "_core/0230_entity_order_column.sql": "875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594",
         "_core/0240_dd_bootstrap_complete.once.sql": "88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668",
@@ -47,7 +47,7 @@
         "_core/0410_user_bookmarks.jsonc": "e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804",
         "_core/0420_module_version.sql": "c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e",
         "_core/0430_required_field_description.once.sql": "464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936",
-        "_core/0440_rollup.sql": "93b987831027f5e96de7dd6971291416affee5c3c194f628ee1e97aec858a851",
+        "_core/0440_rollup.sql": "f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972",
         "_core/9900_owner_hardening.sql": "ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"
       }
     }

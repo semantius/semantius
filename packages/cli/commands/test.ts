@@ -561,6 +561,8 @@ export async function testCommand(
         );
         // A requested threshold cannot be evaluated: treat as not met.
         coverageOk = coverage.min === undefined;
+      } finally {
+        await collector.removeFootprint();
       }
     }
 

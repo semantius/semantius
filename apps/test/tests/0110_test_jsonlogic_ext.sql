@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(193);
+SELECT plan(195);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -1398,6 +1398,22 @@ SELECT is(
       WHERE p.oid = 'public.evaluate_json_logic(jsonb, jsonb)'::regprocedure),
     (SELECT array_agg(o ORDER BY o) FROM unnest(jl_operators()) AS o),
     'jl_operators lists exactly the operators evaluate_json_logic dispatches on');
+
+-- jl_rule_problem counts the arguments of an operation by jl_operator_arity,
+-- so every operator of the list needs a count there, and nothing else does.
+SELECT is(
+    (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(jl_operator_arity()) AS k),
+    (SELECT array_agg(o ORDER BY o) FROM unnest(jl_operators()) AS o),
+    'jl_operator_arity gives a count for exactly the operators of jl_operators');
+
+-- is_raci_actor compares its letter with raci_assignments.raci, so the letters
+-- the save accepts are the values that field can hold.
+SELECT is(
+    (SELECT array_agg(l ORDER BY l) FROM unnest(jl_raci_letters()) AS l),
+    (SELECT array_agg(v ->> 'value' ORDER BY v ->> 'value')
+       FROM fields f, jsonb_array_elements(f.enum_values) AS v
+      WHERE f.table_name = 'raci_assignments' AND f.field_name = 'raci'),
+    'jl_raci_letters lists exactly the values of raci_assignments.raci');
 
 -- The walk follows the evaluator: every argument it would evaluate, at any
 -- depth, and nothing it would not. An object with several keys and the empty

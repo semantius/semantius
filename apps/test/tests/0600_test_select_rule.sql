@@ -16,7 +16,7 @@
 --   8. The leading has_permission terms of a rule, checked once per statement
 BEGIN;
 
-SELECT plan(50);
+SELECT plan(52);
 
 -- =====================================================
 -- PART 1: select_rule policy
@@ -449,6 +449,26 @@ SELECT lives_ok(
       VALUES ('sr_save_empty', 'sr_save_empty_item', 'Sr Save Empty Item', 'Sr Save Empty Items', 'No rule',
               '{}'::jsonb, 1)$$,
     'save: the empty object is accepted');
+
+-- The mistakes the interpreter answers without an error are refused as well
+-- when the rule is set: here a permission that has no name, which no user
+-- holds, so the rule would hide every row from everyone but the admins its
+-- other branch lets through.
+SELECT is(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description, select_rule, module_id)
+        VALUES ('sr_save_literal', 'sr_save_literal_item', 'Sr Save Literal Item', 'Sr Save Literal Items', 'Refused at save',
+                '{"or": [{"has_permission": "admin"}, {"has_permission": ""}]}'::jsonb, 1)$$) ->> 'code',
+    '90922',
+    'save: a select_rule with a literal argument of the wrong kind is refused');
+
+-- A $ name the rules are not given reads null, so the comparison below holds
+-- for no row, or for every row whose owner is empty.
+SELECT is(
+    catch_error_hint($$UPDATE entities SET select_rule = '{"==": [{"var": "owner_id"}, {"var": "$user"}]}'::jsonb
+                        WHERE table_name = 'sr_save_update'$$),
+    '{"rule": "select_rule", "table": "sr_save_update", "path": "/==/1/var",
+      "variable": "$user", "reason": "unknown", "op": ""}'::jsonb,
+    'save: and so is a select_rule that reads a $ variable no rule is given, with the place in the hint');
 
 -- A literal is no rule either, and for select_rule the table already says so:
 -- the column takes an object and nothing else, so a condition typed as text,

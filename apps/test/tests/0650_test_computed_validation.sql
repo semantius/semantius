@@ -11,7 +11,7 @@
 -- builder where no entity row backs it.
 BEGIN;
 
-SELECT plan(96);
+SELECT plan(111);
 
 SELECT authenticate_as('user3');
 
@@ -519,6 +519,150 @@ SELECT is(
     (SELECT validation_rules FROM entities WHERE table_name = 'cv_save_update'),
     '[]'::jsonb,
     'save: and the refused update leaves the entity without the rule');
+
+-- =====================================================
+-- A rule that is new or changed is checked further
+-- =====================================================
+-- The interpreter answers the mistakes below without an error, and the answer
+-- is wrong: >= ignores a third argument, an object with several keys is a
+-- truthy value, a misspelled unit is no unit, and a $ name the rules are not
+-- given reads null. The save refuses them, with the place inside the rule in
+-- the hint. Which mistakes count, and where, is the shared case list of
+-- 0115_test_jsonlogic_check.json; these assertions are the save around it.
+
+SELECT is(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, computed_fields)
+        VALUES ('cv_detail_count', 'cv_detail_count', 'Detail Count', 'Detail Counts', 'Refused at save', 1,
+                '[{"name": "label", "jsonlogic": {"if": [{">=": [{"var": "a"}, 1, 10]}, "in", "out"]}}]'::jsonb)$$) - 'hint',
+    '{"code": "90921", "message": "${rule} on ${table} gives ${op} ${count} arguments, a number it does not take", "details": ""}'::jsonb,
+    'detail: a computed field giving an operator an argument count it does not take is refused');
+
+SELECT is(
+    catch_error_hint($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                             module_id, computed_fields)
+        VALUES ('cv_detail_count', 'cv_detail_count', 'Detail Count', 'Detail Counts', 'Refused at save', 1,
+                '[{"name": "label", "jsonlogic": {"if": [{">=": [{"var": "a"}, 1, 10]}, "in", "out"]}}]'::jsonb)$$),
+    '{"rule": "computed_fields[0]", "table": "cv_detail_count", "path": "/if/0/>=",
+      "op": ">=", "count": 3, "min": 2, "max": 2}'::jsonb,
+    'detail: and the hint names the rule, the place in it and the counts, as numbers');
+
+SELECT is(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_detail_unit', 'cv_detail_unit', 'Detail Unit', 'Detail Units', 'Refused at save', 1,
+                '[{"code": "99040", "message": "m",
+                   "jsonlogic": {"<": [{"date_diff": [{"var": "$today"}, {"var": "due"}, "days"]}, 30]}}]'::jsonb)$$) ->> 'code',
+    '90922',
+    'detail: a validation rule with a misspelled date unit is refused');
+
+SELECT is(
+    catch_error_hint($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                             module_id, computed_fields)
+        VALUES ('cv_detail_keys', 'cv_detail_keys', 'Detail Keys', 'Detail Keys', 'Refused at save', 1,
+                '[{"name": "meta", "jsonlogic": {"if": [{"var": "a"}, {"x": 1, "y": 2}, null]}}]'::jsonb)$$),
+    '{"rule": "computed_fields[0]", "table": "cv_detail_keys", "path": "/if/1", "key_count": 2}'::jsonb,
+    'detail: an object with several keys below the top of a computed field is refused, a constant object included');
+
+SELECT is(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_detail_var', 'cv_detail_var', 'Detail Var', 'Detail Vars', 'Refused at save', 1,
+                '[{"code": "99041", "message": "m",
+                   "jsonlogic": {"all": [{"var": "lines"}, {"<=": [{"var": "qty"}, {"var": "$old.qty"}]}]}}]'::jsonb)$$) - 'hint',
+    '{"code": "90924", "message": "${rule} on ${table} reads ${variable}, which has no value where it is read", "details": ""}'::jsonb,
+    'detail: a validation rule reading a $ variable inside the logic of an array operator is refused');
+
+SELECT is(
+    catch_error_hint($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                             module_id, validation_rules)
+        VALUES ('cv_detail_var', 'cv_detail_var', 'Detail Var', 'Detail Vars', 'Refused at save', 1,
+                '[{"code": "99041", "message": "m",
+                   "jsonlogic": {"all": [{"var": "lines"}, {"<=": [{"var": "qty"}, {"var": "$old.qty"}]}]}}]'::jsonb)$$),
+    '{"rule": "validation_rules[0]", "table": "cv_detail_var", "path": "/all/1/<=/1/var",
+      "variable": "$old", "reason": "array_element", "op": "all"}'::jsonb,
+    'detail: and the hint says which variable, why it has no value, and under which operator');
+
+SELECT is(
+    COALESCE(catch_error($$INSERT INTO fields (table_name, field_name, title, format, field_order, input_type_rule)
+        VALUES ('cv_itr_test', 'detail', 'Detail', 'text', 40,
+                '{"if": [{"var": "$state"}, "hidden", "default"]}')$$) ->> 'code', 'no error'),
+    '90924',
+    'detail: a field whose input_type_rule reads an unknown $ variable is refused');
+
+SELECT is(
+    COALESCE(catch_error($$UPDATE fields SET input_type_rule = '{"if": [{"!": [{"var": "label"}, 1]}, "required", "hidden"]}'
+                            WHERE table_name = 'cv_itr_test' AND field_name = 'kept'$$) ->> 'code', 'no error'),
+    '90921',
+    'detail: and so is an update that gives an operator of an input_type_rule an argument too many');
+
+-- The entry around the rule is held to what the app's checker demands: a
+-- name and a message are text. The builder alone would read 5 as "5".
+SELECT is(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, computed_fields)
+        VALUES ('cv_detail_name', 'cv_detail_name', 'Detail Name', 'Detail Names', 'Refused at save', 1,
+                '[{"name": 5, "jsonlogic": {"var": "label"}}]'::jsonb)$$) ->> 'code',
+    '90900',
+    'detail: a computed field whose name is not text is refused');
+
+SELECT is(
+    catch_error($$INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+                                        module_id, validation_rules)
+        VALUES ('cv_detail_message', 'cv_detail_message', 'Detail Message', 'Detail Messages', 'Refused at save', 1,
+                '[{"code": "99042", "message": 5, "jsonlogic": {"!=": [{"var": "label"}, ""]}}]'::jsonb)$$) ->> 'code',
+    '90903',
+    'detail: a validation rule whose message is not text is refused');
+
+-- A rule stored without having passed these checks keeps working: a write
+-- that leaves it alone is not refused for it, and neither is a change to the
+-- rules beside it. Changing the rule itself is refused until it is put right.
+-- dd_rule_problems lists it, for an operator looking for such rules.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
+    module_id, view_permission, edit_permission, id_column, label_column)
+VALUES ('cv_stored_detail', 'cv_stored_detail', 'Stored Detail', 'Stored Details', 'Rule stored past the checks',
+    1, 'public:read', 'admin', 'id', 'label');
+
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+ALTER TABLE entities DISABLE TRIGGER USER;
+UPDATE entities
+   SET validation_rules = '[{"code": "99043", "message": "label in range",
+                             "jsonlogic": {">=": [{"var": "label"}, "a", "m"]}}]'::jsonb
+ WHERE table_name = 'cv_stored_detail';
+ALTER TABLE entities ENABLE TRIGGER USER;
+
+SELECT is(
+    (SELECT jsonb_agg(jsonb_build_array(p.rule, p.code)) FROM dd_rule_problems() AS p
+      WHERE p.table_name = 'cv_stored_detail'),
+    '[["validation_rules[0]", "90921"]]'::jsonb,
+    'stored detail: dd_rule_problems lists the stored rule under its place and the code a save would raise');
+
+SELECT is(
+    (SELECT count(*) FROM dd_rule_problems() AS p WHERE p.table_name NOT LIKE 'cv\_%'),
+    0::bigint,
+    'stored detail: and lists no rule of the platform, the sample module or the test harness');
+
+SELECT authenticate_as('user3');
+
+SELECT lives_ok(
+    $$UPDATE entities SET description = 'Edited after the upgrade' WHERE table_name = 'cv_stored_detail'$$,
+    'stored detail: a save of the entity that leaves the rule alone goes through');
+
+SELECT lives_ok(
+    $$UPDATE entities
+         SET validation_rules = '[{"code": "99044", "message": "label set", "jsonlogic": {"!=": [{"var": "label"}, ""]}}]'::jsonb
+                                || validation_rules
+       WHERE table_name = 'cv_stored_detail'$$,
+    'stored detail: so does a rule added in front of it, which moves it to another place');
+
+SELECT is(
+    COALESCE(catch_error($$UPDATE entities
+                              SET validation_rules = jsonb_set(validation_rules, '{1,message}', '"label from a to m"')
+                            WHERE table_name = 'cv_stored_detail'$$) ->> 'code', 'no error'),
+    '90921',
+    'stored detail: a change to the rule itself is refused until the rule is put right');
 
 -- =====================================================
 -- An error of ours raised by a rule on a write

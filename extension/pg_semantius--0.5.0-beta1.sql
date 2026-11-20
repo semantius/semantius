@@ -1376,7 +1376,7 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -2658,12 +2658,7 @@ BEGIN
             FOR i IN 0 .. jsonb_array_length(c) / 2 - 1 LOOP
                 err_name  := c ->> (i * 2);
                 err_value := c -> (i * 2 + 1);
-                -- The generated validation trigger merges entity, rule and
-                -- field into this object, and its merge keeps whatever is
-                -- already there, so a rule that set one of them would win over
-                -- the trigger that actually knows where the error happened.
-                -- hint and code are the contract's other two reserved keys.
-                IF err_name IN ('hint', 'code', 'entity', 'rule', 'field') THEN
+                IF err_name = ANY(jl_reserved_error_parameters()) THEN
                     RAISE EXCEPTION 'throw_error parameter ${name} uses a reserved name'
                         USING ERRCODE = '90912',
                               HINT = jsonb_build_object('name', err_name)::text;
@@ -2818,6 +2813,360 @@ BEGIN
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- =====================================================
+-- The rest of what a rule gets wrong without an error
+-- =====================================================
+-- An unknown operator is one mistake the evaluator meets only when a record
+-- reaches it. These are the others, and the evaluator does not even raise on
+-- them; it answers, and the answer is wrong:
+--   * an object with several keys, which it reads as a value, and a value is
+--     truthy;
+--   * an operator given a number of arguments it does not take, whose extra
+--     arguments it ignores and whose missing ones it reads as null;
+--   * a literal argument of the wrong kind: a misspelled date unit, a RACI
+--     letter no role holds, a throw_error code outside class 99;
+--   * a variable with no value where it is read: a $ name the rules are not
+--     given, or a name read inside the logic of map, filter, reduce, all, none
+--     or some that only exists outside it.
+-- jl_rule_problem finds them from the rule alone, so the dictionary can refuse
+-- the rule when it is saved. It refuses exactly what the checker of the
+-- Semantius app refuses (sem-schema's jsonlogic/validate.ts): a rule that one
+-- of the two accepts must not be refused by the other.
+-- 0115_test_jsonlogic_check.json holds the cases both of them run.
+
+-- The arguments each operator takes, as [min, max], max null when there is no
+-- upper bound. >= has no three-argument "between" form as < and <= do, so
+-- {">=": [x, lo, hi]} silently drops hi. The keys are exactly jl_operators(),
+-- which 0110_test_jsonlogic_ext.sql checks.
+CREATE OR REPLACE FUNCTION jl_operator_arity() RETURNS jsonb AS $$
+    SELECT '{
+        "if": [1, null], "?:": [1, null], "and": [1, null], "or": [1, null],
+        "filter": [2, 2], "map": [2, 2], "reduce": [2, 3], "all": [2, 2], "none": [2, 2], "some": [2, 2],
+        "let": [3, 3], "set_record": [4, 4],
+        "var": [0, 2], "missing": [0, null], "missing_some": [2, 2],
+        "==": [2, 2], "===": [2, 2], "!=": [2, 2], "!==": [2, 2], "!": [1, 1], "!!": [1, 1],
+        ">": [2, 2], ">=": [2, 2], "<": [2, 3], "<=": [2, 3],
+        "%": [2, 2], "+": [1, null], "*": [1, null], "-": [1, 2], "/": [2, 2], "max": [1, null], "min": [1, null],
+        "in": [2, 2], "cat": [0, null], "substr": [2, 3], "merge": [0, null], "log": [1, 1],
+        "has_permission": [1, 1], "require_permission": [1, 1], "value_changed": [1, 1],
+        "concat": [0, null], "is_match": [2, 2],
+        "throw_error": [1, 3], "is_raci_actor": [3, 3], "has_consultation": [3, 3],
+        "date_add": [2, 3], "date_diff": [3, 3], "date_part": [2, 2], "date_trunc": [2, 2],
+        "to_date": [1, 1], "date_format": [2, 2]
+    }'::jsonb;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The $ names build_record_logic_trigger gives the rules of an entity. Any
+-- other $ name reads null.
+CREATE OR REPLACE FUNCTION jl_reserved_variables() RETURNS text[] AS $$
+    SELECT ARRAY['$today', '$now', '$user_id', '$old', '$mode'];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The parameter names throw_error refuses (90912). The generated validation
+-- trigger merges entity, rule and field into the hint, and its merge keeps a
+-- key that is already there, so a parameter of one of those names would win
+-- over the trigger that knows where the error happened. hint and code are the
+-- contract's other two reserved keys.
+CREATE OR REPLACE FUNCTION jl_reserved_error_parameters() RETURNS text[] AS $$
+    SELECT ARRAY['hint', 'code', 'entity', 'rule', 'field'];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The letters is_raci_actor compares with raci_assignments.raci. A letter no
+-- assignment can hold makes the operator false for everyone, without an
+-- error. 0110_test_jsonlogic_ext.sql compares the list with that field's enum.
+CREATE OR REPLACE FUNCTION jl_raci_letters() RETURNS text[] AS $$
+    SELECT ARRAY['responsible', 'accountable', 'consulted', 'informed'];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- One more segment of a JSON pointer (RFC 6901), the form in which the app's
+-- checker names a place in a rule: ~ is written ~0 and / is written ~1, so the
+-- operator / is the segment ~1.
+CREATE OR REPLACE FUNCTION jl_pointer(p_path text, p_segment text) RETURNS text AS $$
+    SELECT p_path || '/' || replace(replace(p_segment, '~', '~0'), '/', '~1');
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The place of an operation's argument. An argument that is not an array is
+-- the only one, {"var": "a"} standing for {"var": ["a"]}, so it has no index of
+-- its own and its place is the operation's.
+CREATE OR REPLACE FUNCTION jl_argument_path(p_operation_path text, p_raw jsonb, p_index int) RETURNS text AS $$
+    SELECT CASE WHEN jsonb_typeof(p_raw) = 'array'
+                THEN jl_pointer(p_operation_path, p_index::text)
+                ELSE p_operation_path END;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- An argument that is there and is no operation. Only such an argument can be
+-- checked: what an operation yields is known when it runs.
+CREATE OR REPLACE FUNCTION jl_is_literal(p_value jsonb) RETURNS boolean AS $$
+BEGIN
+    RETURN p_value IS NOT NULL AND NOT jl_is_operation(p_value);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- Whether a literal is a unit, a part, a pattern or a duration the date
+-- operators take. The operators' own checks answer, so each list exists once:
+-- the operator runs over a fixed date-time, on which every unit, part and
+-- token can be used, and only the error that names a bad unit, pattern or
+-- amount says no. Any other error, such as a duration too long for an
+-- interval, is no more visible to the app's checker than to this one, and is
+-- left to the evaluator.
+CREATE OR REPLACE FUNCTION jl_date_literal_ok(p_kind text, p_value jsonb) RETURNS boolean AS $$
+DECLARE
+    v_moment CONSTANT jsonb := '"2000-01-01T00:00:00"';
+BEGIN
+    CASE p_kind
+        WHEN 'unit'    THEN PERFORM jl_date_unit('date_trunc', p_value, false);
+        WHEN 'part'    THEN PERFORM jl_date_part(v_moment, p_value);
+        WHEN 'pattern' THEN PERFORM jl_date_format(v_moment, p_value);
+        ELSE                PERFORM jl_date_add(v_moment, p_value, NULL);
+    END CASE;
+    RETURN TRUE;
+EXCEPTION
+    WHEN SQLSTATE '90916' OR SQLSTATE '90917' OR SQLSTATE '90918' THEN
+        RETURN FALSE;
+    WHEN OTHERS THEN
+        RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+-- The first mistake in a rule, as an object of its code, its path and its
+-- parameters, or NULL when there is none. The path is the JSON pointer to the
+-- mistake inside the rule, '' for the rule itself.
+--   90909  an operator the evaluator does not implement: op
+--   90921  an argument count outside jl_operator_arity: op, count, min, max
+--   90922  a literal argument of the wrong kind: op, expected
+--   90923  an object with several keys: key_count
+--   90924  a variable with no value where it is read: variable, reason, op
+--
+-- The walk is the evaluator's: an array is a list of rules, an object with
+-- one key an operation, anything else a value. The count comes first, then
+-- the literal arguments, then the arguments themselves, the order the app's
+-- checker reports them in. The names of let and set_record are checked
+-- whatever they hold and never walked, because they are never evaluated.
+--
+-- The last three parameters are the scope var reads in. A let binds its name
+-- in its body (argument 2), a set_record in argument 3. The logic of map,
+-- filter, reduce, all, none and some (argument 1) is evaluated against each
+-- element, {current, accumulator} for reduce, so there the record and its $
+-- variables are gone, and so is every name bound outside: p_array_op names the
+-- operator and p_outside those names. Any other name there is a key of the
+-- element. Their first argument, and the initial value of reduce, are
+-- evaluated against the data outside.
+CREATE OR REPLACE FUNCTION jl_rule_problem(
+    p_rule jsonb,
+    p_path text DEFAULT '',
+    p_bound text[] DEFAULT '{}',
+    p_outside text[] DEFAULT '{}',
+    p_array_op text DEFAULT NULL)
+RETURNS jsonb AS $$
+DECLARE
+    v_op         text;
+    v_raw        jsonb;
+    v_args       jsonb;
+    v_n          int;
+    v_op_path    text;
+    v_arity      jsonb;
+    v_arg        jsonb;
+    v_at         int;
+    v_at_path    text;
+    v_expected   text;
+    v_params     jsonb;
+    v_root       text;
+    v_reason     text;
+    v_bound      text[];
+    v_outside    text[];
+    v_array_op   text;
+    v_found      jsonb;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            v_found := jl_rule_problem(p_rule -> i, jl_pointer(p_path, i::text), p_bound, p_outside, p_array_op);
+            IF v_found IS NOT NULL THEN
+                RETURN v_found;
+            END IF;
+        END LOOP;
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) <> 'object' OR p_rule = '{}'::jsonb THEN
+        RETURN NULL;
+    END IF;
+
+    -- What is inside such an object is never evaluated, so it is not looked at.
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN jsonb_build_object('code', '90923', 'path', p_path,
+            'key_count', (SELECT count(*)::int FROM jsonb_object_keys(p_rule)));
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    IF NOT (v_op = ANY(jl_operators())) THEN
+        RETURN jsonb_build_object('code', '90909', 'path', p_path, 'op', v_op);
+    END IF;
+
+    v_raw := p_rule -> v_op;
+    v_args := CASE WHEN jsonb_typeof(v_raw) = 'array' THEN v_raw ELSE jsonb_build_array(v_raw) END;
+    v_n := jsonb_array_length(v_args);
+    v_op_path := jl_pointer(p_path, v_op);
+
+    v_arity := jl_operator_arity() -> v_op;
+    IF v_n < (v_arity ->> 0)::int OR v_n > COALESCE((v_arity ->> 1)::int, v_n) THEN
+        RETURN jsonb_build_object('code', '90921', 'path', v_op_path, 'op', v_op, 'count', v_n,
+            'min', v_arity -> 0, 'max', v_arity -> 1);
+    END IF;
+
+    -- A literal argument of the wrong kind: v_at is its position and
+    -- v_expected names what it has to be. Each CASE below reads a value only
+    -- once its type is known, because the operands of OR and AND may be
+    -- evaluated in any order. A CASE in an IF condition is in parentheses:
+    -- PL/pgSQL ends the condition at the first THEN outside them.
+    IF v_op = 'var' THEN
+        v_arg := v_args -> 0;
+        IF jl_is_literal(v_arg) AND jsonb_typeof(v_arg) NOT IN ('string', 'number', 'null') THEN
+            v_at := 0; v_expected := 'var_path';
+        END IF;
+    ELSIF v_op = 'missing_some' THEN
+        IF jl_is_literal(v_args -> 0) AND jsonb_typeof(v_args -> 0) <> 'number' THEN
+            v_at := 0; v_expected := 'number';
+        ELSIF jl_is_literal(v_args -> 1) AND jsonb_typeof(v_args -> 1) <> 'array' THEN
+            v_at := 1; v_expected := 'array';
+        END IF;
+    ELSIF v_op IN ('let', 'set_record') THEN
+        FOR i IN 0 .. (CASE v_op WHEN 'let' THEN 0 ELSE 1 END) LOOP
+            IF jsonb_typeof(v_args -> i) <> 'string' OR v_args -> i = '""'::jsonb THEN
+                v_at := i; v_expected := 'name';
+                EXIT;
+            END IF;
+        END LOOP;
+    ELSIF v_op IN ('has_permission', 'require_permission', 'value_changed') THEN
+        v_arg := v_args -> 0;
+        IF jl_is_literal(v_arg) AND (jsonb_typeof(v_arg) <> 'string' OR v_arg = '""'::jsonb) THEN
+            v_at := 0;
+            v_expected := CASE v_op WHEN 'value_changed' THEN 'field' ELSE 'permission' END;
+        END IF;
+    ELSIF v_op = 'is_match' THEN
+        IF jl_is_literal(v_args -> 1) AND jsonb_typeof(v_args -> 1) <> 'string' THEN
+            v_at := 1; v_expected := 'string';
+        END IF;
+    ELSIF v_op IN ('is_raci_actor', 'has_consultation') THEN
+        IF jl_is_literal(v_args -> 0) AND (jsonb_typeof(v_args -> 0) <> 'string' OR v_args -> 0 = '""'::jsonb) THEN
+            v_at := 0; v_expected := 'entity';
+        ELSIF jl_is_literal(v_args -> 1) AND jsonb_typeof(v_args -> 1) <> 'string' THEN
+            v_at := 1; v_expected := 'string';
+        ELSIF v_op = 'is_raci_actor' AND jl_is_literal(v_args -> 2)
+              AND NOT (CASE WHEN jsonb_typeof(v_args -> 2) = 'string'
+                            THEN (v_args ->> 2) = ANY(jl_raci_letters()) ELSE FALSE END) THEN
+            v_at := 2; v_expected := 'raci_letter';
+        END IF;
+    ELSIF v_op = 'throw_error' THEN
+        v_arg := v_args -> 1;
+        IF jl_is_literal(v_arg) AND NOT (CASE jsonb_typeof(v_arg)
+                WHEN 'null'   THEN TRUE
+                WHEN 'string' THEN (v_arg #>> '{}') ~ '^99[0-9]{3}$'
+                WHEN 'number' THEN (v_arg #>> '{}')::numeric BETWEEN 99000 AND 99999
+                                   AND (v_arg #>> '{}')::numeric = trunc((v_arg #>> '{}')::numeric)
+                ELSE FALSE END) THEN
+            v_at := 1; v_expected := 'error_code';
+        ELSIF jl_is_literal(v_args -> 2) THEN
+            -- The checks throw_error makes when it raises: 90914, 90912, 90913.
+            v_params := v_args -> 2;
+            IF jsonb_typeof(v_params) <> 'array' THEN
+                v_at := 2; v_expected := 'error_parameters';
+            ELSIF jsonb_array_length(v_params) % 2 <> 0 THEN
+                v_at := 2; v_expected := 'parameter_pairs';
+            ELSE
+                FOR i IN 0 .. jsonb_array_length(v_params) - 1 BY 2 LOOP
+                    v_arg := v_params -> i;
+                    IF (CASE WHEN jsonb_typeof(v_arg) = 'string'
+                             THEN (v_arg #>> '{}') = ANY(jl_reserved_error_parameters())
+                             ELSE NOT jl_is_operation(v_arg) END) THEN
+                        v_at_path := jl_pointer(jl_argument_path(v_op_path, v_raw, 2), i::text);
+                        v_expected := 'parameter_name';
+                        EXIT;
+                    END IF;
+                    IF jsonb_typeof(v_params -> (i + 1)) = 'array' THEN
+                        v_at_path := jl_pointer(jl_argument_path(v_op_path, v_raw, 2), (i + 1)::text);
+                        v_expected := 'parameter_value';
+                        EXIT;
+                    END IF;
+                END LOOP;
+            END IF;
+        END IF;
+    ELSIF v_op = 'date_add' THEN
+        -- Two arguments are a date and a duration, three a date, an amount and a unit.
+        IF v_n = 2 THEN
+            IF jl_is_literal(v_args -> 1) AND NOT jl_date_literal_ok('duration', v_args -> 1) THEN
+                v_at := 1; v_expected := 'duration';
+            END IF;
+        ELSIF jl_is_literal(v_args -> 2) AND NOT jl_date_literal_ok('unit', v_args -> 2) THEN
+            v_at := 2; v_expected := 'date_unit';
+        END IF;
+    ELSIF v_op IN ('date_diff', 'date_trunc') THEN
+        v_at := CASE v_op WHEN 'date_diff' THEN 2 ELSE 1 END;
+        IF jl_is_literal(v_args -> v_at) AND NOT jl_date_literal_ok('unit', v_args -> v_at) THEN
+            v_expected := 'date_unit';
+        END IF;
+    ELSIF v_op = 'date_part' THEN
+        IF jl_is_literal(v_args -> 1) AND NOT jl_date_literal_ok('part', v_args -> 1) THEN
+            v_at := 1; v_expected := 'date_part';
+        END IF;
+    ELSIF v_op = 'date_format' THEN
+        IF jl_is_literal(v_args -> 1) AND NOT jl_date_literal_ok('pattern', v_args -> 1) THEN
+            v_at := 1; v_expected := 'date_pattern';
+        END IF;
+    END IF;
+
+    IF v_expected IS NOT NULL THEN
+        RETURN jsonb_build_object('code', '90922',
+            'path', COALESCE(v_at_path, jl_argument_path(v_op_path, v_raw, v_at)),
+            'op', v_op, 'expected', v_expected);
+    END IF;
+
+    -- Only the name before the first dot says where var reads from.
+    IF v_op = 'var' AND jsonb_typeof(v_args -> 0) = 'string' AND v_args -> 0 <> '""'::jsonb THEN
+        v_root := split_part(v_args ->> 0, '.', 1);
+        IF NOT (v_root = ANY(p_bound)) THEN
+            IF p_array_op IS NOT NULL THEN
+                IF starts_with(v_root, '$') THEN
+                    v_reason := 'array_element';
+                ELSIF v_root = ANY(p_outside) THEN
+                    v_reason := 'bound_outside';
+                END IF;
+            ELSIF starts_with(v_root, '$') AND NOT (v_root = ANY(jl_reserved_variables())) THEN
+                v_reason := 'unknown';
+            END IF;
+        END IF;
+        IF v_reason IS NOT NULL THEN
+            RETURN jsonb_build_object('code', '90924', 'path', jl_argument_path(v_op_path, v_raw, 0),
+                'variable', v_root, 'reason', v_reason, 'op', COALESCE(p_array_op, ''));
+        END IF;
+    END IF;
+
+    FOR i IN 0 .. v_n - 1 LOOP
+        CONTINUE WHEN (v_op = 'let' AND i = 0) OR (v_op = 'set_record' AND i <= 1);
+        v_bound := p_bound;
+        v_outside := p_outside;
+        v_array_op := p_array_op;
+        IF (v_op = 'let' AND i = 2) OR (v_op = 'set_record' AND i = 3) THEN
+            IF jsonb_typeof(v_args -> 0) = 'string' THEN
+                v_bound := p_bound || (v_args ->> 0);
+            END IF;
+        ELSIF i = 1 AND v_op IN ('map', 'filter', 'reduce', 'all', 'none', 'some') THEN
+            v_outside := p_outside || p_bound;
+            v_bound := '{}';
+            v_array_op := v_op;
+        END IF;
+        v_found := jl_rule_problem(v_args -> i, jl_argument_path(v_op_path, v_raw, i), v_bound, v_outside, v_array_op);
+        IF v_found IS NOT NULL THEN
+            RETURN v_found;
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- The keys a rule reads from the data it is evaluated on: the key of every
 -- var, missing and missing_some, and the field of every value_changed, which
@@ -2974,6 +3323,24 @@ COMMENT ON FUNCTION jl_is_operation(jsonb) IS
 'True when a JSONB value is a JsonLogic operation: an object with exactly one key. Everything else is a value to the evaluator.';
 COMMENT ON FUNCTION jl_unknown_operator(jsonb) IS
 'The first operator in a JsonLogic rule that evaluate_json_logic does not implement, or NULL when it knows them all. Walks every argument the evaluator would evaluate, and none it would not.';
+COMMENT ON FUNCTION jl_operator_arity() IS
+'The number of arguments each JsonLogic operator takes, as {"op": [min, max]}, max null when there is no upper bound.';
+COMMENT ON FUNCTION jl_reserved_variables() IS
+'The $ variables the rules of an entity are given: $today, $now, $user_id, $old and $mode.';
+COMMENT ON FUNCTION jl_reserved_error_parameters() IS
+'The parameter names throw_error refuses (90912), because the error hint reserves them.';
+COMMENT ON FUNCTION jl_raci_letters() IS
+'The RACI letters is_raci_actor accepts, the values of raci_assignments.raci.';
+COMMENT ON FUNCTION jl_pointer(text, text) IS
+'Appends one segment to a JSON pointer (RFC 6901), escaping ~ as ~0 and / as ~1.';
+COMMENT ON FUNCTION jl_argument_path(text, jsonb, int) IS
+'The JSON pointer of argument p_index of the operation at p_operation_path: the operation''s own pointer when its argument is not an array.';
+COMMENT ON FUNCTION jl_is_literal(jsonb) IS
+'True when a JSONB value is present and is no JsonLogic operation, so its value is known before the rule runs.';
+COMMENT ON FUNCTION jl_date_literal_ok(text, jsonb) IS
+'Whether a literal is a unit, part, pattern or duration (p_kind) the date operators accept, answered by the operators'' own checks.';
+COMMENT ON FUNCTION jl_rule_problem(jsonb, text, text[], text[], text) IS
+'The first mistake in a JsonLogic rule that the evaluator would not report, as {"code", "path", ...parameters}, or NULL: an unknown operator (90909), an argument count (90921), a literal argument (90922), an object with several keys (90923), a variable with no value (90924). Call it with the rule alone; the other parameters carry the walk.';
 COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
 
@@ -3004,6 +3371,15 @@ REVOKE EXECUTE ON FUNCTION jl_operators() FROM public;
 REVOKE EXECUTE ON FUNCTION jl_is_operation(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_row_keys(jsonb, text[]) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_operator_arity() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_reserved_variables() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_reserved_error_parameters() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_raci_letters() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_pointer(text, text) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_argument_path(text, jsonb, int) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_is_literal(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_literal_ok(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_rule_problem(jsonb, text, text[], text[], text) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
@@ -3029,17 +3405,26 @@ GRANT EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_date(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_reserved_error_parameters() TO semantius_user;
 -- The check of an entity's rules runs as whoever saves the entity.
 GRANT EXECUTE ON FUNCTION jl_operators() TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_is_operation(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_operator_arity() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_reserved_variables() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_raci_letters() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_pointer(text, text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_argument_path(text, jsonb, int) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_is_literal(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_literal_ok(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_rule_problem(jsonb, text, text[], text[], text) TO semantius_user;
 
 -- On an upgrade the dictionary's definer code already runs as semantius_owner,
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
 -- through that code, which checks their rules with jl_operators,
--- jl_is_operation and jl_unknown_operator, reads what they name with
--- jl_row_keys and evaluates them with the rest.
+-- jl_is_operation, jl_unknown_operator and jl_rule_problem with its helpers,
+-- reads what they name with jl_row_keys and evaluates them with the rest.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
@@ -3051,14 +3436,23 @@ BEGIN
             jl_operators(),
             jl_is_operation(jsonb),
             jl_unknown_operator(jsonb),
-            jl_row_keys(jsonb, text[])
+            jl_row_keys(jsonb, text[]),
+            jl_operator_arity(),
+            jl_reserved_variables(),
+            jl_reserved_error_parameters(),
+            jl_raci_letters(),
+            jl_pointer(text, text),
+            jl_argument_path(text, jsonb, int),
+            jl_is_literal(jsonb),
+            jl_date_literal_ok(text, jsonb),
+            jl_rule_problem(jsonb, text, text[], text[], text)
         TO semantius_owner;
     END IF;
 END $$;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', 'dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb')
+        VALUES ('_core.0050_jsonlogic.sql', '4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15902,7 +16296,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '7b518911c9b6f6ec161531baa33d5dfa2b25acf531f6741509ca4c8a4832a1bc') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'dc8daf2ff51d3e676b2fbb92e6aae7cf72fcaa7643008d00935ed3e09dc5560f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -15973,22 +16367,37 @@ REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 -- =====================================================
 -- A rule is checked when the entity is saved
 -- =====================================================
--- Two mistakes in a rule are invisible until records are written, and both are
--- refused here instead.
+-- A mistake in a rule is otherwise found only when a record reaches it, and
+-- most mistakes not even then: the evaluator answers, and the answer is wrong.
+-- The save refuses them instead, in two groups.
 --
--- An operator the evaluator does not implement raises on the first record that
--- reaches it. In a select_rule the generated predicate swallows that error and
--- every row is hidden, with nothing to say why.
+-- Two are checked on every write of the entity (dd_check_rule). An operator
+-- the evaluator does not implement raises on the first record that reaches it;
+-- in a select_rule the generated predicate swallows that error and every row
+-- is hidden, with nothing to say why. A select_rule or a validation rule that
+-- is not one operation is worse. The evaluator reads an object with several
+-- keys, and every literal, as a value; a value is truthy unless it is empty;
+-- so the rule passes every record and shows every row, and nobody notices
+-- that it never ran. That includes a condition typed as text and the literal
+-- true: a rule meant to hold always has no use that removing it does not serve
+-- better. A computed field may be a literal, because a constant is a
+-- legitimate value for a field. The empty select_rule {} means no rule and
+-- stays valid. A select_rule that is no object at all is left to the
+-- select_rule_is_object CHECK.
 --
--- A select_rule or a validation rule that is not one operation is worse. The
--- evaluator reads an object with several keys, and every literal, as a value;
--- a value is truthy unless it is empty; so the rule passes every record and
--- shows every row, and nobody notices that it never ran. That includes a
--- condition typed as text and the literal true: a rule meant to hold always
--- has no use that removing it does not serve better. A computed field may be a
--- literal, because a constant is a legitimate value for a field. The empty
--- select_rule {} means no rule and stays valid. A select_rule that is no
--- object at all is left to the select_rule_is_object CHECK.
+-- The rest are checked on a rule that is new or changed: a name of a computed
+-- field or a message of a validation rule that is not text
+-- (dd_check_rule_entry_types), and an object with several keys anywhere in a rule,
+-- an argument count the operator does not take, a literal argument of the
+-- wrong kind and a variable with no value where it is read
+-- (dd_check_rule_detail). These are what the checker of the Semantius app
+-- refuses, so the two accept the same rules. A rule can be stored without
+-- having passed them, and such a rule must not block the writes that leave it
+-- alone: an edit of another column, ensure_entities applying the entity again,
+-- or a change elsewhere that writes this row, such as a rename of an entity
+-- that its set_record names or a field saved on a base it is built on. A
+-- rename that rewrites the entity name inside such a rule changes the rule,
+-- and is refused. dd_rule_problems lists the stored rules that fail.
 --
 -- The check is a trigger of its own and not part of the builders below. A
 -- rule can be in the dictionary without having passed a save - a restored
@@ -15997,10 +16406,10 @@ REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 -- rebuild of its entity. They install it; build_select_rule_policy makes a
 -- stored select_rule that is no operation hide every row.
 --
--- It runs on every write of the entity, not only when a rule changes, so an
--- entity that stores a refused rule cannot be saved again - renamed,
--- re-applied by ensure_entities, edited in any column - until the rule is put
--- right. A delete is not checked.
+-- The first group runs on every write of the entity, not only when a rule
+-- changes, so an entity that stores a rule it refuses cannot be saved again -
+-- renamed, re-applied by ensure_entities, edited in any column - until the
+-- rule is put right. A delete is not checked.
 CREATE OR REPLACE FUNCTION dd_check_rule(p_table TEXT, p_rule TEXT, p_logic JSONB, p_operation_only BOOLEAN)
 RETURNS VOID AS $$
 DECLARE
@@ -16024,23 +16433,185 @@ $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) IS
 'Raises 90919 when a rule that has to be one JsonLogic operation is not, and 90909 when a rule names an operator the evaluator does not implement. p_rule is the rule''s place in the entity, such as validation_rules[0].';
 
--- An entry without a "jsonlogic" key, or one that is no object, is left to the
--- builders, which refuse it with the code that names what is missing.
+-- A name of a computed field and a message of a validation rule are text, as
+-- the app's checker demands: read as text, the builder would take 5 for "5".
+-- The save runs this over every new or changed entry. It runs before the
+-- permission checks of row-level security, as dd_check_rule does, and so
+-- looks only at what the caller wrote; a missing key and a code outside its
+-- class are left to dd_check_rule_entry in the builder, which runs once the
+-- write is allowed. The builder itself does not demand text, because it
+-- installs rules stored before this check as well, and refusing one there
+-- would block every later rebuild of its entity.
+CREATE OR REPLACE FUNCTION dd_check_rule_entry_types(p_table TEXT, p_column TEXT, p_idx INT, p_item JSONB)
+RETURNS VOID AS $$
+BEGIN
+    IF jsonb_typeof(p_item) <> 'object' THEN
+        RETURN;
+    END IF;
+    IF p_column = 'computed_fields' THEN
+        IF jsonb_typeof(p_item -> 'name') NOT IN ('string', 'null') THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+        END IF;
+    ELSIF jsonb_typeof(p_item -> 'message') NOT IN ('string', 'null') THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+            USING ERRCODE = '90903',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) IS
+'Raises 90900 when the name of a computed_fields entry is not text, and 90903 when the message of a validation_rules entry (p_column) is not text. A missing key is left to dd_check_rule_entry.';
+
+-- The keys an entry of computed_fields (p_column) or validation_rules needs,
+-- and the class of a validation rule's code. The builder runs this over every
+-- entry it installs, with p_strict false. With p_strict the types are checked
+-- first, as the save checks them, for dd_rule_problem.
+CREATE OR REPLACE FUNCTION dd_check_rule_entry(p_table TEXT, p_column TEXT, p_idx INT, p_item JSONB, p_strict BOOLEAN)
+RETURNS VOID AS $$
+DECLARE
+    v_code TEXT := p_item ->> 'code';
+BEGIN
+    IF p_strict THEN
+        PERFORM dd_check_rule_entry_types(p_table, p_column, p_idx, p_item);
+    END IF;
+    IF p_column = 'computed_fields' THEN
+        IF COALESCE(p_item ->> 'name', '') = '' THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+        END IF;
+        IF (p_item -> 'jsonlogic') IS NULL THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90901',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+        END IF;
+        RETURN;
+    END IF;
+
+    IF COALESCE(v_code, '') = '' THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
+            USING ERRCODE = '90902',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+    IF (p_item ->> 'message') IS NULL THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+            USING ERRCODE = '90903',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+    IF (p_item -> 'jsonlogic') IS NULL THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
+            USING ERRCODE = '90904',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+
+    -- Refused here rather than when the rule fires: PL/pgSQL accepts any
+    -- five uppercase alphanumerics as an ERRCODE, so a code like
+    -- "must_be_positive" installs happily and then fails at write time,
+    -- inside a trigger, on a row that has nothing to do with it.
+    --
+    -- "platform" is a naming convention, not a trust boundary - a
+    -- dictionary administrator can write it, and already writes the rule's
+    -- logic and message anyway.
+    IF (p_item ->> 'source_module') = 'platform' THEN
+        IF v_code !~ '^90[0-9]{3}$' THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
+                USING ERRCODE = '90906',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table, 'rule_code', v_code)::text;
+        END IF;
+    ELSIF v_code !~ '^99[0-9]{3}$' THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
+            USING ERRCODE = '90905',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table, 'rule_code', v_code)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) IS
+'Raises 90900 to 90906 when an entry of computed_fields or validation_rules (p_column) lacks a key it needs or carries a code outside its class. With p_strict, a name or a message that is not text is refused as missing first (dd_check_rule_entry_types).';
+
+-- The mistakes jl_rule_problem finds, raised under the rule's place and table
+-- as dd_check_rule raises its own, with the path inside the rule beside them.
+-- An unknown operator is dd_check_rule's to report, and is raised here only
+-- in the same form, for a caller that runs this check alone.
+CREATE OR REPLACE FUNCTION dd_check_rule_detail(p_table TEXT, p_rule TEXT, p_logic JSONB)
+RETURNS VOID AS $$
+DECLARE
+    v_problem JSONB := jl_rule_problem(p_logic);
+    v_hint    TEXT;
+BEGIN
+    IF v_problem IS NULL THEN
+        RETURN;
+    END IF;
+    v_hint := (jsonb_build_object('rule', p_rule, 'table', p_table) || (v_problem - 'code'))::text;
+    CASE v_problem ->> 'code'
+        WHEN '90909' THEN
+            RAISE EXCEPTION '${rule} on ${table} uses an operation the evaluator does not implement: ${op}'
+                USING ERRCODE = '90909',
+                      HINT = (jsonb_build_object('rule', p_rule, 'table', p_table, 'op', v_problem -> 'op'))::text;
+        WHEN '90921' THEN
+            RAISE EXCEPTION '${rule} on ${table} gives ${op} ${count} arguments, a number it does not take'
+                USING ERRCODE = '90921', HINT = v_hint;
+        WHEN '90922' THEN
+            RAISE EXCEPTION '${rule} on ${table}: ${op} needs ${expected} at ${path}'
+                USING ERRCODE = '90922', HINT = v_hint;
+        WHEN '90923' THEN
+            RAISE EXCEPTION '${rule} on ${table} holds an object with ${key_count} keys, which is a value and not an operation'
+                USING ERRCODE = '90923', HINT = v_hint;
+        ELSE
+            RAISE EXCEPTION '${rule} on ${table} reads ${variable}, which has no value where it is read'
+                USING ERRCODE = '90924', HINT = v_hint;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) IS
+'Raises the first mistake jl_rule_problem finds in a rule: 90921 an argument count, 90922 a literal argument, 90923 an object with several keys, 90924 a variable with no value where it is read. The hint carries rule, table and path, and the parameters of the mistake.';
+
+-- A computed_fields or validation_rules entry is new or changed when the row
+-- before the write holds no entry equal to it, so reordering the rules, or
+-- adding one, leaves the others alone. An entry that is no object, or has no
+-- "jsonlogic" key, is left to the builders, which refuse it with the code that
+-- names what is missing.
 CREATE OR REPLACE FUNCTION check_entity_rules()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_item JSONB;
-    v_idx  INT;
+    v_item       JSONB;
+    v_idx        INT;
+    v_place      TEXT;
+    v_new        BOOLEAN;
+    v_old_select JSONB;
+    v_old_valid  JSONB := '[]'::jsonb;
+    v_old_comp   JSONB := '[]'::jsonb;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        v_old_select := OLD.select_rule;
+        v_old_valid := CASE WHEN jsonb_typeof(OLD.validation_rules) = 'array' THEN OLD.validation_rules ELSE '[]'::jsonb END;
+        v_old_comp := CASE WHEN jsonb_typeof(OLD.computed_fields) = 'array' THEN OLD.computed_fields ELSE '[]'::jsonb END;
+    END IF;
+
     IF jsonb_typeof(NEW.select_rule) = 'object' AND NEW.select_rule <> '{}'::jsonb THEN
         PERFORM dd_check_rule(NEW.table_name, 'select_rule', NEW.select_rule, TRUE);
+        IF TG_OP = 'INSERT' OR NEW.select_rule IS DISTINCT FROM v_old_select THEN
+            PERFORM dd_check_rule_detail(NEW.table_name, 'select_rule', NEW.select_rule);
+        END IF;
     END IF;
 
     IF jsonb_typeof(NEW.validation_rules) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.validation_rules) - 1 LOOP
             v_item := NEW.validation_rules -> v_idx;
+            v_place := format('validation_rules[%s]', v_idx);
+            v_new := NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_old_valid) AS o(item) WHERE o.item = v_item);
+            IF v_new THEN
+                PERFORM dd_check_rule_entry_types(NEW.table_name, 'validation_rules', v_idx, v_item);
+            END IF;
             IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
-                PERFORM dd_check_rule(NEW.table_name, format('validation_rules[%s]', v_idx), v_item -> 'jsonlogic', TRUE);
+                PERFORM dd_check_rule(NEW.table_name, v_place, v_item -> 'jsonlogic', TRUE);
+                IF v_new THEN
+                    PERFORM dd_check_rule_detail(NEW.table_name, v_place, v_item -> 'jsonlogic');
+                END IF;
             END IF;
         END LOOP;
     END IF;
@@ -16048,8 +16619,16 @@ BEGIN
     IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
             v_item := NEW.computed_fields -> v_idx;
+            v_place := format('computed_fields[%s]', v_idx);
+            v_new := NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_old_comp) AS o(item) WHERE o.item = v_item);
+            IF v_new THEN
+                PERFORM dd_check_rule_entry_types(NEW.table_name, 'computed_fields', v_idx, v_item);
+            END IF;
             IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
-                PERFORM dd_check_rule(NEW.table_name, format('computed_fields[%s]', v_idx), v_item -> 'jsonlogic', FALSE);
+                PERFORM dd_check_rule(NEW.table_name, v_place, v_item -> 'jsonlogic', FALSE);
+                IF v_new THEN
+                    PERFORM dd_check_rule_detail(NEW.table_name, v_place, v_item -> 'jsonlogic');
+                END IF;
             END IF;
         END LOOP;
     END IF;
@@ -16059,22 +16638,33 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
-'BEFORE INSERT OR UPDATE trigger on entities: refuses a select_rule, validation rule or computed field that names an unknown operator (90909), and a select_rule or validation rule that is not one JsonLogic operation (90919). Runs on every write of the entity.';
+'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909) and a select_rule or validation rule that is not one JsonLogic operation (90919). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
 
 -- The check runs as whoever saves the entity, so the request role needs the
--- helper; the trigger function itself is called by the trigger alone.
+-- helpers; the trigger function itself is called by the trigger alone.
 REVOKE EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION check_entity_rules() FROM PUBLIC;
 
 -- On an upgrade the dictionary's definer code already runs as semantius_owner,
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
--- through that code, and the check would be refused its helper.
+-- through that code, and the check would be refused its helpers.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
-        GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_owner;
+        GRANT EXECUTE ON FUNCTION
+            dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN),
+            dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB),
+            dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN),
+            dd_check_rule_detail(TEXT, TEXT, JSONB)
+        TO semantius_owner;
     END IF;
 END $$;
 
@@ -16094,16 +16684,24 @@ COMMENT ON TRIGGER check_entity_rules_trigger ON entities IS
 -- so it may be a literal, and the empty object means that there is no rule.
 CREATE OR REPLACE FUNCTION check_field_rules()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_old JSONB;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        v_old := OLD.input_type_rule;
+    END IF;
     IF NEW.input_type_rule IS NOT NULL AND NEW.input_type_rule <> '{}'::jsonb THEN
         PERFORM dd_check_rule(NEW.table_name, NEW.field_name || '.input_type_rule', NEW.input_type_rule, FALSE);
+        IF TG_OP = 'INSERT' OR NEW.input_type_rule IS DISTINCT FROM v_old THEN
+            PERFORM dd_check_rule_detail(NEW.table_name, NEW.field_name || '.input_type_rule', NEW.input_type_rule);
+        END IF;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_field_rules() IS
-'BEFORE INSERT OR UPDATE trigger on fields: refuses an input_type_rule that names an unknown operator (90909), under the rule name <field>.input_type_rule. Runs on every write of the field.';
+'BEFORE INSERT OR UPDATE trigger on fields: refuses an input_type_rule that names an unknown operator (90909) on every write of the field, and one with a mistake of dd_check_rule_detail (90921 to 90924) when it is new or changed, under the rule name <field>.input_type_rule.';
 
 REVOKE EXECUTE ON FUNCTION check_field_rules() FROM PUBLIC;
 
@@ -16113,7 +16711,84 @@ CREATE OR REPLACE TRIGGER check_field_rules_trigger
     EXECUTE FUNCTION check_field_rules();
 
 COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
-'Refuses a field whose input_type_rule names an unknown operator.';
+'Refuses a field whose input_type_rule names an unknown operator, or whose new or changed input_type_rule has a mistake the evaluator would not report.';
+
+-- The stored rules that a save would refuse now, one row for the first
+-- mistake of each: a rule stored before it passed these checks keeps working,
+-- and this is where an operator finds it. Every place a rule can stand is
+-- checked with the save's own functions, as an insert of the row would check
+-- it. Not granted to the request role: it is run by an operator, as the owner
+-- of the dictionary, and reads every entity.
+CREATE OR REPLACE FUNCTION dd_rule_problem(
+    p_table TEXT, p_rule TEXT, p_column TEXT, p_idx INT, p_item JSONB, p_logic JSONB, p_operation_only BOOLEAN)
+RETURNS JSONB AS $$
+DECLARE
+    v_state   TEXT;
+    v_message TEXT;
+    v_hint    TEXT;
+BEGIN
+    IF p_column IS NOT NULL THEN
+        PERFORM dd_check_rule_entry(p_table, p_column, p_idx, p_item, TRUE);
+    END IF;
+    IF p_logic IS NOT NULL THEN
+        PERFORM dd_check_rule(p_table, p_rule, p_logic, p_operation_only);
+        PERFORM dd_check_rule_detail(p_table, p_rule, p_logic);
+    END IF;
+    RETURN NULL;
+EXCEPTION
+    -- SQLSTATE '90000' is the whole of class 90: a code ending in three
+    -- zeroes names its category.
+    WHEN SQLSTATE '90000' THEN
+        GET STACKED DIAGNOSTICS
+            v_state   = RETURNED_SQLSTATE,
+            v_message = MESSAGE_TEXT,
+            v_hint    = PG_EXCEPTION_HINT;
+        RETURN jsonb_build_object('code', v_state, 'message', v_message, 'hint', v_hint::jsonb);
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_problem(TEXT, TEXT, TEXT, INT, JSONB, JSONB, BOOLEAN) IS
+'Runs the save checks over one rule and returns the error they raise as {"code", "message", "hint"}, or NULL when the rule passes. Used by dd_rule_problems.';
+
+CREATE OR REPLACE FUNCTION dd_rule_problems()
+RETURNS TABLE (table_name TEXT, rule TEXT, code TEXT, message TEXT, hint JSONB) AS $$
+    WITH places AS (
+        SELECT e.table_name, 'select_rule' AS rule, NULL::text AS col, NULL::int AS idx,
+               NULL::jsonb AS item, e.select_rule AS logic, TRUE AS operation_only
+          FROM entities e
+         WHERE jsonb_typeof(e.select_rule) = 'object' AND e.select_rule <> '{}'::jsonb
+        UNION ALL
+        SELECT e.table_name, 'validation_rules[' || (r.ord - 1) || ']', 'validation_rules', (r.ord - 1)::int,
+               r.item, CASE WHEN jsonb_typeof(r.item) = 'object' THEN r.item -> 'jsonlogic' END, TRUE
+          FROM entities e
+         CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.validation_rules) = 'array'
+                                                      THEN e.validation_rules ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS r(item, ord)
+        UNION ALL
+        SELECT e.table_name, 'computed_fields[' || (r.ord - 1) || ']', 'computed_fields', (r.ord - 1)::int,
+               r.item, CASE WHEN jsonb_typeof(r.item) = 'object' THEN r.item -> 'jsonlogic' END, FALSE
+          FROM entities e
+         CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.computed_fields) = 'array'
+                                                      THEN e.computed_fields ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS r(item, ord)
+        UNION ALL
+        SELECT f.table_name, f.field_name || '.input_type_rule', NULL, NULL, NULL, f.input_type_rule, FALSE
+          FROM fields f
+         WHERE f.input_type_rule IS NOT NULL AND f.input_type_rule <> '{}'::jsonb
+    )
+    SELECT p.table_name, p.rule, x.problem ->> 'code', x.problem ->> 'message', x.problem -> 'hint'
+      FROM places p
+     CROSS JOIN LATERAL (SELECT dd_rule_problem(p.table_name, p.rule, p.col, p.idx, p.item, p.logic,
+                                                p.operation_only) AS problem) x
+     WHERE x.problem IS NOT NULL
+     ORDER BY 1, 2;
+$$ LANGUAGE sql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_problems() IS
+'Lists every stored rule a save would refuse, with its entity, its place (select_rule, validation_rules[0], computed_fields[2], <field>.input_type_rule) and the code, message and hint of the first mistake. Run it as the owner of the dictionary.';
+
+REVOKE EXECUTE ON FUNCTION dd_rule_problem(TEXT, TEXT, TEXT, INT, JSONB, JSONB, BOOLEAN) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_rule_problems() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -16231,16 +16906,7 @@ BEGIN
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
         v_item := v_entity.computed_fields -> v_idx;
         v_name := v_item ->> 'name';
-        IF v_name IS NULL OR v_name = '' THEN
-            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
-                USING ERRCODE = '90900',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
-                USING ERRCODE = '90901',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
+        PERFORM dd_check_rule_entry(p_table_name, 'computed_fields', v_idx, v_item, FALSE);
         -- A rollup column takes its value from other records, and a rule
         -- writing it would run after the rollup guard and overwrite the
         -- aggregate: one derivation per field (the other direction is 90261).
@@ -16305,41 +16971,7 @@ $BLOCK$,
         v_code := v_item ->> 'code';
         v_message := v_item ->> 'message';
         v_rule_hint := v_item ->> 'hint';
-        IF v_code IS NULL OR v_code = '' THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
-                USING ERRCODE = '90902',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF v_message IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
-                USING ERRCODE = '90903',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
-                USING ERRCODE = '90904',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-
-        -- Refused here rather than when the rule fires: PL/pgSQL accepts any
-        -- five uppercase alphanumerics as an ERRCODE, so a code like
-        -- "must_be_positive" installs happily and then fails at write time,
-        -- inside a trigger, on a row that has nothing to do with it.
-        --
-        -- "platform" is a naming convention, not a trust boundary - a
-        -- dictionary administrator can write it, and already writes the rule's
-        -- logic and message anyway.
-        IF (v_item ->> 'source_module') = 'platform' THEN
-            IF v_code !~ '^90[0-9]{3}$' THEN
-                RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
-                    USING ERRCODE = '90906',
-                          HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
-            END IF;
-        ELSIF v_code !~ '^99[0-9]{3}$' THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
-                USING ERRCODE = '90905',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
-        END IF;
+        PERFORM dd_check_rule_entry(p_table_name, 'validation_rules', v_idx, v_item, FALSE);
 
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 
@@ -17524,7 +18156,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '7b518911c9b6f6ec161531baa33d5dfa2b25acf531f6741509ca4c8a4832a1bc')
+        VALUES ('_core.0210_computed_validation.sql', 'dc8daf2ff51d3e676b2fbb92e6aae7cf72fcaa7643008d00935ed3e09dc5560f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25891,7 +26523,7 @@ $pgsem__core_0430_required_field_description_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '93b987831027f5e96de7dd6971291416affee5c3c194f628ee1e97aec858a851') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
       EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
@@ -26125,6 +26757,15 @@ BEGIN
         WHEN 'number' THEN
             IF p_kind IN ('bool', 'typeid') THEN
                 PERFORM rollup_filter_problem(format('number %s compared with a column of type %s', v_text, p_type));
+            END IF;
+            -- Cast to text, a number would equal only the value written that
+            -- way and would order as text, while the interpreter reads both
+            -- sides as numbers: '10.0' equals 10 there, '' equals 0, and '10'
+            -- is above 5. The same rule would count other rows here than in a
+            -- validation rule. Written as a string, the literal compares as
+            -- text on both sides. The value of date_format is text as well.
+            IF p_type = 'text' THEN
+                PERFORM rollup_filter_problem(format('number %s compared with text; write it as a string', v_text));
             END IF;
             RETURN format('%L::%s', v_text, COALESCE(v_cast, 'numeric'));
         WHEN 'boolean' THEN
@@ -26532,6 +27173,23 @@ BEGIN
                 END IF;
             END LOOP;
             -- The value comes first, so it anchors the cast of every list entry.
+            -- The interpreter looks for the value itself in the list, where a
+            -- number equals no string, so against a number a string entry would
+            -- match through its cast here and never in a validation rule. It is
+            -- refused, as === refuses a literal of another type. A number entry
+            -- against text is refused by rollup_filter_literal. Against == the
+            -- interpreter reads a string as a number too, so == takes one.
+            v_col := rollup_filter_operand(v_args -> 0, p_rel, p_alias, p_rollup);
+            IF (v_col ->> 'is_var')::boolean
+               AND (v_col ->> 'type' LIKE 'numeric%'
+                    OR v_col ->> 'type' IN ('smallint', 'integer', 'bigint', 'real', 'double precision')) THEN
+                FOR v_item IN SELECT a FROM jsonb_array_elements(v_args -> 1) a LOOP
+                    IF jsonb_typeof(v_item) = 'string' THEN
+                        PERFORM rollup_filter_problem(format(
+                            'in compares the types first: the value is a number and %s is a string', v_item::text));
+                    END IF;
+                END LOOP;
+            END IF;
             v_parts := rollup_filter_operands(jsonb_build_array(v_args -> 0) || (v_args -> 1), p_rel, p_alias, FALSE, p_rollup);
             RETURN format('(%s IN (%s))', v_parts[1], array_to_string(v_parts[2:], ', '));
         WHEN 'var' THEN
@@ -27756,7 +28414,7 @@ REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
 $pgsem__core_0440_rollup_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0440_rollup.sql', '93b987831027f5e96de7dd6971291416affee5c3c194f628ee1e97aec858a851')
+        VALUES ('_core.0440_rollup.sql', 'f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -28136,7 +28794,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"38fdc3a2d65a80c2c0eff3e77db17aa9e9967146b1b0a1b24dadd2c5904e0f79","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"7b518911c9b6f6ec161531baa33d5dfa2b25acf531f6741509ca4c8a4832a1bc","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"93b987831027f5e96de7dd6971291416affee5c3c194f628ee1e97aec858a851","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"38fdc3a2d65a80c2c0eff3e77db17aa9e9967146b1b0a1b24dadd2c5904e0f79","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"dc8daf2ff51d3e676b2fbb92e6aae7cf72fcaa7643008d00935ed3e09dc5560f","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -28200,7 +28858,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb","_core.0060_rbac_schema.once.sql":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"38fdc3a2d65a80c2c0eff3e77db17aa9e9967146b1b0a1b24dadd2c5904e0f79","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","_core.0150_dd_bootstrap.once.sql":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","_core.0170_dd_rename.sql":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"7b518911c9b6f6ec161531baa33d5dfa2b25acf531f6741509ca4c8a4832a1bc","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","_core.0350_raci.jsonc":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"93b987831027f5e96de7dd6971291416affee5c3c194f628ee1e97aec858a851","_core.9900_owner_hardening.sql":"ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","_core.0060_rbac_schema.once.sql":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"38fdc3a2d65a80c2c0eff3e77db17aa9e9967146b1b0a1b24dadd2c5904e0f79","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","_core.0150_dd_bootstrap.once.sql":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","_core.0170_dd_rename.sql":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"dc8daf2ff51d3e676b2fbb92e6aae7cf72fcaa7643008d00935ed3e09dc5560f","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","_core.0350_raci.jsonc":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","_core.9900_owner_hardening.sql":"ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

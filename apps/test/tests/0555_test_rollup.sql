@@ -21,7 +21,7 @@
 --  15. Values a filter meets when a child is written
 BEGIN;
 
-SELECT plan(371);
+SELECT plan(373);
 
 SELECT authenticate_as('user3');
 
@@ -1593,29 +1593,34 @@ SELECT is(pg_temp.ru_ops('{"<": [{"var": "d"}, "2026-02-01"]}'), ARRAY[3, 4], 'a
 SELECT is(pg_temp.ru_ops('{"<": [{"var": "ts"}, "2026-02-01T00:00:00+00:00"]}'), ARRAY[3, 4], 'the same for a NULL date-time');
 SELECT is(pg_temp.ru_ops('{"<": [-5, {"var": "n"}, 5]}'), ARRAY[3, 4], 'and for a range that includes 0');
 
--- A literal is cast to the type of the column it meets, where the interpreter
--- coerces the pair to numbers. Against a text column a number is therefore
--- text: 10 equals only the value written '10', 0 does not equal the empty
--- string, and ordering is text ordering, in which every word is above '5'.
-SELECT is(pg_temp.ru_ops('{"==": [{"var": "t"}, 10]}'), ARRAY[1, 2],
-    'a text column equal to 10: compiled, the one value written 10; interpreted, every value that reads as 10');
-SELECT is(pg_temp.ru_ops('{"==": [{"var": "t"}, 0]}'), ARRAY[0, 1],
-    'a text column equal to 0: compiled, nothing; interpreted, the empty string');
-SELECT is(pg_temp.ru_ops('{">": [{"var": "t"}, 5]}'), ARRAY[4, 2],
-    'a text column above 5: compiled, the four words; interpreted, the two values that read as 10');
--- Interpreted, a value that is no number is below nothing, which leaves the
--- empty string and the NULL row, both read as 0.
-SELECT is(pg_temp.ru_ops('{"<": [{"var": "t"}, 5]}'), ARRAY[3, 2],
-    'a text column below 5: compiled, the three values that sort before the digit 5; interpreted, the empty string and the NULL row');
+-- A number against text is refused. Cast to text, 10 would equal only the
+-- value written '10' and order as text, while the interpreter reads both sides
+-- as numbers and finds '10.0' as well. Written as a string, the literal is
+-- text on both sides, and the two rows that read as 10 show it.
+SELECT is(pg_temp.rx_filter('{"==": [{"var": "t"}, 10]}'), pg_temp.rx_problem('number 10 compared with text; write it as a string'),
+    'a number against a text column is refused');
+SELECT is(pg_temp.rx_filter('{">": [{"var": "t"}, 5]}'), pg_temp.rx_problem('number 5 compared with text; write it as a string'),
+    'and in an ordering comparison');
+SELECT is(pg_temp.rx_filter('{"in": [{"var": "t"}, ["a", 10]]}'), pg_temp.rx_problem('number 10 compared with text; write it as a string'),
+    'and in an in list');
+SELECT is(pg_temp.rx_filter('{"==": [{"date_format": [{"var": "d"}, "MM"]}, 6]}'), pg_temp.rx_problem('number 6 compared with text; write it as a string'),
+    'and against date_format, whose value is text');
+SELECT is(pg_temp.ru_ops('{"==": [{"var": "t"}, "10"]}'), ARRAY[1, 1], 'both ways: the string 10 equals only the value written 10');
+SELECT is(pg_temp.ru_ops('{">": [{"var": "t"}, "5"]}'), ARRAY[4, 4], 'both ways: a text column above the string 5 is ordered as text');
 
--- Against a numeric column a string is a number, in a list as anywhere; the
--- interpreter looks for the value itself in the list and finds a number equal
--- to no string. The same holds with the types swapped.
-SELECT is(pg_temp.ru_ops('{"in": [{"var": "n"}, ["1", "5"]]}'), ARRAY[3, 0],
-    'in with a list of strings on an integer column: compiled, the strings are numbers; interpreted, nothing matches');
-SELECT is(pg_temp.ru_ops('{"in": [{"var": "x"}, ["1.5"]]}'), ARRAY[1, 0], 'the same on a numeric column');
-SELECT is(pg_temp.ru_ops('{"in": [{"var": "t"}, [10]]}'), ARRAY[1, 0],
-    'in with a list of numbers on a text column: compiled, the number is text; interpreted, nothing matches');
+-- A string in an in list against a number is refused. Cast to a number, it
+-- would match here, while the interpreter looks for the value itself in the
+-- list, where a number equals no string. Against == the interpreter reads the
+-- string as a number too, so == takes one (above).
+SELECT is(pg_temp.rx_filter('{"in": [{"var": "n"}, ["1", "5"]]}'),
+    pg_temp.rx_problem('in compares the types first: the value is a number and "1" is a string'),
+    'a string in an in list against an integer column is refused');
+SELECT is(pg_temp.rx_err($$SELECT rollup_filter_sql('{"in": [{"var": "x"}, [1.5, "10.25"]]}', 'ru_op_rows', 'c')$$),
+    pg_temp.rx_problem('in compares the types first: the value is a number and "10.25" is a string'),
+    'and against a numeric column, one string among numbers');
+SELECT is(pg_temp.rx_filter('{"in": [{"date_part": [{"var": "d"}, "month"]}, ["1"]]}'),
+    pg_temp.rx_problem('in compares the types first: the value is a number and "1" is a string'),
+    'and against date_part, whose value is a number');
 
 -- ! over a comparison that is NULL. SQL's NOT keeps NULL, so the row with a NULL
 -- column is in neither the comparison nor its negation. The interpreter always
@@ -1693,14 +1698,14 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, rollup) 
         "filter": {"<": [{"date_add": [{"var": "ship_date"}, {"var": "days"}, "day"]}, "2027-01-01"]}}');
 
 -- A literal the column cannot be cast from is known at save time: a string that
--- is no number, in a list as anywhere, and a number with a fraction against an
--- integer column, which the interpreter would simply compare.
+-- is no number, and a number with a fraction against an integer column, which
+-- the interpreter would simply compare.
 SELECT is(pg_temp.rx_err($$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
-                           VALUES ('rt_parent', 'probe_list', 'Probe', 'int64', 100,
-                                   '{"link_field": "rt_sized.parent_id", "function": "count", "filter": {"in": [{"var": "days"}, ["a", "b"]]}}')$$),
+                           VALUES ('rt_parent', 'probe_string', 'Probe', 'int64', 100,
+                                   '{"link_field": "rt_sized.parent_id", "function": "count", "filter": {"==": [{"var": "days"}, "a"]}}')$$),
     '{"code": "90265", "message": "Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}",
-      "hint": {"table": "rt_parent", "field_name": "probe_list", "problem": "invalid input syntax for type bigint: \"a\""}}'::jsonb,
-    'in with a list of strings that are no numbers on an integer column is refused when the definition is saved');
+      "hint": {"table": "rt_parent", "field_name": "probe_string", "problem": "invalid input syntax for type bigint: \"a\""}}'::jsonb,
+    'a string that is no number against an integer column is refused when the definition is saved');
 SELECT is(pg_temp.rx_err($$INSERT INTO fields (table_name, field_name, title, format, field_order, rollup)
                            VALUES ('rt_parent', 'probe_fraction', 'Probe', 'int64', 110,
                                    '{"link_field": "rt_sized.parent_id", "function": "count", "filter": {"<": [{"var": "days"}, 2.5]}}')$$),

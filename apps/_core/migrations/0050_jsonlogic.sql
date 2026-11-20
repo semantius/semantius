@@ -1277,12 +1277,7 @@ BEGIN
             FOR i IN 0 .. jsonb_array_length(c) / 2 - 1 LOOP
                 err_name  := c ->> (i * 2);
                 err_value := c -> (i * 2 + 1);
-                -- The generated validation trigger merges entity, rule and
-                -- field into this object, and its merge keeps whatever is
-                -- already there, so a rule that set one of them would win over
-                -- the trigger that actually knows where the error happened.
-                -- hint and code are the contract's other two reserved keys.
-                IF err_name IN ('hint', 'code', 'entity', 'rule', 'field') THEN
+                IF err_name = ANY(jl_reserved_error_parameters()) THEN
                     RAISE EXCEPTION 'throw_error parameter ${name} uses a reserved name'
                         USING ERRCODE = '90912',
                               HINT = jsonb_build_object('name', err_name)::text;
@@ -1437,6 +1432,360 @@ BEGIN
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- =====================================================
+-- The rest of what a rule gets wrong without an error
+-- =====================================================
+-- An unknown operator is one mistake the evaluator meets only when a record
+-- reaches it. These are the others, and the evaluator does not even raise on
+-- them; it answers, and the answer is wrong:
+--   * an object with several keys, which it reads as a value, and a value is
+--     truthy;
+--   * an operator given a number of arguments it does not take, whose extra
+--     arguments it ignores and whose missing ones it reads as null;
+--   * a literal argument of the wrong kind: a misspelled date unit, a RACI
+--     letter no role holds, a throw_error code outside class 99;
+--   * a variable with no value where it is read: a $ name the rules are not
+--     given, or a name read inside the logic of map, filter, reduce, all, none
+--     or some that only exists outside it.
+-- jl_rule_problem finds them from the rule alone, so the dictionary can refuse
+-- the rule when it is saved. It refuses exactly what the checker of the
+-- Semantius app refuses (sem-schema's jsonlogic/validate.ts): a rule that one
+-- of the two accepts must not be refused by the other.
+-- 0115_test_jsonlogic_check.json holds the cases both of them run.
+
+-- The arguments each operator takes, as [min, max], max null when there is no
+-- upper bound. >= has no three-argument "between" form as < and <= do, so
+-- {">=": [x, lo, hi]} silently drops hi. The keys are exactly jl_operators(),
+-- which 0110_test_jsonlogic_ext.sql checks.
+CREATE OR REPLACE FUNCTION jl_operator_arity() RETURNS jsonb AS $$
+    SELECT '{
+        "if": [1, null], "?:": [1, null], "and": [1, null], "or": [1, null],
+        "filter": [2, 2], "map": [2, 2], "reduce": [2, 3], "all": [2, 2], "none": [2, 2], "some": [2, 2],
+        "let": [3, 3], "set_record": [4, 4],
+        "var": [0, 2], "missing": [0, null], "missing_some": [2, 2],
+        "==": [2, 2], "===": [2, 2], "!=": [2, 2], "!==": [2, 2], "!": [1, 1], "!!": [1, 1],
+        ">": [2, 2], ">=": [2, 2], "<": [2, 3], "<=": [2, 3],
+        "%": [2, 2], "+": [1, null], "*": [1, null], "-": [1, 2], "/": [2, 2], "max": [1, null], "min": [1, null],
+        "in": [2, 2], "cat": [0, null], "substr": [2, 3], "merge": [0, null], "log": [1, 1],
+        "has_permission": [1, 1], "require_permission": [1, 1], "value_changed": [1, 1],
+        "concat": [0, null], "is_match": [2, 2],
+        "throw_error": [1, 3], "is_raci_actor": [3, 3], "has_consultation": [3, 3],
+        "date_add": [2, 3], "date_diff": [3, 3], "date_part": [2, 2], "date_trunc": [2, 2],
+        "to_date": [1, 1], "date_format": [2, 2]
+    }'::jsonb;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The $ names build_record_logic_trigger gives the rules of an entity. Any
+-- other $ name reads null.
+CREATE OR REPLACE FUNCTION jl_reserved_variables() RETURNS text[] AS $$
+    SELECT ARRAY['$today', '$now', '$user_id', '$old', '$mode'];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The parameter names throw_error refuses (90912). The generated validation
+-- trigger merges entity, rule and field into the hint, and its merge keeps a
+-- key that is already there, so a parameter of one of those names would win
+-- over the trigger that knows where the error happened. hint and code are the
+-- contract's other two reserved keys.
+CREATE OR REPLACE FUNCTION jl_reserved_error_parameters() RETURNS text[] AS $$
+    SELECT ARRAY['hint', 'code', 'entity', 'rule', 'field'];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The letters is_raci_actor compares with raci_assignments.raci. A letter no
+-- assignment can hold makes the operator false for everyone, without an
+-- error. 0110_test_jsonlogic_ext.sql compares the list with that field's enum.
+CREATE OR REPLACE FUNCTION jl_raci_letters() RETURNS text[] AS $$
+    SELECT ARRAY['responsible', 'accountable', 'consulted', 'informed'];
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- One more segment of a JSON pointer (RFC 6901), the form in which the app's
+-- checker names a place in a rule: ~ is written ~0 and / is written ~1, so the
+-- operator / is the segment ~1.
+CREATE OR REPLACE FUNCTION jl_pointer(p_path text, p_segment text) RETURNS text AS $$
+    SELECT p_path || '/' || replace(replace(p_segment, '~', '~0'), '/', '~1');
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- The place of an operation's argument. An argument that is not an array is
+-- the only one, {"var": "a"} standing for {"var": ["a"]}, so it has no index of
+-- its own and its place is the operation's.
+CREATE OR REPLACE FUNCTION jl_argument_path(p_operation_path text, p_raw jsonb, p_index int) RETURNS text AS $$
+    SELECT CASE WHEN jsonb_typeof(p_raw) = 'array'
+                THEN jl_pointer(p_operation_path, p_index::text)
+                ELSE p_operation_path END;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+-- An argument that is there and is no operation. Only such an argument can be
+-- checked: what an operation yields is known when it runs.
+CREATE OR REPLACE FUNCTION jl_is_literal(p_value jsonb) RETURNS boolean AS $$
+BEGIN
+    RETURN p_value IS NOT NULL AND NOT jl_is_operation(p_value);
+END;
+$$ LANGUAGE plpgsql IMMUTABLE SET search_path = public, pg_temp;
+
+-- Whether a literal is a unit, a part, a pattern or a duration the date
+-- operators take. The operators' own checks answer, so each list exists once:
+-- the operator runs over a fixed date-time, on which every unit, part and
+-- token can be used, and only the error that names a bad unit, pattern or
+-- amount says no. Any other error, such as a duration too long for an
+-- interval, is no more visible to the app's checker than to this one, and is
+-- left to the evaluator.
+CREATE OR REPLACE FUNCTION jl_date_literal_ok(p_kind text, p_value jsonb) RETURNS boolean AS $$
+DECLARE
+    v_moment CONSTANT jsonb := '"2000-01-01T00:00:00"';
+BEGIN
+    CASE p_kind
+        WHEN 'unit'    THEN PERFORM jl_date_unit('date_trunc', p_value, false);
+        WHEN 'part'    THEN PERFORM jl_date_part(v_moment, p_value);
+        WHEN 'pattern' THEN PERFORM jl_date_format(v_moment, p_value);
+        ELSE                PERFORM jl_date_add(v_moment, p_value, NULL);
+    END CASE;
+    RETURN TRUE;
+EXCEPTION
+    WHEN SQLSTATE '90916' OR SQLSTATE '90917' OR SQLSTATE '90918' THEN
+        RETURN FALSE;
+    WHEN OTHERS THEN
+        RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+-- The first mistake in a rule, as an object of its code, its path and its
+-- parameters, or NULL when there is none. The path is the JSON pointer to the
+-- mistake inside the rule, '' for the rule itself.
+--   90909  an operator the evaluator does not implement: op
+--   90921  an argument count outside jl_operator_arity: op, count, min, max
+--   90922  a literal argument of the wrong kind: op, expected
+--   90923  an object with several keys: key_count
+--   90924  a variable with no value where it is read: variable, reason, op
+--
+-- The walk is the evaluator's: an array is a list of rules, an object with
+-- one key an operation, anything else a value. The count comes first, then
+-- the literal arguments, then the arguments themselves, the order the app's
+-- checker reports them in. The names of let and set_record are checked
+-- whatever they hold and never walked, because they are never evaluated.
+--
+-- The last three parameters are the scope var reads in. A let binds its name
+-- in its body (argument 2), a set_record in argument 3. The logic of map,
+-- filter, reduce, all, none and some (argument 1) is evaluated against each
+-- element, {current, accumulator} for reduce, so there the record and its $
+-- variables are gone, and so is every name bound outside: p_array_op names the
+-- operator and p_outside those names. Any other name there is a key of the
+-- element. Their first argument, and the initial value of reduce, are
+-- evaluated against the data outside.
+CREATE OR REPLACE FUNCTION jl_rule_problem(
+    p_rule jsonb,
+    p_path text DEFAULT '',
+    p_bound text[] DEFAULT '{}',
+    p_outside text[] DEFAULT '{}',
+    p_array_op text DEFAULT NULL)
+RETURNS jsonb AS $$
+DECLARE
+    v_op         text;
+    v_raw        jsonb;
+    v_args       jsonb;
+    v_n          int;
+    v_op_path    text;
+    v_arity      jsonb;
+    v_arg        jsonb;
+    v_at         int;
+    v_at_path    text;
+    v_expected   text;
+    v_params     jsonb;
+    v_root       text;
+    v_reason     text;
+    v_bound      text[];
+    v_outside    text[];
+    v_array_op   text;
+    v_found      jsonb;
+BEGIN
+    IF p_rule IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) = 'array' THEN
+        FOR i IN 0 .. jsonb_array_length(p_rule) - 1 LOOP
+            v_found := jl_rule_problem(p_rule -> i, jl_pointer(p_path, i::text), p_bound, p_outside, p_array_op);
+            IF v_found IS NOT NULL THEN
+                RETURN v_found;
+            END IF;
+        END LOOP;
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(p_rule) <> 'object' OR p_rule = '{}'::jsonb THEN
+        RETURN NULL;
+    END IF;
+
+    -- What is inside such an object is never evaluated, so it is not looked at.
+    IF NOT jl_is_operation(p_rule) THEN
+        RETURN jsonb_build_object('code', '90923', 'path', p_path,
+            'key_count', (SELECT count(*)::int FROM jsonb_object_keys(p_rule)));
+    END IF;
+
+    v_op := jsonb_path_query_first(p_rule, '$.keyvalue().key') #>> '{}';
+    IF NOT (v_op = ANY(jl_operators())) THEN
+        RETURN jsonb_build_object('code', '90909', 'path', p_path, 'op', v_op);
+    END IF;
+
+    v_raw := p_rule -> v_op;
+    v_args := CASE WHEN jsonb_typeof(v_raw) = 'array' THEN v_raw ELSE jsonb_build_array(v_raw) END;
+    v_n := jsonb_array_length(v_args);
+    v_op_path := jl_pointer(p_path, v_op);
+
+    v_arity := jl_operator_arity() -> v_op;
+    IF v_n < (v_arity ->> 0)::int OR v_n > COALESCE((v_arity ->> 1)::int, v_n) THEN
+        RETURN jsonb_build_object('code', '90921', 'path', v_op_path, 'op', v_op, 'count', v_n,
+            'min', v_arity -> 0, 'max', v_arity -> 1);
+    END IF;
+
+    -- A literal argument of the wrong kind: v_at is its position and
+    -- v_expected names what it has to be. Each CASE below reads a value only
+    -- once its type is known, because the operands of OR and AND may be
+    -- evaluated in any order. A CASE in an IF condition is in parentheses:
+    -- PL/pgSQL ends the condition at the first THEN outside them.
+    IF v_op = 'var' THEN
+        v_arg := v_args -> 0;
+        IF jl_is_literal(v_arg) AND jsonb_typeof(v_arg) NOT IN ('string', 'number', 'null') THEN
+            v_at := 0; v_expected := 'var_path';
+        END IF;
+    ELSIF v_op = 'missing_some' THEN
+        IF jl_is_literal(v_args -> 0) AND jsonb_typeof(v_args -> 0) <> 'number' THEN
+            v_at := 0; v_expected := 'number';
+        ELSIF jl_is_literal(v_args -> 1) AND jsonb_typeof(v_args -> 1) <> 'array' THEN
+            v_at := 1; v_expected := 'array';
+        END IF;
+    ELSIF v_op IN ('let', 'set_record') THEN
+        FOR i IN 0 .. (CASE v_op WHEN 'let' THEN 0 ELSE 1 END) LOOP
+            IF jsonb_typeof(v_args -> i) <> 'string' OR v_args -> i = '""'::jsonb THEN
+                v_at := i; v_expected := 'name';
+                EXIT;
+            END IF;
+        END LOOP;
+    ELSIF v_op IN ('has_permission', 'require_permission', 'value_changed') THEN
+        v_arg := v_args -> 0;
+        IF jl_is_literal(v_arg) AND (jsonb_typeof(v_arg) <> 'string' OR v_arg = '""'::jsonb) THEN
+            v_at := 0;
+            v_expected := CASE v_op WHEN 'value_changed' THEN 'field' ELSE 'permission' END;
+        END IF;
+    ELSIF v_op = 'is_match' THEN
+        IF jl_is_literal(v_args -> 1) AND jsonb_typeof(v_args -> 1) <> 'string' THEN
+            v_at := 1; v_expected := 'string';
+        END IF;
+    ELSIF v_op IN ('is_raci_actor', 'has_consultation') THEN
+        IF jl_is_literal(v_args -> 0) AND (jsonb_typeof(v_args -> 0) <> 'string' OR v_args -> 0 = '""'::jsonb) THEN
+            v_at := 0; v_expected := 'entity';
+        ELSIF jl_is_literal(v_args -> 1) AND jsonb_typeof(v_args -> 1) <> 'string' THEN
+            v_at := 1; v_expected := 'string';
+        ELSIF v_op = 'is_raci_actor' AND jl_is_literal(v_args -> 2)
+              AND NOT (CASE WHEN jsonb_typeof(v_args -> 2) = 'string'
+                            THEN (v_args ->> 2) = ANY(jl_raci_letters()) ELSE FALSE END) THEN
+            v_at := 2; v_expected := 'raci_letter';
+        END IF;
+    ELSIF v_op = 'throw_error' THEN
+        v_arg := v_args -> 1;
+        IF jl_is_literal(v_arg) AND NOT (CASE jsonb_typeof(v_arg)
+                WHEN 'null'   THEN TRUE
+                WHEN 'string' THEN (v_arg #>> '{}') ~ '^99[0-9]{3}$'
+                WHEN 'number' THEN (v_arg #>> '{}')::numeric BETWEEN 99000 AND 99999
+                                   AND (v_arg #>> '{}')::numeric = trunc((v_arg #>> '{}')::numeric)
+                ELSE FALSE END) THEN
+            v_at := 1; v_expected := 'error_code';
+        ELSIF jl_is_literal(v_args -> 2) THEN
+            -- The checks throw_error makes when it raises: 90914, 90912, 90913.
+            v_params := v_args -> 2;
+            IF jsonb_typeof(v_params) <> 'array' THEN
+                v_at := 2; v_expected := 'error_parameters';
+            ELSIF jsonb_array_length(v_params) % 2 <> 0 THEN
+                v_at := 2; v_expected := 'parameter_pairs';
+            ELSE
+                FOR i IN 0 .. jsonb_array_length(v_params) - 1 BY 2 LOOP
+                    v_arg := v_params -> i;
+                    IF (CASE WHEN jsonb_typeof(v_arg) = 'string'
+                             THEN (v_arg #>> '{}') = ANY(jl_reserved_error_parameters())
+                             ELSE NOT jl_is_operation(v_arg) END) THEN
+                        v_at_path := jl_pointer(jl_argument_path(v_op_path, v_raw, 2), i::text);
+                        v_expected := 'parameter_name';
+                        EXIT;
+                    END IF;
+                    IF jsonb_typeof(v_params -> (i + 1)) = 'array' THEN
+                        v_at_path := jl_pointer(jl_argument_path(v_op_path, v_raw, 2), (i + 1)::text);
+                        v_expected := 'parameter_value';
+                        EXIT;
+                    END IF;
+                END LOOP;
+            END IF;
+        END IF;
+    ELSIF v_op = 'date_add' THEN
+        -- Two arguments are a date and a duration, three a date, an amount and a unit.
+        IF v_n = 2 THEN
+            IF jl_is_literal(v_args -> 1) AND NOT jl_date_literal_ok('duration', v_args -> 1) THEN
+                v_at := 1; v_expected := 'duration';
+            END IF;
+        ELSIF jl_is_literal(v_args -> 2) AND NOT jl_date_literal_ok('unit', v_args -> 2) THEN
+            v_at := 2; v_expected := 'date_unit';
+        END IF;
+    ELSIF v_op IN ('date_diff', 'date_trunc') THEN
+        v_at := CASE v_op WHEN 'date_diff' THEN 2 ELSE 1 END;
+        IF jl_is_literal(v_args -> v_at) AND NOT jl_date_literal_ok('unit', v_args -> v_at) THEN
+            v_expected := 'date_unit';
+        END IF;
+    ELSIF v_op = 'date_part' THEN
+        IF jl_is_literal(v_args -> 1) AND NOT jl_date_literal_ok('part', v_args -> 1) THEN
+            v_at := 1; v_expected := 'date_part';
+        END IF;
+    ELSIF v_op = 'date_format' THEN
+        IF jl_is_literal(v_args -> 1) AND NOT jl_date_literal_ok('pattern', v_args -> 1) THEN
+            v_at := 1; v_expected := 'date_pattern';
+        END IF;
+    END IF;
+
+    IF v_expected IS NOT NULL THEN
+        RETURN jsonb_build_object('code', '90922',
+            'path', COALESCE(v_at_path, jl_argument_path(v_op_path, v_raw, v_at)),
+            'op', v_op, 'expected', v_expected);
+    END IF;
+
+    -- Only the name before the first dot says where var reads from.
+    IF v_op = 'var' AND jsonb_typeof(v_args -> 0) = 'string' AND v_args -> 0 <> '""'::jsonb THEN
+        v_root := split_part(v_args ->> 0, '.', 1);
+        IF NOT (v_root = ANY(p_bound)) THEN
+            IF p_array_op IS NOT NULL THEN
+                IF starts_with(v_root, '$') THEN
+                    v_reason := 'array_element';
+                ELSIF v_root = ANY(p_outside) THEN
+                    v_reason := 'bound_outside';
+                END IF;
+            ELSIF starts_with(v_root, '$') AND NOT (v_root = ANY(jl_reserved_variables())) THEN
+                v_reason := 'unknown';
+            END IF;
+        END IF;
+        IF v_reason IS NOT NULL THEN
+            RETURN jsonb_build_object('code', '90924', 'path', jl_argument_path(v_op_path, v_raw, 0),
+                'variable', v_root, 'reason', v_reason, 'op', COALESCE(p_array_op, ''));
+        END IF;
+    END IF;
+
+    FOR i IN 0 .. v_n - 1 LOOP
+        CONTINUE WHEN (v_op = 'let' AND i = 0) OR (v_op = 'set_record' AND i <= 1);
+        v_bound := p_bound;
+        v_outside := p_outside;
+        v_array_op := p_array_op;
+        IF (v_op = 'let' AND i = 2) OR (v_op = 'set_record' AND i = 3) THEN
+            IF jsonb_typeof(v_args -> 0) = 'string' THEN
+                v_bound := p_bound || (v_args ->> 0);
+            END IF;
+        ELSIF i = 1 AND v_op IN ('map', 'filter', 'reduce', 'all', 'none', 'some') THEN
+            v_outside := p_outside || p_bound;
+            v_bound := '{}';
+            v_array_op := v_op;
+        END IF;
+        v_found := jl_rule_problem(v_args -> i, jl_argument_path(v_op_path, v_raw, i), v_bound, v_outside, v_array_op);
+        IF v_found IS NOT NULL THEN
+            RETURN v_found;
+        END IF;
+    END LOOP;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 -- The keys a rule reads from the data it is evaluated on: the key of every
 -- var, missing and missing_some, and the field of every value_changed, which
@@ -1593,6 +1942,24 @@ COMMENT ON FUNCTION jl_is_operation(jsonb) IS
 'True when a JSONB value is a JsonLogic operation: an object with exactly one key. Everything else is a value to the evaluator.';
 COMMENT ON FUNCTION jl_unknown_operator(jsonb) IS
 'The first operator in a JsonLogic rule that evaluate_json_logic does not implement, or NULL when it knows them all. Walks every argument the evaluator would evaluate, and none it would not.';
+COMMENT ON FUNCTION jl_operator_arity() IS
+'The number of arguments each JsonLogic operator takes, as {"op": [min, max]}, max null when there is no upper bound.';
+COMMENT ON FUNCTION jl_reserved_variables() IS
+'The $ variables the rules of an entity are given: $today, $now, $user_id, $old and $mode.';
+COMMENT ON FUNCTION jl_reserved_error_parameters() IS
+'The parameter names throw_error refuses (90912), because the error hint reserves them.';
+COMMENT ON FUNCTION jl_raci_letters() IS
+'The RACI letters is_raci_actor accepts, the values of raci_assignments.raci.';
+COMMENT ON FUNCTION jl_pointer(text, text) IS
+'Appends one segment to a JSON pointer (RFC 6901), escaping ~ as ~0 and / as ~1.';
+COMMENT ON FUNCTION jl_argument_path(text, jsonb, int) IS
+'The JSON pointer of argument p_index of the operation at p_operation_path: the operation''s own pointer when its argument is not an array.';
+COMMENT ON FUNCTION jl_is_literal(jsonb) IS
+'True when a JSONB value is present and is no JsonLogic operation, so its value is known before the rule runs.';
+COMMENT ON FUNCTION jl_date_literal_ok(text, jsonb) IS
+'Whether a literal is a unit, part, pattern or duration (p_kind) the date operators accept, answered by the operators'' own checks.';
+COMMENT ON FUNCTION jl_rule_problem(jsonb, text, text[], text[], text) IS
+'The first mistake in a JsonLogic rule that the evaluator would not report, as {"code", "path", ...parameters}, or NULL: an unknown operator (90909), an argument count (90921), a literal argument (90922), an object with several keys (90923), a variable with no value (90924). Call it with the rule alone; the other parameters carry the walk.';
 COMMENT ON FUNCTION evaluate_json_logic(jsonb, jsonb) IS
 'Evaluates a JsonLogic rule against a data object and returns the JSONB result. Core engine for computed fields, validation rules and select rules.';
 
@@ -1623,6 +1990,15 @@ REVOKE EXECUTE ON FUNCTION jl_operators() FROM public;
 REVOKE EXECUTE ON FUNCTION jl_is_operation(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_unknown_operator(jsonb) FROM public;
 REVOKE EXECUTE ON FUNCTION jl_row_keys(jsonb, text[]) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_operator_arity() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_reserved_variables() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_reserved_error_parameters() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_raci_letters() FROM public;
+REVOKE EXECUTE ON FUNCTION jl_pointer(text, text) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_argument_path(text, jsonb, int) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_is_literal(jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_date_literal_ok(text, jsonb) FROM public;
+REVOKE EXECUTE ON FUNCTION jl_rule_problem(jsonb, text, text[], text[], text) FROM public;
 
 -- Grant execute to semantius_user for jsonlogic functions
 -- Required for require_permission and value_changed operators which need an authenticated user context
@@ -1648,17 +2024,26 @@ GRANT EXECUTE ON FUNCTION jl_date_trunc(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_to_date(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_date_format(jsonb, jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION evaluate_json_logic(jsonb, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_reserved_error_parameters() TO semantius_user;
 -- The check of an entity's rules runs as whoever saves the entity.
 GRANT EXECUTE ON FUNCTION jl_operators() TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_is_operation(jsonb) TO semantius_user;
 GRANT EXECUTE ON FUNCTION jl_unknown_operator(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_operator_arity() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_reserved_variables() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_raci_letters() TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_pointer(text, text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_argument_path(text, jsonb, int) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_is_literal(jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_date_literal_ok(text, jsonb) TO semantius_user;
+GRANT EXECUTE ON FUNCTION jl_rule_problem(jsonb, text, text[], text[], text) TO semantius_user;
 
 -- On an upgrade the dictionary's definer code already runs as semantius_owner,
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
 -- through that code, which checks their rules with jl_operators,
--- jl_is_operation and jl_unknown_operator, reads what they name with
--- jl_row_keys and evaluates them with the rest.
+-- jl_is_operation, jl_unknown_operator and jl_rule_problem with its helpers,
+-- reads what they name with jl_row_keys and evaluates them with the rest.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
@@ -1670,7 +2055,16 @@ BEGIN
             jl_operators(),
             jl_is_operation(jsonb),
             jl_unknown_operator(jsonb),
-            jl_row_keys(jsonb, text[])
+            jl_row_keys(jsonb, text[]),
+            jl_operator_arity(),
+            jl_reserved_variables(),
+            jl_reserved_error_parameters(),
+            jl_raci_letters(),
+            jl_pointer(text, text),
+            jl_argument_path(text, jsonb, int),
+            jl_is_literal(jsonb),
+            jl_date_literal_ok(text, jsonb),
+            jl_rule_problem(jsonb, text, text[], text[], text)
         TO semantius_owner;
     END IF;
 END $$;

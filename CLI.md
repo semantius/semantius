@@ -177,7 +177,7 @@ deno task [COMMAND] [OPTIONS]
 | `docgen` | Generate `schema.md` from entity metadata |
 | `drizzlegen` | Generate a Drizzle ORM schema (one file per module) from the catalog |
 | `kyselygen` | Generate Kysely type definitions (one file) from the catalog |
-| `testgen_jsonlogic` | Generate `apps/test/tests/0100_test_jsonlogic.sql` from `0100_test_jsonlogic.json` |
+| `testgen_jsonlogic` | Generate `apps/test/tests/0100_test_jsonlogic.sql` from `0100_test_jsonlogic.json` and `0115_test_jsonlogic_check.sql` from `0115_test_jsonlogic_check.json` |
 | `bundle-sql` | Bundle SQL files for Node.js/serverless deployment (`deno task` only) |
 
 `deno task build-cli` and `deno task build-cli:all` compile the `pg_semantius`

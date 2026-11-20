@@ -54,6 +54,14 @@ Four more reasons are ours to fix:
    rewrite `email`, `name` and any other claim. `rbac.uid()` takes the subject
    from `system_user`, which the client cannot touch, and everything that
    must be trusted is derived from that subject and the `users` row.
+   An Entra token therefore resolves to the validator's subject, never to
+   the `entra.<tid>.<oid>` identity a session-mode login gets: `rbac.uid()`
+   builds that identity from the claims (`0080_rbac_functions.sql` around
+   266) and then replaces it with the subject from `system_user` (around
+   279). The same person becomes a second user row without roles; it fails
+   closed. Since the claims are client-settable, a fix belongs in the
+   validator, which would have to put the composite identity into
+   `system_user`.
 6. **The row move secret is readable.** On an entity with a `select_rule`,
    the trigger that lets the row being written pass the rule keeps the secret
    its tokens are made with in the transaction-local setting
@@ -74,7 +82,9 @@ Four more reasons are ours to fix:
    names that rename, as the cascade of an entity rename sets it, and then
    returns before its refusals of core-field changes (90219, 90220, 90285,
    90286). Such a session can set `dd.table_rename` itself; a client behind
-   PostgREST cannot.
+   PostgREST cannot. The same setting is trusted at `0340_queue.sql` around
+   129 (a mapping's `table_name`) and at `0440_rollup.sql` around 1591 and
+   1721 (the rollup guards).
 
 Bearer mode graduates when 1 and 2 have changed in the ecosystem and 3 to 6
 are closed here. Tracking links are at the end.

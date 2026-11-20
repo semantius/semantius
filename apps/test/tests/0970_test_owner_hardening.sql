@@ -31,10 +31,9 @@ SELECT CASE WHEN (SELECT active FROM hardening_ctx) THEN
            AND c.relkind IN ('r', 'p', 'S', 'v', 'm')
            AND pg_get_userbyid(c.relowner) <> 'semantius_owner'
            AND NOT EXISTS (
-               SELECT 1 FROM pg_depend d JOIN pg_extension e ON e.oid = d.refobjid
+               SELECT 1 FROM pg_depend d
                 WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
-                  AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e'
-                  AND e.extname <> 'pg_semantius')),
+                  AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e')),
        0, 'every table, sequence and view in the core schemas is owned by semantius_owner')
 ELSE pass('owner hardening not active: relation ownership check skipped') END;
 
@@ -46,10 +45,9 @@ SELECT CASE WHEN (SELECT active FROM hardening_ctx) THEN
          WHERE n.nspname IN ('public', 'common', 'rbac', 'audit', 'pgmq')
            AND pg_get_userbyid(p.proowner) <> 'semantius_owner'
            AND NOT EXISTS (
-               SELECT 1 FROM pg_depend d JOIN pg_extension e ON e.oid = d.refobjid
+               SELECT 1 FROM pg_depend d
                 WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid
-                  AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e'
-                  AND e.extname <> 'pg_semantius')),
+                  AND d.refclassid = 'pg_extension'::regclass AND d.deptype = 'e')),
        0, 'every function in the core schemas is owned by semantius_owner')
 ELSE pass('owner hardening not active: function ownership check skipped') END;
 

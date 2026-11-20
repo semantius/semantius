@@ -283,7 +283,7 @@ ${checkoutCommands}    migrate          Process and validate app folders (requir
     docgen           Generate schema.md documentation from entities metadata
     drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
     kyselygen        Generate Kysely type definitions (a single types file with the DB interface) from the catalog
-    testgen_jsonlogic Generate 0100_test_jsonlogic.sql from 0100_test_jsonlogic.json
+    testgen_jsonlogic Generate the pgTAP files of the JsonLogic case lists (0100, 0115)
 
 EXAMPLES:
 ${examples}

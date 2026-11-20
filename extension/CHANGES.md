@@ -342,6 +342,22 @@ installs the core schema as ordinary objects.
   the entity, so an entity that stores such a rule cannot be saved again until
   the rule is put right. A stored `select_rule` that is no operation hides
   every row.
+- **A new or changed rule is checked for the mistakes the evaluator answers
+  without an error**, the same ones the Semantius app refuses: an object with
+  several keys anywhere in the rule, a computed field's constant object
+  included (`90923`); an argument count the operator does not take, such as
+  `>=` with three (`90921`); a literal argument of the wrong kind, such as a
+  misspelled date unit, a RACI letter or a `throw_error` code outside class 99
+  (`90922`); and a variable with no value where it is read, a `$` name other
+  than the five the rules are given or one read inside the logic of `map`,
+  `filter`, `reduce`, `all`, `none` or `some` (`90924`). The hint carries the
+  JSON pointer to the mistake. A computed field's name and a validation
+  rule's message must be text (`90900`, `90903`), on every entity. These
+  checks apply only to a rule that is new or changed, so a rule stored before
+  them keeps working and does not block other edits of its entity. After an
+  upgrade, `SELECT * FROM dd_rule_problems();`, run as the owner of the
+  dictionary, lists every stored rule that fails them, with the error a save
+  would raise.
 - **JsonLogic follows JavaScript more closely.** A string counts as a number
   only when `Number()` reads it, or when it is an ISO 8601 date or date-time
   (its epoch seconds, offset honored); `NaN`, `infinity`, `today` and locale
@@ -530,12 +546,13 @@ installs the core schema as ordinary objects.
   `90920`, where they computed with 0; null and the empty string stay 0.
   Number text with an exponent beyond what `numeric` holds is `Infinity`, or
   0 for a negative exponent, where it raised 22003.
-- **Rollup filters, three places where the compiled filter answered
+- **Rollup filters, four places where the compiled filter answered
   otherwise than a validation rule.** Text is ordered by code point
   (`COLLATE "C"`), not by the column's collation. `===` and `!==` between a
   column and a literal of another JSON type are refused when the definition
-  is saved (`90265`). A number is compared with a `number` column as it is
-  written, not rounded to the column's decimals.
+  is saved (`90265`), and so are a number against text and a string in an
+  `in` list against a number. A number is compared with a `number` column as
+  it is written, not rounded to the column's decimals.
 - **Every function lists `pg_temp` last in its `search_path`.** PostgreSQL
   looks a table name up in the session's temporary schema first unless the
   path says otherwise, and the request role may create temporary tables: a

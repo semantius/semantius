@@ -66,22 +66,37 @@ REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 -- =====================================================
 -- A rule is checked when the entity is saved
 -- =====================================================
--- Two mistakes in a rule are invisible until records are written, and both are
--- refused here instead.
+-- A mistake in a rule is otherwise found only when a record reaches it, and
+-- most mistakes not even then: the evaluator answers, and the answer is wrong.
+-- The save refuses them instead, in two groups.
 --
--- An operator the evaluator does not implement raises on the first record that
--- reaches it. In a select_rule the generated predicate swallows that error and
--- every row is hidden, with nothing to say why.
+-- Two are checked on every write of the entity (dd_check_rule). An operator
+-- the evaluator does not implement raises on the first record that reaches it;
+-- in a select_rule the generated predicate swallows that error and every row
+-- is hidden, with nothing to say why. A select_rule or a validation rule that
+-- is not one operation is worse. The evaluator reads an object with several
+-- keys, and every literal, as a value; a value is truthy unless it is empty;
+-- so the rule passes every record and shows every row, and nobody notices
+-- that it never ran. That includes a condition typed as text and the literal
+-- true: a rule meant to hold always has no use that removing it does not serve
+-- better. A computed field may be a literal, because a constant is a
+-- legitimate value for a field. The empty select_rule {} means no rule and
+-- stays valid. A select_rule that is no object at all is left to the
+-- select_rule_is_object CHECK.
 --
--- A select_rule or a validation rule that is not one operation is worse. The
--- evaluator reads an object with several keys, and every literal, as a value;
--- a value is truthy unless it is empty; so the rule passes every record and
--- shows every row, and nobody notices that it never ran. That includes a
--- condition typed as text and the literal true: a rule meant to hold always
--- has no use that removing it does not serve better. A computed field may be a
--- literal, because a constant is a legitimate value for a field. The empty
--- select_rule {} means no rule and stays valid. A select_rule that is no
--- object at all is left to the select_rule_is_object CHECK.
+-- The rest are checked on a rule that is new or changed: a name of a computed
+-- field or a message of a validation rule that is not text
+-- (dd_check_rule_entry_types), and an object with several keys anywhere in a rule,
+-- an argument count the operator does not take, a literal argument of the
+-- wrong kind and a variable with no value where it is read
+-- (dd_check_rule_detail). These are what the checker of the Semantius app
+-- refuses, so the two accept the same rules. A rule can be stored without
+-- having passed them, and such a rule must not block the writes that leave it
+-- alone: an edit of another column, ensure_entities applying the entity again,
+-- or a change elsewhere that writes this row, such as a rename of an entity
+-- that its set_record names or a field saved on a base it is built on. A
+-- rename that rewrites the entity name inside such a rule changes the rule,
+-- and is refused. dd_rule_problems lists the stored rules that fail.
 --
 -- The check is a trigger of its own and not part of the builders below. A
 -- rule can be in the dictionary without having passed a save - a restored
@@ -90,10 +105,10 @@ REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 -- rebuild of its entity. They install it; build_select_rule_policy makes a
 -- stored select_rule that is no operation hide every row.
 --
--- It runs on every write of the entity, not only when a rule changes, so an
--- entity that stores a refused rule cannot be saved again - renamed,
--- re-applied by ensure_entities, edited in any column - until the rule is put
--- right. A delete is not checked.
+-- The first group runs on every write of the entity, not only when a rule
+-- changes, so an entity that stores a rule it refuses cannot be saved again -
+-- renamed, re-applied by ensure_entities, edited in any column - until the
+-- rule is put right. A delete is not checked.
 CREATE OR REPLACE FUNCTION dd_check_rule(p_table TEXT, p_rule TEXT, p_logic JSONB, p_operation_only BOOLEAN)
 RETURNS VOID AS $$
 DECLARE
@@ -117,23 +132,185 @@ $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) IS
 'Raises 90919 when a rule that has to be one JsonLogic operation is not, and 90909 when a rule names an operator the evaluator does not implement. p_rule is the rule''s place in the entity, such as validation_rules[0].';
 
--- An entry without a "jsonlogic" key, or one that is no object, is left to the
--- builders, which refuse it with the code that names what is missing.
+-- A name of a computed field and a message of a validation rule are text, as
+-- the app's checker demands: read as text, the builder would take 5 for "5".
+-- The save runs this over every new or changed entry. It runs before the
+-- permission checks of row-level security, as dd_check_rule does, and so
+-- looks only at what the caller wrote; a missing key and a code outside its
+-- class are left to dd_check_rule_entry in the builder, which runs once the
+-- write is allowed. The builder itself does not demand text, because it
+-- installs rules stored before this check as well, and refusing one there
+-- would block every later rebuild of its entity.
+CREATE OR REPLACE FUNCTION dd_check_rule_entry_types(p_table TEXT, p_column TEXT, p_idx INT, p_item JSONB)
+RETURNS VOID AS $$
+BEGIN
+    IF jsonb_typeof(p_item) <> 'object' THEN
+        RETURN;
+    END IF;
+    IF p_column = 'computed_fields' THEN
+        IF jsonb_typeof(p_item -> 'name') NOT IN ('string', 'null') THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+        END IF;
+    ELSIF jsonb_typeof(p_item -> 'message') NOT IN ('string', 'null') THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+            USING ERRCODE = '90903',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) IS
+'Raises 90900 when the name of a computed_fields entry is not text, and 90903 when the message of a validation_rules entry (p_column) is not text. A missing key is left to dd_check_rule_entry.';
+
+-- The keys an entry of computed_fields (p_column) or validation_rules needs,
+-- and the class of a validation rule's code. The builder runs this over every
+-- entry it installs, with p_strict false. With p_strict the types are checked
+-- first, as the save checks them, for dd_rule_problem.
+CREATE OR REPLACE FUNCTION dd_check_rule_entry(p_table TEXT, p_column TEXT, p_idx INT, p_item JSONB, p_strict BOOLEAN)
+RETURNS VOID AS $$
+DECLARE
+    v_code TEXT := p_item ->> 'code';
+BEGIN
+    IF p_strict THEN
+        PERFORM dd_check_rule_entry_types(p_table, p_column, p_idx, p_item);
+    END IF;
+    IF p_column = 'computed_fields' THEN
+        IF COALESCE(p_item ->> 'name', '') = '' THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
+                USING ERRCODE = '90900',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+        END IF;
+        IF (p_item -> 'jsonlogic') IS NULL THEN
+            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
+                USING ERRCODE = '90901',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+        END IF;
+        RETURN;
+    END IF;
+
+    IF COALESCE(v_code, '') = '' THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
+            USING ERRCODE = '90902',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+    IF (p_item ->> 'message') IS NULL THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
+            USING ERRCODE = '90903',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+    IF (p_item -> 'jsonlogic') IS NULL THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
+            USING ERRCODE = '90904',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table)::text;
+    END IF;
+
+    -- Refused here rather than when the rule fires: PL/pgSQL accepts any
+    -- five uppercase alphanumerics as an ERRCODE, so a code like
+    -- "must_be_positive" installs happily and then fails at write time,
+    -- inside a trigger, on a row that has nothing to do with it.
+    --
+    -- "platform" is a naming convention, not a trust boundary - a
+    -- dictionary administrator can write it, and already writes the rule's
+    -- logic and message anyway.
+    IF (p_item ->> 'source_module') = 'platform' THEN
+        IF v_code !~ '^90[0-9]{3}$' THEN
+            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
+                USING ERRCODE = '90906',
+                      HINT = jsonb_build_object('index', p_idx, 'table', p_table, 'rule_code', v_code)::text;
+        END IF;
+    ELSIF v_code !~ '^99[0-9]{3}$' THEN
+        RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
+            USING ERRCODE = '90905',
+                  HINT = jsonb_build_object('index', p_idx, 'table', p_table, 'rule_code', v_code)::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) IS
+'Raises 90900 to 90906 when an entry of computed_fields or validation_rules (p_column) lacks a key it needs or carries a code outside its class. With p_strict, a name or a message that is not text is refused as missing first (dd_check_rule_entry_types).';
+
+-- The mistakes jl_rule_problem finds, raised under the rule's place and table
+-- as dd_check_rule raises its own, with the path inside the rule beside them.
+-- An unknown operator is dd_check_rule's to report, and is raised here only
+-- in the same form, for a caller that runs this check alone.
+CREATE OR REPLACE FUNCTION dd_check_rule_detail(p_table TEXT, p_rule TEXT, p_logic JSONB)
+RETURNS VOID AS $$
+DECLARE
+    v_problem JSONB := jl_rule_problem(p_logic);
+    v_hint    TEXT;
+BEGIN
+    IF v_problem IS NULL THEN
+        RETURN;
+    END IF;
+    v_hint := (jsonb_build_object('rule', p_rule, 'table', p_table) || (v_problem - 'code'))::text;
+    CASE v_problem ->> 'code'
+        WHEN '90909' THEN
+            RAISE EXCEPTION '${rule} on ${table} uses an operation the evaluator does not implement: ${op}'
+                USING ERRCODE = '90909',
+                      HINT = (jsonb_build_object('rule', p_rule, 'table', p_table, 'op', v_problem -> 'op'))::text;
+        WHEN '90921' THEN
+            RAISE EXCEPTION '${rule} on ${table} gives ${op} ${count} arguments, a number it does not take'
+                USING ERRCODE = '90921', HINT = v_hint;
+        WHEN '90922' THEN
+            RAISE EXCEPTION '${rule} on ${table}: ${op} needs ${expected} at ${path}'
+                USING ERRCODE = '90922', HINT = v_hint;
+        WHEN '90923' THEN
+            RAISE EXCEPTION '${rule} on ${table} holds an object with ${key_count} keys, which is a value and not an operation'
+                USING ERRCODE = '90923', HINT = v_hint;
+        ELSE
+            RAISE EXCEPTION '${rule} on ${table} reads ${variable}, which has no value where it is read'
+                USING ERRCODE = '90924', HINT = v_hint;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) IS
+'Raises the first mistake jl_rule_problem finds in a rule: 90921 an argument count, 90922 a literal argument, 90923 an object with several keys, 90924 a variable with no value where it is read. The hint carries rule, table and path, and the parameters of the mistake.';
+
+-- A computed_fields or validation_rules entry is new or changed when the row
+-- before the write holds no entry equal to it, so reordering the rules, or
+-- adding one, leaves the others alone. An entry that is no object, or has no
+-- "jsonlogic" key, is left to the builders, which refuse it with the code that
+-- names what is missing.
 CREATE OR REPLACE FUNCTION check_entity_rules()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_item JSONB;
-    v_idx  INT;
+    v_item       JSONB;
+    v_idx        INT;
+    v_place      TEXT;
+    v_new        BOOLEAN;
+    v_old_select JSONB;
+    v_old_valid  JSONB := '[]'::jsonb;
+    v_old_comp   JSONB := '[]'::jsonb;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        v_old_select := OLD.select_rule;
+        v_old_valid := CASE WHEN jsonb_typeof(OLD.validation_rules) = 'array' THEN OLD.validation_rules ELSE '[]'::jsonb END;
+        v_old_comp := CASE WHEN jsonb_typeof(OLD.computed_fields) = 'array' THEN OLD.computed_fields ELSE '[]'::jsonb END;
+    END IF;
+
     IF jsonb_typeof(NEW.select_rule) = 'object' AND NEW.select_rule <> '{}'::jsonb THEN
         PERFORM dd_check_rule(NEW.table_name, 'select_rule', NEW.select_rule, TRUE);
+        IF TG_OP = 'INSERT' OR NEW.select_rule IS DISTINCT FROM v_old_select THEN
+            PERFORM dd_check_rule_detail(NEW.table_name, 'select_rule', NEW.select_rule);
+        END IF;
     END IF;
 
     IF jsonb_typeof(NEW.validation_rules) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.validation_rules) - 1 LOOP
             v_item := NEW.validation_rules -> v_idx;
+            v_place := format('validation_rules[%s]', v_idx);
+            v_new := NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_old_valid) AS o(item) WHERE o.item = v_item);
+            IF v_new THEN
+                PERFORM dd_check_rule_entry_types(NEW.table_name, 'validation_rules', v_idx, v_item);
+            END IF;
             IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
-                PERFORM dd_check_rule(NEW.table_name, format('validation_rules[%s]', v_idx), v_item -> 'jsonlogic', TRUE);
+                PERFORM dd_check_rule(NEW.table_name, v_place, v_item -> 'jsonlogic', TRUE);
+                IF v_new THEN
+                    PERFORM dd_check_rule_detail(NEW.table_name, v_place, v_item -> 'jsonlogic');
+                END IF;
             END IF;
         END LOOP;
     END IF;
@@ -141,8 +318,16 @@ BEGIN
     IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
             v_item := NEW.computed_fields -> v_idx;
+            v_place := format('computed_fields[%s]', v_idx);
+            v_new := NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_old_comp) AS o(item) WHERE o.item = v_item);
+            IF v_new THEN
+                PERFORM dd_check_rule_entry_types(NEW.table_name, 'computed_fields', v_idx, v_item);
+            END IF;
             IF jsonb_typeof(v_item) = 'object' AND v_item ? 'jsonlogic' THEN
-                PERFORM dd_check_rule(NEW.table_name, format('computed_fields[%s]', v_idx), v_item -> 'jsonlogic', FALSE);
+                PERFORM dd_check_rule(NEW.table_name, v_place, v_item -> 'jsonlogic', FALSE);
+                IF v_new THEN
+                    PERFORM dd_check_rule_detail(NEW.table_name, v_place, v_item -> 'jsonlogic');
+                END IF;
             END IF;
         END LOOP;
     END IF;
@@ -152,22 +337,33 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
-'BEFORE INSERT OR UPDATE trigger on entities: refuses a select_rule, validation rule or computed field that names an unknown operator (90909), and a select_rule or validation rule that is not one JsonLogic operation (90919). Runs on every write of the entity.';
+'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909) and a select_rule or validation rule that is not one JsonLogic operation (90919). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
 
 -- The check runs as whoever saves the entity, so the request role needs the
--- helper; the trigger function itself is called by the trigger alone.
+-- helpers; the trigger function itself is called by the trigger alone.
 REVOKE EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION check_entity_rules() FROM PUBLIC;
 
 -- On an upgrade the dictionary's definer code already runs as semantius_owner,
 -- while a function new in this file stays owned by the installer until
 -- 9900_owner_hardening.sql runs last. A .jsonc file in between writes entities
--- through that code, and the check would be refused its helper.
+-- through that code, and the check would be refused its helpers.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
-        GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_owner;
+        GRANT EXECUTE ON FUNCTION
+            dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN),
+            dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB),
+            dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN),
+            dd_check_rule_detail(TEXT, TEXT, JSONB)
+        TO semantius_owner;
     END IF;
 END $$;
 
@@ -187,16 +383,24 @@ COMMENT ON TRIGGER check_entity_rules_trigger ON entities IS
 -- so it may be a literal, and the empty object means that there is no rule.
 CREATE OR REPLACE FUNCTION check_field_rules()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_old JSONB;
 BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        v_old := OLD.input_type_rule;
+    END IF;
     IF NEW.input_type_rule IS NOT NULL AND NEW.input_type_rule <> '{}'::jsonb THEN
         PERFORM dd_check_rule(NEW.table_name, NEW.field_name || '.input_type_rule', NEW.input_type_rule, FALSE);
+        IF TG_OP = 'INSERT' OR NEW.input_type_rule IS DISTINCT FROM v_old THEN
+            PERFORM dd_check_rule_detail(NEW.table_name, NEW.field_name || '.input_type_rule', NEW.input_type_rule);
+        END IF;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_field_rules() IS
-'BEFORE INSERT OR UPDATE trigger on fields: refuses an input_type_rule that names an unknown operator (90909), under the rule name <field>.input_type_rule. Runs on every write of the field.';
+'BEFORE INSERT OR UPDATE trigger on fields: refuses an input_type_rule that names an unknown operator (90909) on every write of the field, and one with a mistake of dd_check_rule_detail (90921 to 90924) when it is new or changed, under the rule name <field>.input_type_rule.';
 
 REVOKE EXECUTE ON FUNCTION check_field_rules() FROM PUBLIC;
 
@@ -206,7 +410,84 @@ CREATE OR REPLACE TRIGGER check_field_rules_trigger
     EXECUTE FUNCTION check_field_rules();
 
 COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
-'Refuses a field whose input_type_rule names an unknown operator.';
+'Refuses a field whose input_type_rule names an unknown operator, or whose new or changed input_type_rule has a mistake the evaluator would not report.';
+
+-- The stored rules that a save would refuse now, one row for the first
+-- mistake of each: a rule stored before it passed these checks keeps working,
+-- and this is where an operator finds it. Every place a rule can stand is
+-- checked with the save's own functions, as an insert of the row would check
+-- it. Not granted to the request role: it is run by an operator, as the owner
+-- of the dictionary, and reads every entity.
+CREATE OR REPLACE FUNCTION dd_rule_problem(
+    p_table TEXT, p_rule TEXT, p_column TEXT, p_idx INT, p_item JSONB, p_logic JSONB, p_operation_only BOOLEAN)
+RETURNS JSONB AS $$
+DECLARE
+    v_state   TEXT;
+    v_message TEXT;
+    v_hint    TEXT;
+BEGIN
+    IF p_column IS NOT NULL THEN
+        PERFORM dd_check_rule_entry(p_table, p_column, p_idx, p_item, TRUE);
+    END IF;
+    IF p_logic IS NOT NULL THEN
+        PERFORM dd_check_rule(p_table, p_rule, p_logic, p_operation_only);
+        PERFORM dd_check_rule_detail(p_table, p_rule, p_logic);
+    END IF;
+    RETURN NULL;
+EXCEPTION
+    -- SQLSTATE '90000' is the whole of class 90: a code ending in three
+    -- zeroes names its category.
+    WHEN SQLSTATE '90000' THEN
+        GET STACKED DIAGNOSTICS
+            v_state   = RETURNED_SQLSTATE,
+            v_message = MESSAGE_TEXT,
+            v_hint    = PG_EXCEPTION_HINT;
+        RETURN jsonb_build_object('code', v_state, 'message', v_message, 'hint', v_hint::jsonb);
+END;
+$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_problem(TEXT, TEXT, TEXT, INT, JSONB, JSONB, BOOLEAN) IS
+'Runs the save checks over one rule and returns the error they raise as {"code", "message", "hint"}, or NULL when the rule passes. Used by dd_rule_problems.';
+
+CREATE OR REPLACE FUNCTION dd_rule_problems()
+RETURNS TABLE (table_name TEXT, rule TEXT, code TEXT, message TEXT, hint JSONB) AS $$
+    WITH places AS (
+        SELECT e.table_name, 'select_rule' AS rule, NULL::text AS col, NULL::int AS idx,
+               NULL::jsonb AS item, e.select_rule AS logic, TRUE AS operation_only
+          FROM entities e
+         WHERE jsonb_typeof(e.select_rule) = 'object' AND e.select_rule <> '{}'::jsonb
+        UNION ALL
+        SELECT e.table_name, 'validation_rules[' || (r.ord - 1) || ']', 'validation_rules', (r.ord - 1)::int,
+               r.item, CASE WHEN jsonb_typeof(r.item) = 'object' THEN r.item -> 'jsonlogic' END, TRUE
+          FROM entities e
+         CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.validation_rules) = 'array'
+                                                      THEN e.validation_rules ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS r(item, ord)
+        UNION ALL
+        SELECT e.table_name, 'computed_fields[' || (r.ord - 1) || ']', 'computed_fields', (r.ord - 1)::int,
+               r.item, CASE WHEN jsonb_typeof(r.item) = 'object' THEN r.item -> 'jsonlogic' END, FALSE
+          FROM entities e
+         CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.computed_fields) = 'array'
+                                                      THEN e.computed_fields ELSE '[]'::jsonb END)
+               WITH ORDINALITY AS r(item, ord)
+        UNION ALL
+        SELECT f.table_name, f.field_name || '.input_type_rule', NULL, NULL, NULL, f.input_type_rule, FALSE
+          FROM fields f
+         WHERE f.input_type_rule IS NOT NULL AND f.input_type_rule <> '{}'::jsonb
+    )
+    SELECT p.table_name, p.rule, x.problem ->> 'code', x.problem ->> 'message', x.problem -> 'hint'
+      FROM places p
+     CROSS JOIN LATERAL (SELECT dd_rule_problem(p.table_name, p.rule, p.col, p.idx, p.item, p.logic,
+                                                p.operation_only) AS problem) x
+     WHERE x.problem IS NOT NULL
+     ORDER BY 1, 2;
+$$ LANGUAGE sql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_problems() IS
+'Lists every stored rule a save would refuse, with its entity, its place (select_rule, validation_rules[0], computed_fields[2], <field>.input_type_rule) and the code, message and hint of the first mistake. Run it as the owner of the dictionary.';
+
+REVOKE EXECUTE ON FUNCTION dd_rule_problem(TEXT, TEXT, TEXT, INT, JSONB, JSONB, BOOLEAN) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_rule_problems() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -324,16 +605,7 @@ BEGIN
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
         v_item := v_entity.computed_fields -> v_idx;
         v_name := v_item ->> 'name';
-        IF v_name IS NULL OR v_name = '' THEN
-            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
-                USING ERRCODE = '90900',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "jsonlogic"'
-                USING ERRCODE = '90901',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
+        PERFORM dd_check_rule_entry(p_table_name, 'computed_fields', v_idx, v_item, FALSE);
         -- A rollup column takes its value from other records, and a rule
         -- writing it would run after the rollup guard and overwrite the
         -- aggregate: one derivation per field (the other direction is 90261).
@@ -398,41 +670,7 @@ $BLOCK$,
         v_code := v_item ->> 'code';
         v_message := v_item ->> 'message';
         v_rule_hint := v_item ->> 'hint';
-        IF v_code IS NULL OR v_code = '' THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "code"'
-                USING ERRCODE = '90902',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF v_message IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "message"'
-                USING ERRCODE = '90903',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-        IF (v_item -> 'jsonlogic') IS NULL THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} is missing required "jsonlogic"'
-                USING ERRCODE = '90904',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name)::text;
-        END IF;
-
-        -- Refused here rather than when the rule fires: PL/pgSQL accepts any
-        -- five uppercase alphanumerics as an ERRCODE, so a code like
-        -- "must_be_positive" installs happily and then fails at write time,
-        -- inside a trigger, on a row that has nothing to do with it.
-        --
-        -- "platform" is a naming convention, not a trust boundary - a
-        -- dictionary administrator can write it, and already writes the rule's
-        -- logic and message anyway.
-        IF (v_item ->> 'source_module') = 'platform' THEN
-            IF v_code !~ '^90[0-9]{3}$' THEN
-                RAISE EXCEPTION 'validation_rules[${index}] on ${table} is a platform rule, so its code must be a class 90 number, not ${rule_code}'
-                    USING ERRCODE = '90906',
-                          HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
-            END IF;
-        ELSIF v_code !~ '^99[0-9]{3}$' THEN
-            RAISE EXCEPTION 'validation_rules[${index}] on ${table} must carry a class 99 code, not ${rule_code}'
-                USING ERRCODE = '90905',
-                      HINT = jsonb_build_object('index', v_idx, 'table', p_table_name, 'rule_code', v_code)::text;
-        END IF;
+        PERFORM dd_check_rule_entry(p_table_name, 'validation_rules', v_idx, v_item, FALSE);
 
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 

@@ -508,6 +508,8 @@ export class CoverageCollector {
   private client: Client;
   private opts: CoverageOptions;
   private before: StatsSnapshot = { functions: new Map(), tables: new Map() };
+  /** What preflight created, so that removeFootprint can take exactly that away again. */
+  private created = { extension: false, schema: false };
   caps: CoverageCapabilities = {
     serverVersion: "",
     user: "",
@@ -573,12 +575,16 @@ export class CoverageCollector {
     } else {
       try {
         if (!avail[0].installed_version) {
+          const [had] = await this.rows<{ present: boolean }>(
+            `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = 'extensions') AS present`,
+          );
           await this.client.queryArray(
             `CREATE SCHEMA IF NOT EXISTS extensions`,
           );
           await this.client.queryArray(
             `CREATE EXTENSION IF NOT EXISTS plpgsql_check WITH SCHEMA extensions`,
           );
+          this.created = { extension: true, schema: !had.present };
         }
         const [ext] = await this.rows<{ schema: string; version: string }>(
           `SELECT n.nspname AS schema, e.extversion AS version
@@ -702,6 +708,24 @@ export class CoverageCollector {
   }
 
   /** Records the counters before the first test file runs. */
+  /**
+   * Drops what preflight created (plpgsql_check, and the `extensions` schema if
+   * it made it), so a measured database ends with the same schema as one that
+   * was not measured. Runs after collect; a failure is a warning, not an error.
+   */
+  async removeFootprint(): Promise<void> {
+    try {
+      if (this.created.extension) {
+        await this.client.queryArray(`DROP EXTENSION IF EXISTS plpgsql_check`);
+      }
+      if (this.created.schema) {
+        await this.client.queryArray(`DROP SCHEMA IF EXISTS extensions`);
+      }
+    } catch (error) {
+      this.warn(`Could not remove what coverage installed: ${errorMessage(error)}`);
+    }
+  }
+
   async snapshotBefore(): Promise<void> {
     this.before = await this.snapshot();
   }

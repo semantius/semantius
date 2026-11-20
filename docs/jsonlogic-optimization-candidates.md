@@ -430,7 +430,9 @@ acceptable next to §4:
   operands), `in` with a list of literals, `var` naming a plain column of the
   child record, and the date operators as values. `===` and `!==` between a
   column and a literal of another JSON type are refused, because the answer is
-  the same for every row. Every other operator, every
+  the same for every row. So are a number against text, which the interpreter
+  reads as a number, and a string in an `in` list against a number, which the
+  interpreter never finds there. Every other operator, every
   request variable (`$user_id`,
   `$now`, `$today`, ...), every path and every default is refused with 90265
   naming what was refused. Nothing is approximated.

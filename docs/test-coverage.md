@@ -214,12 +214,14 @@ do not fail builds here, and `pgmq` findings are counted apart from ours for the
 same reason coverage splits them: they are vendored, and closing them means
 editing code we re-vendor.
 
-**It leaves a footprint, and so does `--coverage`.** Installing `plpgsql_check`
+**It leaves a footprint; `--coverage` does not.** Installing `plpgsql_check`
 creates schema `extensions` in the database it ran against. `pg-ext-lifecycle.sh`
 step 10 compares a schema-only `pg_dump` of the CLI container against the
-extension container, so a database that has been linted or coverage-measured
-differs from one that has not, and that step fails on the difference. Run the
-lifecycle script first, or drop the extension and its schema afterwards.
+extension container, so a database that has been linted differs from one that
+has not, and that step fails on the difference. Run the lifecycle script first,
+or drop the extension and its schema afterwards. A `--coverage` run drops
+`plpgsql_check`, and the `extensions` schema if it created it, once the report
+is written.
 
 ## When you add tests
 

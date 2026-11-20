@@ -85,7 +85,10 @@ of `has_permission(view_permission)` (the catalog, below).
   once per transaction and entity that names the entity and the SQLSTATE but not the
   message, which can quote a value of the hidden row. A stored rule that is not one JsonLogic
   operation hides every row. Saving an entity refuses a rule that is not one operation
-  (`90919`) or that names an operator the evaluator does not implement (`90909`). No check
+  (`90919`) or that names an operator the evaluator does not implement (`90909`), and a new
+  or changed rule with an object of several keys, an argument count the operator does not
+  take, a literal argument of the wrong kind or a variable that has no value where it is
+  read (`90921` to `90924`). No check
   catches a rule that is true for rows it was meant to hide; the tests are what cover that.
 
 ### Where it is enforced

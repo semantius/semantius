@@ -230,6 +230,15 @@ BEGIN
             IF p_kind IN ('bool', 'typeid') THEN
                 PERFORM rollup_filter_problem(format('number %s compared with a column of type %s', v_text, p_type));
             END IF;
+            -- Cast to text, a number would equal only the value written that
+            -- way and would order as text, while the interpreter reads both
+            -- sides as numbers: '10.0' equals 10 there, '' equals 0, and '10'
+            -- is above 5. The same rule would count other rows here than in a
+            -- validation rule. Written as a string, the literal compares as
+            -- text on both sides. The value of date_format is text as well.
+            IF p_type = 'text' THEN
+                PERFORM rollup_filter_problem(format('number %s compared with text; write it as a string', v_text));
+            END IF;
             RETURN format('%L::%s', v_text, COALESCE(v_cast, 'numeric'));
         WHEN 'boolean' THEN
             IF p_type IS NOT NULL AND p_kind <> 'bool' THEN
@@ -636,6 +645,23 @@ BEGIN
                 END IF;
             END LOOP;
             -- The value comes first, so it anchors the cast of every list entry.
+            -- The interpreter looks for the value itself in the list, where a
+            -- number equals no string, so against a number a string entry would
+            -- match through its cast here and never in a validation rule. It is
+            -- refused, as === refuses a literal of another type. A number entry
+            -- against text is refused by rollup_filter_literal. Against == the
+            -- interpreter reads a string as a number too, so == takes one.
+            v_col := rollup_filter_operand(v_args -> 0, p_rel, p_alias, p_rollup);
+            IF (v_col ->> 'is_var')::boolean
+               AND (v_col ->> 'type' LIKE 'numeric%'
+                    OR v_col ->> 'type' IN ('smallint', 'integer', 'bigint', 'real', 'double precision')) THEN
+                FOR v_item IN SELECT a FROM jsonb_array_elements(v_args -> 1) a LOOP
+                    IF jsonb_typeof(v_item) = 'string' THEN
+                        PERFORM rollup_filter_problem(format(
+                            'in compares the types first: the value is a number and %s is a string', v_item::text));
+                    END IF;
+                END LOOP;
+            END IF;
             v_parts := rollup_filter_operands(jsonb_build_array(v_args -> 0) || (v_args -> 1), p_rel, p_alias, FALSE, p_rollup);
             RETURN format('(%s IN (%s))', v_parts[1], array_to_string(v_parts[2:], ', '));
         WHEN 'var' THEN

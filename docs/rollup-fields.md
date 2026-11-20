@@ -157,9 +157,9 @@ next to the one interpreter:
 | `{"!": x}`, `{"!!": x}` | `NOT (x)`, `(x)` |
 | `==`, `===` / `!=`, `!==` | `a IS NOT DISTINCT FROM b` / `a IS DISTINCT FROM b`, so `null` compares as JsonLogic expects. `===` and `!==` compare the types first, so a literal of another JSON type than the column's is refused: a string against a number column, a number against a text column |
 | `<`, `<=`, `>`, `>=` | `a < b`; `<` and `<=` also take three operands (`a < b AND b < c`). A NULL side yields NULL and **excludes** the row, where the interpreter would read NULL as 0. Text is ordered by code point (`COLLATE "C"`), as the interpreter orders it, whatever the collation of the column |
-| `{"in": [x, [l1, l2]]}` | `x IN (l1, l2)`, literals only in the list, never empty |
+| `{"in": [x, [l1, l2]]}` | `x IN (l1, l2)`, literals only in the list, never empty. A string in the list against a number is refused: the interpreter looks for the value itself in the list, where a number equals no string |
 | `{"var": "column"}` | the child's column: a plain name, present in the catalog, of type text, boolean, integer, numeric, float, date, timestamp, time, uuid or TypeID |
-| a string, number or boolean | a literal cast to the type of the column it is compared with. Against a `number` column it is compared as it is written, not rounded to the column's decimals: `1.501` equals no value of a two-decimal column |
+| a string, number or boolean | a literal cast to the type of the column it is compared with. Against a `number` column it is compared as it is written, not rounded to the column's decimals: `1.501` equals no value of a two-decimal column. A number against text (a text column or `date_format`) is refused: cast to text it would equal only the value written that way and order as text, where the interpreter reads both sides as numbers and `"10.0"` equals 10. Written as a string, it is text on both sides |
 | a bare `{"var": "flag"}` | a boolean column as a condition |
 | `date_add`, `date_diff`, `date_part`, `date_trunc`, `to_date`, `date_format` as a value | a call of the interpreter's own `jl_date_*` function for each child, so the filter and a validation rule cannot disagree |
 
@@ -200,6 +200,11 @@ turns into. Four places follow from that and are meant:
 - A UUID literal equals the column in capitals as in lower case.
 - A number with a fraction against an integer column is refused when the
   definition is saved, where the interpreter would compare the two numbers.
+
+Where a literal of another type than its value would count other rows on the
+two sides (`===` or `!==` across types, a number against text, a string in an
+`in` list against a number), the filter is refused when the definition is
+saved instead.
 
 One insert of several fields may create a child's fields and the rollups over
 them together: a definition may name, as its `link_field`, its `value_field` or
