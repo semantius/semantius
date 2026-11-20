@@ -354,10 +354,7 @@ installs the core schema as ordinary objects.
   JSON pointer to the mistake. A computed field's name and a validation
   rule's message must be text (`90900`, `90903`), on every entity. These
   checks apply only to a rule that is new or changed, so a rule stored before
-  them keeps working and does not block other edits of its entity. After an
-  upgrade, `SELECT * FROM dd_rule_problems();`, run as the owner of the
-  dictionary, lists every stored rule that fails them, with the error a save
-  would raise.
+  them keeps working and does not block other edits of its entity.
 - **JsonLogic follows JavaScript more closely.** A string counts as a number
   only when `Number()` reads it, or when it is an ISO 8601 date or date-time
   (its epoch seconds, offset honored); `NaN`, `infinity`, `today` and locale

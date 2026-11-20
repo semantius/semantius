@@ -11,7 +11,7 @@
 -- builder where no entity row backs it.
 BEGIN;
 
-SELECT plan(111);
+SELECT plan(109);
 
 SELECT authenticate_as('user3');
 
@@ -617,7 +617,6 @@ SELECT is(
 -- A rule stored without having passed these checks keeps working: a write
 -- that leaves it alone is not refused for it, and neither is a change to the
 -- rules beside it. Changing the rule itself is refused until it is put right.
--- dd_rule_problems lists it, for an operator looking for such rules.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
     module_id, view_permission, edit_permission, id_column, label_column)
 VALUES ('cv_stored_detail', 'cv_stored_detail', 'Stored Detail', 'Stored Details', 'Rule stored past the checks',
@@ -632,17 +631,6 @@ UPDATE entities
                              "jsonlogic": {">=": [{"var": "label"}, "a", "m"]}}]'::jsonb
  WHERE table_name = 'cv_stored_detail';
 ALTER TABLE entities ENABLE TRIGGER USER;
-
-SELECT is(
-    (SELECT jsonb_agg(jsonb_build_array(p.rule, p.code)) FROM dd_rule_problems() AS p
-      WHERE p.table_name = 'cv_stored_detail'),
-    '[["validation_rules[0]", "90921"]]'::jsonb,
-    'stored detail: dd_rule_problems lists the stored rule under its place and the code a save would raise');
-
-SELECT is(
-    (SELECT count(*) FROM dd_rule_problems() AS p WHERE p.table_name NOT LIKE 'cv\_%'),
-    0::bigint,
-    'stored detail: and lists no rule of the platform, the sample module or the test harness');
 
 SELECT authenticate_as('user3');
 

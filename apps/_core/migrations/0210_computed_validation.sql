@@ -96,7 +96,7 @@ REVOKE EXECUTE ON FUNCTION public.jl_error_hint(TEXT, JSONB) FROM PUBLIC;
 -- or a change elsewhere that writes this row, such as a rename of an entity
 -- that its set_record names or a field saved on a base it is built on. A
 -- rename that rewrites the entity name inside such a rule changes the rule,
--- and is refused. dd_rule_problems lists the stored rules that fail.
+-- and is refused.
 --
 -- The check is a trigger of its own and not part of the builders below. A
 -- rule can be in the dictionary without having passed a save - a restored
@@ -166,16 +166,12 @@ COMMENT ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) IS
 
 -- The keys an entry of computed_fields (p_column) or validation_rules needs,
 -- and the class of a validation rule's code. The builder runs this over every
--- entry it installs, with p_strict false. With p_strict the types are checked
--- first, as the save checks them, for dd_rule_problem.
-CREATE OR REPLACE FUNCTION dd_check_rule_entry(p_table TEXT, p_column TEXT, p_idx INT, p_item JSONB, p_strict BOOLEAN)
+-- entry it installs.
+CREATE OR REPLACE FUNCTION dd_check_rule_entry(p_table TEXT, p_column TEXT, p_idx INT, p_item JSONB)
 RETURNS VOID AS $$
 DECLARE
     v_code TEXT := p_item ->> 'code';
 BEGIN
-    IF p_strict THEN
-        PERFORM dd_check_rule_entry_types(p_table, p_column, p_idx, p_item);
-    END IF;
     IF p_column = 'computed_fields' THEN
         IF COALESCE(p_item ->> 'name', '') = '' THEN
             RAISE EXCEPTION 'computed_fields[${index}] on ${table} is missing required "name"'
@@ -228,8 +224,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) IS
-'Raises 90900 to 90906 when an entry of computed_fields or validation_rules (p_column) lacks a key it needs or carries a code outside its class. With p_strict, a name or a message that is not text is refused as missing first (dd_check_rule_entry_types).';
+COMMENT ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB) IS
+'Raises 90900 to 90906 when an entry of computed_fields or validation_rules (p_column) lacks a key it needs or carries a code outside its class.';
 
 -- The mistakes jl_rule_problem finds, raised under the rule's place and table
 -- as dd_check_rule raises its own, with the path inside the rule beside them.
@@ -345,8 +341,8 @@ REVOKE EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB) TO semantius_user;
-REVOKE EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_check_rule_entry(TEXT, TEXT, INT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_check_rule_detail(TEXT, TEXT, JSONB) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION check_entity_rules() FROM PUBLIC;
@@ -361,7 +357,7 @@ BEGIN
         GRANT EXECUTE ON FUNCTION
             dd_check_rule(TEXT, TEXT, JSONB, BOOLEAN),
             dd_check_rule_entry_types(TEXT, TEXT, INT, JSONB),
-            dd_check_rule_entry(TEXT, TEXT, INT, JSONB, BOOLEAN),
+            dd_check_rule_entry(TEXT, TEXT, INT, JSONB),
             dd_check_rule_detail(TEXT, TEXT, JSONB)
         TO semantius_owner;
     END IF;
@@ -411,83 +407,6 @@ CREATE OR REPLACE TRIGGER check_field_rules_trigger
 
 COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
 'Refuses a field whose input_type_rule names an unknown operator, or whose new or changed input_type_rule has a mistake the evaluator would not report.';
-
--- The stored rules that a save would refuse now, one row for the first
--- mistake of each: a rule stored before it passed these checks keeps working,
--- and this is where an operator finds it. Every place a rule can stand is
--- checked with the save's own functions, as an insert of the row would check
--- it. Not granted to the request role: it is run by an operator, as the owner
--- of the dictionary, and reads every entity.
-CREATE OR REPLACE FUNCTION dd_rule_problem(
-    p_table TEXT, p_rule TEXT, p_column TEXT, p_idx INT, p_item JSONB, p_logic JSONB, p_operation_only BOOLEAN)
-RETURNS JSONB AS $$
-DECLARE
-    v_state   TEXT;
-    v_message TEXT;
-    v_hint    TEXT;
-BEGIN
-    IF p_column IS NOT NULL THEN
-        PERFORM dd_check_rule_entry(p_table, p_column, p_idx, p_item, TRUE);
-    END IF;
-    IF p_logic IS NOT NULL THEN
-        PERFORM dd_check_rule(p_table, p_rule, p_logic, p_operation_only);
-        PERFORM dd_check_rule_detail(p_table, p_rule, p_logic);
-    END IF;
-    RETURN NULL;
-EXCEPTION
-    -- SQLSTATE '90000' is the whole of class 90: a code ending in three
-    -- zeroes names its category.
-    WHEN SQLSTATE '90000' THEN
-        GET STACKED DIAGNOSTICS
-            v_state   = RETURNED_SQLSTATE,
-            v_message = MESSAGE_TEXT,
-            v_hint    = PG_EXCEPTION_HINT;
-        RETURN jsonb_build_object('code', v_state, 'message', v_message, 'hint', v_hint::jsonb);
-END;
-$$ LANGUAGE plpgsql SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_rule_problem(TEXT, TEXT, TEXT, INT, JSONB, JSONB, BOOLEAN) IS
-'Runs the save checks over one rule and returns the error they raise as {"code", "message", "hint"}, or NULL when the rule passes. Used by dd_rule_problems.';
-
-CREATE OR REPLACE FUNCTION dd_rule_problems()
-RETURNS TABLE (table_name TEXT, rule TEXT, code TEXT, message TEXT, hint JSONB) AS $$
-    WITH places AS (
-        SELECT e.table_name, 'select_rule' AS rule, NULL::text AS col, NULL::int AS idx,
-               NULL::jsonb AS item, e.select_rule AS logic, TRUE AS operation_only
-          FROM entities e
-         WHERE jsonb_typeof(e.select_rule) = 'object' AND e.select_rule <> '{}'::jsonb
-        UNION ALL
-        SELECT e.table_name, 'validation_rules[' || (r.ord - 1) || ']', 'validation_rules', (r.ord - 1)::int,
-               r.item, CASE WHEN jsonb_typeof(r.item) = 'object' THEN r.item -> 'jsonlogic' END, TRUE
-          FROM entities e
-         CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.validation_rules) = 'array'
-                                                      THEN e.validation_rules ELSE '[]'::jsonb END)
-               WITH ORDINALITY AS r(item, ord)
-        UNION ALL
-        SELECT e.table_name, 'computed_fields[' || (r.ord - 1) || ']', 'computed_fields', (r.ord - 1)::int,
-               r.item, CASE WHEN jsonb_typeof(r.item) = 'object' THEN r.item -> 'jsonlogic' END, FALSE
-          FROM entities e
-         CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.computed_fields) = 'array'
-                                                      THEN e.computed_fields ELSE '[]'::jsonb END)
-               WITH ORDINALITY AS r(item, ord)
-        UNION ALL
-        SELECT f.table_name, f.field_name || '.input_type_rule', NULL, NULL, NULL, f.input_type_rule, FALSE
-          FROM fields f
-         WHERE f.input_type_rule IS NOT NULL AND f.input_type_rule <> '{}'::jsonb
-    )
-    SELECT p.table_name, p.rule, x.problem ->> 'code', x.problem ->> 'message', x.problem -> 'hint'
-      FROM places p
-     CROSS JOIN LATERAL (SELECT dd_rule_problem(p.table_name, p.rule, p.col, p.idx, p.item, p.logic,
-                                                p.operation_only) AS problem) x
-     WHERE x.problem IS NOT NULL
-     ORDER BY 1, 2;
-$$ LANGUAGE sql SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_rule_problems() IS
-'Lists every stored rule a save would refuse, with its entity, its place (select_rule, validation_rules[0], computed_fields[2], <field>.input_type_rule) and the code, message and hint of the first mistake. Run it as the owner of the dictionary.';
-
-REVOKE EXECUTE ON FUNCTION dd_rule_problem(TEXT, TEXT, TEXT, INT, JSONB, JSONB, BOOLEAN) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_rule_problems() FROM PUBLIC;
 
 -- =====================================================
 -- STEP 1: Per-row trigger generator
@@ -605,7 +524,7 @@ BEGIN
     FOR v_idx IN 0 .. jsonb_array_length(COALESCE(v_entity.computed_fields, '[]'::jsonb)) - 1 LOOP
         v_item := v_entity.computed_fields -> v_idx;
         v_name := v_item ->> 'name';
-        PERFORM dd_check_rule_entry(p_table_name, 'computed_fields', v_idx, v_item, FALSE);
+        PERFORM dd_check_rule_entry(p_table_name, 'computed_fields', v_idx, v_item);
         -- A rollup column takes its value from other records, and a rule
         -- writing it would run after the rollup guard and overwrite the
         -- aggregate: one derivation per field (the other direction is 90261).
@@ -670,7 +589,7 @@ $BLOCK$,
         v_code := v_item ->> 'code';
         v_message := v_item ->> 'message';
         v_rule_hint := v_item ->> 'hint';
-        PERFORM dd_check_rule_entry(p_table_name, 'validation_rules', v_idx, v_item, FALSE);
+        PERFORM dd_check_rule_entry(p_table_name, 'validation_rules', v_idx, v_item);
 
         v_logic_lit := quote_literal((v_item -> 'jsonlogic')::text);
 

@@ -1,6 +1,16 @@
 --
 -- based on https://github.com/pgmq/pgmq v1.11.1
 -- The PostgreSQL License Copyright (c) 2023, Tembo
+--
+-- When pgmq is vendored again: create_partitioned, convert_archive_partitioned
+-- and the partitioned branch of drop_queue(text) pass the pg_partman schema,
+-- which _get_pg_partman_schema returns already quoted (regnamespace quotes a
+-- name that needs it), through %I a second time. Semantius code calls neither
+-- of the first two and creates every queue unpartitioned through pgmq.create,
+-- so it reaches none of them, and they stay as upstream wrote them.
+-- 0537_test_dynamic_sql_values.sql silences the deprecation WARNINGs of
+-- pgmq.detach_archive(text) and pgmq.drop_queue(text, boolean) by signature,
+-- so a change of name or arguments brings them back.
 ------------------------------------------------------------
 -- Schema, tables, records, privileges, indexes, etc
 ------------------------------------------------------------

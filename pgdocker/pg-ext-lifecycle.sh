@@ -256,18 +256,21 @@ psqlrun life1c "CREATE EXTENSION pg_semantius" >/dev/null
 # Each lock holder below keeps its lock until the script ends its session, and
 # each CALL under test starts only once the catalog shows the overlap it needs,
 # so no check depends on how fast a background session starts or finishes.
-# until_t polls until its query answers t; the bound only keeps a broken setup
-# from hanging the script.
-until_t() { local i; for i in $(seq 300); do [ "$(psqlq life1c "$1")" = "t" ] && return 0; sleep 0.1; done; return 1; }
-# The query: session <application_name> holds the migration lock (and <extra>).
-lock_held_by() { echo "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = '$1' AND a.datname = current_database() AND l.locktype = 'advisory' AND l.granted AND l.objid = (hashtext('migrate')::bigint & 4294967295)${2:-})"; }
+# The later lock steps use the same helpers. until_t <db> <sql> polls until the
+# query answers t in <db>; the bound only keeps a broken setup from hanging the
+# script. Application names are unique per step, so gone and end_session look
+# at the whole cluster.
+until_t() { local i; for i in $(seq 300); do [ "$(psqlq "$1" "$2")" = "t" ] && return 0; sleep 0.1; done; return 1; }
+# The query: session <application_name> holds the advisory lock keyed
+# hashtext(<key>) (and <extra>).
+lock_held_by() { echo "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = '$1' AND a.datname = current_database() AND l.locktype = 'advisory' AND l.granted AND l.objid = (hashtext('$2')::bigint & 4294967295)${3:-})"; }
 gone() { echo "SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = '$1')"; }
-end_session() { psqlq life1c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '$1'" >/dev/null
-                until_t "$(gone "$1")" || bad "setup: session $1 did not end"; }
+end_session() { psqlq postgres "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '$1'" >/dev/null
+                until_t postgres "$(gone "$1")" || bad "setup: session $1 did not end"; }
 # CLI vs procedure: the CLI runner holds exactly this lock for its whole run.
 docker exec -d -e PGAPPNAME=life1c_cli "$CONTAINER" psql -U postgres -d life1c \
   -c "SELECT pg_advisory_lock(hashtext('migrate'))" -c "SELECT pg_sleep(300)" >/dev/null
-until_t "$(lock_held_by life1c_cli)" || bad "setup: the CLI-style session did not take the migration lock"
+until_t life1c "$(lock_held_by life1c_cli migrate)" || bad "setup: the CLI-style session did not take the migration lock"
 b_out=$(psqlq life1c "CALL semantius.migrate()")
 echo "$b_out" | grep -q "another migration is running" \
   && ok "the procedure fails at once while the CLI holds the lock" || bad "procedure vs CLI: $b_out"
@@ -279,10 +282,10 @@ end_session life1c_cli
 psqlrun life1c "CALL semantius.migrate()" >/dev/null
 docker exec -d -e PGAPPNAME=life1c_table "$CONTAINER" psql -U postgres -d life1c \
   -c "BEGIN; LOCK TABLE public._versions IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(300); COMMIT;" >/dev/null
-until_t "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = 'life1c_table' AND l.locktype = 'relation' AND l.relation = 'public._versions'::regclass AND l.mode = 'AccessExclusiveLock' AND l.granted)" \
+until_t life1c "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = 'life1c_table' AND l.locktype = 'relation' AND l.relation = 'public._versions'::regclass AND l.mode = 'AccessExclusiveLock' AND l.granted)" \
   || bad "setup: the table lock on _versions was not taken"
 docker exec -d -e PGAPPNAME=life1c_first "$CONTAINER" psql -U postgres -d life1c -c "CALL semantius.migrate()" >/dev/null
-until_t "$(lock_held_by life1c_first " AND a.wait_event_type = 'Lock'")" \
+until_t life1c "$(lock_held_by life1c_first migrate " AND a.wait_event_type = 'Lock'")" \
   || bad "setup: the first CALL did not wait on _versions while holding the migration lock"
 b_out=$(psqlq life1c "CALL semantius.migrate()")
 echo "$b_out" | grep -q "another migration is running" \
@@ -290,7 +293,7 @@ echo "$b_out" | grep -q "another migration is running" \
 check "  and a CLI runner is refused the lock too" "f" \
   "$(psqlq life1c "SELECT pg_try_advisory_lock(hashtext('migrate'))")"
 end_session life1c_table
-until_t "$(gone life1c_first)" || bad "setup: the first CALL did not end"
+until_t life1c "$(gone life1c_first)" || bad "setup: the first CALL did not end"
 check "the lock is released when the first CALL ends" "t" \
   "$(psqlseq life1c "SELECT pg_try_advisory_lock(hashtext('migrate'))" "SELECT pg_advisory_unlock(hashtext('migrate'))" | head -1)"
 check "each migration applied exactly once" "0" \
@@ -380,14 +383,16 @@ check "  no core relation is left owned by the installing superuser" "0" \
 check "  no core function is left owned by the installing superuser" "0" \
   "$(psqlq life1h "SELECT count(*) FROM pg_proc x JOIN pg_namespace n ON n.oid = x.pronamespace WHERE n.nspname IN ('public','common','rbac','audit','pgmq') AND x.proowner = 'postgres'::regrole AND $NOT_EXT_MEMBER")"
 psqlrun life1h "DROP TABLE public._apikeys" >/dev/null
-# While another session holds the migration lock, the CLI fails at once.
-docker exec -d "$CONTAINER" psql -U postgres -d life1h \
-  -c "SELECT pg_advisory_lock(hashtext('migrate'))" -c "SELECT pg_sleep(4)" >/dev/null
-for _ in $(seq 50); do [ "$(psqlq life1h "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted")" = "1" ] && break; sleep 0.1; done
+# While another session holds the migration lock, the CLI fails at once. The
+# holder keeps its session lock until the script ends the session, and the next
+# run starts only once the session is gone.
+docker exec -d -e PGAPPNAME=life1h_holder "$CONTAINER" psql -U postgres -d life1h \
+  -c "SELECT pg_advisory_lock(hashtext('migrate'))" -c "SELECT pg_sleep(300)" >/dev/null
+until_t life1h "$(lock_held_by life1h_holder migrate)" || bad "setup: the holder session did not take the migration lock"
 out=$(cd "$REPO_ROOT" && deno task migrate --apps _core --database-url "$CLI_URL" 2>&1) || true
 echo "$out" | grep -q "another migration is running" \
   && ok "the CLI fails at once while another session holds the lock" || bad "CLI lock: $(echo "$out" | tail -2 | tr '\n' ' ')"
-for _ in $(seq 60); do [ "$(psqlq life1h "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted")" = "0" ] && break; sleep 0.1; done
+end_session life1h_holder
 out=$(cd "$REPO_ROOT" && deno task migrate --apps _core --database-url "$CLI_URL" 2>&1) \
   && ok "the next CLI run resumes and completes" || bad "CLI resume: $(echo "$out" | tail -3 | tr '\n' ' ')"
 check "  and it equals an uninterrupted install" "$SIG1_NOAUDIT" "$(psqlq life1h "$SIGNATURE_NOAUDIT_SQL")"
@@ -414,8 +419,10 @@ psqlq life1e "CALL semantius.migrate()" >/dev/null
 check "a fresh install has no administrator" "0" \
   "$(psqlq life1e "SELECT count(*) FROM public.user_roles WHERE role_id = 2")"
 
-# Session A provisions inside an open transaction and holds it for 5 seconds, so
-# it still owns the lock when B arrives. get_userinfo() is the supported entry
+# Session A provisions inside an open transaction and then waits at a barrier,
+# so it still owns the election lock when B arrives: B starts only once A is
+# seen waiting at the barrier, and the barrier lifts only once B is seen waiting
+# behind A. A then commits and B goes on. get_userinfo() is the supported entry
 # point and the one an application actually calls on first login.
 race_login() { # race_login <sub> <email> <trailing sql>
   printf "BEGIN; SET ROLE semantius_user;
@@ -424,13 +431,40 @@ race_login() { # race_login <sub> <email> <trailing sql>
           SELECT set_config('request.jwt.claim.email', '%s', true);
           SELECT public.get_userinfo(); %s COMMIT;" "$1" "$2" "$3"
 }
-docker exec -d "$CONTAINER" psql -U postgres -d life1e \
-  -c "$(race_login race_a a@example.test 'SELECT pg_sleep(5);')" >/dev/null
-sleep 2
-b_out=$(docker exec "$CONTAINER" psql -U postgres -d life1e -tAc \
-  "$(race_login race_b b@example.test '')" 2>&1)
-echo "$b_out" | grep -q "ERROR" && bad "second login failed: $b_out" \
-  || ok "the second login completed after the first committed"
+# A barrier keeps a transaction open, with everything it has done so far, until
+# the script lifts it, and then lets the transaction commit; ending the
+# transaction's own session would roll it back. barrier_up <db>
+# <application_name> starts a session that holds the advisory lock keyed
+# hashtext('lifecycle_barrier') until end_session ends it, and a transaction
+# that runs BARRIER_WAIT waits for that lock.
+barrier_up() {
+  docker exec -d -e PGAPPNAME="$2" "$CONTAINER" psql -U postgres -d "$1" \
+    -c "SELECT pg_advisory_lock(hashtext('lifecycle_barrier'))" -c "SELECT pg_sleep(300)" >/dev/null
+  until_t "$1" "$(lock_held_by "$2" lifecycle_barrier)" || bad "setup: the barrier session $2 did not take its lock"
+}
+BARRIER_WAIT="SELECT pg_advisory_xact_lock(hashtext('lifecycle_barrier'));"
+# The query: session <waiter> waits for a lock that session <holder> holds (and <extra>).
+blocked_by() { echo "SELECT EXISTS (SELECT 1 FROM pg_stat_activity w JOIN pg_stat_activity h ON h.pid = ANY (pg_blocking_pids(w.pid)) WHERE w.application_name = '$1' AND h.application_name = '$2'${3:-})"; }
+barrier_up life1e life1e_barrier
+docker exec -d -e PGAPPNAME=life1e_race_a "$CONTAINER" psql -U postgres -d life1e \
+  -c "$(race_login race_a a@example.test "$BARRIER_WAIT")" >/dev/null
+until_t life1e "$(blocked_by life1e_race_a life1e_barrier)" || bad "setup: the first login did not wait at the barrier"
+# B runs in the background, so that the script can lift the barrier while B waits.
+race_b_out="$(mktemp)"
+docker exec -e PGAPPNAME=life1e_race_b "$CONTAINER" psql -U postgres -d life1e -tAc \
+  "$(race_login race_b b@example.test '')" >"$race_b_out" 2>&1 &
+race_b_pid=$!
+until_t life1e "$(blocked_by life1e_race_b life1e_race_a)" || bad "setup: the second login did not wait behind the first"
+end_session life1e_barrier
+# B waits for nothing but A, so once A has ended, waiting for B cannot hang.
+until_t life1e "$(gone life1e_race_a)" \
+  || { bad "setup: the first login did not end once the barrier lifted"; end_session life1e_race_a; }
+if wait "$race_b_pid" && ! grep -q "ERROR" "$race_b_out"; then
+  ok "the second login completed after the first committed"
+else
+  bad "second login failed: $(cat "$race_b_out")"
+fi
+rm -f "$race_b_out"
 
 check "both principals exist, so the race really ran" "2" \
   "$(psqlq life1e "SELECT count(*) FROM public.users WHERE external_id IN ('race_a','race_b')")"
@@ -455,7 +489,9 @@ check "a later login is not elected" "1" \
 step "[1f] fix_id_sequence gives up on a busy table with 90232"
 # The pgTAP suite cannot hold a lock against itself, so the timeout is proven
 # here: session A keeps an insert open, and session B must give up after the
-# function's 2 s lock_timeout with 90232 instead of queueing behind A.
+# function's 2 s lock_timeout with 90232 instead of queueing behind A. A waits
+# at a barrier (see 1e) with its insert open, and the barrier lifts only once B
+# has returned, so A commits before the retry.
 psqlrun life1e "INSERT INTO public.entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column)
                 VALUES ('lock_probe', 'lock_probe', 'Lock Probe', 'Lock Probes', 'fix_id_sequence lock probe', 1, 'public:read', 'admin', 'id', 'label')" >/dev/null
 fix_as_admin() { # race_a is the administrator 1e elected
@@ -464,24 +500,24 @@ fix_as_admin() { # race_a is the administrator 1e elected
                SET LOCAL \"request.jwt.claim.sub\" = 'race_a';
                SELECT public.fix_id_sequence('lock_probe'); COMMIT;"
 }
-wait_for() { # wait_for <sql> <value>: poll life1e for up to 10 s
-  for _ in $(seq 50); do [ "$(psqlq life1e "$1")" = "$2" ] && return 0; sleep 0.2; done
-  return 1
-}
-LOCK_HELD="SELECT count(*) FROM pg_locks WHERE relation = to_regclass('public.lock_probe') AND mode = 'RowExclusiveLock' AND granted"
-docker exec -d "$CONTAINER" psql -U postgres -d life1e -c \
-  "BEGIN; INSERT INTO public.lock_probe (label) VALUES ('a'); SELECT pg_sleep(5); COMMIT;" >/dev/null
-if wait_for "$LOCK_HELD" 1; then
+# The query: A holds its RowExclusiveLock on lock_probe and waits at the barrier.
+WRITER_AT_BARRIER="$(blocked_by life1f_writer life1f_barrier " AND EXISTS (SELECT 1 FROM pg_locks l WHERE l.pid = w.pid AND l.relation = to_regclass('public.lock_probe') AND l.mode = 'RowExclusiveLock' AND l.granted)")"
+barrier_up life1e life1f_barrier
+docker exec -d -e PGAPPNAME=life1f_writer "$CONTAINER" psql -U postgres -d life1e -c \
+  "BEGIN; INSERT INTO public.lock_probe (label) VALUES ('a'); $BARRIER_WAIT COMMIT;" >/dev/null
+if until_t life1e "$WRITER_AT_BARRIER"; then
   # `|| true`: the refusal is the expected result, and set -e would abort on it.
   b_out=$(docker exec "$CONTAINER" psql -U postgres -d life1e -v VERBOSITY=verbose -qtAc "$(fix_as_admin)" 2>&1 || true)
   echo "$b_out" | grep -q "90232" && ok "a call behind an open insert fails with 90232" \
     || bad "expected 90232, got: $b_out"
-  wait_for "$LOCK_HELD" 0 || bad "session A never committed"
-  check "the retry succeeds once the writer has committed" "2" \
-    "$(docker exec "$CONTAINER" psql -U postgres -d life1e -qtAc "$(fix_as_admin)" 2>&1)"
 else
   bad "session A never took its lock on lock_probe"
 fi
+end_session life1f_barrier
+until_t life1e "$(gone life1f_writer)" \
+  || { bad "setup: session A did not end once the barrier lifted"; end_session life1f_writer; }
+check "the retry succeeds once the writer has committed" "2" \
+  "$(docker exec "$CONTAINER" psql -U postgres -d life1e -qtAc "$(fix_as_admin)" 2>&1)"
 
 # --------------------------------- 1i the row move secret ends with its transaction
 step "[1i] The row move secret a write keeps in a setting ends with its transaction"
