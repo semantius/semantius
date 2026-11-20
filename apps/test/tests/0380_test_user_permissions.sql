@@ -1,7 +1,7 @@
 -- Test user_permissions: direct per-user permission grants
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(25);
 
 -- =====================================================
 -- TEST 1: authenticate_as is not in public schema
@@ -318,9 +318,10 @@ RESET ROLE;
 -- =====================================================
 -- TEST 12: granted_by defaults to the caller
 -- =====================================================
--- An insert that names no granter records the authenticated caller. Without
--- one - a direct owner connection with blank claims - there is nobody to
--- record: the column stays NULL and the insert still succeeds.
+-- An insert that names no granter records the authenticated caller, on
+-- user_permissions and on role_permissions, which share the trigger function.
+-- Without one - a direct owner connection with blank claims - there is nobody
+-- to record: the column stays NULL and the insert still succeeds.
 SELECT authenticate_as('user3');
 INSERT INTO user_permissions (user_id, permission_name)
 SELECT id, 'hotpath:b' FROM users WHERE external_id = 'hotpath-no-roles';
@@ -331,6 +332,18 @@ SELECT is(
         AND user_id = (SELECT id FROM users WHERE external_id = 'hotpath-no-roles')),
     1003::bigint,
     'granted_by defaults to the authenticated caller'
+);
+
+INSERT INTO roles (role_name, slug, description)
+VALUES ('Granted By Probe', 'granted_by_probe', 'holds a grant that names no granter');
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT id, 'hotpath:b' FROM roles WHERE slug = 'granted_by_probe';
+
+SELECT is(
+    (SELECT rp.granted_by FROM role_permissions rp JOIN roles r ON r.id = rp.role_id
+      WHERE r.slug = 'granted_by_probe' AND rp.permission_name = 'hotpath:b'),
+    1003::bigint,
+    'granted_by of a role_permissions row defaults to the authenticated caller'
 );
 
 RESET ROLE;

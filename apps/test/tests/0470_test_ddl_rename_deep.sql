@@ -11,13 +11,14 @@
 --
 -- Flow:
 --   1. Create all four entities with fields & JsonLogic
---   2. Insert one record per table, verify it exists
+--   2. Insert one record per table, verify it exists; a rename that would cut
+--      the name of a queue trigger is refused
 --   3. Rename "parents" → "eltern"
 --   4. Verify all records, metadata, catalog objects, and JsonLogic survive
 --   5. Insert a second record per table (proves triggers & policies still work)
 BEGIN;
 
-SELECT plan(54);
+SELECT plan(55);
 
 SELECT authenticate_as('user3');
 
@@ -203,6 +204,20 @@ SELECT ok(
     EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'compute_validate_rn_nephews'
             AND pronamespace = 'public'::regnamespace),
     'pre-rename: compute_validate_rn_nephews function exists'
+);
+
+-- =====================================================
+-- STEP 2b: a rename that would cut a queue trigger name
+-- =====================================================
+-- The queue mapping of step 1c names the triggers of rn_parents
+-- queue_rn_test_queue_<event>_on_<table>: 30 bytes and the table name. Under
+-- a table name of 34 bytes they would have 64, one more than fits.
+
+SELECT throws_ok(
+    $$UPDATE entities SET table_name = 'rn_parents_' || repeat('x', 23) WHERE table_name = 'rn_parents'$$,
+    '90506',
+    'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes',
+    'a rename under which a queue trigger name would not fit 63 bytes is refused'
 );
 
 -- =====================================================

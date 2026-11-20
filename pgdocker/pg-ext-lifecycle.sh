@@ -20,6 +20,8 @@
 #   1e. first-user bootstrap: two concurrent logins elect exactly one admin
 #   1f. fix_id_sequence gives up on a busy table with 90232
 #   1i. the row move secret a write keeps in a setting ends with its transaction
+#   1j. an rbac function another superuser's pass recreates keeps the request
+#       role's EXECUTE
 #   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data
 #   2b. restore variants: -Fp | psql, -j 4, -1
 #   4.  DROP EXTENSION is inert (no data loss), with and without CASCADE
@@ -488,6 +490,28 @@ secret_out=$(psqlseq life1e \
   "SELECT 'next:' || (coalesce(current_setting('app.row_move_secret', true), '') = '')")
 check "the secret a write keeps in app.row_move_secret ends with its transaction" \
   "kept:true|next:true" "$(echo "$secret_out" | grep -E '^(kept|next):' | paste -sd'|')"
+
+# ---------------------- 1j an rbac function recreated by another superuser
+step "[1j] An rbac function recreated by another superuser: the request role keeps EXECUTE"
+# A pass runs as the role that started it, and the default privileges of rbac
+# name only the installing role and semantius_owner, so a function another
+# superuser's pass creates there reaches the request role only through the
+# GRANT written with it. Dropping rbac.whoami() and clearing the checksum of
+# its file makes that file create it again, as that role.
+newdb life1j
+psqlrun life1j "CREATE EXTENSION pg_semantius" >/dev/null && psqlq life1j "CALL semantius.migrate()" >/dev/null
+psqlrun life1j "CREATE ROLE lifecycle_migrator SUPERUSER" >/dev/null 2>&1 || true  # roles are cluster-wide; a dead run may have left it
+psqlrun life1j "SET ROLE lifecycle_migrator; DROP FUNCTION rbac.whoami()" >/dev/null
+psqlrun life1j "UPDATE public._versions SET checksum = NULL WHERE name = '_core.0080_rbac_functions.sql'" >/dev/null
+out=$(psqlseq life1j "SET ROLE lifecycle_migrator" "CALL semantius.migrate()")
+echo "$out" | grep -q '"applied"' && ok "migrate() run by another superuser recreates rbac.whoami()" \
+  || bad "migrate() as lifecycle_migrator: $out"
+check "  semantius_user can execute it, PUBLIC cannot" "true|false" \
+  "$(psqlq life1j "SELECT has_function_privilege('semantius_user', 'rbac.whoami()', 'EXECUTE')::text || '|' || has_function_privilege('public', 'rbac.whoami()', 'EXECUTE')::text")"
+if [ "$KEEP" != "1" ]; then
+  dropdb_ life1j
+  psqlq postgres "DROP ROLE IF EXISTS lifecycle_migrator" >/dev/null 2>&1 || true
+fi
 
 # --------------------------------------------------- 2 dump / single-pass restore
 step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data"
@@ -998,7 +1022,7 @@ step "[12] Cleanup"
 if [ "$KEEP" = "1" ]; then
   echo "   --keep: scratch databases left in place"
 else
-  for d in life1 life1b life1c life1d life1d2 life1e life1g life1h life2 life2p life2j life2t life5 \
+  for d in life1 life1b life1c life1d life1d2 life1e life1g life1h life1j life2 life2p life2j life2t life5 \
            life6 life6b life6c life6d life7 life7b life7c life7d life8 life8c life8d life9 \
            life9b life_virgin; do
     dropdb_ "$d"

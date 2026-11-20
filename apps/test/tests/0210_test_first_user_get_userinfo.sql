@@ -235,11 +235,11 @@ SELECT ok(
 -- TEST: an empty administrator set elects again
 -- =====================================================
 -- rbac.assert_administrator_remains refuses to leave the set empty, so reaching
--- this state needs the BYPASSRLS exemption - a direct superuser connection,
--- which is what RESET ROLE gives here. It is worth pinning anyway, because it is
--- what an operator repairing a database by hand will hit, and because it is the
--- difference between this gate and a one-shot marker: there is no reset path and
--- no marker row to clear.
+-- this state needs the guard's exemption - a direct connection as a role with
+-- BYPASSRLS, which is what RESET ROLE gives here. It is worth pinning anyway,
+-- because it is what an operator repairing a database by hand will hit, and
+-- because it is the difference between this gate and a one-shot marker: there
+-- is no reset path and no marker row to clear.
 --
 -- Note the subject. The election is on INSERT, so it reaches a principal that
 -- has no users row yet; an established principal logging in again goes through

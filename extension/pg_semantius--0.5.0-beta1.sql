@@ -3578,7 +3578,7 @@ $pgsem__core_0070_rbac_schema_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f471c9a279f8363052b783cfa61253088896110ac66beae09e604c7c6f704289') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
       EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
@@ -3676,6 +3676,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.check_permission_hierarchy_cycle() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.check_permission_hierarchy_cycle IS 
 'Trigger function to prevent cycles and enforce 11-level depth limit in permission hierarchy.';
@@ -3934,6 +3935,7 @@ BEGIN
     RETURN sub_value;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.uid() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.uid IS
 'JWT validation gate + user identity. Checks role=authenticated, returns sub. A token with NO role claim is accepted when its roles claim contains authenticated - the shape Microsoft Entra ID emits, where role and roles are both restricted claims and an app role is the only way to say it; a role claim holding any other value is still refused. A token whose iss is a Microsoft Entra ID issuer returns entra.<tid>.<oid> instead of sub (Entra sub differs per app registration), written back into request.jwt.claim.sub; such a token without tid or oid is refused. Auto-detects and normalizes Neon/Supabase JWT formats. When _settings contains a jwt_aud entry the JWT aud claim must match. STABLE, but that never memoizes a PL/pgSQL call - every textual call runs the full validation and a _settings read; the hot paths (rbac.has_permission, has_any_permission, user_id, ensure_context_initialized) carry their own warm test instead of calling this on every check.';
@@ -4019,6 +4021,7 @@ BEGIN
     RETURN v_user_id;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.get_user_by_external_id(TEXT) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.get_user_by_external_id IS
 'Read-only lookup of user_id by external_id. Returns NULL if user not found or disabled. Self-or-admin: asking about another principal requires admin. Reachable over PostgREST RPC; no policy or function in the database calls it.';
@@ -4120,6 +4123,7 @@ CREATE OR REPLACE FUNCTION rbac.is_bearer_session()
 RETURNS BOOLEAN AS $$
     SELECT system_user LIKE 'oauth:%';
 $$ LANGUAGE sql STABLE SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.is_bearer_session() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.is_bearer_session IS
 'True when the session authenticated with a PostgreSQL 18 OAuth bearer token (system_user = oauth:<sub>). Such clients run SQL directly as the request role, so the app.* context cache is not trusted for them.';
@@ -4220,6 +4224,7 @@ BEGIN
     -- Note: OAuth scopes handled separately if needed
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.ensure_context_initialized() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.ensure_context_initialized IS
 'Lazy initialization of request context. Called automatically on first permission check. In OAuth bearer sessions the cached context is not trusted and is re-derived on every call.';
@@ -4311,6 +4316,7 @@ BEGIN
     RETURN position(',' || p_permission_name || ',' IN ',' || v_scope_closure || ',') > 0;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.user_has_permission(TEXT, TEXT) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.user_has_permission IS 
 'Checks if user has permission by name, considering hierarchy and OAuth scopes.';
@@ -4545,6 +4551,7 @@ BEGIN
     RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.has_permission(TEXT) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.has_permission IS 
 'Checks if current user has permission. Auto-initializes context and uses cached permissions.';
@@ -4568,6 +4575,7 @@ BEGIN
 END;
 -- STABLE so PostgREST serves it over GET; raising is not a side effect.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.require_permission(TEXT) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.require_permission IS 
 'Raises exception if current user lacks permission. Use for access control.';
@@ -4657,6 +4665,7 @@ BEGIN
     RETURN FALSE;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.has_any_permission(TEXT[]) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.has_any_permission IS 
 'Returns true if current user has at least one of the specified permissions.';
@@ -4679,6 +4688,7 @@ BEGIN
 END;
 -- STABLE, as rbac.require_permission.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.require_any_permission(TEXT[]) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.require_any_permission IS 
 'Raises exception if current user lacks all specified permissions.';
@@ -4703,10 +4713,6 @@ COMMENT ON FUNCTION rbac.require_any_permission IS
 -- outside guard test 0900_test_security.sql's rule that every definer calls
 -- rbac.uid(): an internal helper with no identity of its own to authenticate
 -- should not satisfy that rule by pretense.
--- The parameter follows users.id; an INTEGER overload left behind by an older
--- build would keep its own grants and resolve int4 arguments, so it is dropped.
-DROP FUNCTION IF EXISTS rbac.get_user_permissions_by_id(INTEGER);
-
 CREATE OR REPLACE FUNCTION rbac.get_user_permissions_by_id(p_user_id BIGINT)
 RETURNS TABLE (permission_name TEXT) AS $$
 BEGIN
@@ -4784,6 +4790,7 @@ BEGIN
 END;
 -- STABLE: reads only.
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.get_user_permissions(TEXT) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.get_user_permissions IS
 'Self-or-admin wrapper: resolves the subject external_id to its internal id and
@@ -4809,6 +4816,7 @@ BEGIN
       AND current_setting('app.user_permissions', true) != '';
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.get_current_user_permissions() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.get_current_user_permissions IS 
 'Returns all permissions for current user from cache. Auto-initializes if needed.';
@@ -4867,6 +4875,7 @@ BEGIN
     ) AS s(scope);
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.validate_oauth_scopes(TEXT, TEXT) TO semantius_user;
 
 COMMENT ON FUNCTION rbac.validate_oauth_scopes IS 
 'Validates which OAuth scopes a user can request. Use during token issuance.';
@@ -4921,6 +4930,7 @@ BEGIN
     RETURN v_user_id;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.user_id() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.user_id IS
 'Returns internal user_id for current user. Warm path (an initialized context
@@ -4949,6 +4959,7 @@ EXCEPTION
         RETURN NULL;
 END;
 $$ LANGUAGE plpgsql STABLE SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.user_id_or_null() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.user_id_or_null IS
 'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
@@ -5051,6 +5062,7 @@ BEGIN
     RETURN;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.whoami() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.whoami IS 
 'Returns all context information: app session variables, JWT claims, and cached permissions. Requires authentication.';
@@ -5080,6 +5092,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.grant_permission_to_administrator() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.grant_permission_to_administrator IS
 'Automatically grants newly created permissions to the Administrator role, role 2, found by its id whatever its name';
@@ -5105,7 +5118,7 @@ REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
 $pgsem__core_0080_rbac_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0080_rbac_functions.sql', '0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d')
+        VALUES ('_core.0080_rbac_functions.sql', 'f471c9a279f8363052b783cfa61253088896110ac66beae09e604c7c6f704289')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5296,7 +5309,7 @@ $pgsem__core_0090_rbac_seed_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'a1f54f614f3e511178ec0085e859135d5c2edb078a462f8438959713a546ec36') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
       EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
@@ -5442,6 +5455,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.auto_assign_user_role() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS
 'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first principal to arrive with a last_seen while no user holds role 2, under an advisory lock.';
@@ -5478,6 +5492,7 @@ BEGIN
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
 'Trigger function to prevent deletion of role 1 (User) from any user.';
@@ -5518,11 +5533,12 @@ COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 -- has BYPASSRLS, so the exemption below would let every caller through.
 --
 -- That exemption is the operator's escape hatch and matches fields_ctype_lock in
--- 0160_dd_functions.sql: a direct superuser or owner connection may still empty the administrator
--- set, which is how a database is repaired and how a test builds a system that
--- has never had one. It gives away nothing - such a connection already holds
--- everything the extension protects. It is also the only exemption, and that is
--- the load-bearing part.
+-- 0160_dd_functions.sql: a direct connection as a role with BYPASSRLS may still
+-- empty the administrator set, which is how a database is repaired and how a
+-- test builds a system that has never had one. A superuser without the
+-- attribute is not exempt. It gives away nothing - such a connection already
+-- holds everything the extension protects. It is also the only exemption, and
+-- that is the load-bearing part.
 --
 -- The count therefore cannot come from the caller's own view of the tables. An
 -- invoker trigger reads user_roles under RLS, where reading needs `admin`, so a
@@ -5548,6 +5564,7 @@ RETURNS INTEGER AS $$
     WHERE ur.role_id = 2
       AND u.is_disabled = FALSE;
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.count_enabled_administrators() TO semantius_user;
 
 -- The invoker trigger above has to be able to call this, so semantius_user keeps
 -- the EXECUTE that the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql
@@ -5571,12 +5588,13 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object(
                       'code', '90104',
-                      'hint', 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.')::text;
+                      'hint', 'Grant the Administrator role to another enabled user first. A direct connection as a role with BYPASSRLS is exempt from this check.')::text;
     END IF;
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.assert_administrator_remains() TO semantius_user;
 
 -- Created after the blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac at the end of
 -- 0080_rbac_functions.sql, so it
@@ -5670,19 +5688,20 @@ BEGIN
         RAISE EXCEPTION 'The Administrator role has to keep the admin permission'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object(
-                      'code', '90104',
-                      'hint', 'Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.')::text;
+                      'code', '90108',
+                      'hint', 'Role 2 granting admin is what makes its holders Administrators. A direct connection as a role with BYPASSRLS is exempt from this check.')::text;
     END IF;
 
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.assert_administrator_grant_remains() TO semantius_user;
 
 REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_grant_remains() FROM PUBLIC;
 
 COMMENT ON FUNCTION rbac.assert_administrator_grant_remains IS
-'Row-level guard on role_permissions and permissions: refuses removing or re-pointing the grant of admin to role 2, and deleting or renaming the permission admin (42501, hint.code 90104). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+'Row-level guard on role_permissions and permissions: refuses removing or re-pointing the grant of admin to role 2, and deleting or renaming the permission admin (42501, hint.code 90108). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
 
 CREATE OR REPLACE TRIGGER assert_administrator_grant_remains
     BEFORE DELETE OR UPDATE OF role_id, permission_name ON role_permissions
@@ -5749,6 +5768,7 @@ BEGIN
                   'hint', 'external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.')::text;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.assert_external_id_writer() TO semantius_user;
 
 -- The request role keeps EXECUTE: it is the invoker, and the trigger is
 -- useless if the caller cannot run it.
@@ -5786,6 +5806,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.default_assigned_by() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.default_assigned_by IS
 'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
@@ -5799,7 +5820,8 @@ COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 'Defaults assigned_by to the current session user when not provided on insert.';
 
 -- =====================================================
--- TRIGGER: Default granted_by to current user for user_permissions
+-- TRIGGER: Default granted_by to current user, for role_permissions and
+-- user_permissions
 -- =====================================================
 
 -- As rbac.default_assigned_by.
@@ -5812,6 +5834,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.default_granted_by() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.default_granted_by IS
 'Trigger function to default granted_by to the current user ID when not explicitly provided.';
@@ -5824,6 +5847,14 @@ CREATE OR REPLACE TRIGGER default_granted_by_trigger
 COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
 'Defaults granted_by to the current session user when not provided on insert.';
 
+CREATE OR REPLACE TRIGGER default_granted_by_trigger
+    BEFORE INSERT ON role_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.default_granted_by();
+
+COMMENT ON TRIGGER default_granted_by_trigger ON role_permissions IS
+'Defaults granted_by to the current session user when not provided on insert.';
+
 -- Revoke default PUBLIC execute on trigger functions defined in this file
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
@@ -5832,7 +5863,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
 $pgsem__core_0100_rbac_rls_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0100_rbac_rls.sql', '1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00')
+        VALUES ('_core.0100_rbac_rls.sql', 'a1f54f614f3e511178ec0085e859135d5c2edb078a462f8438959713a546ec36')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7097,7 +7128,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3b57c47285f7e61dfa914ddcfac86ca2a9469eeaf5b7276b2a77cad1ef545cb6') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -8119,11 +8150,6 @@ COMMENT ON FUNCTION dd_date_token_default(TEXT, TEXT) IS
 -- A relative day or moment on a date, date-time or time column is the fixed text
 -- dd_date_token_default returns, which reads the day or the clock in UTC on
 -- every insert.
---
--- A new parameter list adds an overload instead of replacing the function, and
--- two overloads make every five-argument call ambiguous, so the five-argument
--- signature is dropped first.
-DROP FUNCTION IF EXISTS dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT);
 CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT, p_reference_table TEXT DEFAULT '')
 RETURNS TEXT AS $$
 DECLARE
@@ -8432,8 +8458,8 @@ COMMENT ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) IS
 'Raises 23514 when a row holds a value outside the enum values of a field. A plain read: call it before locking the table.';
 
 -- The list and the name are the only copy of an enum's check. An empty table is
--- validated, which costs nothing and keeps a fresh install's constraint the same as
--- the one an earlier release created. A table with rows goes on NOT VALID, because
+-- validated, which costs nothing and leaves a fresh install's constraint VALID,
+-- the same as pg_dump prints it. A table with rows goes on NOT VALID, because
 -- validating would scan under the lock; its caller has already looked at the rows.
 CREATE OR REPLACE FUNCTION dd_replace_enum_check(p_field fields, p_rel TEXT)
 RETURNS VOID AS $$
@@ -12100,8 +12126,6 @@ CREATE OR REPLACE TRIGGER zz_family_refresh_delete_trigger
 --
 -- get_record_by_id(TEXT, BIGINT) below keeps numeric callers working.
 
-DROP FUNCTION IF EXISTS get_record_by_id(TEXT, INTEGER);
-
 CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id TEXT)
 RETURNS JSONB AS $$
 DECLARE
@@ -12435,7 +12459,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af')
+        VALUES ('_core.0160_dd_functions.sql', '3b57c47285f7e61dfa914ddcfac86ca2a9469eeaf5b7276b2a77cad1ef545cb6')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13321,7 +13345,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -13860,8 +13884,8 @@ BEGIN
         END IF;
 
         -- A required enum without an explicit default must refuse a write that leaves it
-        -- out, so a column default other than '' (an earlier release set its first value
-        -- there) is reset to ''.
+        -- out, so a column default other than '' is reset to ''. Adoption keeps the
+        -- default a column already had, so an adopted table can bring one.
         IF v_field.format = 'enum'
            AND coalesce(trim(v_field.default_value), '') = ''
            AND EXISTS (SELECT 1
@@ -14317,6 +14341,8 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_field TEXT;
+    v_queue TEXT;
+    v_trigger TEXT;
 BEGIN
     IF NEW.table_name ~ '^_'
        AND (TG_OP = 'INSERT'
@@ -14355,13 +14381,39 @@ BEGIN
                           'length', octet_length(v_field),
                           'max', 63 - 10 - octet_length(dd_relation(NEW.table_name, NEW.id_type)))::text;
         END IF;
+
+        -- So is a rename under which a trigger of the table's queue mapping,
+        -- queue_<queue>_<event>_on_<table> (0340_queue.sql), would no longer
+        -- fit: rename_dd_table gives the triggers the new table name as their
+        -- ending. A name over 63 bytes would be cut, and a cut name no longer
+        -- ends in _on_<table>: the next rename would leave the trigger under
+        -- its old name, where the removal of the mapping no longer finds it.
+        -- Every event word has six bytes, so the handler's first event (upsert
+        -- and change start with insert) stands for all of them. Only the
+        -- current mapping is checked: rename_dd_table also renames a queue_
+        -- trigger of no mapping (one that outlived its queue, or one made by
+        -- hand), and that name can still be cut.
+        SELECT q.queue_name,
+               'queue_' || q.queue_name || '_'
+                   || CASE WHEN qte.event_handler IN ('upsert', 'change') THEN 'insert' ELSE qte.event_handler END
+                   || '_on_' || NEW.table_name
+          INTO v_queue, v_trigger
+          FROM queue_table_events qte
+          JOIN queues q ON q.id = qte.queue_id
+         WHERE qte.table_name = OLD.table_name;
+        IF octet_length(v_trigger) > 63 THEN
+            RAISE EXCEPTION 'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes'
+                USING ERRCODE = '90506',
+                      HINT = jsonb_build_object('queue', v_queue, 'table', NEW.table_name,
+                                                'name', v_trigger)::text;
+        END IF;
     END IF;
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION reserve_table_namespace() IS
-'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. A rename to a longer name is also refused while a field of the entity would no longer fit under it (90276). Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
+'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. A rename to a longer name is also refused while a field of the entity would no longer fit under it (90276), or a trigger of its queue mapping (90506). Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
 
 REVOKE EXECUTE ON FUNCTION reserve_table_namespace() FROM PUBLIC;
 
@@ -14371,7 +14423,7 @@ CREATE OR REPLACE TRIGGER a_reserve_table_namespace_trigger
     EXECUTE FUNCTION reserve_table_namespace();
 
 COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
-'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes, and a rename under which a field''s generated names would be cut.';
+'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes, and a rename under which a field''s generated names or a queue trigger name would be cut.';
 
 -- =====================================================
 -- label_parent VALIDATION  (+ acyclic, no self-reference)
@@ -14600,7 +14652,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510')
+        VALUES ('_core.0180_managed_enable.sql', '038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15849,7 +15901,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1061eef9cde64e41f97fc3623b1506d587a2d6ed9648f0f01bc9c32636fda3f9') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -16829,7 +16881,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
             RAISE EXCEPTION 'computed_fields on ${table} cannot be applied to record ${record_id}: ${problem}'
                 USING ERRCODE = '90908',
-                      HINT = jsonb_build_object('table', p_table, 'record_id', v_old ->> v_e.id_column,
+                      HINT = jsonb_build_object('table', p_table, 'record_id', v_old -> v_e.id_column,
                                                 'problem', v_msg, 'cause_code', v_state)::text;
     END;
 
@@ -17470,7 +17522,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d')
+        VALUES ('_core.0210_computed_validation.sql', '1061eef9cde64e41f97fc3623b1506d587a2d6ed9648f0f01bc9c32636fda3f9')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -19522,7 +19574,7 @@ $pgsem__core_0270_apikeys_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0280_apikeys.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0280_apikeys.sql';
       EXECUTE $pgsem__core_0280_apikeys_sql$-- =====================================================
@@ -19540,10 +19592,6 @@ $pgsem__core_0270_apikeys_once_sql$;
 -- p_description is an optional human-readable label stored with the key.
 -- Returns the full API key (only time the secret is visible in plaintext).
 -- Accessible via PostgREST RPC by all authenticated users.
-
--- p_user_id follows users.id (BIGINT). An INTEGER version left behind by an
--- older build is a separate overload with grants of its own, so it is dropped.
-DROP FUNCTION IF EXISTS public.generate_api_key(INTEGER, TEXT);
 
 CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id BIGINT, p_description TEXT DEFAULT '')
 RETURNS JSONB AS $$
@@ -19717,9 +19765,6 @@ REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
 -- When p_user_id <> 0, requires admin permission.
 -- Accessible via PostgREST RPC by all authenticated users.
 
--- p_user_id follows users.id (BIGINT); see generate_api_key for the drop.
-DROP FUNCTION IF EXISTS public.list_api_keys(INTEGER);
-
 CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id BIGINT DEFAULT 0)
 RETURNS JSONB AS $$
 DECLARE
@@ -19824,7 +19869,7 @@ CREATE OR REPLACE TRIGGER pk_immutable
 $pgsem__core_0280_apikeys_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0280_apikeys.sql', 'bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195')
+        VALUES ('_core.0280_apikeys.sql', 'fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -23450,7 +23495,7 @@ $pgsem__core_0330_queue_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0340_queue.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '53487e3306197258ecd9b00ebddc17bf0fa341b5f5ba76593c90a8785ca8a254') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0340_queue.sql';
       EXECUTE $pgsem__core_0340_queue_sql$-- =====================================================
@@ -23569,8 +23614,9 @@ CREATE OR REPLACE TRIGGER queue_before_delete_trigger
 -- STEP 4: Triggers on queue_table_events
 -- =====================================================
 -- Reject table_name change on UPDATE.
--- On INSERT / DELETE, create or drop the per-table trigger function
--- that enqueues the record JSON into the parent queue.
+-- On INSERT, install the statement triggers on the mapped table that enqueue
+-- its records into the parent queue; on DELETE, drop them; on a change of
+-- event_handler or queue_id, drop the old queue's and install the new set.
 
 CREATE OR REPLACE FUNCTION queue_event_before_update()
 RETURNS TRIGGER
@@ -23713,9 +23759,12 @@ $$;
 COMMENT ON FUNCTION queue_build_record_json() IS
 'Statement-level AFTER trigger function (installed on target tables by queue_table_events) that enqueues one pgmq message per affected record on the mapped queue, in batches. A message carries the operation, timestamp, table, id column and id value - never the record itself.';
 
-CREATE OR REPLACE FUNCTION queue_event_after_insert()
-RETURNS TRIGGER
-SECURITY DEFINER
+-- The install and the drop are shared by the three trigger functions below:
+-- a mapping that is inserted installs, one that is deleted drops, and one
+-- whose event_handler or queue_id changes does both.
+
+CREATE OR REPLACE FUNCTION queue_event_install_triggers(p_table_name TEXT, p_queue_id BIGINT, p_event_handler TEXT)
+RETURNS VOID
 SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -23727,21 +23776,21 @@ BEGIN
     -- An is_a or has_a entity is a view over the tables that store the parts
     -- of its records, and a write to one record reaches several of them; the
     -- statement triggers below would see parts, not records.
-    SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.table_name;
+    SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = p_table_name;
     IF v_id_type IN ('is_a', 'has_a') THEN
         RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
             USING ERRCODE = '90249',
-                  HINT = jsonb_build_object('feature', 'queue_table_events', 'id_type', v_id_type, 'table', NEW.table_name)::text;
+                  HINT = jsonb_build_object('feature', 'queue_table_events', 'id_type', v_id_type, 'table', p_table_name)::text;
     END IF;
 
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
-    FROM queues q WHERE q.id = NEW.queue_id;
+    FROM queues q WHERE q.id = p_queue_id;
 
     IF v_queue_name IS NULL THEN
         RAISE EXCEPTION 'Parent queue not found for queue_id ${queue_id}'
             USING ERRCODE = '90503',
-                  HINT = jsonb_build_object('queue_id', NEW.queue_id)::text;
+                  HINT = jsonb_build_object('queue_id', p_queue_id)::text;
     END IF;
 
     -- One trigger per DML event, because PostgreSQL refuses a REFERENCING clause
@@ -23755,7 +23804,7 @@ BEGIN
     -- renames these triggers by matching that suffix and swapping the new table
     -- name onto the end. The handler itself is not lost: it is read back from
     -- queue_table_events when a message is built.
-    FOREACH v_event IN ARRAY (CASE NEW.event_handler
+    FOREACH v_event IN ARRAY (CASE p_event_handler
         WHEN 'insert' THEN ARRAY['INSERT']
         WHEN 'update' THEN ARRAY['UPDATE']
         WHEN 'upsert' THEN ARRAY['INSERT', 'UPDATE']
@@ -23763,26 +23812,28 @@ BEGIN
         WHEN 'change' THEN ARRAY['INSERT', 'UPDATE', 'DELETE']
     END)
     LOOP
-        v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || NEW.table_name;
+        v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || p_table_name;
 
         -- A trigger name is cut at 63 bytes like any identifier, and a cut
-        -- name is one the rename of the table and the removal of the mapping
-        -- no longer find.
+        -- name no longer ends in _on_<table>: the rename of the table would
+        -- leave the trigger under its old name, where the removal of the
+        -- mapping, which spells the name with the new table, no longer finds
+        -- it. reserve_table_namespace (0180_managed_enable.sql) refuses a
+        -- rename under which a name of the mapping would not fit; a trigger
+        -- of no mapping is renamed unchecked and can still be cut.
         IF octet_length(v_trigger_name) > 63 THEN
             RAISE EXCEPTION 'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes'
                 USING ERRCODE = '90506',
-                      HINT = jsonb_build_object('queue', v_queue_name, 'table', NEW.table_name,
+                      HINT = jsonb_build_object('queue', v_queue_name, 'table', p_table_name,
                                                 'name', v_trigger_name)::text;
         END IF;
 
         -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
         -- survive an aborted install, and dropping first makes the install
-        -- idempotent for the events this handler covers. It cannot repair a
-        -- handler that changed in place - there is no AFTER UPDATE trigger on
-        -- queue_table_events, so an event_handler edit reinstalls nothing.
-        -- queue_event_after_delete compensates by dropping every event name
-        -- rather than the handler's own.
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, NEW.table_name);
+        -- idempotent for the events this handler covers. The triggers of the
+        -- other events are gone already when a mapping is edited:
+        -- queue_event_after_update drops the old queue's names first.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, p_table_name);
         EXECUTE format(
             'CREATE TRIGGER %I
                 AFTER %s ON %I
@@ -23791,11 +23842,64 @@ BEGIN
                 EXECUTE FUNCTION queue_build_record_json()',
             v_trigger_name,
             v_event,
-            NEW.table_name,
+            p_table_name,
             CASE WHEN v_event = 'DELETE' THEN 'OLD TABLE AS old_rows' ELSE 'NEW TABLE AS new_rows' END
         );
     END LOOP;
+END;
+$$;
 
+COMMENT ON FUNCTION queue_event_install_triggers(TEXT, BIGINT, TEXT) IS
+'Installs one statement-level queue_build_record_json trigger per DML event the handler covers on the mapped table, named queue_<queue>_<event>_on_<table>. Refuses an is_a or has_a entity (90249) and a trigger name longer than 63 bytes (90506). Shared by queue_event_after_insert and queue_event_after_update.';
+
+CREATE OR REPLACE FUNCTION queue_event_drop_triggers(p_table_name TEXT, p_queue_id BIGINT)
+RETURNS VOID
+SET search_path = public, pg_temp
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_queue_name TEXT;
+    v_event TEXT;
+BEGIN
+    -- Resolve the parent queue name
+    SELECT q.queue_name INTO v_queue_name
+    FROM queues q WHERE q.id = p_queue_id;
+
+    IF v_queue_name IS NULL THEN
+        -- No queue row, so nothing names the triggers. A queue delete does not end
+        -- here: queue_before_delete removes the mappings while the queue still exists.
+        RETURN;
+    END IF;
+
+    -- Every event name, not just the ones the handler covers: an edited
+    -- mapping drops the names of its old queue whatever its old handler
+    -- installed. A trigger that outlives its mapping (its queue deleted while
+    -- queue_before_delete is switched off, or one created by hand) finds the
+    -- mapping of its table, not of its name. While the table is not mapped it
+    -- enqueues nothing and costs a lookup on every write; once the table is
+    -- mapped again, it sends its event to that mapping's queue, whether the
+    -- mapping covers the event or not. A rename of the table renames it too,
+    -- unchecked, so its name can be cut.
+    FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
+    LOOP
+        EXECUTE format(
+            'DROP TRIGGER IF EXISTS %I ON %I',
+            'queue_' || v_queue_name || '_' || v_event || '_on_' || p_table_name,
+            p_table_name
+        );
+    END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION queue_event_drop_triggers(TEXT, BIGINT) IS
+'Drops the three queue_build_record_json trigger names queue_<queue>_<event>_on_<table> of the queue from the mapped table, whichever of them exist. Does nothing when the queue row is gone. Shared by queue_event_after_delete and queue_event_after_update.';
+
+CREATE OR REPLACE FUNCTION queue_event_after_insert()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public, pg_temp
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM queue_event_install_triggers(NEW.table_name, NEW.queue_id, NEW.event_handler);
     RETURN NEW;
 END;
 $$;
@@ -23808,40 +23912,38 @@ CREATE OR REPLACE TRIGGER queue_event_after_insert_trigger
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_after_insert();
 
+CREATE OR REPLACE FUNCTION queue_event_after_update()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public, pg_temp
+LANGUAGE plpgsql AS $$
+BEGIN
+    -- The drop goes first: with the queue unchanged, the old and the new set
+    -- share names, and a drop after the install would remove the new triggers.
+    PERFORM queue_event_drop_triggers(OLD.table_name, OLD.queue_id);
+    PERFORM queue_event_install_triggers(NEW.table_name, NEW.queue_id, NEW.event_handler);
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION queue_event_after_update() IS
+'Trigger function that reinstalls the queue_build_record_json triggers of a queue_table_events mapping whose event_handler or queue_id changed: it drops the names of the old queue and installs the set of the new handler and queue.';
+
+-- Only a real change reinstalls: a save that writes the same values back, as
+-- a form sending every column does, takes no lock on the mapped table.
+CREATE OR REPLACE TRIGGER queue_event_after_update_trigger
+    AFTER UPDATE OF event_handler, queue_id ON queue_table_events
+    FOR EACH ROW
+    WHEN (OLD.event_handler IS DISTINCT FROM NEW.event_handler OR OLD.queue_id IS DISTINCT FROM NEW.queue_id)
+    EXECUTE FUNCTION queue_event_after_update();
+
 CREATE OR REPLACE FUNCTION queue_event_after_delete()
 RETURNS TRIGGER
 SECURITY DEFINER
 SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
-DECLARE
-    v_queue_name TEXT;
-    v_event TEXT;
 BEGIN
-    -- Resolve the parent queue name
-    SELECT q.queue_name INTO v_queue_name
-    FROM queues q WHERE q.id = OLD.queue_id;
-
-    IF v_queue_name IS NULL THEN
-        -- No queue row, so nothing names the triggers. A queue delete does not end
-        -- here: queue_before_delete removes the mappings while the queue still exists.
-        RETURN OLD;
-    END IF;
-
-    -- Every event name, not just the ones this handler covers: a mapping whose
-    -- event_handler was narrowed after install still owns the triggers created
-    -- for the wider set, and a mapping deleted without them leaves those
-    -- triggers on the table. An orphan resolves no mapping and enqueues nothing,
-    -- so it sends no message anywhere - it just costs a lookup on every write to
-    -- that table and makes the catalog say a queue is watching when none is.
-    FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
-    LOOP
-        EXECUTE format(
-            'DROP TRIGGER IF EXISTS %I ON %I',
-            'queue_' || v_queue_name || '_' || v_event || '_on_' || OLD.table_name,
-            OLD.table_name
-        );
-    END LOOP;
-
+    PERFORM queue_event_drop_triggers(OLD.table_name, OLD.queue_id);
     RETURN OLD;
 END;
 $$;
@@ -23860,7 +23962,10 @@ REVOKE EXECUTE ON FUNCTION queue_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_before_delete() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_install_triggers(TEXT, BIGINT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_drop_triggers(TEXT, BIGINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_after_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
 
 -- =====================================================
@@ -24044,7 +24149,7 @@ GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
 $pgsem__core_0340_queue_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0340_queue.sql', 'bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e')
+        VALUES ('_core.0340_queue.sql', '53487e3306197258ecd9b00ebddc17bf0fa341b5f5ba76593c90a8785ca8a254')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25782,7 +25887,7 @@ $pgsem__core_0430_required_field_description_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '89c78ccc92b886f551536185910010f7b4f99f4a000cfc9157b0d2a0ca3583cd') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
       EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
@@ -26089,7 +26194,6 @@ COMMENT ON FUNCTION rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB) IS
 -- The date argument of a date operator: a date or date-time column, a literal, or
 -- another date operator. Returns its SQL as jsonb and a value of the same kind for
 -- rollup_filter_date_op to check the operator with.
-DROP FUNCTION IF EXISTS rollup_filter_date_arg(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_date_arg(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -26140,7 +26244,6 @@ COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB) IS
 -- A duration column against a date column is refused here for that reason. It may
 -- hold a time of day in some rows and not others, so it would fail on a child write
 -- that has nothing wrong with it.
-DROP FUNCTION IF EXISTS rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_date_op(p_op TEXT, p_args JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -26236,7 +26339,6 @@ COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB) IS
 -- An operand of a comparison: a var, a literal or a date operator. Any other
 -- operator object is refused here, which is what keeps arithmetic and the other
 -- custom operators out.
-DROP FUNCTION IF EXISTS rollup_filter_operand(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_operand(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -26271,7 +26373,6 @@ COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) IS
 -- The operands of one comparison, as SQL. The first column among them anchors
 -- the type every literal is cast to, so '5' meets a numeric column as a number
 -- and a date column as a date; with no column the literals keep their own type.
-DROP FUNCTION IF EXISTS rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN);
 CREATE OR REPLACE FUNCTION rollup_filter_operands(p_args JSONB, p_rel TEXT, p_alias TEXT, p_allow_null BOOLEAN, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT[] AS $fn$
 DECLARE
@@ -26310,7 +26411,6 @@ COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) IS
 'Compiles the operands of one rollup filter comparison to SQL, casting every literal to the type of the first column among them.';
 
 -- A condition. Recursive for and, or, ! and !!.
-DROP FUNCTION IF EXISTS rollup_filter_cond(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_cond(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT AS $fn$
 DECLARE
@@ -26446,7 +26546,6 @@ $fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles one JsonLogic condition of the rollup subset to a parenthesized SQL boolean expression over the child alias, or raises 90265.';
 
-DROP FUNCTION IF EXISTS rollup_filter_sql(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_sql(p_filter JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT AS $fn$
 BEGIN
@@ -26525,7 +26624,6 @@ END $$;
 -- while an UPDATE validates its new version (zz_validate_rollup_field): the
 -- update may rename the field. NULL when p_field is the stored row itself, or
 -- a new field.
-DROP FUNCTION IF EXISTS rollup_definition(fields);
 CREATE OR REPLACE FUNCTION rollup_definition(p_field fields, p_old_table TEXT DEFAULT NULL, p_old_field TEXT DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -27654,7 +27752,7 @@ REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
 $pgsem__core_0440_rollup_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0440_rollup.sql', 'c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340')
+        VALUES ('_core.0440_rollup.sql', '89c78ccc92b886f551536185910010f7b4f99f4a000cfc9157b0d2a0ca3583cd')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -28042,7 +28140,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"f471c9a279f8363052b783cfa61253088896110ac66beae09e604c7c6f704289","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"a1f54f614f3e511178ec0085e859135d5c2edb078a462f8438959713a546ec36","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"3b57c47285f7e61dfa914ddcfac86ca2a9469eeaf5b7276b2a77cad1ef545cb6","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"1061eef9cde64e41f97fc3623b1506d587a2d6ed9648f0f01bc9c32636fda3f9","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"53487e3306197258ecd9b00ebddc17bf0fa341b5f5ba76593c90a8785ca8a254","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"89c78ccc92b886f551536185910010f7b4f99f4a000cfc9157b0d2a0ca3583cd","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -28106,7 +28204,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb","_core.0060_rbac_schema.once.sql":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af","_core.0170_dd_rename.sql":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb","_core.0060_rbac_schema.once.sql":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"f471c9a279f8363052b783cfa61253088896110ac66beae09e604c7c6f704289","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"a1f54f614f3e511178ec0085e859135d5c2edb078a462f8438959713a546ec36","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"3b57c47285f7e61dfa914ddcfac86ca2a9469eeaf5b7276b2a77cad1ef545cb6","_core.0170_dd_rename.sql":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"1061eef9cde64e41f97fc3623b1506d587a2d6ed9648f0f01bc9c32636fda3f9","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"53487e3306197258ecd9b00ebddc17bf0fa341b5f5ba76593c90a8785ca8a254","_core.0350_raci.jsonc":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"89c78ccc92b886f551536185910010f7b4f99f4a000cfc9157b0d2a0ca3583cd","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

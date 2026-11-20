@@ -362,7 +362,10 @@ INSERT INTO fields (table_name, field_name, title, format, input_type, reference
 INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values) VALUES
     ('rq_inst_d', 'v', 'V', 'enum', 'required', '["a", "b"]');
 
--- What an earlier release left behind: no check, and an enum's first value as default.
+-- Required fields that have no check: rq_inst_b with a row that has no value,
+-- rq_inst_c a reference with delete mode clear, made required past its guard.
+-- rq_inst_d is a required enum without an explicit default whose column
+-- default is its first value rather than ''.
 ALTER TABLE rq_inst_a DROP CONSTRAINT rq_inst_a_v_assert;
 ALTER TABLE rq_inst_b DROP CONSTRAINT rq_inst_b_v_assert;
 ALTER TABLE rq_inst_d ALTER COLUMN v SET DEFAULT 'a';

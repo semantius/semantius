@@ -231,10 +231,11 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   route back in is itself gated on `admin` and the first-user election fires
   only when a user row is created. The role also keeps what makes its holders
   administrators: removing or re-pointing its grant of `admin`, and deleting or
-  renaming the permission `admin`, are refused the same way. A direct superuser
-  or owner connection is exempt, so an operator can still empty the set
-  deliberately; the next principal to log in *for the first time* is then
-  elected.
+  renaming the permission `admin`, are refused as well (42501, `hint.code`
+  `90108`). A direct connection as a role with BYPASSRLS, such as the owner, is
+  exempt, so an operator can still empty the set deliberately; the next
+  principal to log in *for the first time* is then elected. A superuser
+  without BYPASSRLS is not exempt.
 - **pgmq's functions are executable by the request role.** It holds no
   privilege on any pgmq table, so they refuse it with 42501 at the first table
   they read, the information functions (`list_queues`, `metrics`,

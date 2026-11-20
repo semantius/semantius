@@ -10,7 +10,7 @@
 --   5. a mapping that names no queue
 BEGIN;
 
-SELECT plan(102);
+SELECT plan(107);
 
 -- =====================================================
 -- PART 1: Queue system
@@ -412,8 +412,8 @@ SELECT ok(
 
 -- Test 37: the mappings go with the queue, and their triggers with them.
 -- queue_before_delete deletes the mappings while the queues row still exists:
--- queue_event_after_delete builds the trigger names from the queue name, and an
--- ON DELETE CASCADE would take that name away before it could run.
+-- queue_event_drop_triggers builds the trigger names from the queue name, and
+-- an ON DELETE CASCADE would take that name away before it could run.
 SELECT is(
     (SELECT count(*) FROM pg_trigger
       WHERE tgrelid IN ('public.shippers'::regclass, 'public.suppliers'::regclass)
@@ -667,14 +667,18 @@ SELECT throws_ok(
 -- Targets are nwind tables, as in part 1: regions (a mapping that is edited),
 -- categories (a queue that goes away without queue_before_delete), suppliers
 -- (a trigger with no mapping) and shippers (a large statement). Each is mapped
--- by at most one of these cases.
+-- by at most one of these cases. A rename of a mapped table uses an entity of
+-- its own.
 
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 
 -- A mapping row is editable: only table_name is immutable, and part 1 pins the
--- refusal. Writing the same table_name back is not a change.
-INSERT INTO queues (queue_name) VALUES ('edit_q');
+-- refusal. A new event_name leaves the triggers as they are, and writing the
+-- same table_name back is not a change. A new event_handler or queue_id
+-- reinstalls the triggers, so a write to the table enqueues what the edited
+-- mapping covers.
+INSERT INTO queues (queue_name) VALUES ('edit_q'), ('edit_q2');
 INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
 SELECT id, 'region insert', 'regions', 'insert' FROM queues WHERE queue_name = 'edit_q';
 
@@ -693,11 +697,63 @@ SELECT lives_ok(
     $$UPDATE queue_table_events SET table_name = table_name WHERE table_name = 'regions'$$,
     'writing the same table_name back is accepted');
 
-DELETE FROM queues WHERE queue_name = 'edit_q';
+-- One insert, one update and one delete of a region, and the messages they
+-- leave on both queues.
+CREATE FUNCTION pg_temp.edit_round() RETURNS TEXT[] LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pgmq.purge_queue('edit_q');
+    PERFORM pgmq.purge_queue('edit_q2');
+    INSERT INTO regions (region_description) VALUES ('Edit Region');
+    UPDATE regions SET region_description = 'Edit Region, updated' WHERE region_description = 'Edit Region';
+    DELETE FROM regions WHERE region_description = 'Edit Region, updated';
+    RETURN (SELECT array_agg(m.queue || ' ' || (m.message ->> 'op') ORDER BY m.queue, m.msg_id)
+              FROM (SELECT 'edit_q' AS queue, msg_id, message FROM pgmq.q_edit_q
+                    UNION ALL
+                    SELECT 'edit_q2', msg_id, message FROM pgmq.q_edit_q2) m);
+END;
+$$;
+
+UPDATE queue_table_events SET event_handler = 'change' WHERE table_name = 'regions';
+SELECT is(pg_temp.edit_round(), ARRAY['edit_q INSERT', 'edit_q UPDATE', 'edit_q DELETE'],
+    'a mapping widened from insert to change enqueues inserts, updates and deletes');
+
+UPDATE queue_table_events SET event_handler = 'delete' WHERE table_name = 'regions';
+SELECT is(pg_temp.edit_round(), ARRAY['edit_q DELETE'],
+    'narrowed to delete, it enqueues deletes only');
+
+UPDATE queue_table_events SET queue_id = (SELECT id FROM queues WHERE queue_name = 'edit_q2')
+ WHERE table_name = 'regions';
+SELECT is(pg_temp.edit_round(), ARRAY['edit_q2 DELETE'],
+    'moved to another queue, it enqueues on that queue only');
+
+-- queue_ and _delete_on_regions put 24 bytes around a queue name of 47.
+INSERT INTO queues (queue_name) VALUES ('edit_q_' || repeat('q', 40));
+SELECT throws_ok(
+    $$UPDATE queue_table_events SET queue_id = (SELECT id FROM queues WHERE queue_name = 'edit_q_' || repeat('q', 40))
+       WHERE table_name = 'regions'$$,
+    '90506',
+    'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes',
+    'moving it to a queue whose trigger name would not fit 63 bytes is refused');
+
+DELETE FROM queues WHERE queue_name IN ('edit_q', 'edit_q2', 'edit_q_' || repeat('q', 40));
+
+-- A rename of a mapped table is checked against the trigger names it would
+-- give; 0470_test_ddl_rename_deep.sql pins the refusal. queue_ and _insert_on_
+-- put 17 bytes around a queue name of 30, so a table name of 16 makes exactly
+-- 63.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('qrn_mapped', 'Mapped', 'Mappeds', 1, 'public:read', 'admin');
+INSERT INTO queues (queue_name) VALUES ('qrn_' || repeat('q', 26));
+INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+SELECT id, 'mapped insert', 'qrn_mapped', 'insert' FROM queues WHERE queue_name = 'qrn_' || repeat('q', 26);
+
+SELECT lives_ok(
+    $$UPDATE entities SET table_name = 'qrn_mapped_table' WHERE table_name = 'qrn_mapped'$$,
+    'a rename of a mapped table under which its trigger names have exactly 63 bytes is accepted');
 
 -- A queue deleted while queue_before_delete is switched off still loses its
 -- mapping, through the foreign key's cascade, but only after the queue row is
--- gone. queue_event_after_delete then has no queue name to build the trigger
+-- gone. queue_event_drop_triggers then has no queue name to build the trigger
 -- names from, so it completes without dropping anything instead of failing the
 -- delete.
 INSERT INTO queues (queue_name) VALUES ('orphan_q');

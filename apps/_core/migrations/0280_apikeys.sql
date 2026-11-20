@@ -14,10 +14,6 @@
 -- Returns the full API key (only time the secret is visible in plaintext).
 -- Accessible via PostgREST RPC by all authenticated users.
 
--- p_user_id follows users.id (BIGINT). An INTEGER version left behind by an
--- older build is a separate overload with grants of its own, so it is dropped.
-DROP FUNCTION IF EXISTS public.generate_api_key(INTEGER, TEXT);
-
 CREATE OR REPLACE FUNCTION public.generate_api_key(p_user_id BIGINT, p_description TEXT DEFAULT '')
 RETURNS JSONB AS $$
 DECLARE
@@ -189,9 +185,6 @@ REVOKE EXECUTE ON FUNCTION public.validate_api_key(TEXT) FROM PUBLIC;
 -- When p_user_id = 0, returns keys for the current session user.
 -- When p_user_id <> 0, requires admin permission.
 -- Accessible via PostgREST RPC by all authenticated users.
-
--- p_user_id follows users.id (BIGINT); see generate_api_key for the drop.
-DROP FUNCTION IF EXISTS public.list_api_keys(INTEGER);
 
 CREATE OR REPLACE FUNCTION public.list_api_keys(p_user_id BIGINT DEFAULT 0)
 RETURNS JSONB AS $$

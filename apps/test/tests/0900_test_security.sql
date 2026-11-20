@@ -26,7 +26,7 @@
 --       exclusion list, which is the thing 2.3 exists to avoid.
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(14);
 
 -- =====================================================
 -- TEST 2.1: Check for tables not using RLS
@@ -126,11 +126,12 @@ SELECT is(
             'raci_install_or_drop_gate_trigger',
             'rebuild_entity_label_functions',
             -- Counts the enabled Administrators for rbac.assert_administrator_remains.
-            -- It must answer for a session that carries no claims at all - the
-            -- superuser repair connection the guard exempts is exactly that - so
-            -- rbac.uid() here would raise on the one caller that has to get
-            -- through, and cost a claims validation on every guarded statement
-            -- for the rest.
+            -- It must answer for a session that carries no claims at all - a
+            -- direct connection without BYPASSRLS, such as a superuser that
+            -- lacks the attribute, is exactly that, and the guard does not
+            -- exempt it - so rbac.uid() here would refuse that caller with an
+            -- authentication error instead of the guard's answer, and cost a
+            -- claims validation on every guarded statement for the rest.
             'count_enabled_administrators'
         )
         -- Exclude generated select_rule_* functions (called from RLS policies, not by users directly)
@@ -262,8 +263,8 @@ SELECT n, TRUE FROM unnest(ARRAY[
             'public.enable_dd_table', 'public.ensure_entities', 'public.ensure_entities_insert_rows',
             'public.ensure_entities_row', 'public.field_data_type', 'public.fix_id_sequence',
             'public.get_record_by_id', 'public.handle_entity_order_column', 'public.manage_audit_log',
-            'public.manage_record_logic_trigger', 'public.manage_select_rule_policy', 'public.queue_event_after_delete',
-            'public.queue_event_after_insert', 'public.quote_default_value', 'public.raci_sync_triggers',
+            'public.manage_record_logic_trigger', 'public.manage_select_rule_policy', 'public.queue_event_drop_triggers',
+            'public.queue_event_install_triggers', 'public.quote_default_value', 'public.raci_sync_triggers',
             'public.rebuild_entity_label_functions', 'public.rename_dd_table', 'public.rollup_backfill',
             'public.rollup_build_guard', 'public.rollup_build_link', 'public.rollup_create_function',
             'public.rollup_definition', 'public.rollup_filter_column', 'public.rollup_filter_cond',
@@ -326,6 +327,30 @@ SELECT is(
         AND p.prosrc ~* 'current_setting\s*\(\s*''app\.current_user_id'''),
     NULL::text,
     'No function outside rbac reads app.current_user_id itself'
+);
+
+-- =====================================================
+-- TEST 2.8: The request role's EXECUTE on rbac functions
+-- =====================================================
+-- Each rbac function is granted to semantius_user next to its definition, so
+-- the grant does not depend on the role that runs migrate(). The four below
+-- are revoked instead: upsert_user_from_jwt and get_user_permissions_by_id take
+-- a subject or an internal id with no guard of their own, and the two scope
+-- helpers are correct only inside the definer permission checkers. One set, so
+-- a function without its grant shows up as an extra row and a grant that comes
+-- back on one of the four as a missing one, each by name.
+
+SELECT set_eq(
+    $$SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'rbac'
+         AND NOT pg_catalog.has_function_privilege('semantius_user', p.oid, 'EXECUTE')$$,
+    ARRAY['rbac.expand_scopes(text)',
+          'rbac.get_user_permissions_by_id(bigint)',
+          'rbac.scope_closure()',
+          'rbac.upsert_user_from_jwt(text, text, text, text, text)'],
+    'semantius_user can execute every rbac function except the four it must not reach'
 );
 
 SELECT * FROM finish();

@@ -7,9 +7,9 @@
 -- and the guards next to it refuse the statements that reach that state.
 --
 -- Fixture: the seeded identities. user3 (1003) is the only Administrator, which
--- is what makes every "last one" case below the real one. A direct superuser
--- connection is exempt, so each case is asserted as user3 over the request role,
--- and the exemption itself is asserted with RESET ROLE.
+-- is what makes every "last one" case below the real one. A direct connection
+-- as a role with BYPASSRLS is exempt, so each case is asserted as user3 over the
+-- request role, and the exemption itself is asserted with RESET ROLE.
 BEGIN;
 
 SELECT plan(30);
@@ -162,9 +162,9 @@ SELECT lives_ok(
 -- =====================================================
 -- The operator escape hatch
 -- =====================================================
--- A direct superuser or owner connection is exempt, which is how a database is
--- repaired and how 0210_test_first_user_get_userinfo.sql builds a system that
--- has never had an Administrator.
+-- A direct connection as a role with BYPASSRLS is exempt, which is how a
+-- database is repaired and how 0210_test_first_user_get_userinfo.sql builds a
+-- system that has never had an Administrator.
 RESET ROLE;
 
 SELECT lives_ok(
@@ -179,7 +179,9 @@ SELECT lives_ok(
 -- disabled user, and the authority itself can be taken from role 2: by
 -- removing or re-pointing its role_permissions row for `admin`, or by deleting
 -- or renaming the permission, which reaches that row by cascade. Each is
--- refused like the delete, with 42501 and hint.code 90104, and changes nothing.
+-- refused with 42501 and changes nothing: an UPDATE of user_roles with
+-- hint.code 90104, like the delete, and a route that takes the authority with
+-- 90108.
 
 -- What a statement is refused with: SQLSTATE and hint.code, or 'not refused'.
 -- It runs as its caller, and a refused statement leaves nothing behind.
@@ -270,7 +272,7 @@ SELECT authenticate_as('user3');
 
 SELECT is(
     pg_temp.la_refusal($$DELETE FROM role_permissions WHERE role_id = 2 AND permission_name = 'admin'$$),
-    '42501 90104',
+    '42501 90108',
     'removing admin from the Administrator role is refused');
 
 RESET ROLE;
@@ -296,7 +298,7 @@ SELECT is(
     pg_temp.la_refusal($$UPDATE role_permissions
          SET role_id = (SELECT id FROM roles WHERE role_name = 'Last Admin Probe')
        WHERE role_id = 2 AND permission_name = 'admin'$$),
-    '42501 90104',
+    '42501 90108',
     'pointing the Administrator role''s admin grant at another role is refused');
 
 RESET ROLE;
@@ -315,7 +317,7 @@ SELECT authenticate_as('user3');
 
 SELECT is(
     pg_temp.la_refusal($$DELETE FROM permissions WHERE permission_name = 'admin'$$),
-    '42501 90104',
+    '42501 90108',
     'deleting the permission admin is refused');
 
 RESET ROLE;
@@ -329,7 +331,7 @@ SELECT authenticate_as('user3');
 
 SELECT is(
     pg_temp.la_refusal($$UPDATE permissions SET permission_name = 'admin_renamed' WHERE permission_name = 'admin'$$),
-    '42501 90104',
+    '42501 90108',
     'renaming the permission admin is refused');
 
 RESET ROLE;

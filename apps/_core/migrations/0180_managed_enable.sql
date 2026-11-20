@@ -534,8 +534,8 @@ BEGIN
         END IF;
 
         -- A required enum without an explicit default must refuse a write that leaves it
-        -- out, so a column default other than '' (an earlier release set its first value
-        -- there) is reset to ''.
+        -- out, so a column default other than '' is reset to ''. Adoption keeps the
+        -- default a column already had, so an adopted table can bring one.
         IF v_field.format = 'enum'
            AND coalesce(trim(v_field.default_value), '') = ''
            AND EXISTS (SELECT 1
@@ -991,6 +991,8 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_field TEXT;
+    v_queue TEXT;
+    v_trigger TEXT;
 BEGIN
     IF NEW.table_name ~ '^_'
        AND (TG_OP = 'INSERT'
@@ -1029,13 +1031,39 @@ BEGIN
                           'length', octet_length(v_field),
                           'max', 63 - 10 - octet_length(dd_relation(NEW.table_name, NEW.id_type)))::text;
         END IF;
+
+        -- So is a rename under which a trigger of the table's queue mapping,
+        -- queue_<queue>_<event>_on_<table> (0340_queue.sql), would no longer
+        -- fit: rename_dd_table gives the triggers the new table name as their
+        -- ending. A name over 63 bytes would be cut, and a cut name no longer
+        -- ends in _on_<table>: the next rename would leave the trigger under
+        -- its old name, where the removal of the mapping no longer finds it.
+        -- Every event word has six bytes, so the handler's first event (upsert
+        -- and change start with insert) stands for all of them. Only the
+        -- current mapping is checked: rename_dd_table also renames a queue_
+        -- trigger of no mapping (one that outlived its queue, or one made by
+        -- hand), and that name can still be cut.
+        SELECT q.queue_name,
+               'queue_' || q.queue_name || '_'
+                   || CASE WHEN qte.event_handler IN ('upsert', 'change') THEN 'insert' ELSE qte.event_handler END
+                   || '_on_' || NEW.table_name
+          INTO v_queue, v_trigger
+          FROM queue_table_events qte
+          JOIN queues q ON q.id = qte.queue_id
+         WHERE qte.table_name = OLD.table_name;
+        IF octet_length(v_trigger) > 63 THEN
+            RAISE EXCEPTION 'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes'
+                USING ERRCODE = '90506',
+                      HINT = jsonb_build_object('queue', v_queue, 'table', NEW.table_name,
+                                                'name', v_trigger)::text;
+        END IF;
     END IF;
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION reserve_table_namespace() IS
-'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. A rename to a longer name is also refused while a field of the entity would no longer fit under it (90276). Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
+'Trigger function that refuses an entity whose table_name begins with "_" (90271) or is longer than 41 bytes (90273): on INSERT, on a rename to such a name, and on the flip to managed. A rename to a longer name is also refused while a field of the entity would no longer fit under it (90276), or a trigger of its queue mapping (90506). Internal tables such as _settings and _apikeys are protected by having no permission model, which an entity would give them; a longer name would have the names generated from it cut to 63 bytes.';
 
 REVOKE EXECUTE ON FUNCTION reserve_table_namespace() FROM PUBLIC;
 
@@ -1045,7 +1073,7 @@ CREATE OR REPLACE TRIGGER a_reserve_table_namespace_trigger
     EXECUTE FUNCTION reserve_table_namespace();
 
 COMMENT ON TRIGGER a_reserve_table_namespace_trigger ON entities IS
-'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes, and a rename under which a field''s generated names would be cut.';
+'Refuses registering, renaming to, or adopting a table whose name starts with "_" or is longer than 41 bytes, and a rename under which a field''s generated names or a queue trigger name would be cut.';
 
 -- =====================================================
 -- label_parent VALIDATION  (+ acyclic, no self-reference)

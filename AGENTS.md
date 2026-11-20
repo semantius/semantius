@@ -56,10 +56,7 @@ This document provides essential information for AI agents working with the Sema
   local time it was written, **and there is normally exactly one open plan.** The
   stamp tells you which iteration you are looking at without opening anything; a
   topic name alone does not, and a date alone stops working the first time two
-  plans are written on one day. `plans/pg_semantius-open-items.md` and
-  `plans/ext-solved-items.md` are not plans: they are the frozen record of the
-  security review of 2026-09-02. No plan adds rows to them, claims rows in them,
-  or edits them, whatever their own text says about plan ownership.
+  plans are written on one day.
 - **Do not decide alone on anything that affects data safety, security or operability** (backup and restore, data loss on drop, silent failure, trust boundaries). Stop and put the trade-off to the user in plain terms. Writing a limitation into a README or a "follow-up" note is not a decision; asking is.
 
 ## Project Overview
@@ -163,7 +160,7 @@ The permission readers - `rbac.uid`, `user_id`, `has_permission`,
 - **Never write `col <op> stable_fn(...)` in a policy `USING` clause or a view**
   (e.g. `USING (user_id = rbac.user_id())`): the planner runs `STABLE` calls while
   estimating selectivity, so an `EXPLAIN` would raise on a session with no
-  claims. Use a sub-select (`USING ((SELECT rbac.has_permission('x'))))`); a
+  claims. Use a sub-select (`USING ((SELECT rbac.has_permission('x')))`); a
   `WITH CHECK` expression is exempt.
 
 ## ⚠️ MANDATORY TESTING REQUIREMENTS ⚠️
@@ -188,7 +185,7 @@ exceptions.**
 ## Development Guidelines
 
 ### Code Standards
-- Use import map aliases from `deno.json` (e.g., `@postgres`, `@std/flags`)
+- Use import map aliases from `packages/cli/deno.json` (e.g., `@postgres`, `@std/flags`)
 - Plain text console output (no emoji prefixes)
 - Commands follow pattern: create in `commands/`, export async function, wire into `cli.ts`; a command receives the database URL as a parameter and closes its connection in a `finally` block
 

@@ -23,6 +23,6 @@
     "neon-provisioner:deploy": "pnpm --filter @semantius/core build && deno task bundle-sql && pnpm --filter @semantius/neon-provisioner run deploy"
   },
   "engines": {
-    "pnpm": ">=8.0.0"
+    "pnpm": ">=10.26"
   }
 }

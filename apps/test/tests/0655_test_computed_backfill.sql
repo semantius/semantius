@@ -177,8 +177,8 @@ SELECT throws_ok(pg_temp.cb_refused(), '90908', NULL, '90908: a record whose new
 -- The expected id is read first: a statement that also reads cb_orders holds it open,
 -- and the pass cannot ALTER a table this session has a scan open on (55006), which
 -- would name the first record it scans instead of the one the rule refuses.
-CREATE TEMP TABLE cb_refused_id ON COMMIT DROP AS SELECT id::text AS id FROM cb_orders WHERE label = 'A';
-SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'record_id', (SELECT id FROM cb_refused_id), 'the error names the record');
+CREATE TEMP TABLE cb_refused_id ON COMMIT DROP AS SELECT id FROM cb_orders WHERE label = 'A';
+SELECT is(catch_error_hint(pg_temp.cb_refused()) -> 'record_id', (SELECT to_jsonb(id) FROM cb_refused_id), 'the error names the record, in the type of its key');
 SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'cause_code', '99871', 'and the rule''s own code');
 SELECT is(catch_error_hint(pg_temp.cb_refused()) ->> 'problem', 'calc too high', 'and its message');
 SELECT is((SELECT calc FROM cb_orders WHERE label = 'A'), 12, 'the record keeps its value');

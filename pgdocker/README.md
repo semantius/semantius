@@ -242,7 +242,7 @@ For **RS256 tokens** (what the test issuer mints, and most IdPs default to):
 > system refuses to leave itself without an enabled Administrator — you cannot
 > remove the role from the last one, point their role assignment at another role
 > or user, delete them, or disable them, and the Administrator role cannot lose its
-> `admin` permission, except over a direct superuser connection.
+> `admin` permission, except over a direct connection as a role with BYPASSRLS.
 
 ### Testing session mode
 

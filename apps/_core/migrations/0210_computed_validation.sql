@@ -975,7 +975,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
             RAISE EXCEPTION 'computed_fields on ${table} cannot be applied to record ${record_id}: ${problem}'
                 USING ERRCODE = '90908',
-                      HINT = jsonb_build_object('table', p_table, 'record_id', v_old ->> v_e.id_column,
+                      HINT = jsonb_build_object('table', p_table, 'record_id', v_old -> v_e.id_column,
                                                 'problem', v_msg, 'cause_code', v_state)::text;
     END;
 

@@ -1017,11 +1017,6 @@ COMMENT ON FUNCTION dd_date_token_default(TEXT, TEXT) IS
 -- A relative day or moment on a date, date-time or time column is the fixed text
 -- dd_date_token_default returns, which reads the day or the clock in UTC on
 -- every insert.
---
--- A new parameter list adds an overload instead of replacing the function, and
--- two overloads make every five-argument call ambiguous, so the five-argument
--- signature is dropped first.
-DROP FUNCTION IF EXISTS dd_column_default(TEXT, TEXT, TEXT, JSONB, TEXT);
 CREATE OR REPLACE FUNCTION dd_column_default(p_format TEXT, p_default_value TEXT, p_input_type TEXT, p_enum_values JSONB, p_data_type TEXT, p_reference_table TEXT DEFAULT '')
 RETURNS TEXT AS $$
 DECLARE
@@ -1330,8 +1325,8 @@ COMMENT ON FUNCTION dd_check_enum_values_cover_rows(fields, TEXT) IS
 'Raises 23514 when a row holds a value outside the enum values of a field. A plain read: call it before locking the table.';
 
 -- The list and the name are the only copy of an enum's check. An empty table is
--- validated, which costs nothing and keeps a fresh install's constraint the same as
--- the one an earlier release created. A table with rows goes on NOT VALID, because
+-- validated, which costs nothing and leaves a fresh install's constraint VALID,
+-- the same as pg_dump prints it. A table with rows goes on NOT VALID, because
 -- validating would scan under the lock; its caller has already looked at the rows.
 CREATE OR REPLACE FUNCTION dd_replace_enum_check(p_field fields, p_rel TEXT)
 RETURNS VOID AS $$
@@ -4997,8 +4992,6 @@ CREATE OR REPLACE TRIGGER zz_family_refresh_delete_trigger
 -- common.typeid domain's CHECK as well as the base type's syntax and range.
 --
 -- get_record_by_id(TEXT, BIGINT) below keeps numeric callers working.
-
-DROP FUNCTION IF EXISTS get_record_by_id(TEXT, INTEGER);
 
 CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id TEXT)
 RETURNS JSONB AS $$

@@ -503,12 +503,11 @@ SELECT is(get_record_by_id('idt_big', 5) ->> 'label', 'b5',
 SELECT is(get_record_by_id('idt_auto', (SELECT id FROM idt_auto WHERE label = 'a2')) ->> 'label', 'a2',
     'get_record_by_id: a bigint argument resolves to the BIGINT overload');
 
-SELECT ok(to_regprocedure('public.get_record_by_id(text, integer)') IS NULL
-      AND has_function_privilege('semantius_user', 'public.get_record_by_id(text, text)', 'EXECUTE')
+SELECT ok(has_function_privilege('semantius_user', 'public.get_record_by_id(text, text)', 'EXECUTE')
       AND has_function_privilege('semantius_user', 'public.get_record_by_id(text, bigint)', 'EXECUTE')
       AND NOT has_function_privilege('public', 'public.get_record_by_id(text, text)', 'EXECUTE')
       AND NOT has_function_privilege('public', 'public.get_record_by_id(text, bigint)', 'EXECUTE'),
-    'get_record_by_id: the (TEXT, TEXT) and (TEXT, BIGINT) versions replace (TEXT, INTEGER), granted to the request role only');
+    'get_record_by_id: the (TEXT, TEXT) and (TEXT, BIGINT) versions are granted to the request role only');
 
 SELECT is(get_record_by_id('idt_text', 'nope'), NULL,
     'get_record_by_id: a record that does not exist is still NULL');

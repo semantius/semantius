@@ -302,7 +302,6 @@ COMMENT ON FUNCTION rollup_date_value(JSONB, TEXT, JSONB, JSONB, JSONB) IS
 -- The date argument of a date operator: a date or date-time column, a literal, or
 -- another date operator. Returns its SQL as jsonb and a value of the same kind for
 -- rollup_filter_date_op to check the operator with.
-DROP FUNCTION IF EXISTS rollup_filter_date_arg(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_date_arg(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -353,7 +352,6 @@ COMMENT ON FUNCTION rollup_filter_date_arg(JSONB, TEXT, TEXT, JSONB) IS
 -- A duration column against a date column is refused here for that reason. It may
 -- hold a time of day in some rows and not others, so it would fail on a child write
 -- that has nothing wrong with it.
-DROP FUNCTION IF EXISTS rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_date_op(p_op TEXT, p_args JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -449,7 +447,6 @@ COMMENT ON FUNCTION rollup_filter_date_op(TEXT, JSONB, TEXT, TEXT, JSONB) IS
 -- An operand of a comparison: a var, a literal or a date operator. Any other
 -- operator object is refused here, which is what keeps arithmetic and the other
 -- custom operators out.
-DROP FUNCTION IF EXISTS rollup_filter_operand(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_operand(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE
@@ -484,7 +481,6 @@ COMMENT ON FUNCTION rollup_filter_operand(JSONB, TEXT, TEXT, JSONB) IS
 -- The operands of one comparison, as SQL. The first column among them anchors
 -- the type every literal is cast to, so '5' meets a numeric column as a number
 -- and a date column as a date; with no column the literals keep their own type.
-DROP FUNCTION IF EXISTS rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN);
 CREATE OR REPLACE FUNCTION rollup_filter_operands(p_args JSONB, p_rel TEXT, p_alias TEXT, p_allow_null BOOLEAN, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT[] AS $fn$
 DECLARE
@@ -523,7 +519,6 @@ COMMENT ON FUNCTION rollup_filter_operands(JSONB, TEXT, TEXT, BOOLEAN, JSONB) IS
 'Compiles the operands of one rollup filter comparison to SQL, casting every literal to the type of the first column among them.';
 
 -- A condition. Recursive for and, or, ! and !!.
-DROP FUNCTION IF EXISTS rollup_filter_cond(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_cond(p_node JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT AS $fn$
 DECLARE
@@ -659,7 +654,6 @@ $fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION rollup_filter_cond(JSONB, TEXT, TEXT, JSONB) IS
 'Compiles one JsonLogic condition of the rollup subset to a parenthesized SQL boolean expression over the child alias, or raises 90265.';
 
-DROP FUNCTION IF EXISTS rollup_filter_sql(JSONB, TEXT, TEXT);
 CREATE OR REPLACE FUNCTION rollup_filter_sql(p_filter JSONB, p_rel TEXT, p_alias TEXT, p_rollup JSONB DEFAULT NULL)
 RETURNS TEXT AS $fn$
 BEGIN
@@ -738,7 +732,6 @@ END $$;
 -- while an UPDATE validates its new version (zz_validate_rollup_field): the
 -- update may rename the field. NULL when p_field is the stored row itself, or
 -- a new field.
-DROP FUNCTION IF EXISTS rollup_definition(fields);
 CREATE OR REPLACE FUNCTION rollup_definition(p_field fields, p_old_table TEXT DEFAULT NULL, p_old_field TEXT DEFAULT NULL)
 RETURNS JSONB AS $fn$
 DECLARE

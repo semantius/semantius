@@ -114,8 +114,9 @@ CREATE OR REPLACE TRIGGER queue_before_delete_trigger
 -- STEP 4: Triggers on queue_table_events
 -- =====================================================
 -- Reject table_name change on UPDATE.
--- On INSERT / DELETE, create or drop the per-table trigger function
--- that enqueues the record JSON into the parent queue.
+-- On INSERT, install the statement triggers on the mapped table that enqueue
+-- its records into the parent queue; on DELETE, drop them; on a change of
+-- event_handler or queue_id, drop the old queue's and install the new set.
 
 CREATE OR REPLACE FUNCTION queue_event_before_update()
 RETURNS TRIGGER
@@ -258,9 +259,12 @@ $$;
 COMMENT ON FUNCTION queue_build_record_json() IS
 'Statement-level AFTER trigger function (installed on target tables by queue_table_events) that enqueues one pgmq message per affected record on the mapped queue, in batches. A message carries the operation, timestamp, table, id column and id value - never the record itself.';
 
-CREATE OR REPLACE FUNCTION queue_event_after_insert()
-RETURNS TRIGGER
-SECURITY DEFINER
+-- The install and the drop are shared by the three trigger functions below:
+-- a mapping that is inserted installs, one that is deleted drops, and one
+-- whose event_handler or queue_id changes does both.
+
+CREATE OR REPLACE FUNCTION queue_event_install_triggers(p_table_name TEXT, p_queue_id BIGINT, p_event_handler TEXT)
+RETURNS VOID
 SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -272,21 +276,21 @@ BEGIN
     -- An is_a or has_a entity is a view over the tables that store the parts
     -- of its records, and a write to one record reaches several of them; the
     -- statement triggers below would see parts, not records.
-    SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = NEW.table_name;
+    SELECT e.id_type INTO v_id_type FROM entities e WHERE e.table_name = p_table_name;
     IF v_id_type IN ('is_a', 'has_a') THEN
         RAISE EXCEPTION '${feature} is not available for ${id_type} entity ${table}'
             USING ERRCODE = '90249',
-                  HINT = jsonb_build_object('feature', 'queue_table_events', 'id_type', v_id_type, 'table', NEW.table_name)::text;
+                  HINT = jsonb_build_object('feature', 'queue_table_events', 'id_type', v_id_type, 'table', p_table_name)::text;
     END IF;
 
     -- Resolve the parent queue name
     SELECT q.queue_name INTO v_queue_name
-    FROM queues q WHERE q.id = NEW.queue_id;
+    FROM queues q WHERE q.id = p_queue_id;
 
     IF v_queue_name IS NULL THEN
         RAISE EXCEPTION 'Parent queue not found for queue_id ${queue_id}'
             USING ERRCODE = '90503',
-                  HINT = jsonb_build_object('queue_id', NEW.queue_id)::text;
+                  HINT = jsonb_build_object('queue_id', p_queue_id)::text;
     END IF;
 
     -- One trigger per DML event, because PostgreSQL refuses a REFERENCING clause
@@ -300,7 +304,7 @@ BEGIN
     -- renames these triggers by matching that suffix and swapping the new table
     -- name onto the end. The handler itself is not lost: it is read back from
     -- queue_table_events when a message is built.
-    FOREACH v_event IN ARRAY (CASE NEW.event_handler
+    FOREACH v_event IN ARRAY (CASE p_event_handler
         WHEN 'insert' THEN ARRAY['INSERT']
         WHEN 'update' THEN ARRAY['UPDATE']
         WHEN 'upsert' THEN ARRAY['INSERT', 'UPDATE']
@@ -308,26 +312,28 @@ BEGIN
         WHEN 'change' THEN ARRAY['INSERT', 'UPDATE', 'DELETE']
     END)
     LOOP
-        v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || NEW.table_name;
+        v_trigger_name := 'queue_' || v_queue_name || '_' || lower(v_event) || '_on_' || p_table_name;
 
         -- A trigger name is cut at 63 bytes like any identifier, and a cut
-        -- name is one the rename of the table and the removal of the mapping
-        -- no longer find.
+        -- name no longer ends in _on_<table>: the rename of the table would
+        -- leave the trigger under its old name, where the removal of the
+        -- mapping, which spells the name with the new table, no longer finds
+        -- it. reserve_table_namespace (0180_managed_enable.sql) refuses a
+        -- rename under which a name of the mapping would not fit; a trigger
+        -- of no mapping is renamed unchecked and can still be cut.
         IF octet_length(v_trigger_name) > 63 THEN
             RAISE EXCEPTION 'Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes'
                 USING ERRCODE = '90506',
-                      HINT = jsonb_build_object('queue', v_queue_name, 'table', NEW.table_name,
+                      HINT = jsonb_build_object('queue', v_queue_name, 'table', p_table_name,
                                                 'name', v_trigger_name)::text;
         END IF;
 
         -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
         -- survive an aborted install, and dropping first makes the install
-        -- idempotent for the events this handler covers. It cannot repair a
-        -- handler that changed in place - there is no AFTER UPDATE trigger on
-        -- queue_table_events, so an event_handler edit reinstalls nothing.
-        -- queue_event_after_delete compensates by dropping every event name
-        -- rather than the handler's own.
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, NEW.table_name);
+        -- idempotent for the events this handler covers. The triggers of the
+        -- other events are gone already when a mapping is edited:
+        -- queue_event_after_update drops the old queue's names first.
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, p_table_name);
         EXECUTE format(
             'CREATE TRIGGER %I
                 AFTER %s ON %I
@@ -336,11 +342,64 @@ BEGIN
                 EXECUTE FUNCTION queue_build_record_json()',
             v_trigger_name,
             v_event,
-            NEW.table_name,
+            p_table_name,
             CASE WHEN v_event = 'DELETE' THEN 'OLD TABLE AS old_rows' ELSE 'NEW TABLE AS new_rows' END
         );
     END LOOP;
+END;
+$$;
 
+COMMENT ON FUNCTION queue_event_install_triggers(TEXT, BIGINT, TEXT) IS
+'Installs one statement-level queue_build_record_json trigger per DML event the handler covers on the mapped table, named queue_<queue>_<event>_on_<table>. Refuses an is_a or has_a entity (90249) and a trigger name longer than 63 bytes (90506). Shared by queue_event_after_insert and queue_event_after_update.';
+
+CREATE OR REPLACE FUNCTION queue_event_drop_triggers(p_table_name TEXT, p_queue_id BIGINT)
+RETURNS VOID
+SET search_path = public, pg_temp
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_queue_name TEXT;
+    v_event TEXT;
+BEGIN
+    -- Resolve the parent queue name
+    SELECT q.queue_name INTO v_queue_name
+    FROM queues q WHERE q.id = p_queue_id;
+
+    IF v_queue_name IS NULL THEN
+        -- No queue row, so nothing names the triggers. A queue delete does not end
+        -- here: queue_before_delete removes the mappings while the queue still exists.
+        RETURN;
+    END IF;
+
+    -- Every event name, not just the ones the handler covers: an edited
+    -- mapping drops the names of its old queue whatever its old handler
+    -- installed. A trigger that outlives its mapping (its queue deleted while
+    -- queue_before_delete is switched off, or one created by hand) finds the
+    -- mapping of its table, not of its name. While the table is not mapped it
+    -- enqueues nothing and costs a lookup on every write; once the table is
+    -- mapped again, it sends its event to that mapping's queue, whether the
+    -- mapping covers the event or not. A rename of the table renames it too,
+    -- unchecked, so its name can be cut.
+    FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
+    LOOP
+        EXECUTE format(
+            'DROP TRIGGER IF EXISTS %I ON %I',
+            'queue_' || v_queue_name || '_' || v_event || '_on_' || p_table_name,
+            p_table_name
+        );
+    END LOOP;
+END;
+$$;
+
+COMMENT ON FUNCTION queue_event_drop_triggers(TEXT, BIGINT) IS
+'Drops the three queue_build_record_json trigger names queue_<queue>_<event>_on_<table> of the queue from the mapped table, whichever of them exist. Does nothing when the queue row is gone. Shared by queue_event_after_delete and queue_event_after_update.';
+
+CREATE OR REPLACE FUNCTION queue_event_after_insert()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public, pg_temp
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM queue_event_install_triggers(NEW.table_name, NEW.queue_id, NEW.event_handler);
     RETURN NEW;
 END;
 $$;
@@ -353,40 +412,38 @@ CREATE OR REPLACE TRIGGER queue_event_after_insert_trigger
     FOR EACH ROW
     EXECUTE FUNCTION queue_event_after_insert();
 
+CREATE OR REPLACE FUNCTION queue_event_after_update()
+RETURNS TRIGGER
+SECURITY DEFINER
+SET search_path = public, pg_temp
+LANGUAGE plpgsql AS $$
+BEGIN
+    -- The drop goes first: with the queue unchanged, the old and the new set
+    -- share names, and a drop after the install would remove the new triggers.
+    PERFORM queue_event_drop_triggers(OLD.table_name, OLD.queue_id);
+    PERFORM queue_event_install_triggers(NEW.table_name, NEW.queue_id, NEW.event_handler);
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION queue_event_after_update() IS
+'Trigger function that reinstalls the queue_build_record_json triggers of a queue_table_events mapping whose event_handler or queue_id changed: it drops the names of the old queue and installs the set of the new handler and queue.';
+
+-- Only a real change reinstalls: a save that writes the same values back, as
+-- a form sending every column does, takes no lock on the mapped table.
+CREATE OR REPLACE TRIGGER queue_event_after_update_trigger
+    AFTER UPDATE OF event_handler, queue_id ON queue_table_events
+    FOR EACH ROW
+    WHEN (OLD.event_handler IS DISTINCT FROM NEW.event_handler OR OLD.queue_id IS DISTINCT FROM NEW.queue_id)
+    EXECUTE FUNCTION queue_event_after_update();
+
 CREATE OR REPLACE FUNCTION queue_event_after_delete()
 RETURNS TRIGGER
 SECURITY DEFINER
 SET search_path = public, pg_temp
 LANGUAGE plpgsql AS $$
-DECLARE
-    v_queue_name TEXT;
-    v_event TEXT;
 BEGIN
-    -- Resolve the parent queue name
-    SELECT q.queue_name INTO v_queue_name
-    FROM queues q WHERE q.id = OLD.queue_id;
-
-    IF v_queue_name IS NULL THEN
-        -- No queue row, so nothing names the triggers. A queue delete does not end
-        -- here: queue_before_delete removes the mappings while the queue still exists.
-        RETURN OLD;
-    END IF;
-
-    -- Every event name, not just the ones this handler covers: a mapping whose
-    -- event_handler was narrowed after install still owns the triggers created
-    -- for the wider set, and a mapping deleted without them leaves those
-    -- triggers on the table. An orphan resolves no mapping and enqueues nothing,
-    -- so it sends no message anywhere - it just costs a lookup on every write to
-    -- that table and makes the catalog say a queue is watching when none is.
-    FOREACH v_event IN ARRAY ARRAY['insert', 'update', 'delete']
-    LOOP
-        EXECUTE format(
-            'DROP TRIGGER IF EXISTS %I ON %I',
-            'queue_' || v_queue_name || '_' || v_event || '_on_' || OLD.table_name,
-            OLD.table_name
-        );
-    END LOOP;
-
+    PERFORM queue_event_drop_triggers(OLD.table_name, OLD.queue_id);
     RETURN OLD;
 END;
 $$;
@@ -405,7 +462,10 @@ REVOKE EXECUTE ON FUNCTION queue_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_before_delete() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_before_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_build_record_json() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_install_triggers(TEXT, BIGINT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_drop_triggers(TEXT, BIGINT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_insert() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION queue_event_after_update() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION queue_event_after_delete() FROM PUBLIC;
 
 -- =====================================================

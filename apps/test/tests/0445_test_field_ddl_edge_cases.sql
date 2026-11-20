@@ -417,10 +417,10 @@ SELECT is((SELECT p_table FROM dd_install_missing_checks('~')), NULL,
 SELECT is((SELECT p_skipped FROM dd_install_missing_checks('~')), '[]'::jsonb,
     'and skips none');
 
--- A required enum whose column default is a leftover of an earlier release is
--- reset, and the family has to be rebuilt with it. While a view of another
--- author is built on a family view, the rebuild is refused: the table is
--- skipped and reported, and its default stays as it was.
+-- A required enum without an explicit default whose column default is not ''
+-- is reset to '', and the family has to be rebuilt with it. While a view of
+-- another author is built on a family view, the rebuild is refused: the table
+-- is skipped and reported, and its default stays as it was.
 ALTER TABLE fd_fam ALTER COLUMN st SET DEFAULT 'a';
 CREATE VIEW public.fd_report AS SELECT id FROM public.fd_part;
 

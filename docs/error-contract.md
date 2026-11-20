@@ -396,9 +396,10 @@ of which the extension archive's README lists for the operator who hits one,
 and the definition errors of `ensure_entities` in `0290_ensure_entities.sql`
 (22023 for a malformed `.jsonc` definition, 0A000 for a change that is not
 additive), which only a migration reaches.
-The administrator lockout guard and the User-role guard in
-`0100_rbac_rls.sql` are not exempt: a client reaches both by editing
-`user_roles` or `users`, so they are 901xx errors like every other refusal.
+The administrator lockout guards and the User-role guard in
+`0100_rbac_rls.sql` are not exempt: a client reaches them by editing
+`user_roles`, `users`, `roles`, `role_permissions` or `permissions`, so they
+are 901xx errors like every other refusal.
 
 ## The numbers
 
@@ -433,11 +434,11 @@ the JSON hint that fill their `${name}` placeholders.
 | `90101` | `42501` | `Permission denied: ${permission} required` | `Ask an administrator to grant ${permission}` | `permission` | `rbac.require_permission`, the refusal every gated call makes. |
 | `90102` | `42501` | `Permission denied: one of (${permissions}) required` | - | `permissions` | `rbac.require_any_permission`. The list is one string, not an array: a parameter is a value in a sentence. |
 | `90103` | `42501` | `Cannot delete role 1 (User) from user. All users must have the User role.` | - | - | Reachable by editing `user_roles`, so it is a refusal like any other. |
-| `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.` | - | The lockout guard: a DELETE on `user_roles`, `users` or `roles`, an UPDATE on `user_roles` or an UPDATE of `users.is_disabled` that would leave no enabled holder of role 2. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
-| `90104` | `42501` | `The Administrator role has to keep the admin permission` | `Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.` | - | The same guard for the grant itself: removing or re-pointing the `role_permissions` row of role 2 for `admin`, and deleting or renaming the permission `admin`. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
+| `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct connection as a role with BYPASSRLS is exempt from this check.` | - | The lockout guard: a DELETE on `user_roles`, `users` or `roles`, an UPDATE on `user_roles` or an UPDATE of `users.is_disabled` that would leave no enabled holder of role 2. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
 | `90105` | `42501` | `Permission denied for queue ${queue}` | - | `queue` | A caller without `admin` named a queue that is not registered. A registered queue it may not use answers 90101 with the permission instead, so the answer tells whether a queue name is registered. |
 | `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`, or on an entity the caller does not see in the catalog, such as an is_a or has_a entity whose base it does not see. A name that is no entity gets the same answer from a caller without `admin`, so the answer does not tell whether the entity exists. |
 | `90107` | `42501` | `Permission denied: only an administrator can set the external_id of a user` | `external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.` | - | A caller without `admin` inserted a user with an `external_id`, or changed the one of an existing user. An unchanged value and an agent inserted without one pass. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code such as the sign-in in `get_userinfo`. |
+| `90108` | `42501` | `The Administrator role has to keep the admin permission` | `Role 2 granting admin is what makes its holders Administrators. A direct connection as a role with BYPASSRLS is exempt from this check.` | - | The lockout guard for role 2's grant of `admin`: removing or re-pointing the `role_permissions` row of role 2 for `admin`, and deleting or renaming the permission `admin`. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
 
 ### 902xx - data dictionary: entities and fields
 
@@ -552,7 +553,7 @@ sites are deliberately left as they are, so the block has no rows.
 | `90503` | `90503` | `Parent queue not found for queue_id ${queue_id}` | - | `queue_id` | |
 | `90504` | `90504` | `Queue ${queue} is not registered` | - | `queue` | The answer an administrator gets; everyone else gets 90105. |
 | `90505` | `90505` | `Queue name ${queue} has to start with a lower-case letter or an underscore, contain only lower-case letters, digits and underscores, and be at most 47 bytes long` | - | `queue` | A queue name has the shape of a table name. pgmq names the tables of a queue after it in lower case and cuts them at 63 bytes, so two names that differ in case only, or in their tail only, would share their tables; and the name goes into the triggers that map a table to the queue and into the statements pgmq builds. |
-| `90506` | `90506` | `Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes` | - | `queue`, `table`, `name` | Mapping a table to a queue creates triggers named `queue_<queue>_<event>_on_<table>`. A name cut at 63 bytes is one the rename of the table and the removal of the mapping no longer find. |
+| `90506` | `90506` | `Queue ${queue} and table ${table} are too long together: the trigger name ${name} would not fit 63 bytes` | - | `queue`, `table`, `name` | Mapping a table to a queue, or moving a mapping to another queue, when a trigger name `queue_<queue>_<event>_on_<table>` would exceed 63 bytes; also renaming a mapped table to a name under which one of its mapping's trigger names would. A `queue_` trigger of no current mapping is renamed without this check and can still be cut. A cut name no longer ends in `_on_<table>`: the rename of the table would leave the trigger under its old name, where the removal of the mapping no longer finds it. |
 
 ### 906xx - audit
 

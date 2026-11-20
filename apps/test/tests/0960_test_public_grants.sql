@@ -23,9 +23,9 @@ SELECT plan(29);
 -- =====================================================
 -- TEST 1: no default privilege on tables or sequences in public
 -- =====================================================
--- Grantor-agnostic on purpose: earlier releases created these both for the
--- installing role and for semantius_owner (0110_rbac_grants.once.sql and
--- 9900_owner_hardening.sql revoke both), and neither may come back.
+-- Grantor-agnostic on purpose: a default privilege of any role, the installing
+-- role and semantius_owner among them, hands the request role every table that
+-- role creates here.
 
 -- The grantee test is deliberately wider than semantius_user itself: a default
 -- granted to PUBLIC (grantee 0) or to `authenticated`, which holds
@@ -67,7 +67,7 @@ SELECT is(
 -- =====================================================
 -- TEST 3: a hand-made table is invisible to the request role
 -- =====================================================
--- This is the shape the removed default made dangerous: a table created in a
+-- This is the shape such a default would make dangerous: a table created in a
 -- console, with no policies at all, served to every logged-in user.
 
 CREATE TABLE public.grant_probe_hand (id int, secret text);

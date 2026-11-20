@@ -218,11 +218,12 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   - The system keeps an enabled holder of role 2 (Administrator), and role 2 keeps its grant
     of `admin`. Refused with 42501, `hint.code` `90104`: removing the role from its last
     enabled holder, an UPDATE that points that holder's `user_roles` row at another role or
-    user, deleting or disabling that user, deleting role 2, removing or re-pointing the
-    `role_permissions` row that grants `admin` to role 2, and deleting or renaming the
-    permission `admin`. A statement that runs as a BYPASSRLS role is exempt: a superuser or
-    the owner connected directly, which is how a database is repaired, and definer code
-    running as the owner.
+    user, deleting or disabling that user, and deleting role 2. Refused with 42501,
+    `hint.code` `90108`: removing or re-pointing the `role_permissions` row that grants
+    `admin` to role 2, and deleting or renaming the permission `admin`. A statement that runs
+    as a role with BYPASSRLS is exempt: a direct connection as the owner or as another role
+    with the attribute, which is how a database is repaired, and definer code running as the
+    owner. A superuser without BYPASSRLS is not exempt.
   - The first-user bootstrap is the one grant made without `admin`: the first principal
     created with a `last_seen`, one that has reached the system, while no user holds role 2,
     gets role 2. The election runs under an advisory lock, so two first logins cannot both
@@ -347,8 +348,9 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   Authority over the parent governs.
 - **D4 · Privileged connections are trusted and out of scope.** Regular access is
   `authenticated` through `semantius_user` and fully in scope, and so is definer logic. A
-  superuser or BYPASSRLS connection reads and writes past RLS, and the guards that test for
-  BYPASSRLS (the last Administrator, `external_id`, the `ctype` lock) let it through.
+  superuser or BYPASSRLS connection reads and writes past RLS. The guards that test for
+  BYPASSRLS (the last Administrator and its grant of `admin`, `external_id`, the `ctype`
+  lock) let through a role that has the attribute, which a superuser need not have.
   `get_record_by_id`, and so `set_record`, reads unchecked only in a privileged direct
   session: a superuser or BYPASSRLS login with no `SET ROLE` in effect, no claims and no
   bearer identity, which can read the table anyway. That is a migration seeding records with

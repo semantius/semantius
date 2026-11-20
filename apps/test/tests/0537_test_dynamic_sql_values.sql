@@ -540,9 +540,9 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_name
                          AND p.prosrc ~ '(create_partitioned|convert_archive_partitioned)'),
     'and no function of the Semantius code calls create_partitioned or convert_archive_partitioned');
 
--- queue_event_after_delete builds its statements from the table_name of the
--- mapping being deleted: what the foreign key accepted when it was written,
--- which the qtable case shows refusing every hostile value.
+-- queue_event_drop_triggers builds its statements from the table_name of the
+-- mapping being deleted or edited: what the foreign key accepted when it was
+-- written, which the qtable case shows refusing every hostile value.
 SELECT is((SELECT confrelid::regclass::text FROM pg_catalog.pg_constraint
             WHERE conrelid = 'public.queue_table_events'::regclass AND conname = 'queue_table_events_table_name_fkey'),
     'entities',
@@ -841,8 +841,9 @@ SELECT is(pg_temp.s1_outcome(format($q$INSERT INTO queues (queue_name) VALUES (%
     'and so is one of 47 bytes');
 
 -- A table mapped to a queue gets triggers named queue_<queue>_<event>_on_
--- <table>. A name cut at 63 bytes is one the rename of the table and the
--- removal of the mapping no longer find, so the mapping is refused.
+-- <table>. A name cut at 63 bytes no longer ends in _on_<table>: the rename of
+-- the table would leave the trigger under its old name, where the removal of
+-- the mapping no longer finds it. So the mapping is refused.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
 VALUES ('s1_mapped_' || repeat('t', 30), 'Mapped', 'Mappeds', 1, 'public:read', 'admin');
 INSERT INTO queues (queue_name) VALUES ('s1_queue_' || repeat('q', 30));

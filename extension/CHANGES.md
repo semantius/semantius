@@ -418,6 +418,8 @@ installs the core schema as ordinary objects.
   dictionary would replace the constraint the migrations write by hand, such as
   the deferred one of `modules.view_permission`. Renaming `users`, `roles` or
   `permissions` would re-point core fields and is refused with `90286`.
+- A `role_permissions` row inserted without `granted_by` records the caller,
+  as `user_permissions` does; it stayed empty before.
 - **A `time` field is nullable**, like `date`, and has no default unless
   `default_value` sets one. A required `time` field refuses a missing value
   with `90258`.
@@ -469,9 +471,11 @@ installs the core schema as ordinary objects.
   is enabled.
 - **The last-Administrator guard covers every route.** Besides the deletes
   and the disable, it refuses an UPDATE that points the last Administrator's
-  `user_roles` row at another role or user, removing or re-pointing the grant
-  of `admin` to role 2, and deleting or renaming the permission `admin`
-  (42501, `hint.code` `90104`).
+  `user_roles` row at another role or user (42501, `hint.code` `90104`), and
+  removing or re-pointing the grant of `admin` to role 2 and deleting or
+  renaming the permission `admin` (42501, `hint.code` `90108`). The hints of
+  both say that a direct connection as a role with BYPASSRLS is exempt; a
+  superuser without BYPASSRLS is not.
 - The generated `select_rule_<entity>(row, context)` answers false when it
   is handed no context. It answered true for any row under a rule such as
   `user_id == $user_id`, because null equals null.
@@ -550,8 +554,16 @@ installs the core schema as ordinary objects.
   shortened with 8 digits of md5 and can equal another. A queue name has the
   shape of a table name, `^[a-z_][a-z0-9_]*$`, and at most 47 bytes
   (`90505`), and a queue mapping whose trigger name would not fit 63 bytes is
-  refused (`90506`). An `order_column` longer than 63 bytes is refused. The
-  request role may no longer execute `pgmq.convert_archive_partitioned`.
+  refused (`90506`), as is a rename of the mapped table under which one of
+  its mapping's trigger names would not fit; a queue trigger of no current
+  mapping is renamed unchecked. An `order_column` longer than 63 bytes is
+  refused. The request role may no longer execute
+  `pgmq.convert_archive_partitioned`.
+- Changing the `event_handler` or `queue_id` of a queue mapping reinstalls
+  its triggers, so a write to the table enqueues what the edited mapping
+  covers. The triggers of the old handler and queue stayed before.
+- The request role's EXECUTE on `rbac` functions is granted with each
+  function, so it does not depend on which role runs `migrate()`.
 - `delete_api_key()` answers `90402` to a caller without `admin` who names
   a key of another user, as for a key that does not exist; it answered 42501
   before, which told the caller that the key id is in use.

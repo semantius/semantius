@@ -141,6 +141,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.auto_assign_user_role() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.auto_assign_user_role IS
 'Trigger function to automatically assign role 1 (User) to newly created users. Also assigns role 2 (Administrator) to the first principal to arrive with a last_seen while no user holds role 2, under an advisory lock.';
@@ -177,6 +178,7 @@ BEGIN
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.prevent_user_role_deletion IS 
 'Trigger function to prevent deletion of role 1 (User) from any user.';
@@ -217,11 +219,12 @@ COMMENT ON TRIGGER prevent_user_role_deletion_trigger ON user_roles IS
 -- has BYPASSRLS, so the exemption below would let every caller through.
 --
 -- That exemption is the operator's escape hatch and matches fields_ctype_lock in
--- 0160_dd_functions.sql: a direct superuser or owner connection may still empty the administrator
--- set, which is how a database is repaired and how a test builds a system that
--- has never had one. It gives away nothing - such a connection already holds
--- everything the extension protects. It is also the only exemption, and that is
--- the load-bearing part.
+-- 0160_dd_functions.sql: a direct connection as a role with BYPASSRLS may still
+-- empty the administrator set, which is how a database is repaired and how a
+-- test builds a system that has never had one. A superuser without the
+-- attribute is not exempt. It gives away nothing - such a connection already
+-- holds everything the extension protects. It is also the only exemption, and
+-- that is the load-bearing part.
 --
 -- The count therefore cannot come from the caller's own view of the tables. An
 -- invoker trigger reads user_roles under RLS, where reading needs `admin`, so a
@@ -247,6 +250,7 @@ RETURNS INTEGER AS $$
     WHERE ur.role_id = 2
       AND u.is_disabled = FALSE;
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.count_enabled_administrators() TO semantius_user;
 
 -- The invoker trigger above has to be able to call this, so semantius_user keeps
 -- the EXECUTE that the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql
@@ -270,12 +274,13 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object(
                       'code', '90104',
-                      'hint', 'Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.')::text;
+                      'hint', 'Grant the Administrator role to another enabled user first. A direct connection as a role with BYPASSRLS is exempt from this check.')::text;
     END IF;
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.assert_administrator_remains() TO semantius_user;
 
 -- Created after the blanket REVOKE ON ALL FUNCTIONS IN SCHEMA rbac at the end of
 -- 0080_rbac_functions.sql, so it
@@ -369,19 +374,20 @@ BEGIN
         RAISE EXCEPTION 'The Administrator role has to keep the admin permission'
             USING ERRCODE = 'insufficient_privilege',
                   HINT = jsonb_build_object(
-                      'code', '90104',
-                      'hint', 'Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.')::text;
+                      'code', '90108',
+                      'hint', 'Role 2 granting admin is what makes its holders Administrators. A direct connection as a role with BYPASSRLS is exempt from this check.')::text;
     END IF;
 
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.assert_administrator_grant_remains() TO semantius_user;
 
 REVOKE EXECUTE ON FUNCTION rbac.assert_administrator_grant_remains() FROM PUBLIC;
 
 COMMENT ON FUNCTION rbac.assert_administrator_grant_remains IS
-'Row-level guard on role_permissions and permissions: refuses removing or re-pointing the grant of admin to role 2, and deleting or renaming the permission admin (42501, hint.code 90104). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
+'Row-level guard on role_permissions and permissions: refuses removing or re-pointing the grant of admin to role 2, and deleting or renaming the permission admin (42501, hint.code 90108). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
 
 CREATE OR REPLACE TRIGGER assert_administrator_grant_remains
     BEFORE DELETE OR UPDATE OF role_id, permission_name ON role_permissions
@@ -448,6 +454,7 @@ BEGIN
                   'hint', 'external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.')::text;
 END;
 $$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.assert_external_id_writer() TO semantius_user;
 
 -- The request role keeps EXECUTE: it is the invoker, and the trigger is
 -- useless if the caller cannot run it.
@@ -485,6 +492,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.default_assigned_by() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.default_assigned_by IS
 'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
@@ -498,7 +506,8 @@ COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
 'Defaults assigned_by to the current session user when not provided on insert.';
 
 -- =====================================================
--- TRIGGER: Default granted_by to current user for user_permissions
+-- TRIGGER: Default granted_by to current user, for role_permissions and
+-- user_permissions
 -- =====================================================
 
 -- As rbac.default_assigned_by.
@@ -511,6 +520,7 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.default_granted_by() TO semantius_user;
 
 COMMENT ON FUNCTION rbac.default_granted_by IS
 'Trigger function to default granted_by to the current user ID when not explicitly provided.';
@@ -521,6 +531,14 @@ CREATE OR REPLACE TRIGGER default_granted_by_trigger
     EXECUTE FUNCTION rbac.default_granted_by();
 
 COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
+'Defaults granted_by to the current session user when not provided on insert.';
+
+CREATE OR REPLACE TRIGGER default_granted_by_trigger
+    BEFORE INSERT ON role_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.default_granted_by();
+
+COMMENT ON TRIGGER default_granted_by_trigger ON role_permissions IS
 'Defaults granted_by to the current session user when not provided on insert.';
 
 -- Revoke default PUBLIC execute on trigger functions defined in this file
