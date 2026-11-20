@@ -87,9 +87,9 @@ SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'semanti
     ELSE is(pg_temp.ext_status_jwt_aud_set(), true,
             'status() reports jwt_aud_set = true once the row is written') END;
 
--- The claim that removing the table and sequence default privileges from
--- `public` did not change what default_acls_ok means: the rows it counts are
--- the installing role's own function and rbac entries, which stay.
+-- default_acls_ok is true when current_user has any pg_default_acl row, in any
+-- schema, so the installing role's rbac and pgmq entries keep it true with no
+-- table or sequence default in `public`.
 SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'semantius')
     THEN pass('migrate path: semantius.status() absent, default_acls_ok check skipped')
     ELSE ok(pg_temp.ext_status_default_acls_ok(),

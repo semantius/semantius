@@ -2,7 +2,7 @@
 # Push the Semantius DB image to the GitHub Container Registry (GHCR).
 #
 #   ./publish.sh            # version inferred from the built extension SQL
-#   ./publish.sh 0.3.0      # explicit version
+#   ./publish.sh 0.5.0-beta1  # explicit version
 #
 # Pushes :<version>-pg<major>, :latest-pg<major> and :latest. Assumes ./build.sh
 # already built those tags locally. Requires a GHCR login first:

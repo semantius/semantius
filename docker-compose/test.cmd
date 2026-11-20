@@ -24,7 +24,7 @@ REM   test.cmd                test LOCAL source: regenerate the extension, build
 REM                           image, run the suite  (the default -- the pre-release
 REM                           check that YOUR migrations install cleanly)
 REM   test.cmd --pull         test the PUBLISHED image, pulled fresh from GHCR
-REM   test.cmd 0.4.0-pg18     ... pinned to that tag (a tag always implies --pull)
+REM   test.cmd 0.5.0-beta1-pg18 ... pinned to that tag (a tag always implies --pull)
 REM   -y/--yes                skip the confirmation prompt
 REM
 REM NOTE the default is the opposite way round from create/up, deliberately: they are

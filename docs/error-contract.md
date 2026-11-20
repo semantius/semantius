@@ -353,8 +353,10 @@ instead. And PostgreSQL truncates identifiers longer than 63 bytes, which a
 generated name can reach; 90273 and 90276 keep the names generated from an
 entity or field name (`<entity>_ext_<field>_fkey`, `record_write_<entity>`)
 within that limit when an entity or field is created or renamed, or an entity
-is switched to managed; queue trigger names (`queue_<queue>_<event>_on_<table>`)
-are checked when the mapping is written, not when the table is renamed.
+is switched to managed. 90506 keeps the queue trigger names of a mapping
+(`queue_<queue>_<event>_on_<table>`) within 63 bytes when the mapping is
+written or moved to another queue and when the mapped table is renamed; a
+`queue_` trigger of no current mapping is renamed unchecked.
 
 ## Client rules
 
@@ -615,16 +617,16 @@ PostgreSQL's own sentence. A delete that a foreign key with
 `ON DELETE RESTRICT` refuses returns 23001 (`restrict_violation`) on
 PostgreSQL 18 and 23503 up to PostgreSQL 17: the code depends on the version,
 the constraint's name in the sentence does not. That name is the only stable
-token in the sentence. The one exception is a required field's check,
-generated as `<table>_<field>_assert`, which calls a function that raises 90258
-instead of PostgreSQL's 23514. Our own code also raises 23514, with the
-sentence PostgreSQL would give and the name of the generated
-`<table>_<field>_check`, when rows do not fit a field's new enum values or
-default. The table below lists the names
-our own tables declare and the names we keep stable, so a translation keyed
-on one of them survives a rewrite of the expression behind it. Names
-PostgreSQL generates itself (`entities_pkey`, `roles_role_name_key`) are not
-listed - they are not ours to keep - except `entities_id_refentity_fkey`,
+token in the sentence. The one constraint that does not answer with
+PostgreSQL's code and sentence is a required field's check, generated as
+`<table>_<field>_assert`, which calls a function that raises 90258 instead of
+PostgreSQL's 23514. Our own code also raises 23514, with the sentence
+PostgreSQL would give and the name of the generated `<table>_<field>_check`,
+when rows do not fit a field's new enum values or default. The table below
+lists the names our own tables declare and the names we keep stable, so a
+translation keyed on one of them survives a rewrite of the expression behind
+it. Names PostgreSQL generates itself (`entities_pkey`, `roles_role_name_key`)
+are not listed - they are not ours to keep - except `entities_id_refentity_fkey`,
 `fields_table_name_fkey`, `modules_module_slug_key` and
 `<entity>_ext_<id_column>_fkey`, which PostgreSQL generates from inline
 `REFERENCES` and `UNIQUE` clauses.

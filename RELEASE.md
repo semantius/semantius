@@ -14,9 +14,8 @@ A version stays **mutable while it is the highest version built**. It may be
 regenerated, re-tagged and re-released as often as needed. It becomes **frozen
 the moment a higher version is committed** to `extension/versions.json`.
 
-This is deliberate. `0.5.0` is a fresh start: the manifest holds no version of
-the 0.1.0/0.3.0/0.4.0 lineage, so there is no upgrade chain into 0.5.0 and no
-`pg_semantius--0.4.0--0.5.0.sql`.
+This is deliberate. `0.5.0` is the first version in the manifest, so there is
+no upgrade chain into it.
 Until 0.5.0 is declared final it is developed in place rather than accreting
 patch versions for changes nobody has consumed yet.
 
@@ -248,11 +247,8 @@ The rejected alternative is `:latest` as the highest *final* release. It sounds
 safer and is the commoner convention, but it holds the tag on whatever shipped
 last for as long as everything ahead of it is a pre-release - and "the last final
 build" is only a useful thing to hand someone while that build is still
-supported, which the tag cannot know. That is not hypothetical here: the highest
-final release is 0.4.0, so under that rule `:latest` would serve 0.4.0 - a build
-with no upgrade path into 0.5.0, whose core tables are extension members, and
-which therefore loses data on `DROP EXTENSION` without `CASCADE`.
-A moving tag that quietly points at a dead end is worse than one that moves.
+supported, which the tag cannot know. A moving tag that quietly points at a
+dead end is worse than one that moves.
 
 The guard that remains is the one that matters: a moving tag may only go
 *forward*. Both are published only when the version being released is the

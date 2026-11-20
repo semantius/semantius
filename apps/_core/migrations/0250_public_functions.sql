@@ -911,9 +911,9 @@ GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 -- held by a caller who sees the entity in the catalog (dd_entity_viewable).
 -- The edit permission alone does not show an is_a or has_a entity whose base
 -- the caller does not see, and without the second check such an entity would
--- answer NULL, which says that it exists. Non-admins get the same 42501 for an
--- unknown table as for a denied or hidden one, as with queues (90105). Never
--- 42P01, whose 404 reads as "no such RPC".
+-- answer NULL, which says that it exists. Non-admins get the same 42501 (90106)
+-- for an unknown table as for a denied or hidden one. Never 42P01, whose 404
+-- reads as "no such RPC".
 -- SECURITY DEFINER because the request role cannot setval, and under RLS its
 -- max(id) would miss the rows it cannot see.
 -- The lock keeps inserts out between max() and setval. While it waits, every

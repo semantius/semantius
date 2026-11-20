@@ -13,10 +13,11 @@
 --       the only defense and this is what proves one was written. `pgmq` is
 --       excluded although 0310_pgmq.once.sql creates its functions here too: they are vendored
 --       upstream code kept byte-identical to it, they are not reachable from
---       PostgREST, which exposes `public` only, and what they expose to a
---       DB-only caller is queue names, metrics and topic bindings. Revisit if
---       `pgmq` is ever exposed or the request role gains SELECT on a queue
---       table.
+--       PostgREST, which exposes `public` only, and the request role holds no
+--       privilege on any pgmq table, so they refuse it with 42501 at the first
+--       table they read, the information functions (list_queues, metrics,
+--       metrics_all, list_topic_bindings) included. Revisit if `pgmq` is ever
+--       exposed or the request role gains SELECT on a queue table.
 --   2.3 (SECURITY DEFINER must call rbac.uid()) covers public and rbac. It
 --       cannot cover common or audit: the five cache functions,
 --       refresh_schema_cache, enable_tracking, disable_tracking,

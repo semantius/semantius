@@ -23,15 +23,17 @@ volume the image, driven by a few env vars, sets up:
 | `conf/pg_hba.conf` | client auth (activated by the image `CMD`'s `hba_file=`) |
 
 The **extension itself stays self-contained** — `CREATE EXTENSION
-pg_semantius` on any bare Postgres gives you the full model with no shell
-scripts. This image just adds the deployment layer (LOGIN/password, `anon`,
-pg_hba, demo data) that an extension architecturally can't own.
+pg_semantius` followed by `CALL semantius.migrate()` on any bare Postgres gives
+you the full model with no shell scripts. This image just adds the deployment
+layer (LOGIN/password, `anon`, pg_hba, demo data) that an extension
+architecturally can't own.
 
 The image version tracks the repo-wide extension version (`extension/META.json`),
-so `semantius/postgres:0.3.0-pg18` contains extension `0.3.0` on PostgreSQL 18.
+so `semantius/postgres:0.5.0-beta1-pg18` contains extension `0.5.0-beta1` on
+PostgreSQL 18.
 The `-pg<major>` suffix comes from the Dockerfile's `FROM postgres:` line, so one
 release can ship the same extension version for several majors side by side.
-There is deliberately **no bare `:0.3.0`** — a version tag that silently changed
+There is deliberately **no bare `:0.5.0-beta1`** — a version tag that silently changed
 major later is the ambiguity the suffix removes.
 
 ## Environment variables
@@ -124,7 +126,7 @@ it, migrate and run the pgTAP suite — is [`../docker-compose/test.sh`](../dock
 
 ## Publishing
 
-Automatic: push a `v<version>` tag (e.g. `v0.3.0`). The
+Automatic: push a `v<version>` tag (e.g. `v0.5.0-beta1`). The
 [`extension-release.yml`](../.github/workflows/extension-release.yml) workflow
 generates the extension, cuts the GitHub Release, and pushes the image to GHCR —
 one tag, both artifacts, versions in lockstep.

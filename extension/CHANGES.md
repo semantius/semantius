@@ -73,7 +73,10 @@ installs the core schema as ordinary objects.
   the risk was in generating them, not in the generated text.
 
 - Backup is a plain `pg_dump` and restore a single-pass `pg_restore`, on the
-  same cluster or a fresh one. No flags, no `PGOPTIONS`, no three passes.
+  same cluster or a fresh one, followed by
+  `ALTER DATABASE newdb SET timezone = 'UTC';` and
+  `ALTER DATABASE newdb SET intervalstyle = 'iso_8601';`. No flags, no
+  `PGOPTIONS`, no three passes.
 - `DROP EXTENSION` never causes data loss: it removes the `semantius` schema
   and its functions and nothing else, and never needs `CASCADE`.
 - Custom fields added to core entities survive dump and restore.
@@ -572,12 +575,3 @@ installs the core schema as ordinary objects.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.
-
-0.5.0 is a fresh start. The earlier 0.1.0, 0.3.0 and 0.4.0 builds were
-published as GitHub Releases but are treated as development snapshots: their
-version history was discarded, so **there is no upgrade path from them**. An
-installation on 0.3.0 or 0.4.0 cannot `ALTER EXTENSION ... UPDATE` to 0.5.0 and
-cannot `DROP EXTENSION` without losing the core tables and their rows (in
-those builds the core tables were extension members). Moving to 0.5.0 means:
-dump the data, install 0.5.0 into a new database, `CALL semantius.migrate()`,
-reload.

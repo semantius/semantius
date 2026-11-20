@@ -253,31 +253,44 @@ step "[1c] Concurrency: a second migrator fails at once while one holds the lock
 # is half done. A session lock is what survives the procedure's per-file COMMITs.
 newdb life1c
 psqlrun life1c "CREATE EXTENSION pg_semantius" >/dev/null
+# Each lock holder below keeps its lock until the script ends its session, and
+# each CALL under test starts only once the catalog shows the overlap it needs,
+# so no check depends on how fast a background session starts or finishes.
+# until_t polls until its query answers t; the bound only keeps a broken setup
+# from hanging the script.
+until_t() { local i; for i in $(seq 300); do [ "$(psqlq life1c "$1")" = "t" ] && return 0; sleep 0.1; done; return 1; }
+# The query: session <application_name> holds the migration lock (and <extra>).
+lock_held_by() { echo "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = '$1' AND a.datname = current_database() AND l.locktype = 'advisory' AND l.granted AND l.objid = (hashtext('migrate')::bigint & 4294967295)${2:-})"; }
+gone() { echo "SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = '$1')"; }
+end_session() { psqlq life1c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = '$1'" >/dev/null
+                until_t "$(gone "$1")" || bad "setup: session $1 did not end"; }
 # CLI vs procedure: the CLI runner holds exactly this lock for its whole run.
-docker exec -d "$CONTAINER" psql -U postgres -d life1c \
-  -c "SELECT pg_advisory_lock(hashtext('migrate'))" -c "SELECT pg_sleep(4)" >/dev/null
-lock_held() { [ "$(psqlq life1c "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted AND objid = (hashtext('migrate')::bigint & 4294967295)")" = "1" ]; }
-for _ in $(seq 50); do lock_held && break; sleep 0.1; done
+docker exec -d -e PGAPPNAME=life1c_cli "$CONTAINER" psql -U postgres -d life1c \
+  -c "SELECT pg_advisory_lock(hashtext('migrate'))" -c "SELECT pg_sleep(300)" >/dev/null
+until_t "$(lock_held_by life1c_cli)" || bad "setup: the CLI-style session did not take the migration lock"
 b_out=$(psqlq life1c "CALL semantius.migrate()")
 echo "$b_out" | grep -q "another migration is running" \
   && ok "the procedure fails at once while the CLI holds the lock" || bad "procedure vs CLI: $b_out"
 check "  and it wrote nothing" "" "$(psqlq life1c "SELECT to_regclass('public._versions')")"
-for _ in $(seq 60); do lock_held || break; sleep 0.1; done
+end_session life1c_cli
 # Procedure vs procedure (and vs CLI). A table lock stalls the first CALL inside
 # its pass - the ledger DDL needs ACCESS EXCLUSIVE on _versions - while it holds
 # the migration lock; the second CALL and a CLI-style lock attempt must fail.
 psqlrun life1c "CALL semantius.migrate()" >/dev/null
-docker exec -d "$CONTAINER" psql -U postgres -d life1c \
-  -c "BEGIN; LOCK TABLE public._versions IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(4); COMMIT;" >/dev/null
-sleep 1
-docker exec -d "$CONTAINER" psql -U postgres -d life1c -c "CALL semantius.migrate()" >/dev/null
-for _ in $(seq 50); do lock_held && break; sleep 0.1; done
+docker exec -d -e PGAPPNAME=life1c_table "$CONTAINER" psql -U postgres -d life1c \
+  -c "BEGIN; LOCK TABLE public._versions IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(300); COMMIT;" >/dev/null
+until_t "SELECT EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = 'life1c_table' AND l.locktype = 'relation' AND l.relation = 'public._versions'::regclass AND l.mode = 'AccessExclusiveLock' AND l.granted)" \
+  || bad "setup: the table lock on _versions was not taken"
+docker exec -d -e PGAPPNAME=life1c_first "$CONTAINER" psql -U postgres -d life1c -c "CALL semantius.migrate()" >/dev/null
+until_t "$(lock_held_by life1c_first " AND a.wait_event_type = 'Lock'")" \
+  || bad "setup: the first CALL did not wait on _versions while holding the migration lock"
 b_out=$(psqlq life1c "CALL semantius.migrate()")
 echo "$b_out" | grep -q "another migration is running" \
   && ok "a second CALL fails at once while the first holds the lock" || bad "procedure vs procedure: $b_out"
 check "  and a CLI runner is refused the lock too" "f" \
   "$(psqlq life1c "SELECT pg_try_advisory_lock(hashtext('migrate'))")"
-for _ in $(seq 80); do lock_held || break; sleep 0.1; done
+end_session life1c_table
+until_t "$(gone life1c_first)" || bad "setup: the first CALL did not end"
 check "the lock is released when the first CALL ends" "t" \
   "$(psqlseq life1c "SELECT pg_try_advisory_lock(hashtext('migrate'))" "SELECT pg_advisory_unlock(hashtext('migrate'))" | head -1)"
 check "each migration applied exactly once" "0" \
@@ -633,16 +646,10 @@ DROP EVENT TRIGGER IF EXISTS pgrst_drop_watch;
 DROP OWNED BY semantius_owner CASCADE;
 DROP SCHEMA IF EXISTS common, rbac, audit, pgmq CASCADE;
 DROP TABLE IF EXISTS public._versions;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
 DROP OWNED BY semantius_user, authenticated, semantius_authenticator;
 SQL
 check "no event triggers left" "0" "$(psqlq life2t "SELECT count(*) FROM pg_event_trigger")"
-# One row survives by design: undoing 0020_settings.once.sql's `REVOKE EXECUTE ON FUNCTIONS FROM
-# PUBLIC` means granting it back, which stores the built-in default explicitly
-# rather than deleting the row. Verified cosmetic - a function created
-# afterwards gets the default ACL and PUBLIC can execute it, exactly as in a
-# virgin database. Anything else left behind would be a real leak.
-check "only the cosmetic FUNCTIONS default ACL is left" "postgres|public|f|{=X/postgres}" \
+check "no default ACL is left" "" \
   "$(psqlq life2t "SELECT coalesce(string_agg(defaclrole::regrole::text||'|'||defaclnamespace::regnamespace::text||'|'||defaclobjtype::text||'|'||defaclacl::text, ','), '') FROM pg_default_acl")"
 check "only public remains"    "public" \
   "$(psqlq life2t "SELECT string_agg(nspname, ',' ORDER BY nspname) FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema'")"
@@ -663,10 +670,10 @@ check "the public schema ACL is back to a virgin database's default" \
 # So assert exactly what survives, which pins where the recipe's boundary is.
 check "the only surviving membership is the one DROP ROLE would clear" "authenticated" \
   "$(psqlq life2t "SELECT coalesce(string_agg(n.rolname, ',' ORDER BY n.rolname), '') FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.roleid JOIN pg_roles n ON n.oid=m.member WHERE g.rolname='semantius_user'")"
-# pgcrypto is the one leftover the recipe leaves ON PURPOSE (step 10 is
-# optional: other things in the database may use it). Assert it is still there,
-# so "optional" stays a decision rather than an oversight.
-check "pgcrypto is left installed (the recipe's optional last step)" "1" \
+# The recipe leaves pgcrypto installed on purpose: other things in the
+# database may use it. Assert it is still there, so that stays a decision
+# rather than an oversight.
+check "pgcrypto is left installed" "1" \
   "$(psqlq life2t "SELECT count(*) FROM pg_extension WHERE extname='pgcrypto'")"
 
 psqlrun life2t "CREATE EXTENSION pg_semantius" >/dev/null && psqlq life2t "CALL semantius.migrate()" >/dev/null \

@@ -25,8 +25,8 @@
 -- is skipped with a NOTICE on managed platforms (Neon, Supabase), where the
 -- installing role already is a non-superuser BYPASSRLS owner.
 --
--- Objects that belong to other extensions (pgcrypto in public, pgmq when the
--- real extension is present) are left alone. Event triggers are not touched:
+-- Objects that belong to an extension (pgcrypto in public, pgmq when the real
+-- extension is present) are left alone. Event triggers are not touched:
 -- PostgreSQL requires their owner to be a superuser.
 --
 -- The number puts this file last, and the runners also run it after every pass
@@ -78,12 +78,10 @@ BEGIN
           AND NOT EXISTS (
               SELECT 1
               FROM pg_depend d
-              JOIN pg_extension e ON e.oid = d.refobjid
               WHERE d.classid = 'pg_class'::regclass
                 AND d.objid = c.oid
                 AND d.refclassid = 'pg_extension'::regclass
-                AND d.deptype = 'e'
-                AND e.extname <> 'pg_semantius')
+                AND d.deptype = 'e')
         ORDER BY CASE c.relkind WHEN 'r' THEN 0 WHEN 'p' THEN 0 WHEN 'S' THEN 1 ELSE 2 END, n.nspname, c.relname
     LOOP
         -- A sequence owned by a column moves with its table; skip it if it already did.
@@ -135,12 +133,10 @@ BEGIN
           AND NOT EXISTS (
               SELECT 1
               FROM pg_depend d
-              JOIN pg_extension e ON e.oid = d.refobjid
               WHERE d.classid = 'pg_proc'::regclass
                 AND d.objid = p.oid
                 AND d.refclassid = 'pg_extension'::regclass
-                AND d.deptype = 'e'
-                AND e.extname <> 'pg_semantius')
+                AND d.deptype = 'e')
           AND NOT has_function_privilege('semantius_owner', p.oid, 'EXECUTE')
     LOOP
         -- GRANT has no AGGREGATE keyword; aggregates are granted as FUNCTION.
@@ -159,12 +155,10 @@ BEGIN
           AND NOT EXISTS (
               SELECT 1
               FROM pg_depend d
-              JOIN pg_extension e ON e.oid = d.refobjid
               WHERE d.classid = 'pg_proc'::regclass
                 AND d.objid = p.oid
                 AND d.refclassid = 'pg_extension'::regclass
-                AND d.deptype = 'e'
-                AND e.extname <> 'pg_semantius')
+                AND d.deptype = 'e')
     LOOP
         EXECUTE format('ALTER %s %s OWNER TO semantius_owner',
             CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,
@@ -187,12 +181,10 @@ BEGIN
           AND NOT EXISTS (
               SELECT 1
               FROM pg_depend d
-              JOIN pg_extension e ON e.oid = d.refobjid
               WHERE d.classid = 'pg_type'::regclass
                 AND d.objid = t.oid
                 AND d.refclassid = 'pg_extension'::regclass
-                AND d.deptype = 'e'
-                AND e.extname <> 'pg_semantius')
+                AND d.deptype = 'e')
     LOOP
         EXECUTE format('ALTER %s %s OWNER TO semantius_owner',
             CASE r.typtype WHEN 'd' THEN 'DOMAIN' ELSE 'TYPE' END,

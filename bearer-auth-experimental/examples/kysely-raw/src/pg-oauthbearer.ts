@@ -16,10 +16,10 @@
 // and NO password field for it.
 //
 // No Node Postgres driver (node-postgres / postgres.js) speaks OAUTHBEARER yet,
-// and none exposes a hook to inject a pre-minted token. libpq itself only does
-// the *interactive* device flow (the client fetches its own token) — it cannot
-// inject a token you already hold. So this module speaks just enough of the
-// PostgreSQL v3 wire protocol, by hand, to:
+// and none exposes a hook to inject a pre-minted token. libpq's built-in flow
+// is the *interactive* device flow (the client fetches its own token); a token
+// you already hold needs its C hook `PQsetAuthDataHook`. So this module speaks
+// just enough of the PostgreSQL v3 wire protocol, by hand, to:
 //
 //   1. open a TCP socket and send the StartupMessage as role `authenticated`,
 //   2. authenticate with SASL OAUTHBEARER, presenting a bearer token,

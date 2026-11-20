@@ -5273,7 +5273,9 @@ GRANT EXECUTE ON FUNCTION common.dd_raise_required(OID, TEXT) TO semantius_user;
 -- On an upgrade the dictionary triggers already run as semantius_owner, while a function
 -- new in this file stays owned by the installer until 9900_owner_hardening.sql runs last.
 -- A .jsonc file in between fires those triggers, which would be refused these helpers.
--- A fresh install has no such role yet, and the triggers run as the installer throughout.
+-- On a fresh install the triggers run as the installer throughout. semantius_owner can
+-- exist there all the same: CREATE EXTENSION creates it before migrate() runs, and so
+-- does an earlier install into another database of the cluster.
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN

@@ -185,9 +185,9 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     lets that row pass opens nothing. A session that runs its own SQL, a bearer session,
     can read the secret behind that setting from `app.row_move_secret` once a write of its
     transaction has kept it there, and get past every `select_rule`. Before bearer sessions
-    are enabled, reading the secret from `_settings` on every row through the definer
-    function has to be reactivated, with the secret kept in no setting, and the secret in
-    `_settings` replaced: it is never rotated, so a secret read once stays valid.
+    are enabled, the marking trigger has to read the secret from `_settings` on every row
+    through the definer function and keep it in no setting, and the secret in `_settings`
+    has to be replaced: it is never rotated, so a secret read once stays valid.
   - A rollup field aggregates over child rows that a reader of the parent may not see only
     when its definition carries `"include_hidden_rows": true`, the administrator's decision
     on record; without the flag such a rollup is refused (`90269`). The rule is in
@@ -280,17 +280,17 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     Closing the last two would need a definer INSERT wrapper.
   - The catalog hides what an entity consists of, not that it exists. Accepted residuals:
     - PostgREST's OpenAPI root lists every table the request role holds a grant on, which
-      is every entity table, with its columns, types and foreign key relationships, and
-      `GET /<table>` answers `200 []` for a table whose rows the caller cannot read where it
-      answers 404 for a missing one.
+      includes every managed entity table, with its columns, types and foreign key
+      relationships, and `GET /<table>` answers `200 []` for a table whose rows the caller
+      cannot read where it answers 404 for a missing one.
     - The table and column comments in the PostgreSQL catalog carry the dictionary's
       labels, descriptions and enum values, and every role can read them, through
       `pg_description` and through the OpenAPI root.
     - A visible row is returned as stored, with what it says of hidden entities.
-      `reference_table` and `id_refentity` hold a hidden entity's name. A rollup
-      definition is kept whole: its `link_field` names the child entity and the child's
-      link field, and its `value_field` and `filter` name fields of the child and the
-      values the filter compares them with. The rules (`select_rule`, `validation_rules`,
+      `reference_table` holds a hidden entity's name. A rollup definition is kept whole:
+      its `link_field` names the child entity and the child's link field, and its
+      `value_field` and `filter` name fields of the child and the values the filter
+      compares them with. The rules (`select_rule`, `validation_rules`,
       `computed_fields`, a field's `input_type_rule`) are kept whole too, and a rule that
       reads a record through `set_record` names the entity and the fields it reads.
       `get_schema` adds nothing taken from a hidden entity's row.

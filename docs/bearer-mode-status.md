@@ -63,9 +63,9 @@ Four more reasons are ours to fix:
    Behind PostgREST or an app server the client runs no SQL, no RPC reads a
    setting whose name the caller chooses, and none reads
    `app.row_move_secret`, so a value the client writes opens nothing. Before
-   bearer sessions are enabled, reading the secret from `_settings` on every
-   row through the definer function has to be reactivated, with the secret
-   kept in no setting, and the secret in `_settings` replaced: it is never
+   bearer sessions are enabled, the marking trigger has to read the secret
+   from `_settings` on every row through the definer function and keep it in
+   no setting, and the secret in `_settings` has to be replaced: it is never
    rotated, so a secret read once stays valid.
 
    A bearer session that may write `fields` has a second way past the

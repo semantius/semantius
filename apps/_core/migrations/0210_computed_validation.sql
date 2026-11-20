@@ -29,9 +29,10 @@
 -- STEP 0: Error-hint merge used by the generated trigger
 -- =====================================================
 -- The merge is additive and the key already present wins - jsonb || takes the
--- right operand. That direction is what makes a cascaded write keep the
--- innermost entity and rule, and what lets a 42501 keep its own hint.code;
--- swapping the operands inverts both silently.
+-- right operand. That direction is what lets a 42501 keep its own hint.code;
+-- swapping the operands overwrites it silently. A cascaded write keeps the
+-- innermost entity and rule for another reason: no trigger on the way out adds
+-- keys to its error.
 --
 -- The cast is guarded rather than tested with a leading brace: text that starts
 -- with one can still be malformed, and a raise in here would replace the error

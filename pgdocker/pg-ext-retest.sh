@@ -6,16 +6,17 @@
 # Fully non-interactive. Steps:
 #   1. down -v        reset the ext stack (wipe the data volume). NOT
 #                     pg-ext-delete, which prompts interactively and would hang.
-#   2. pg-ext-create  fresh ext container; `CREATE EXTENSION pg_semantius` installs
-#                     `_core` and creates + seeds the `_versions` guard rows.
-#   3. readiness gate poll until the `pg_semantius` extension is present (the
-#                     pg_isready healthcheck can go green before the init scripts
-#                     finish, so we check pg_extension directly).
+#   2. pg-ext-create  fresh ext container; `CREATE EXTENSION pg_semantius` and
+#                     `CALL semantius.migrate()` install `_core` and write its
+#                     `_versions` rows.
+#   3. readiness gate poll until `semantius.pending()` is empty, which holds
+#                     once migrate() has committed its last file (the pg_isready
+#                     healthcheck can go green before the init scripts finish).
 #   3b. audit-column check   entities is audited and 0230_entity_order_column.sql adds
 #                     entities.order_column inside the same install session;
 #                     verify every audit row written after that point carries it.
 #   4. migrate --apps nwind,test   migrate auto-prepends `_core`, which is
-#                     SKIPPED because the extension seeded `_versions`; only
+#                     SKIPPED because migrate() wrote its `_versions` rows; only
 #                     `test`,`nwind` are deployed onto the extension's `_core`.
 #                     (The extension's `_core` already includes the
 #                     `webhook_receivers`/`dashboards` tables that test's 0030_seed.once.sql

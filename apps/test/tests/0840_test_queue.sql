@@ -770,8 +770,8 @@ SELECT is((SELECT count(*)::int FROM queue_table_events WHERE table_name = 'cate
     0,
     'and the mapping went with the queue');
 
--- A statement trigger without a mapping behind it (what an aborted install
--- leaves, or the case above) finds no queue to send to. The write goes through
+-- A statement trigger without a mapping behind it (one created by hand, as
+-- here, or the case above) finds no queue to send to. The write goes through
 -- and nothing is enqueued anywhere.
 SELECT lives_ok(
     $$CREATE TRIGGER queue_stray_insert_on_suppliers

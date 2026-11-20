@@ -118,7 +118,7 @@ CREATE OR REPLACE TRIGGER prevent_permission_hierarchy_cycle
 -- and Supabase format (single request.jwt.claims JSON blob)
 -- Normalizes Supabase format to Neon format for all downstream code
 -- Accepts a `roles` array carrying `authenticated` when no `role` claim exists
--- at all (Step 3) — the only shape some issuers can emit
+-- at all (Step 3 below) — the only shape some issuers can emit
 -- STABLE, and it writes - transaction-local GUCs only, never a row. So does
 -- rbac.ensure_context_initialized(), which every STABLE reader calls. STABLE
 -- also lets the planner run the call while estimating selectivity, so never

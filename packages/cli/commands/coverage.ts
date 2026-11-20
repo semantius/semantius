@@ -406,8 +406,8 @@ function lineAt(lineStarts: number[], index: number): number {
  * Loads every migration file in migrate order (apps/_core first, then the other
  * apps sorted by name; apps/test is skipped because it only holds pgtap). The
  * function bodies are stored verbatim by both install channels (migrate sends
- * the file as-is, the extension generator only rewrites CREATE EXTENSION lines),
- * so prosrc is byte-identical to the dollar-quoted text in the file.
+ * the file as-is, the extension generator embeds it verbatim), so prosrc is
+ * byte-identical to the dollar-quoted text in the file.
  */
 async function buildSourceIndex(): Promise<SourceFile[]> {
   const apps = (await listApps()).filter(

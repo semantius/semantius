@@ -10,8 +10,7 @@
 # `ALTER EXTENSION ... UPDATE` path. A file whose endpoints are not in
 # `extension/versions.json` is a path nobody generated a migration set for, and
 # nothing downstream can tell it from a real one. It needs no mistake to appear:
-# discarding version history orphans the whole chain, which is what resetting the
-# manifest for 0.5.0 did to the 0.3.0 and 0.4.0 scripts.
+# discarding version history orphans the whole chain.
 #
 # `scripts/archive-manifest.sh --check` catches the same file on the release
 # path. This runs on every pull request and on any developer's disk, before an

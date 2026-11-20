@@ -329,8 +329,10 @@ BEGIN
         END IF;
 
         -- DROP before CREATE, not CREATE OR REPLACE: a trigger of this name may
-        -- survive an aborted install, and dropping first makes the install
-        -- idempotent for the events this handler covers. The triggers of the
+        -- have outlived an earlier mapping (its queue deleted while
+        -- queue_before_delete is switched off) or have been created by hand,
+        -- and dropping first makes the install idempotent for the events this
+        -- handler covers. The triggers of the
         -- other events are gone already when a mapping is edited:
         -- queue_event_after_update drops the old queue's names first.
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', v_trigger_name, p_table_name);

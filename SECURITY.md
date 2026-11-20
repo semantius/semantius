@@ -49,12 +49,14 @@ is wrong, say so, but they will not be treated as vulnerabilities.
 
 - **A restore by a differently named superuser, on a cluster without the
   installing role, loses the installer's default privileges.** The `ALTER
-  DEFAULT PRIVILEGES` entries the migrations write bind to the role that ran
-  them, so restoring a dump as a superuser with a different name, on a cluster
-  that has no role of the installer's name, leaves the `common`, `rbac`,
-  `audit` and `pgmq` schemas and the event triggers owned by the restorer and
-  drops those entries. `default_acls_ok` in `semantius.status()` checks the
-  default-privilege entries of the role that calls it.
+  DEFAULT PRIVILEGES` entries the migrations write for the installing role
+  bind to that role, so restoring a dump as a superuser with a different name,
+  on a cluster that has no role of the installer's name, leaves the `common`,
+  `rbac`, `audit` and `pgmq` schemas and the event triggers owned by the
+  restorer and drops those entries. Semantius's own `rbac` functions do not
+  depend on them: each one the request role may run is granted to it with its
+  definition. `default_acls_ok` in `semantius.status()` tests only that the
+  role calling it has a default-privilege entry, in any schema.
   `pg_restore --no-owner` additionally loses `OWNER TO semantius_owner`, so the
   dictionary's SECURITY DEFINER code would run as the restorer. Restore as the
   same superuser name, without `--no-owner`.
@@ -74,10 +76,10 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   same entries does apply, but only to a function created by a role an entry
   names, the installing role or `semantius_owner`: such a function is
   PUBLIC-executable *and* executable by the request role through the grant. A
-  function another role creates there gets no grant from them, and once it is
-  revoked from PUBLIC, as `0080_rbac_functions.sql` does for the whole schema
-  when it runs, only its owner and superusers can run it; the restore above
-  removes the installing role's entry.
+  function another role creates there by hand gets no grant from them, and
+  once it is revoked from PUBLIC, as `0080_rbac_functions.sql` does for the
+  whole schema when it runs, only its owner and superusers can run it; the
+  restore above removes the installing role's entry.
   The extension's own functions outside the vendored `pgmq` schema are revoked
   explicitly instead, and guard test `0900_test_security.sql` fails if one in
   `public`, `rbac`, `common` or `audit` is missed; a function you add needs its

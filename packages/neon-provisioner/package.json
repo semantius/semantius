@@ -4,9 +4,9 @@
   "description": "Semantius Neon Provisioner - Hono server for Cloudflare Workers that provisions Neon databases and runs migrations",
   "main": "src/index.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "build": "pnpm -w run bundle-sql && tsc",
+    "dev": "pnpm -w run bundle-sql && wrangler dev",
+    "deploy": "pnpm -w run bundle-sql && wrangler deploy"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

@@ -4,8 +4,10 @@
 -- get_current_user_permissions, whoami, public.jl_request_context,
 -- is_raci_actor, has_consultation, the generated select_rule_*) are declared
 -- STABLE and they write, through rbac.ensure_context_initialized. That is
--- deliberate and the full reasoning sits above rbac.uid() in
--- 0080_rbac_functions.sql. This file pins the two properties that make it safe.
+-- deliberate: STABLE lets the planner run a permission check once per
+-- statement, and the alternative, building the context once per request in a
+-- VOLATILE entry point, needs a per-request hook that Neon's Data API does not
+-- offer. This file pins the two properties that make it safe.
 --
 -- GROUP 1: every setting written on a read path is transaction-local. A
 -- session-scoped write outlives the transaction that made it, so on a pooled

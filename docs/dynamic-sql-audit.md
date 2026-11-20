@@ -444,8 +444,6 @@ and `delete`, always with `queues.queue_name`.
 | `queue_event_install_triggers` | `REFERENCING` clause | a `CASE` over two literals | allow-list | not needed: no caller text reaches the statement |
 | `queue_event_drop_triggers` | trigger name `queue_<queue>_<event>_on_<table>` | `queues.queue_name` (`queue_after_insert` admits only `^[a-z_][a-z0-9_]*$` and at most 47 bytes, 90505; `pgmq.format_table_name` and `pgmq.validate_queue_name` check again), an element of a literal array and `queue_table_events.table_name` | `%I` | `0537_test_dynamic_sql_values.sql` (part 1: the hostile queue names are refused by 90505; part 2: the shape of a queue name and the 63 bytes of the trigger name, 90506) |
 | `queue_event_drop_triggers` | table | `queue_table_events.table_name` of the mapping being deleted or edited: what its foreign key to `entities.table_name` accepted when it was written | `%I` | `0537_test_dynamic_sql_values.sql` (part 1) |
-| `queue_after_insert`, `queue_before_delete`, `queue_build_record_json` | queue name | `queues.queue_name` (`queue_after_insert` admits only `^[a-z_][a-z0-9_]*$` and at most 47 bytes, 90505; `pgmq.format_table_name` and `pgmq.validate_queue_name` check again) | helper `pgmq.create`, `pgmq.drop_queue`, `pgmq.send`, `pgmq.send_batch` | `0537_test_dynamic_sql_values.sql` (part 1: the hostile queue names are refused by 90505) |
-| `queue_read`, `queue_pop`, `queue_archive`, `queue_delete` | queue name | parameter `p_queue_name`; `queue_authorize` requires an exact match with a `queues.queue_name` row first | helper `pgmq.read`, `pgmq.pop`, `pgmq.archive`, `pgmq.delete` | `0840_test_queue.sql` |
 
 ### 0370_raci.sql
 

@@ -116,8 +116,8 @@ CREATE OR REPLACE TRIGGER update_fields_updated_at
 -- (cheaper + more targeted than a JsonLogic validation rule, and avoids running the full
 -- compute_validate machinery for this one check): the new array must contain every element
 -- of the old one (jsonb @> superset). The WHEN clause skips the no-op common case, so it is
--- inert during renames and metadata edits. Rejection shares the 23514 class used by
--- validation_rules. SECURITY DEFINER + pinned search_path per house style.
+-- inert during renames and metadata edits. Rejection raises 90213. SECURITY DEFINER +
+-- pinned search_path per house style.
 
 CREATE OR REPLACE FUNCTION enforce_catalog_aliases_append_only()
 RETURNS TRIGGER

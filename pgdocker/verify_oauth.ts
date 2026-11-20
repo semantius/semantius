@@ -210,12 +210,13 @@ async function oauthConnectOnce(
 }
 
 /**
- * The bundled `pg_oidc_validator` is experimental and (on older builds) fetches
- * the issuer's JWKS/discovery document on the FIRST connection after the
- * container boots. Until that is cached, it rejects the (perfectly valid) token
- * with `invalid_token` — a startup race, not a bad token. So this retries the
- * OAUTHBEARER handshake a few times with backoff before giving up. A warm
- * validator authenticates on the first try, so this is a no-op in steady state.
+ * The bundled `pg_oidc_validator` fetches the issuer's discovery document and
+ * JWKS to validate a token. It caches them only for the `max-age` of the
+ * issuer's `Cache-Control` header, and the test issuer sends none, so every
+ * connection fetches both again. Right after the container boots it can reject
+ * a (perfectly valid) token with `invalid_token` — a startup race, not a bad
+ * token. So this retries the OAUTHBEARER handshake a few times with backoff
+ * before giving up; a handshake that succeeds at once is not retried.
  */
 function isTransientOAuthError(msg: string): boolean {
   return /invalid_token|OAuth bearer authentication failed|connection (reset|refused)|broken pipe|os error/i

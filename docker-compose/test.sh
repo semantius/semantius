@@ -31,7 +31,7 @@
 #                            image, run the suite   (the default — this is the
 #                            pre-release check that YOUR migrations install cleanly)
 #   ./test.sh --pull         test the PUBLISHED image, pulled fresh from GHCR
-#   ./test.sh 0.4.0-pg18     ... pinned to that tag (a tag always implies --pull)
+#   ./test.sh 0.5.0-beta1-pg18 ... pinned to that tag (a tag always implies --pull)
 #   -y/--yes                 skip the confirmation prompt
 #
 # NOTE the default is the opposite way round from create/up, deliberately: they are

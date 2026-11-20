@@ -18,7 +18,7 @@
 # Build context is the REPO ROOT (see build.sh / the CI workflow) so this can COPY
 # the generated ./extension files AND the ./apps/nwind migrations. The repo-root
 # .dockerignore whitelists exactly those paths to keep the context tiny.
-# Generate the extension first, from the repo root:   deno task extension 0.3.0
+# Generate the extension first, from the repo root:   deno task extension 0.5.0-beta1
 # ---------------------------------------------------------------------------
 FROM postgres:18
 

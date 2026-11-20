@@ -640,8 +640,7 @@ function serializeManifest(manifest: VersionsManifest): string {
  * finds as an `ALTER EXTENSION ... UPDATE` path. A pair the manifest does not
  * know is a path nobody generated a migration set for, and nothing downstream
  * can tell it from a real one. Such a file needs no mistake to appear -
- * discarding version history leaves the whole chain orphaned, which is how the
- * 0.3.0 and 0.4.0 scripts became orphans when the manifest was reset for 0.5.0.
+ * discarding version history leaves the whole chain orphaned.
  * `scripts/archive-manifest.sh --check` guards the release archive; this guards
  * every build, including the ones a Dockerfile glob picks up locally.
  * `scripts/check-prune-orphans.sh` pins it.
@@ -913,24 +912,32 @@ variables, no ordering rules:
 pg_dump -Fc -d appdb -f appdb.dump          # as a superuser or a BYPASSRLS role
 createdb -T template0 -E UTF8 newdb
 pg_restore -d newdb appdb.dump              # one pass, same cluster or a fresh one
+psql -d newdb -c "ALTER DATABASE newdb SET timezone = 'UTC';"
+psql -d newdb -c "ALTER DATABASE newdb SET intervalstyle = 'iso_8601';"
 \`\`\`
 
 \`-Fp\` piped to psql, \`-j\` and \`-1\` all work too. Facts worth knowing:
 
 - Restore into an **empty** database. Do not run \`migrate()\` first: the dump's
   own \`CREATE EXTENSION\` recreates the roles and functions.
+- The two \`ALTER DATABASE\` statements give the new database the
+  \`timezone\` and \`intervalstyle\` that \`migrate()\` set. \`pg_dump\` and
+  \`pg_restore\` carry them only with \`--create\`, and \`get_userinfo()\`
+  refuses a session without them (90011).
 - Restore as a superuser **named like the installing one** (\`postgres\` in the
   shipped images) and **not** with \`--no-owner\`. A differently named superuser
   still gets working data. On a cluster that has no role of the installer's
   name, the schemas and event triggers stay owned by the restorer and the
-  installer's default-privilege entries are lost. The default-privilege entries
-  of \`rbac\` grant the request role EXECUTE only on functions created by the
-  role they name, the installing role or \`semantius_owner\`; a function another
-  role creates there, the restorer included, is PUBLIC-executable, and so
-  executable by the request role, until it is revoked from PUBLIC, and then
-  only its owner and superusers can run it. \`${S}.status()\` reports
-  \`default_acls_ok\` from the default-privilege entries of the role that calls
-  it.
+  installer's default-privilege entries are lost. Semantius's own \`rbac\`
+  functions do not depend on them: each one the request role may run is
+  granted to it with its definition. A function created in \`rbac\` by hand
+  gets EXECUTE for the request role from the default-privilege entries of
+  \`rbac\` only when the role they name, the installing role or
+  \`semantius_owner\`, creates it; one that another role creates, the restorer
+  included, is PUBLIC-executable, and so executable by the request role, until
+  it is revoked from PUBLIC, and then only its owner and superusers can run it.
+  \`${S}.status()\` reports \`default_acls_ok\`, which tests only that the role
+  calling it has a default-privilege entry, in any schema.
 - On a **fresh cluster** the four roles are recreated by the dump's
   \`CREATE EXTENSION\`, but they are NOLOGIN and without passwords: rerun your
   deployment's login step.
@@ -954,7 +961,6 @@ DROP EVENT TRIGGER track_ddl_changes, track_ddl_drops, pgrst_ddl_watch, pgrst_dr
 DROP OWNED BY semantius_owner CASCADE;      -- deletes all Semantius data
 DROP SCHEMA IF EXISTS common, rbac, audit, pgmq CASCADE;
 DROP TABLE IF EXISTS public._versions;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC;
 DROP OWNED BY semantius_user, authenticated, semantius_authenticator;
 -- only if no other database in this cluster uses them:
 DROP ROLE semantius_user, authenticated, semantius_authenticator, semantius_owner;
@@ -963,12 +969,6 @@ DROP ROLE semantius_user, authenticated, semantius_authenticator, semantius_owne
 The event triggers go first because they fire on every drop below them. The
 recipe leaves \`pgcrypto\` installed and keeps the \`timezone\` and
 \`intervalstyle\` settings \`migrate()\` gave the database.
-
-The \`ALTER DEFAULT PRIVILEGES\` statement leaves one \`pg_default_acl\` row behind
-(\`public | FUNCTIONS | {=X/postgres}\`). That is the built-in default written
-out explicitly rather than a leftover privilege: a function created afterwards
-gets the default ACL and PUBLIC can execute it, exactly as in a database that
-never had ${name} installed.
 
 ## Roles
 

@@ -252,11 +252,10 @@ RETURNS INTEGER AS $$
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
 GRANT EXECUTE ON FUNCTION rbac.count_enabled_administrators() TO semantius_user;
 
--- The invoker trigger above has to be able to call this, so semantius_user keeps
--- the EXECUTE that the ALTER DEFAULT PRIVILEGES in 0060_rbac_schema.once.sql
--- grants it. What that exposes is one bit - whether the system still has an
--- administrator - which any session can already read off the guard by issuing a
--- statement the guard watches.
+-- The invoker trigger above has to be able to call this, so the GRANT above
+-- gives semantius_user EXECUTE. What that exposes is one bit - whether the
+-- system still has an administrator - which any session can already read off
+-- the guard by issuing a statement the guard watches.
 REVOKE EXECUTE ON FUNCTION rbac.count_enabled_administrators() FROM PUBLIC;
 
 COMMENT ON FUNCTION rbac.count_enabled_administrators IS

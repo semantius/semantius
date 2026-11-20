@@ -4,7 +4,7 @@
 # locally, from the extension files currently in ./extension.
 #
 #   ./build.sh              # version inferred from ./extension
-#   ./build.sh 0.3.0        # explicit version tag
+#   ./build.sh 0.5.0-beta1  # explicit version tag
 #
 # Builds + tags (one image, three names):
 #     ghcr.io/semantius/postgres:<version>-pg<major>   canonical; moves while

@@ -379,10 +379,10 @@ ROLLBACK TO sp_m3;
 -- client writes opens nothing. A session that runs its own SQL, a bearer
 -- session, can read the secret from app.row_move_secret once a write of its
 -- transaction has kept it there, and get past every select_rule. Before bearer
--- sessions are enabled, reading the secret from _settings on every row through
--- the definer function has to be reactivated, with the secret kept in no
--- setting, and the secret in _settings replaced: it is never rotated, so a
--- secret read once stays valid.
+-- sessions are enabled, the marking trigger has to read the secret from
+-- _settings on every row through the definer function and keep it in no
+-- setting, and the secret in _settings has to be replaced: it is never rotated,
+-- so a secret read once stays valid.
 SAVEPOINT sp_f1;
 SELECT authenticate_as('user2');
 SELECT set_config('app.row_move', 'test_abac_write', true);

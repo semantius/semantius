@@ -2,7 +2,7 @@ name: Release extension
 
 # Publishes the Semantius core PostgreSQL extension as a GitHub Release.
 # The tag is the repo-wide version (one version for every artifact in this repo), so
-# it is an unprefixed `v<version>` — trigger by pushing a tag like `v0.3.0`, or run
+# it is an unprefixed `v<version>` — trigger by pushing a tag like `v0.5.0-beta1`, or run
 # manually with a version.
 # The same `pg_semantius-<version>.zip` it attaches is also a valid PGXN
 # distribution archive (it contains META.json). PGXN is never published from here:
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Extension version, e.g. 0.3.0"
+        description: "Extension version, e.g. 0.5.0-beta1"
         required: true
 
 permissions:

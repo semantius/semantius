@@ -665,7 +665,7 @@ END;
 $fn$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION rollup_filter_sql(JSONB, TEXT, TEXT, JSONB) IS
-'Compiles a rollup filter (the JsonLogic subset and, or, !, !!, comparisons, in and var) to a SQL boolean over the given child relation and alias. Identifiers through %I after a catalog lookup, literals through %L cast to the column''s catalog type, every other operator refused with 90265. An empty filter is TRUE.';
+'Compiles a rollup filter (the JsonLogic subset and, or, !, !!, comparisons, in, var and, as values, the date operators date_add, date_diff, date_part, date_trunc, to_date and date_format) to a SQL boolean over the given child relation and alias. Identifiers through %I after a catalog lookup, literals through %L cast to the column''s catalog type, every other operator refused with 90265. An empty filter is TRUE.';
 
 REVOKE EXECUTE ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rollup_filter_literal(JSONB, TEXT, TEXT) FROM PUBLIC;

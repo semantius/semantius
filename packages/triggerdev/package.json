@@ -5,9 +5,9 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "npx trigger.dev@latest dev",
-    "deploy": "npx trigger.dev@latest deploy"
+    "build": "pnpm -w run bundle-sql && tsc",
+    "dev": "pnpm -w run bundle-sql && npx trigger.dev@latest dev",
+    "deploy": "pnpm -w run bundle-sql && npx trigger.dev@latest deploy"
   },
   "dependencies": {
     "@semantius/core": "workspace:*",

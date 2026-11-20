@@ -83,12 +83,8 @@ SELECT throws_ok(
 -- every caller without `admin` would excuse exactly the callers who can empty
 -- the Administrator set without being one, which is why the count runs through
 -- rbac.count_enabled_administrators instead of asking what the caller is.
--- granted_by is pinned to user1 rather than left to default to the granting
--- administrator. user_permissions.granted_by references users(id) with no ON
--- DELETE action, so a row pointing at user3 would make the delete below fail on
--- 23503 before the guard ever ran, and the guard is what is under test here.
-INSERT INTO user_permissions (user_id, permission_name, granted_by)
-VALUES (1001, 'user:manage', 1001);
+INSERT INTO user_permissions (user_id, permission_name)
+VALUES (1001, 'user:manage');
 
 SELECT authenticate_as('user1');
 
