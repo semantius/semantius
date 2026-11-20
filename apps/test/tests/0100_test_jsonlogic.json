@@ -850,5 +850,10 @@
     [ {"date_format":["2026-12-31T23:30:00-02:00","YYYY-MM-DD HH24:MI"]}, {}, "2027-01-01 01:30" ],
     [ {"date_format":[null,"YYYY"]}, {}, null ],
 
+    "# let inside a list operator: the element of map, filter, all, none and some can be a number, a text, a boolean, null or a list, and the bound name is readable there as well",
+    [ {"map":[[10,20],{"let":["p",{"var":""},{"*":[{"var":"p"},2]}]}]}, {}, [20,40] ],
+    "# when the data is not an object, the body's data is an object that holds only the bound name, so the element is read through a name bound to it",
+    [ {"map":[[1],{"let":["x",7,{"var":""}]}]}, {}, [{"x":7}] ],
+
     "EOF"
 ]

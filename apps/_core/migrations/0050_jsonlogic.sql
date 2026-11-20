@@ -801,10 +801,20 @@ BEGIN
     -- ===================== let =====================
     -- Binds a named variable into data and evaluates a logic expression.
     -- Usage: {"let":["name", value, logic]}
+    -- The name is added to data only when data is an object. Inside map,
+    -- filter, all, none and some the data is the element, which can be a
+    -- number, a text, a boolean, null or a list, and jsonb || appends an object
+    -- to any of those as a list item that var cannot read by name: the body
+    -- would read the name as null and the rule would return a plausible wrong
+    -- value. Such data is replaced by an object that holds only the name, so
+    -- {"var":""} in the body returns that object, and the element is read
+    -- through a name bound to it: {"let":["x", {"var":""}, ...]}.
     IF op = 'let' THEN
         var_key := vals ->> 0;
         result := evaluate_json_logic(vals -> 1, data);
-        RETURN evaluate_json_logic(vals -> 2, data || jsonb_build_object(var_key, result));
+        RETURN evaluate_json_logic(vals -> 2,
+            CASE WHEN jsonb_typeof(data) = 'object' THEN data ELSE '{}'::jsonb END
+            || jsonb_build_object(var_key, result));
     END IF;
 
     -- ===================== set_record =====================
@@ -826,7 +836,9 @@ BEGIN
             txt_b := result #>> '{}';
         END IF;
         nav := get_record_by_id(txt_a, txt_b);
-        RETURN evaluate_json_logic(vals -> 3, data || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
+        RETURN evaluate_json_logic(vals -> 3,
+            CASE WHEN jsonb_typeof(data) = 'object' THEN data ELSE '{}'::jsonb END
+            || jsonb_build_object(var_key, COALESCE(nav, 'null'::jsonb)));
     END IF;
 
     END IF;   -- end of the pre-evaluation operator group

@@ -2,7 +2,7 @@
 -- DO NOT EDIT - modify 0100_test_jsonlogic.json and run deno task testgen_jsonlogic
 BEGIN;
 
-SELECT plan(484);
+SELECT plan(486);
 
 -- # Non-rules get passed through
 SELECT is(
@@ -2481,6 +2481,18 @@ SELECT is(
     evaluate_json_logic('{"date_format":[null,"YYYY"]}'::jsonb, '{}'::jsonb),
     'null'::jsonb,
     'test 484'
+);
+-- # let inside a list operator: the element of map, filter, all, none and some can be a number, a text, a boolean, null or a list, and the bound name is readable there as well
+SELECT is(
+    evaluate_json_logic('{"map":[[10,20],{"let":["p",{"var":""},{"*":[{"var":"p"},2]}]}]}'::jsonb, '{}'::jsonb),
+    '[20,40]'::jsonb,
+    'test 485'
+);
+-- # when the data is not an object, the body's data is an object that holds only the bound name, so the element is read through a name bound to it
+SELECT is(
+    evaluate_json_logic('{"map":[[1],{"let":["x",7,{"var":""}]}]}'::jsonb, '{}'::jsonb),
+    '[{"x":7}]'::jsonb,
+    'test 486'
 );
 -- EOF
 

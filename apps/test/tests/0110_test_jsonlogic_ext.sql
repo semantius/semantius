@@ -7,7 +7,7 @@
 -- never hard-coded.
 BEGIN;
 
-SELECT plan(192);
+SELECT plan(193);
 
 SELECT authenticate_as('user3');
 CREATE TEMP TABLE nw AS SELECT id FROM modules WHERE module_slug = 'nwind';
@@ -577,6 +577,17 @@ SELECT is(
     ),
     'null'::jsonb,
     'set_record: non-existing entity should set variable to null'
+);
+
+-- set_record inside map: the element is a bare id, not an object, and the
+-- loaded record is readable under its name in the body
+SELECT is(
+    evaluate_json_logic(
+        format('{"map":[[%s], {"set_record":["m", "modules", {"var":""}, {"var":"m.module_name"}]}]}', (SELECT id FROM nw))::jsonb,
+        '{}'::jsonb
+    ),
+    '["Northwind"]'::jsonb,
+    'set_record: inside map over bare ids the loaded record is readable by its name'
 );
 
 -- =====================================================

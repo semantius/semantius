@@ -8,7 +8,7 @@
         "_core/0040_cache.sql": "6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389",
         "_core/0045_typeid.sql": "cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98",
         "_core/0046_typeid.once.sql": "b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d",
-        "_core/0050_jsonlogic.sql": "b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27",
+        "_core/0050_jsonlogic.sql": "dc718ef197e9c1ec8e348db3f4f5a7447d540b482f6dc5692ecd7f41524f1edb",
         "_core/0060_rbac_schema.once.sql": "b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2",
         "_core/0070_rbac_schema.sql": "c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c",
         "_core/0080_rbac_functions.sql": "0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d",
