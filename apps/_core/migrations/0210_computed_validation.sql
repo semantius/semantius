@@ -1085,20 +1085,28 @@ GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 -- did not ask for the row back.
 --
 -- A policy sees the row and the session, and nothing in a row says that it is
--- the one being written. So a trigger says it: common.row_move_mark, the last
--- BEFORE ROW trigger on the table, leaves a token for the row in a
--- transaction-local setting, the rule predicate lets a row through when the
--- token is the row's, and common.row_move_clear empties the setting when the
--- statement ends. From then on the writer can no longer read, update or delete
--- the row it moved; RETURNING hands back the row it just wrote.
+-- the one being written. So a trigger says it: zz_row_move, the last BEFORE ROW
+-- trigger on the table, runs common.row_move_mark_<entity>, a function
+-- build_select_rule_policy generates for the entity, which leaves a token for
+-- the row in a transaction-local setting. The rule predicate lets a row through
+-- when the token is the row's, and common.row_move_clear empties the setting
+-- when the statement ends. From then on the writer can no longer read, update
+-- or delete the row it moved; RETURNING hands back the row it just wrote.
 --
 -- The setting is one a client can write wherever the client runs SQL itself,
 -- so its value must be something a client cannot make. The token is the
 -- SHA-256 of a secret, the transaction id, the table and the key. The secret
 -- is a random value in _settings, which no policy opens to the request role,
--- and neither function that reads it is executable by that role. A client
--- that writes the setting therefore opens nothing, and a token it reads back
--- names a row it wrote itself, in a transaction that is still its own.
+-- and neither function that reads it from there is executable by that role.
+-- The marking function reads it once per transaction and keeps it for the
+-- rows after the first in the transaction-local setting app.row_move_secret,
+-- which ends with the transaction and so never reaches the next request on a
+-- pooled connection. A setting is no secret from a session that runs its own
+-- SQL: a bearer session can read app.row_move_secret with current_setting once
+-- one of its writes has kept it there, and with it make the token of any row,
+-- which gets it past every select_rule. Behind PostgREST or an app server the
+-- client runs no SQL, no RPC reads a setting whose name the caller chooses, and
+-- none reads app.row_move_secret.
 --
 -- An INSERT is marked only when no row with its key is stored. The trigger
 -- fires before PostgreSQL finds a key conflict, so a marked INSERT ... ON
@@ -1134,36 +1142,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_secret() IS
 'The secret the row move tokens are made with, created on first use: a random value in _settings that the request role cannot read.';
-
--- TG_ARGV[0] is the key column. The name sorts after every other BEFORE ROW
--- trigger of an entity table, so the key is the one the row is stored under:
--- a TypeID is assigned by a trigger, and a computed field may write the key.
-CREATE OR REPLACE FUNCTION common.row_move_mark()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_key    TEXT := to_jsonb(NEW) ->> TG_ARGV[0];
-    v_stored BOOLEAN := FALSE;
-BEGIN
-    IF v_key IS NOT NULL AND TG_OP = 'INSERT' THEN
-        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = ($1).%I)',
-                       TG_TABLE_NAME, TG_ARGV[0], TG_ARGV[0])
-           INTO v_stored USING NEW;
-    END IF;
-
-    IF v_key IS NULL OR v_stored THEN
-        PERFORM set_config('app.row_move', '', true);
-    ELSE
-        PERFORM set_config('app.row_move',
-                           common.row_move_token(common.row_move_secret(), pg_current_xact_id()::text,
-                                                 TG_TABLE_NAME::text, v_key),
-                           true);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION common.row_move_mark() IS
-'BEFORE INSERT OR UPDATE row trigger zz_row_move of an entity with a select_rule: leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the rule when PostgreSQL holds the new row to the read policy. An INSERT whose key is already stored is not marked.';
 
 CREATE OR REPLACE FUNCTION common.row_move_clear()
 RETURNS TRIGGER AS $$
@@ -1203,7 +1181,6 @@ COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 
 REVOKE EXECUTE ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_secret() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION common.row_move_mark() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_clear() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_matches(TEXT, TEXT) FROM PUBLIC;
 
@@ -1238,15 +1215,18 @@ DECLARE
     v_arg JSONB;
     v_lead TEXT;
     v_rule_pred TEXT;
+    v_mark_name TEXT := 'row_move_mark_' || p_table_name;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
         -- No entity by that name; drop both overloads if they exist. A DROP that
         -- names only one signature is a silent no-op for the other, and the
-        -- CASCADE that removes the dependent policies rides on it.
+        -- CASCADE that removes the dependent policies rides on it. The row move
+        -- function goes as well, with the trigger that runs it.
         v_fn_name := 'select_rule_' || p_table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', v_mark_name);
         RETURN;
     END IF;
 
@@ -1289,9 +1269,11 @@ BEGIN
     -- lets it read, or on fields the semi-join on entities in its place: SELECT on it,
     -- UPDATE and DELETE on edit_permission AND it, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
-        -- No rule, so no row can leave it: the two row move triggers go.
+        -- No rule, so no row can leave it: the two row move triggers go, and
+        -- the function the first one runs.
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I()', v_mark_name);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
             v_policy_name, v_rel,
@@ -1406,8 +1388,8 @@ BEGIN
         RETURN TRUE;
     END IF;
     -- The rule hides the row. It passes all the same when it is the row the
-    -- running statement is writing (common.row_move_mark). The setting is
-    -- tested here so that a read pays nothing more for a hidden row.
+    -- running statement is writing (common.row_move_mark_<entity>). The
+    -- setting is tested here so that a read pays nothing more for a hidden row.
     IF COALESCE(current_setting('app.row_move', true), '') = '' THEN
         RETURN FALSE;
     END IF;
@@ -1514,11 +1496,60 @@ $SEL$, v_fn_name)));
     -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
     -- row out of its own rule. PostgreSQL holds the new row to the SELECT policy as well
     -- whenever the statement reads a column, and the two triggers below are what let the
-    -- row being written pass that check (common.row_move_mark).
+    -- row being written pass that check.
     PERFORM common.row_move_secret();
+
+    -- The function zz_row_move runs is generated per entity so that it can read the
+    -- key as a column of NEW and look a stored key up with a static statement, which
+    -- PL/pgSQL plans once per session: one function for every table would have to
+    -- turn the whole row into jsonb to find the key, and plan the lookup again on
+    -- every INSERT. It reads the secret from _settings for the first row of a
+    -- transaction and keeps it in app.row_move_secret for the rows after it.
+    -- set_config(..., true) ends that setting with the transaction, so a pooled
+    -- connection never hands it to the next request. The token names TG_TABLE_NAME,
+    -- the relation the predicate above passes to common.row_move_matches. The key
+    -- column and the relation are quoted with %I, and the body is wrapped by
+    -- dd_dollar_quote.
+    EXECUTE format($FUNC$
+CREATE OR REPLACE FUNCTION common.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$FUNC$, v_mark_name, dd_dollar_quote(format($MARK$
+DECLARE
+    v_secret TEXT;
+BEGIN
+    IF NEW.%1$I IS NULL THEN
+        PERFORM set_config('app.row_move', '', true);
+        RETURN NEW;
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        IF EXISTS (SELECT 1 FROM public.%2$I t WHERE t.%1$I = NEW.%1$I) THEN
+            PERFORM set_config('app.row_move', '', true);
+            RETURN NEW;
+        END IF;
+    END IF;
+    v_secret := current_setting('app.row_move_secret', true);
+    IF COALESCE(v_secret, '') = '' THEN
+        v_secret := common.row_move_secret();
+        PERFORM set_config('app.row_move_secret', v_secret, true);
+    END IF;
+    PERFORM set_config('app.row_move',
+                       common.row_move_token(v_secret, pg_current_xact_id()::text,
+                                             TG_TABLE_NAME::text, NEW.%1$I::text),
+                       true);
+    RETURN NEW;
+END;
+$MARK$, v_entity.id_column, v_rel)));
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', v_mark_name);
     EXECUTE format(
-        'CREATE OR REPLACE TRIGGER zz_row_move BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION common.row_move_mark(%L)',
-        v_rel, v_entity.id_column);
+        'COMMENT ON FUNCTION common.%I() IS %L',
+        v_mark_name,
+        format('BEFORE INSERT OR UPDATE row trigger function of zz_row_move on the table of entity "%s": leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the select_rule when PostgreSQL holds the new row to the read policy, and keeps the secret it reads in app.row_move_secret for the rest of the transaction. An INSERT whose key is already stored is not marked. Generated by build_select_rule_policy.', p_table_name));
+
+    -- The name zz_row_move sorts after every other BEFORE ROW trigger of an entity
+    -- table, so the key is the one the row is stored under: a TypeID is assigned by a
+    -- trigger, and a computed field may write the key.
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER zz_row_move BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION common.%I()',
+        v_rel, v_mark_name);
     EXECUTE format(
         'CREATE OR REPLACE TRIGGER zz_row_move_clear AFTER INSERT OR UPDATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION common.row_move_clear()',
         v_rel);
@@ -1534,7 +1565,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule and the function common.row_move_mark_<entity> the first of them runs. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers and that function are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -1563,16 +1594,18 @@ BEGIN
     END IF;
 
     -- DELETE. Both overloads, or the survivor blocks the next CREATE under
-    -- this name.
+    -- this name, and the row move function, which outlives the table it was
+    -- the trigger of.
     v_fn_name := 'select_rule_' || OLD.table_name;
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', 'row_move_mark_' || OLD.table_name);
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
-'AFTER UPDATE OR DELETE trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions when the entity is deleted. It does not fire on INSERT: create_dd_table builds the policies of a new managed entity itself, through create_entity_policies.';
+'AFTER UPDATE OR DELETE trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions and the row move function when the entity is deleted. It does not fire on INSERT: create_dd_table builds the policies of a new managed entity itself, through create_entity_policies.';
 
 CREATE OR REPLACE TRIGGER manage_select_rule_policy_trigger
     AFTER UPDATE OR DELETE ON entities

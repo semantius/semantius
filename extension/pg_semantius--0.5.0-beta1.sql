@@ -3175,7 +3175,7 @@ CREATE TABLE roles (
     catalog_role_code TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     origin TEXT NOT NULL DEFAULT 'user',
-    module_id BIGINT REFERENCES modules(id) ON DELETE CASCADE,
+    module_id BIGINT REFERENCES modules(id) ON DELETE CASCADE ON UPDATE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT valid_role_origin CHECK (origin IN ('system', 'model', 'model_master', 'user')),
@@ -3222,7 +3222,7 @@ CREATE TABLE user_roles (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    assigned_by BIGINT REFERENCES users(id),
+    assigned_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     UNIQUE (user_id, role_id)
 );
 
@@ -3232,7 +3232,7 @@ CREATE TABLE role_permissions (
     role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by BIGINT REFERENCES users(id),
+    granted_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     UNIQUE (role_id, permission_name)
 );
 
@@ -3242,7 +3242,7 @@ CREATE TABLE user_permissions (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by BIGINT REFERENCES users(id),
+    granted_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     UNIQUE (user_id, permission_name)
 );
 
@@ -3271,9 +3271,14 @@ ALTER TABLE modules ADD COLUMN manage_permission TEXT
     REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE modules ADD COLUMN admin_permission TEXT
     REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE modules ADD COLUMN default_viewer_role_id BIGINT REFERENCES roles(id);
-ALTER TABLE modules ADD COLUMN default_manager_role_id BIGINT REFERENCES roles(id);
-ALTER TABLE modules ADD COLUMN default_admin_role_id BIGINT REFERENCES roles(id);
+-- Restrict, as the fields rows of the default roles in
+-- 0150_dd_bootstrap.once.sql say: a role cannot be deleted while a module names
+-- it as a default. Deleting a module still deletes the roles it owns
+-- (roles.module_id cascades), its default roles among them, because the module
+-- is gone by the time their check runs.
+ALTER TABLE modules ADD COLUMN default_viewer_role_id BIGINT REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE modules ADD COLUMN default_manager_role_id BIGINT REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE modules ADD COLUMN default_admin_role_id BIGINT REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- =====================================================
 -- INDEXES
@@ -3353,7 +3358,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
 $pgsem__core_0060_rbac_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0060_rbac_schema.once.sql', 'da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d')
+        VALUES ('_core.0060_rbac_schema.once.sql', 'b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6856,7 +6861,7 @@ BEGIN
       ('fields', 'title',                'Title',                '',                              '',         'text',      FALSE, 50,     'required', 'default', 'label', TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'description',          'Description',          '',                                                                       '',         'text',      FALSE, 60,     'default',  'w',       'core',  TRUE,  NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'is_pk',                'Is Primary Key',       'Cannot change after the field is created',                                                                       '',         'boolean',   FALSE, 70,     'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
-      ('fields', 'default_value',        'Default Value',        'Column default: a literal value or an SQL expression such as CURRENT_TIMESTAMP',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'::jsonb),
+      ('fields', 'default_value',        'Default Value',        'Column default: a literal value or one of the argument-less SQL expressions the dictionary accepts, such as CURRENT_TIMESTAMP',                                                                       '',         'text',      FALSE, 90,     'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"!=":[{"var":"format"},"boolean"]},"default","hidden"]}'::jsonb),
       ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type',           'Input Type',           'How the UI presents the field for input; input_type_rule can override it per record',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        '', '{}'::jsonb),
       ('fields', 'width',                'Width',                'default (automatic), s (small), m (medium), w (wide)',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, width_entries,                  '',          '',        '', '{}'::jsonb),
@@ -6865,15 +6870,15 @@ BEGIN
       ('fields', 'enum_values',          'Enum Values',          'JSON array in display order. Each entry is a value or a {"value", "label"} object with an optional "description", "color" and "icon", e.g. ["active", {"value": "on_hold", "label": "On hold", "color": "amber"}]',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'::jsonb),
       ('fields', 'precision',            'Precision',            'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'::jsonb),
       ('fields', 'reference_table',      'Reference Table',      'Entity this field references, by table name. Required for reference and parent fields, empty for all others, and must name an existing entity.',                               '',         'text',      FALSE, 180,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
-      ('fields', 'reference_delete_mode','Reference Delete Mode','What happens to this record when the referenced record is deleted: restrict (the delete is blocked), clear (this field is set to NULL) or cascade (this record is deleted too). Empty on fields that are not a reference or parent; on a reference, empty acts as restrict.',                        'restrict', 'enum',      FALSE, 190,    'hidden',   'default', 'core',  FALSE, reference_delete_mode_entries,  '', '',     '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
+      ('fields', 'reference_delete_mode','Reference Delete Mode','What happens to this record when the referenced record is deleted: restrict (the delete is blocked), clear (this field is set to NULL) or cascade (this record is deleted too). Ignored on fields that are not a reference or parent; on a reference or parent, empty acts as restrict.',                        'restrict', 'enum',      FALSE, 190,    'hidden',   'default', 'core',  FALSE, reference_delete_mode_entries,  '', '',     '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
       ('fields', 'relationship_label',   'Relationship Label',   'Verb describing what the referenced entity does to/with this entity (e.g. employs, heads). Used for ER diagram and navigation labels.', 'has',      'text',      FALSE, 200,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["reference","parent"]]},"required","hidden"]}'::jsonb),
-      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for the parent entity when format is parent; overrides the singular_label of the parent entity when set','',        'text',      FALSE, 210,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
-      ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for the parent entity when format is parent; overrides the plural_label of the parent entity when set', '',         'text',      FALSE, 220,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
+      ('fields', 'singular_label_parent','Singular Label Parent','Custom singular label for this entity''s records where the parent entity lists them, when format is parent; overrides this entity''s singular_label there when set','',        'text',      FALSE, 210,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
+      ('fields', 'plural_label_parent',  'Plural Label Parent',  'Custom plural label for this entity''s records where the parent entity lists them, when format is parent; overrides this entity''s plural_label there when set', '',         'text',      FALSE, 220,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"parent"]},"default","hidden"]}'::jsonb),
       ('fields', 'unique_value',         'Unique Value',         'When enabled, values in this column must be unique. NULL and empty strings are not checked.', '', 'boolean', FALSE, 230, 'hidden',  'default', 'core', FALSE, NULL,                           '',          '',        '', '{"if":[{"in":[{"var":"format"},["boolean","multiline","html","code","json","jsonlogic","object","array"]]},"hidden","default"]}'::jsonb),
       ('fields', 'cube_type',            'Cube Type',            'Role of the field in the generated OLAP cube (dimension or measure); auto lets the platform choose, disabled leaves the field out',                                                                       'auto',     'enum',      FALSE, 240,    'required', 'default', 'core',  FALSE, to_jsonb(cube_type_values),      '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type_rule',      'Input Type Rule',      'JsonLogic rule evaluated client-side against the record being edited. It returns an input_type (default, required, readonly, disabled or hidden) that replaces the static input_type. Empty = no rule.', '',         'jsonlogic', FALSE, 250,    'default',  'w',       'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'catalog_field_code',   'Catalog Field Code',   'Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', '', 'text', FALSE, 260, 'default', 'default', 'core', FALSE, NULL,           '',          '',        '', '{}'::jsonb),
-      ('fields', 'rollup',               'Rollup',               'Rollup definition, empty for an ordinary field. Keys: link_field (<child entity>.<reference or parent field pointing at this entity>), function (sum, min, max, avg or count), value_field (a field of the child; not with count), filter (JsonLogic over the child record, restricted to and, or, !, comparisons, in and var; optional) and include_hidden_rows (true accepts aggregating child records that readers of this entity may not see). The field keeps an ordinary format that fits the result: int64 for count, the value field''s format for min and max, a numeric format for sum and avg; precision is copied from the value field. The database maintains the column and sets ctype to rollup.', '', 'json', FALSE, 270, 'default', 'w', 'core', FALSE, NULL, '', '', '', '{}'::jsonb),
+      ('fields', 'rollup',               'Rollup',               'Rollup definition, empty for an ordinary field. Keys: link_field (<child entity>.<reference or parent field pointing at this entity>), function (sum, min, max, avg or count), value_field (a field of the child; not with count), filter (JsonLogic over the child record, restricted to and, or, !, !!, comparisons, in, var and, as values, the date operators date_add, date_diff, date_part, date_trunc, to_date and date_format; optional) and include_hidden_rows (true accepts aggregating child records that readers of this entity may not see). The field keeps an ordinary format that fits the result: an integer format or number for count, one with the value field''s column type for min and max, a numeric format for sum, and number, float or double for avg; precision is copied from a number value field. The database maintains the column and sets ctype to rollup.', '', 'json', FALSE, 270, 'default', 'w', 'core', FALSE, NULL, '', '', '', '{}'::jsonb),
       ('fields', 'created_at',           'Created At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'updated_at',           'Updated At',           '',                                                                       '',         'date-time', FALSE, 900000, 'disabled', 'default', 'audit', FALSE, NULL,                            '',          '',        '', '{}'::jsonb);
 
@@ -6891,7 +6896,7 @@ END $$;
 INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values)
 VALUES
     ('entities', 'table_name',     'Table Name',     'Physical table name in database',                       '',             'text',      TRUE,  10,   'required', 'default', 'id',   TRUE,  '', '',        '', NULL),
-    ('entities', 'singular',       'Singular',       'Singular form of table name (auto-derived from table_name when blank)', '', 'text',      FALSE, 20,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
+    ('entities', 'singular',       'Singular',       'Singular form of table name (auto-derived from table_name when blank on insert)', '', 'text',      FALSE, 20,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
     ('entities', 'plural',         'Plural',         'Plural form of table name, auto-assigned to table_name','',             'text',      FALSE, 30,  'readonly', 'default', 'core', TRUE,  '', '',        '', NULL),
     ('entities', 'singular_label', 'Singular Label', 'Human-readable singular label for UI/reports (e.g. Customer)',          '',             'text',      FALSE, 40,  'default',  'default', 'label',TRUE,  '', '',        '', NULL),
     ('entities', 'plural_label',   'Plural Label',   'Human-readable plural label for UI/reports (e.g. Customers)',            '',             'text',      FALSE, 50,  'default',  'default', 'core', TRUE,  '', '',        '', NULL),
@@ -6906,14 +6911,14 @@ VALUES
     ('entities', 'label_column_label', 'Label Column Label', 'Title of the label field. Give it when the entity is created; left empty, it is derived from label_column without the entity''s own name (company_name on companies gives Name, region_description on regions gives Description), except that a column ending in _number, _no, _id or _code keeps it (offer_number gives Offer Number). Always equal to the label field''s title: changing either one changes both.', '', 'text', FALSE, 155, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'label_parent',   'Label Parent',   'Names the reference/parent FK that is this entity''s identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label).', '', 'text', FALSE, 160, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'order_column',   'Order Column',   'Store a fixed row order in this column',                '',             'text',      FALSE, 170, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'managed',        'Managed',        'When disabled, changes to this entity and its fields no longer run DDL',       'true',         'boolean',   FALSE, 180, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
-    ('entities', 'searchable',     'Searchable',     'Auto-computed from the label field', '',    'boolean',   FALSE, 190, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'managed',        'Managed',        'When disabled, changes to this entity and its fields run no DDL',       'true',         'boolean',   FALSE, 180, 'default',  'default', 'core', FALSE, '', '',        '', NULL),
+    ('entities', 'searchable',     'Searchable',     'Auto-computed: true when any field of the entity''s record is searchable, the fields of its is_a or has_a bases included', '',    'boolean',   FALSE, 190, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'is_child',       'Is Child',       'Auto-computed from the parent fields', '',       'boolean',   FALSE, 200, 'disabled', 'default', 'core', FALSE, '', '',        '', NULL),
     ('entities', 'audit_log',      'Audit Log',      'When enabled, DML operations on this table are logged to audit_record_logs', 'false', 'boolean', FALSE, 230, 'default', 'default', 'core', FALSE, '', '', 'has', NULL),
     ('entities', 'computed_fields','Computed Fields', 'JsonLogic derivations evaluated on every write',        '[]',           'jsonlogic', FALSE, 260, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
     ('entities', 'validation_rules','Validation Rules','JsonLogic invariants that must hold for the write to succeed','[]',   'jsonlogic', FALSE, 270, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
-    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for per-row FOR SELECT RLS policy',         '',             'jsonlogic', FALSE, 280, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
-    ('entities', 'entity_type',    'Entity Type',    'What kind of data this entity holds. operational_workflow: records move through a gated lifecycle (even one gated step such as draft to submitted counts). operational_record: everyday business records without such a lifecycle. catalog: reference or lookup data maintained by admins. junction: a pure link between entities with no fields of its own; the platform labels its rows by the records they link. computed: every field is derived and never written directly. unclassified: not classified yet (the default).', 'unclassified', 'enum', FALSE, 240, 'required', 's', 'core', FALSE, '', '', '', '[{"value": "operational_workflow", "label": "Operational workflow"}, {"value": "operational_record", "label": "Operational record"}, {"value": "catalog", "label": "Catalog"}, {"value": "junction", "label": "Junction"}, {"value": "computed", "label": "Computed"}, {"value": "unclassified", "label": "Unclassified"}]'::jsonb),
+    ('entities', 'select_rule',    'Select Rule',    'JsonLogic rule for the per-row SELECT, UPDATE and DELETE RLS policies',         '',             'jsonlogic', FALSE, 280, 'default',  'w',       'core', FALSE, '', '',        '', NULL),
+    ('entities', 'entity_type',    'Entity Type',    'What kind of data this entity holds. operational_workflow: records move through a gated lifecycle (even one gated step such as draft to submitted counts). operational_record: everyday business records without such a lifecycle. catalog: reference or lookup data maintained by admins. junction: a pure link between entities with no payload fields of its own; the platform labels its rows by the records they link. computed: every field is derived and never written directly. unclassified: not classified yet (the default).', 'unclassified', 'enum', FALSE, 240, 'required', 's', 'core', FALSE, '', '', '', '[{"value": "operational_workflow", "label": "Operational workflow"}, {"value": "operational_record", "label": "Operational record"}, {"value": "catalog", "label": "Catalog"}, {"value": "junction", "label": "Junction"}, {"value": "computed", "label": "Computed"}, {"value": "unclassified", "label": "Unclassified"}]'::jsonb),
     ('entities', 'catalog_entity_code',    'Catalog Entity Code',    'Stable canonical identity this entity realizes (domain-map code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', '', 'text', FALSE, 290, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'catalog_owner_module', 'Catalog Owner Module', 'For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local.', '', 'text', FALSE, 300, 'default', 'default', 'core', FALSE, '', '', '', NULL),
     ('entities', 'catalog_entity_aliases', 'Catalog Entity Aliases', 'Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target.', '[]', 'json', FALSE, 310, 'default', 'w', 'core', FALSE, '', '', '', NULL),
@@ -6931,14 +6936,14 @@ VALUES
 INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values, input_type_rule)
 VALUES
     ('entities', 'id_type', 'Id Type', 'Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. is_a: a subtype of the typeid or is_a entity named in id_refentity; each record is exactly one type, shares the key of its base record and carries the subtype''s own prefix. has_a: an optional extension of the typeid entity named in id_refentity; a base record has at most one, and it takes the base record''s key. computed: system tables whose key is generated from other columns; not available for new entities.', 'auto_increment', 'enum', FALSE, 120, 'required', 'default', 'core', FALSE, '', '', '', '[{"value": "auto_increment", "label": "Auto-increment number"}, {"value": "bigint", "label": "Number (supplied by the caller)"}, {"value": "text", "label": "Text (supplied by the caller)"}, {"value": "uuid", "label": "UUIDv7"}, {"value": "typeid", "label": "TypeID"}, {"value": "is_a", "label": "Subtype of another entity (is_a)"}, {"value": "has_a", "label": "Extension of another entity (has_a)"}, {"value": "computed", "label": "Computed (system tables only)"}]'::jsonb, '{"if":[{"var":"created_at"},"readonly","required"]}'::jsonb),
-    ('entities', 'id_prefix', 'Id Prefix', 'TypeID prefix of a typeid or is_a entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. A typeid entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a former prefix can no longer be inserted. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is.', '', 'text', FALSE, 130, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"in":[{"var":"id_type"},["typeid","is_a"]]},"required","hidden"]}'::jsonb),
+    ('entities', 'id_prefix', 'Id Prefix', 'TypeID prefix of a typeid or is_a entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. A typeid entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a prefix the entity gave up is refused on insert. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is.', '', 'text', FALSE, 130, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"in":[{"var":"id_type"},["typeid","is_a"]]},"required","hidden"]}'::jsonb),
     ('entities', 'id_refentity', 'Base Entity', 'The entity an is_a or has_a entity is based on, whose key its records share. An is_a entity is based on a typeid or is_a entity, a has_a entity on a typeid entity. Set when the entity is created and never changed; empty for every other key type.', '', 'reference', FALSE, 140, 'hidden', 'default', 'core', FALSE, 'entities', 'restrict', 'is the base of', NULL, '{"if":[{"in":[{"var":"id_type"},["is_a","has_a"]]},{"if":[{"var":"created_at"},"readonly","required"]},"hidden"]}'::jsonb);
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
 VALUES
     ('users', 'id', 'Id', '', 'int64', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', FALSE),
-    ('users', 'external_id', 'External Identity', 'Identity: the JWT sub claim from the authentication provider, or entra.<tenant id>.<object id> for a Microsoft Entra ID token. Never empty: a human user must bring one, and an agent saved without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
+    ('users', 'external_id', 'External Identity', 'Identity: the JWT sub claim from the authentication provider, or entra.<tenant id>.<object id> for a Microsoft Entra ID token. Never empty: a human user must bring one, and an agent inserted without one gets agent:<uuid>.', 'text', FALSE, 10, 'readonly', 'default', 'core', TRUE, '', '', '', TRUE),
     ('users', 'email', 'Email', '', 'email', FALSE, 20, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
     ('users', 'first_name', 'First Name', '', 'text', FALSE, 22, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
     ('users', 'last_name', 'Last Name', '', 'text', FALSE, 23, 'default', 'default', 'core', TRUE, '', '', '', FALSE),
@@ -6969,9 +6974,9 @@ VALUES
     ('modules', 'access_scope', 'Access Scope', 'Permission structure of the module', 'enum', FALSE, 46, 'required', 'default', 'core', FALSE, '', '', '[{"value": "custom", "label": "Custom permission structure"}, {"value": "basic", "label": "Two permissions: view and edit"}, {"value": "advanced", "label": "Three permissions: view, edit and admin."}, {"value": "gated", "label": "Three permissions: view, edit and admin and workflow_state gates"}, {"value": "raci", "label": "Three permissions: view, edit and admin and enforced process gates."}]'::jsonb, 'custom'),
     ('modules', 'manage_permission', 'Manage Permission', '', 'reference', FALSE, 39, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
     ('modules', 'admin_permission', 'Admin Permission', '', 'reference', FALSE, 40, 'default', 'default', 'core', FALSE, 'permissions', 'clear', NULL, ''),
-    ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
-    ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
-    ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'clear', NULL, ''),
+    ('modules', 'default_viewer_role_id', 'Default Viewer Role', '', 'reference', FALSE, 41, 'default', 'default', 'core', FALSE, 'roles', 'restrict', NULL, ''),
+    ('modules', 'default_manager_role_id', 'Default Manager Role', '', 'reference', FALSE, 42, 'default', 'default', 'core', FALSE, 'roles', 'restrict', NULL, ''),
+    ('modules', 'default_admin_role_id', 'Default Admin Role', '', 'reference', FALSE, 43, 'default', 'default', 'core', FALSE, 'roles', 'restrict', NULL, ''),
     ('modules', 'settings', 'Settings', '', 'json', FALSE, 50, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'dashboard_config', 'Dashboard Configuration', 'Layout and widgets of the module dashboard', 'json', FALSE, 60, 'default', 'w', 'core', FALSE, '', '', NULL, ''),
     ('modules', 'version', 'Version', 'Auto-incremented version number', 'int32', FALSE, 85, 'readonly', 'default', 'core', FALSE, '', '', NULL, ''),
@@ -6988,7 +6993,7 @@ VALUES
     ('roles', 'catalog_role_code', 'Catalog Role Code', 'Stable catalog persona/role this role was provisioned from (lineage; non-unique). Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec.', 'text', FALSE, 16, 'default', 'default', 'core', FALSE, '', '', '', FALSE, NULL, ''),
     ('roles', 'description', 'Description', '',                              'multiline', FALSE, 20, 'default',  'w',       'core',  TRUE,  '',        '',      '', FALSE, NULL, ''),
     ('roles', 'origin',      'Origin',      'How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed.', 'enum', FALSE, 25, 'readonly', 'default', 'core', FALSE, '', '', '', FALSE, '[{"value": "system", "label": "System (built-in)"}, {"value": "model", "label": "Domain module scaffold"}, {"value": "model_master", "label": "Master module scaffold"}, {"value": "user", "label": "Created by an admin"}]'::jsonb, 'user'),
-    ('roles', 'module_id',   'Module',   '',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'clear', 'contains', FALSE, NULL, ''),
+    ('roles', 'module_id',   'Module',   '',   'reference', FALSE, 30, 'default',  'default', 'core',  FALSE, 'modules', 'cascade', 'contains', FALSE, NULL, ''),
     ('roles', 'created_at',  'Created At',  '',                              'date-time', FALSE, 40, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL, ''),
     ('roles', 'updated_at',  'Updated At',  '',                              'date-time', FALSE, 50, 'disabled', 'default', 'audit', FALSE, '',        '',      '', FALSE, NULL, '');
 
@@ -7019,7 +7024,7 @@ INSERT INTO fields (table_name, field_name, title, description, format, is_pk, f
 VALUES
     ('role_permissions', 'id',              'Id',              'Generated identifier (role_id.permission_name)', 'text',      TRUE,  1,  'readonly', 'default', 'id',   FALSE, '',            '',        '', '', ''),
     ('role_permissions', 'role_id',         'Role',         '',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions', 'Permission', 'Permissions'),
-    ('role_permissions', 'permission_name', 'Permission', '',        'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to', 'Permission', 'Permissions'),
+    ('role_permissions', 'permission_name', 'Permission', '',        'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to', 'Role', 'Roles'),
     ('role_permissions', 'granted_at',    'Granted At',    '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        '', '', ''),
     ('role_permissions', 'granted_by',    'Granted By',    '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted', '', '');
 
@@ -7043,7 +7048,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', '813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', 'd867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7080,7 +7085,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -8952,7 +8957,7 @@ SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
-'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
+'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, and changes of format, default, reference table and delete mode. Empty, rollup and computed are not core.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
@@ -9359,6 +9364,24 @@ BEGIN
         IF OLD.default_value IS DISTINCT FROM NEW.default_value AND NOT dd_ctype_is_label(OLD.ctype) THEN
             RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
                 USING ERRCODE = '90220',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
+        END IF;
+
+        -- The foreign key of a core column is written by hand in the
+        -- migrations, some in a form the dictionary does not generate: the one
+        -- of modules.view_permission, created at the end of
+        -- 0090_rbac_seed.once.sql, is deferred, which RESTRICT never is. A
+        -- change of either attribute would drop that constraint below and
+        -- build the generated form in its place.
+        IF OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode THEN
+            RAISE EXCEPTION 'Cannot change reference_delete_mode of core system field ${field_name}'
+                USING ERRCODE = '90285',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
+        END IF;
+
+        IF OLD.reference_table IS DISTINCT FROM NEW.reference_table THEN
+            RAISE EXCEPTION 'Cannot change reference_table of core system field ${field_name}'
+                USING ERRCODE = '90286',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
     END IF;
@@ -12400,7 +12423,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a')
+        VALUES ('_core.0160_dd_functions.sql', '1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12437,7 +12460,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -12713,6 +12736,11 @@ BEGIN
                 'select_rule_' || OLD.table_name, v_new_rel);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
                 'select_rule_' || OLD.table_name, v_new_rel);
+            -- The row move function names the table in its body. CASCADE drops
+            -- the zz_row_move trigger that runs it; manage_select_rule_policy
+            -- generates both again under the new name.
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE',
+                'row_move_mark_' || OLD.table_name);
 
             -- The family routines generated under the old name: the write
             -- routine (typed by the view, which already answers to the new
@@ -12756,7 +12784,7 @@ COMMENT ON FUNCTION rename_dd_table IS
 objects when table_name changes: updated_at trigger, order column trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
-unique indexes, compute_validate and rule functions, select_rule function, and queue event triggers.
+unique indexes, compute_validate and rule functions, select_rule and row move functions, and queue event triggers.
 For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;
 the generated family routines are dropped under the old name for the family refresh to rebuild.
 Sets a transaction-local session variable so the cascaded update to fields.table_name is
@@ -13244,7 +13272,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', 'cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014')
+        VALUES ('_core.0170_dd_rename.sql', 'cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -14835,7 +14863,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'd651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -15339,8 +15367,12 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 
 -- Scoped DDL audit. SECURITY DEFINER because the function calls
 -- audit.current_user_id(), which is revoked from PUBLIC: without it the
--- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
--- other two audit triggers in this file are definers as well.
+-- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The five
+-- other trigger functions in this file that write an audit row
+-- (insert_update_delete_trigger, insert_trigger, delete_trigger,
+-- truncate_trigger and log_drop_event) are definers as well, and so is
+-- manage_audit_log; audit.assert_audit_entity_stays_unmanaged, which writes
+-- nothing and only refuses a change, is not.
 --
 -- The scope is the schema, not the command. track_ddl_changes below carries no
 -- WHEN TAG clause: a command is audited when it touches one of the five
@@ -15467,8 +15499,12 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 -- unaudited - which is exactly the case where the audit itself is being
 -- destroyed, and where a row would have nowhere to go regardless.
 --
--- Five conditions decide what is recorded, and each removes a specific kind of
--- churn:
+-- Five conditions decide what is recorded, each removing a specific kind of
+-- churn, tested in this order. The first depends on the transaction, not on a
+-- dropped object, so it is tested once, before the loop; the other four are
+-- tested for each dropped object:
+--   - not a family rebuild, the sibling's filter 1: dd_refresh_family drops and
+--     recreates the views of a family on every field edit.
 --   - original only. A DROP TABLE reports the whole dependency closure of the
 --     table: measured on PostgreSQL 18, a table as plain as
 --     (id serial PRIMARY KEY) reports eight objects - the table, its sequence,
@@ -15476,6 +15512,8 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     primary key and its index - and a table with a text column and one more
 --     index reports fourteen, the TOAST table and TOAST index included. Exactly
 --     one of them, the table, is the object the operator named.
+--   - not temporary. The dropped-objects record carries is_temporary directly,
+--     so no pg_temp prefix test is needed here.
 --   - the five schemas, or a dropped schema. DROP SCHEMA reports the schema
 --     itself with a NULL schema_name, the mirror of CREATE SCHEMA, and is
 --     logged for the same reason. The NULL rule must stay this narrow: DROP
@@ -15483,15 +15521,11 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     dropping the extension has to leave every core table untouched,
 --     audit_ddl_logs included, because that inertness is what makes DROP
 --     EXTENSION safe to run on a database whose data is being kept.
---   - not temporary. The dropped-objects record carries is_temporary directly,
---     so no pg_temp prefix test is needed here.
 --   - not a generated label companion. rebuild_entity_label_functions (0180_managed_enable.sql)
 --     issues DROP FUNCTION IF EXISTS on every label companion on every field
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
 --     same caveats as the sibling above.
---   - not a family rebuild, the sibling's filter 1: dd_refresh_family drops and
---     recreates the views of a family on every field edit.
 CREATE OR REPLACE FUNCTION audit.log_drop_event()
 RETURNS event_trigger
 SECURITY DEFINER
@@ -15766,7 +15800,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', 'd651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a')
+        VALUES ('_core.0200_audit_log.sql', '0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15803,7 +15837,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -16893,20 +16927,28 @@ GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
 -- did not ask for the row back.
 --
 -- A policy sees the row and the session, and nothing in a row says that it is
--- the one being written. So a trigger says it: common.row_move_mark, the last
--- BEFORE ROW trigger on the table, leaves a token for the row in a
--- transaction-local setting, the rule predicate lets a row through when the
--- token is the row's, and common.row_move_clear empties the setting when the
--- statement ends. From then on the writer can no longer read, update or delete
--- the row it moved; RETURNING hands back the row it just wrote.
+-- the one being written. So a trigger says it: zz_row_move, the last BEFORE ROW
+-- trigger on the table, runs common.row_move_mark_<entity>, a function
+-- build_select_rule_policy generates for the entity, which leaves a token for
+-- the row in a transaction-local setting. The rule predicate lets a row through
+-- when the token is the row's, and common.row_move_clear empties the setting
+-- when the statement ends. From then on the writer can no longer read, update
+-- or delete the row it moved; RETURNING hands back the row it just wrote.
 --
 -- The setting is one a client can write wherever the client runs SQL itself,
 -- so its value must be something a client cannot make. The token is the
 -- SHA-256 of a secret, the transaction id, the table and the key. The secret
 -- is a random value in _settings, which no policy opens to the request role,
--- and neither function that reads it is executable by that role. A client
--- that writes the setting therefore opens nothing, and a token it reads back
--- names a row it wrote itself, in a transaction that is still its own.
+-- and neither function that reads it from there is executable by that role.
+-- The marking function reads it once per transaction and keeps it for the
+-- rows after the first in the transaction-local setting app.row_move_secret,
+-- which ends with the transaction and so never reaches the next request on a
+-- pooled connection. A setting is no secret from a session that runs its own
+-- SQL: a bearer session can read app.row_move_secret with current_setting once
+-- one of its writes has kept it there, and with it make the token of any row,
+-- which gets it past every select_rule. Behind PostgREST or an app server the
+-- client runs no SQL, no RPC reads a setting whose name the caller chooses, and
+-- none reads app.row_move_secret.
 --
 -- An INSERT is marked only when no row with its key is stored. The trigger
 -- fires before PostgreSQL finds a key conflict, so a marked INSERT ... ON
@@ -16942,36 +16984,6 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION common.row_move_secret() IS
 'The secret the row move tokens are made with, created on first use: a random value in _settings that the request role cannot read.';
-
--- TG_ARGV[0] is the key column. The name sorts after every other BEFORE ROW
--- trigger of an entity table, so the key is the one the row is stored under:
--- a TypeID is assigned by a trigger, and a computed field may write the key.
-CREATE OR REPLACE FUNCTION common.row_move_mark()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_key    TEXT := to_jsonb(NEW) ->> TG_ARGV[0];
-    v_stored BOOLEAN := FALSE;
-BEGIN
-    IF v_key IS NOT NULL AND TG_OP = 'INSERT' THEN
-        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = ($1).%I)',
-                       TG_TABLE_NAME, TG_ARGV[0], TG_ARGV[0])
-           INTO v_stored USING NEW;
-    END IF;
-
-    IF v_key IS NULL OR v_stored THEN
-        PERFORM set_config('app.row_move', '', true);
-    ELSE
-        PERFORM set_config('app.row_move',
-                           common.row_move_token(common.row_move_secret(), pg_current_xact_id()::text,
-                                                 TG_TABLE_NAME::text, v_key),
-                           true);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION common.row_move_mark() IS
-'BEFORE INSERT OR UPDATE row trigger zz_row_move of an entity with a select_rule: leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the rule when PostgreSQL holds the new row to the read policy. An INSERT whose key is already stored is not marked.';
 
 CREATE OR REPLACE FUNCTION common.row_move_clear()
 RETURNS TRIGGER AS $$
@@ -17011,7 +17023,6 @@ COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 
 REVOKE EXECUTE ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_secret() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION common.row_move_mark() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_clear() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_matches(TEXT, TEXT) FROM PUBLIC;
 
@@ -17046,15 +17057,18 @@ DECLARE
     v_arg JSONB;
     v_lead TEXT;
     v_rule_pred TEXT;
+    v_mark_name TEXT := 'row_move_mark_' || p_table_name;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
     IF NOT FOUND THEN
         -- No entity by that name; drop both overloads if they exist. A DROP that
         -- names only one signature is a silent no-op for the other, and the
-        -- CASCADE that removes the dependent policies rides on it.
+        -- CASCADE that removes the dependent policies rides on it. The row move
+        -- function goes as well, with the trigger that runs it.
         v_fn_name := 'select_rule_' || p_table_name;
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, p_table_name);
         EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, p_table_name);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', v_mark_name);
         RETURN;
     END IF;
 
@@ -17097,9 +17111,11 @@ BEGIN
     -- lets it read, or on fields the semi-join on entities in its place: SELECT on it,
     -- UPDATE and DELETE on edit_permission AND it, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
-        -- No rule, so no row can leave it: the two row move triggers go.
+        -- No rule, so no row can leave it: the two row move triggers go, and
+        -- the function the first one runs.
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I()', v_mark_name);
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
             v_policy_name, v_rel,
@@ -17214,8 +17230,8 @@ BEGIN
         RETURN TRUE;
     END IF;
     -- The rule hides the row. It passes all the same when it is the row the
-    -- running statement is writing (common.row_move_mark). The setting is
-    -- tested here so that a read pays nothing more for a hidden row.
+    -- running statement is writing (common.row_move_mark_<entity>). The
+    -- setting is tested here so that a read pays nothing more for a hidden row.
     IF COALESCE(current_setting('app.row_move', true), '') = '' THEN
         RETURN FALSE;
     END IF;
@@ -17322,11 +17338,60 @@ $SEL$, v_fn_name)));
     -- WITH CHECK is edit_permission only: there is no post-image rule, so a write may move a
     -- row out of its own rule. PostgreSQL holds the new row to the SELECT policy as well
     -- whenever the statement reads a column, and the two triggers below are what let the
-    -- row being written pass that check (common.row_move_mark).
+    -- row being written pass that check.
     PERFORM common.row_move_secret();
+
+    -- The function zz_row_move runs is generated per entity so that it can read the
+    -- key as a column of NEW and look a stored key up with a static statement, which
+    -- PL/pgSQL plans once per session: one function for every table would have to
+    -- turn the whole row into jsonb to find the key, and plan the lookup again on
+    -- every INSERT. It reads the secret from _settings for the first row of a
+    -- transaction and keeps it in app.row_move_secret for the rows after it.
+    -- set_config(..., true) ends that setting with the transaction, so a pooled
+    -- connection never hands it to the next request. The token names TG_TABLE_NAME,
+    -- the relation the predicate above passes to common.row_move_matches. The key
+    -- column and the relation are quoted with %I, and the body is wrapped by
+    -- dd_dollar_quote.
+    EXECUTE format($FUNC$
+CREATE OR REPLACE FUNCTION common.%I() RETURNS TRIGGER AS %s LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$FUNC$, v_mark_name, dd_dollar_quote(format($MARK$
+DECLARE
+    v_secret TEXT;
+BEGIN
+    IF NEW.%1$I IS NULL THEN
+        PERFORM set_config('app.row_move', '', true);
+        RETURN NEW;
+    END IF;
+    IF TG_OP = 'INSERT' THEN
+        IF EXISTS (SELECT 1 FROM public.%2$I t WHERE t.%1$I = NEW.%1$I) THEN
+            PERFORM set_config('app.row_move', '', true);
+            RETURN NEW;
+        END IF;
+    END IF;
+    v_secret := current_setting('app.row_move_secret', true);
+    IF COALESCE(v_secret, '') = '' THEN
+        v_secret := common.row_move_secret();
+        PERFORM set_config('app.row_move_secret', v_secret, true);
+    END IF;
+    PERFORM set_config('app.row_move',
+                       common.row_move_token(v_secret, pg_current_xact_id()::text,
+                                             TG_TABLE_NAME::text, NEW.%1$I::text),
+                       true);
+    RETURN NEW;
+END;
+$MARK$, v_entity.id_column, v_rel)));
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I() FROM PUBLIC', v_mark_name);
     EXECUTE format(
-        'CREATE OR REPLACE TRIGGER zz_row_move BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION common.row_move_mark(%L)',
-        v_rel, v_entity.id_column);
+        'COMMENT ON FUNCTION common.%I() IS %L',
+        v_mark_name,
+        format('BEFORE INSERT OR UPDATE row trigger function of zz_row_move on the table of entity "%s": leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the select_rule when PostgreSQL holds the new row to the read policy, and keeps the secret it reads in app.row_move_secret for the rest of the transaction. An INSERT whose key is already stored is not marked. Generated by build_select_rule_policy.', p_table_name));
+
+    -- The name zz_row_move sorts after every other BEFORE ROW trigger of an entity
+    -- table, so the key is the one the row is stored under: a TypeID is assigned by a
+    -- trigger, and a computed field may write the key.
+    EXECUTE format(
+        'CREATE OR REPLACE TRIGGER zz_row_move BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION common.%I()',
+        v_rel, v_mark_name);
     EXECUTE format(
         'CREATE OR REPLACE TRIGGER zz_row_move_clear AFTER INSERT OR UPDATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION common.row_move_clear()',
         v_rel);
@@ -17342,7 +17407,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule and the function common.row_move_mark_<entity> the first of them runs. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers and that function are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -17371,16 +17436,18 @@ BEGIN
     END IF;
 
     -- DELETE. Both overloads, or the survivor blocks the next CREATE under
-    -- this name.
+    -- this name, and the row move function, which outlives the table it was
+    -- the trigger of.
     v_fn_name := 'select_rule_' || OLD.table_name;
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I, jsonb) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE', v_fn_name, dd_relation(OLD.table_name, OLD.id_type));
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE', 'row_move_mark_' || OLD.table_name);
     RETURN OLD;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION manage_select_rule_policy IS
-'AFTER UPDATE OR DELETE trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions when the entity is deleted. It does not fire on INSERT: create_dd_table builds the policies of a new managed entity itself, through create_entity_policies.';
+'AFTER UPDATE OR DELETE trigger function on entities that keeps the SELECT, UPDATE and DELETE policies and the select_rule functions in step with the entity row: it rebuilds them through build_select_rule_policy when the rule, view_permission (which UPDATE and DELETE check as well), managed, the name or id_refentity changes, and drops the rule functions and the row move function when the entity is deleted. It does not fire on INSERT: create_dd_table builds the policies of a new managed entity itself, through create_entity_policies.';
 
 CREATE OR REPLACE TRIGGER manage_select_rule_policy_trigger
     AFTER UPDATE OR DELETE ON entities
@@ -17391,7 +17458,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b')
+        VALUES ('_core.0210_computed_validation.sql', '17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -20843,7 +20910,7 @@ $pgsem__core_0290_ensure_entities_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0300_audit_log.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0300_audit_log.jsonc';
       EXECUTE $pgsem__core_0300_audit_log_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Audit log entities: registers the audit tables audit_record_logs and
@@ -20943,7 +21010,7 @@ $pgsem__core_0290_ensure_entities_sql$;
         "fields": [
           {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
            "input_type": "readonly", "width": "default", "ctype": "id", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
-          {"field_name": "event_time", "title": "Event Finish Time", "description": "",
+          {"field_name": "event_time", "title": "Event Time", "description": "Start of the transaction that ran the command",
            "format": "date-time", "is_pk": false, "field_order": 10,
            "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable, e.g. during migrations",
@@ -20958,7 +21025,7 @@ $pgsem__core_0290_ensure_entities_sql$;
           {"field_name": "object_identity", "title": "Object Identity", "description": "Fully qualified name of the affected object",
            "format": "text", "is_pk": false, "field_order": 50,
            "input_type": "readonly", "width": "w", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
-          {"field_name": "query_text", "title": "Query Text", "description": "The SQL statement that triggered the event",
+          {"field_name": "query_text", "title": "Query Text", "description": "The top-level query text that triggered the event, cut at 8192 characters",
            "format": "text", "is_pk": false, "field_order": 60,
            "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""}
         ]
@@ -20970,7 +21037,7 @@ $pgsem_jsonc$));
 $pgsem__core_0300_audit_log_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0300_audit_log.jsonc', 'df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c')
+        VALUES ('_core.0300_audit_log.jsonc', 'f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24002,7 +24069,7 @@ $pgsem__core_0340_queue_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0350_raci.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0350_raci.jsonc';
       EXECUTE $pgsem__core_0350_raci_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// RACI entities (Responsible, Accountable, Consulted, Informed):
@@ -24065,7 +24132,7 @@ $pgsem__core_0340_queue_sql$;
         "computed_fields": [{"name": "name", "jsonlogic": {"var": "raci"}}],
         "fields": [
           {"field_name": "name", "ctype": "label", "title": "Name", "field_order": 5,
-           "description": "Display label — mirrors the RACI letter (computed)"},
+           "description": "Display label — mirrors the raci value (computed)"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
            "reference_table": "processes", "reference_delete_mode": "cascade"},
@@ -24169,7 +24236,7 @@ $pgsem__core_0340_queue_sql$;
           // record_id is TEXT on purpose: entity primary keys need not be
           // integer serials (as with entities.id_column).
           {"field_name": "record_id", "ctype": "label", "field_order": 30,
-           "description": "Governed record PK (text for non-integer PKs)"},
+           "description": "Governed record PK, stored as text for every key type"},
           {"field_name": "process_id", "title": "Process", "format": "parent", "field_order": 10, "input_type": "required",
            "description": "", "default_value": "", "enum_values": null,
            "reference_table": "processes", "reference_delete_mode": "cascade"},
@@ -24194,7 +24261,7 @@ $pgsem__core_0340_queue_sql$;
            "default_value": "pending", "enum_values": ["pending", "sent", "acted"],
            "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "acted_at", "title": "Acted At", "format": "date-time", "field_order": 70, "input_type": "disabled",
-           "description": "When the consulted party responded (NULL until acted)", "default_value": "", "enum_values": null,
+           "description": "When the consulted party responded", "default_value": "", "enum_values": null,
            "reference_table": "", "reference_delete_mode": ""}
         ]
       }
@@ -24205,7 +24272,7 @@ $pgsem_jsonc$));
 $pgsem__core_0350_raci_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0350_raci.jsonc', 'e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db')
+        VALUES ('_core.0350_raci.jsonc', '5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25320,7 +25387,7 @@ $pgsem__core_0400_dashboard_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0410_user_bookmarks.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0410_user_bookmarks.jsonc';
       EXECUTE $pgsem__core_0410_user_bookmarks_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
@@ -25343,7 +25410,7 @@ $pgsem__core_0400_dashboard_jsonc$;
         "singular": "user_bookmark",
         "singular_label": "User Bookmark",
         "plural_label": "Favorites",
-        "description": "Manage and order your facorites for quick access to frequently used apps and records.",
+        "description": "Manage and order your favorites for quick access to frequently used apps and records.",
         "view_permission": "user:read",
         "edit_permission": "user:read",
         "id_column": "id",
@@ -25392,7 +25459,7 @@ $pgsem_jsonc$));
 $pgsem__core_0410_user_bookmarks_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0410_user_bookmarks.jsonc', '87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524')
+        VALUES ('_core.0410_user_bookmarks.jsonc', 'e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25661,12 +25728,12 @@ $pgsem__core_0420_module_version_sql$;
 -- which never runs again on a database that already has it, so a changed description
 -- reaches both fresh installs and upgrades from here.
 UPDATE fields
-   SET description = 'How the UI presents the field for input; input_type_rule can override it per record. On a required field with no input_type_rule, the database also refuses a missing value.'
+   SET description = 'How the UI presents the field for input; input_type_rule can override it per record. On a required field with no input_type_rule, the database also refuses a missing value; a number, boolean or duration always has one, except a rating of 0.'
  WHERE table_name = 'fields' AND field_name = 'input_type';
 $pgsem__core_0430_required_field_description_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0430_required_field_description.once.sql', '78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0')
+        VALUES ('_core.0430_required_field_description.once.sql', '464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -27963,7 +28030,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -28027,7 +28094,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"da3822a7aad3957076c146c7cecc0095e6b4c6a6a494f902cc931e3d5b80f59d","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"813b3fec0fe1c968afe5b140331e55daf697961e2190e51e25a3ab13faa475af","_core.0160_dd_functions.sql":"4c36a5001a1582f65a6adcb038a6d127b8d0db27e63107a50fcb6aa855df4b1a","_core.0170_dd_rename.sql":"cbcab71c1da536d889a94c17c32088316e289087e2d30773499d449b9b996014","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"d651ab42f3e8555c8bac1f8e7303ffd265d5700b71d2106becc2188d0de9c20a","_core.0210_computed_validation.sql":"b924584a6dfa82a646089fa989cf4670293aa60d940bcc47dc10b444aa5aaf7b","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"df2a89a3a31f0c365b1be14ef1efd1d91edfc32f20c818708fcf8821db96580c","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"e5af5959968860aef308925b8b453ebc2491553571fcd155d7d9f538762de8db","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"87382d5356a1277759ecc58277cf599ee70999457f396c8992a10c6cd9fb9524","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"78ceff0f8c534880f87c3c8a2b6c6b51ffc8f481b083d031ac31423236394fb0","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"6ec61258b9ff29b3861fe23d7f004b1f53f4275593d7472f335cad7408ee2389","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"b2644ceb82a184bd285469774f8ebc634421c08396a34e66daeaedada26a0e27","_core.0060_rbac_schema.once.sql":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"0955350de06c4ae112099c62f1f44475ecf48ea367273f4a866bb938526f644d","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"1cbdc3242b10e5d82f96fd68777f90cbf74accf86099fa5aecb772fc4e45dc00","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"910226e1b357aecdc1bda2a873ec0e4f3e910b3fa54b30023de730affef70b3a","_core.0130_dd_schema.once.sql":"7b7861fa2d81ef7ddc530356fc19deab9db4407b5a09ca4467f96ef0bf99f3c4","_core.0140_dd_schema.sql":"54db1bfd0135c690104d71fe0e3ed949de9ca63801d30b8b595949a1cb83cd1e","_core.0150_dd_bootstrap.once.sql":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"1af7f0a78649046275c933f27a44ea181aa9e75fb91da67db7c8f8e3ab9755af","_core.0170_dd_rename.sql":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"347381a272a90e2181fd87fb8c9ed991c132109cf5ed56208de1e0c8f7bcf510","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"17c5bd99ae04d2497541e6eb077fded3e57c4c0b5280cea03327ad3362f2644d","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"164ee65997b2a8692b18ba6af27c8f586e8f872c8ab0ccea648b2118e3af4a07","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"fe2ac5c534ce83dccb121baa6776f4673d776422e45b03be3df28754e614c7a7","_core.0280_apikeys.sql":"bbe0e5a389a0eab558139db51931155466b5fc739185dc07d5adefd6b6ebe195","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"315206ce92239a1b507da9bf813698a19ee3e7566ec4fd71c6a90ca00d7bb708","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"bee3a31e844dea9d8b1b3eb7f6c0a671e49477c066bca2f24f1eb30a04a83b4e","_core.0350_raci.jsonc":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"036f2e4ef29d61e4ad79b867597a4543078eb83b9c053e8f99343e3f030120cf","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"c249c3baa79e345c58df9529bf82f76a9ed36b1d07cca89d8b78e62ab6aa2340","_core.9900_owner_hardening.sql":"345cb0b0605807b29c7fe37a49acfffe2561cfe745b8aa9f14f592e153d370c3"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

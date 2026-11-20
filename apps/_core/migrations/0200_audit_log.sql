@@ -499,8 +499,12 @@ COMMENT ON FUNCTION audit.disable_tracking IS
 
 -- Scoped DDL audit. SECURITY DEFINER because the function calls
 -- audit.current_user_id(), which is revoked from PUBLIC: without it the
--- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The
--- other two audit triggers in this file are definers as well.
+-- request role cannot run any DDL at all, not even CREATE TEMP TABLE. The five
+-- other trigger functions in this file that write an audit row
+-- (insert_update_delete_trigger, insert_trigger, delete_trigger,
+-- truncate_trigger and log_drop_event) are definers as well, and so is
+-- manage_audit_log; audit.assert_audit_entity_stays_unmanaged, which writes
+-- nothing and only refuses a change, is not.
 --
 -- The scope is the schema, not the command. track_ddl_changes below carries no
 -- WHEN TAG clause: a command is audited when it touches one of the five
@@ -627,8 +631,12 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 -- unaudited - which is exactly the case where the audit itself is being
 -- destroyed, and where a row would have nowhere to go regardless.
 --
--- Five conditions decide what is recorded, and each removes a specific kind of
--- churn:
+-- Five conditions decide what is recorded, each removing a specific kind of
+-- churn, tested in this order. The first depends on the transaction, not on a
+-- dropped object, so it is tested once, before the loop; the other four are
+-- tested for each dropped object:
+--   - not a family rebuild, the sibling's filter 1: dd_refresh_family drops and
+--     recreates the views of a family on every field edit.
 --   - original only. A DROP TABLE reports the whole dependency closure of the
 --     table: measured on PostgreSQL 18, a table as plain as
 --     (id serial PRIMARY KEY) reports eight objects - the table, its sequence,
@@ -636,6 +644,8 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     primary key and its index - and a table with a text column and one more
 --     index reports fourteen, the TOAST table and TOAST index included. Exactly
 --     one of them, the table, is the object the operator named.
+--   - not temporary. The dropped-objects record carries is_temporary directly,
+--     so no pg_temp prefix test is needed here.
 --   - the five schemas, or a dropped schema. DROP SCHEMA reports the schema
 --     itself with a NULL schema_name, the mirror of CREATE SCHEMA, and is
 --     logged for the same reason. The NULL rule must stay this narrow: DROP
@@ -643,15 +653,11 @@ COMMENT ON EVENT TRIGGER track_ddl_changes IS
 --     dropping the extension has to leave every core table untouched,
 --     audit_ddl_logs included, because that inertness is what makes DROP
 --     EXTENSION safe to run on a database whose data is being kept.
---   - not temporary. The dropped-objects record carries is_temporary directly,
---     so no pg_temp prefix test is needed here.
 --   - not a generated label companion. rebuild_entity_label_functions (0180_managed_enable.sql)
 --     issues DROP FUNCTION IF EXISTS on every label companion on every field
 --     edit; without this filter the churn the scoped audit keeps out on the
 --     create side comes straight back in through this door. Same pattern and
 --     same caveats as the sibling above.
---   - not a family rebuild, the sibling's filter 1: dd_refresh_family drops and
---     recreates the views of a family on every field edit.
 CREATE OR REPLACE FUNCTION audit.log_drop_event()
 RETURNS event_trigger
 SECURITY DEFINER

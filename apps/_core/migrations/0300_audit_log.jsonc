@@ -95,7 +95,7 @@
         "fields": [
           {"field_name": "id", "title": "Id", "description": "", "format": "int64", "is_pk": true, "field_order": 1,
            "input_type": "readonly", "width": "default", "ctype": "id", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
-          {"field_name": "event_time", "title": "Event Finish Time", "description": "",
+          {"field_name": "event_time", "title": "Event Time", "description": "Start of the transaction that ran the command",
            "format": "date-time", "is_pk": false, "field_order": 10,
            "input_type": "readonly", "width": "default", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""},
           {"field_name": "user_id", "title": "User", "description": "From the JWT context; 0 when unavailable, e.g. during migrations",
@@ -110,7 +110,7 @@
           {"field_name": "object_identity", "title": "Object Identity", "description": "Fully qualified name of the affected object",
            "format": "text", "is_pk": false, "field_order": 50,
            "input_type": "readonly", "width": "w", "ctype": "core", "searchable": true, "reference_table": "", "reference_delete_mode": ""},
-          {"field_name": "query_text", "title": "Query Text", "description": "The SQL statement that triggered the event",
+          {"field_name": "query_text", "title": "Query Text", "description": "The top-level query text that triggered the event, cut at 8192 characters",
            "format": "text", "is_pk": false, "field_order": 60,
            "input_type": "readonly", "width": "w", "ctype": "core", "searchable": false, "reference_table": "", "reference_delete_mode": ""}
         ]

@@ -87,7 +87,7 @@ CREATE TABLE roles (
     catalog_role_code TEXT NOT NULL DEFAULT '',
     description TEXT DEFAULT '',
     origin TEXT NOT NULL DEFAULT 'user',
-    module_id BIGINT REFERENCES modules(id) ON DELETE CASCADE,
+    module_id BIGINT REFERENCES modules(id) ON DELETE CASCADE ON UPDATE CASCADE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT valid_role_origin CHECK (origin IN ('system', 'model', 'model_master', 'user')),
@@ -134,7 +134,7 @@ CREATE TABLE user_roles (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     assigned_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    assigned_by BIGINT REFERENCES users(id),
+    assigned_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     UNIQUE (user_id, role_id)
 );
 
@@ -144,7 +144,7 @@ CREATE TABLE role_permissions (
     role_id BIGINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
     permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by BIGINT REFERENCES users(id),
+    granted_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     UNIQUE (role_id, permission_name)
 );
 
@@ -154,7 +154,7 @@ CREATE TABLE user_permissions (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     permission_name TEXT NOT NULL REFERENCES permissions(permission_name) ON DELETE CASCADE ON UPDATE CASCADE,
     granted_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    granted_by BIGINT REFERENCES users(id),
+    granted_by BIGINT REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE,
     UNIQUE (user_id, permission_name)
 );
 
@@ -183,9 +183,14 @@ ALTER TABLE modules ADD COLUMN manage_permission TEXT
     REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE modules ADD COLUMN admin_permission TEXT
     REFERENCES permissions(permission_name) ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE modules ADD COLUMN default_viewer_role_id BIGINT REFERENCES roles(id);
-ALTER TABLE modules ADD COLUMN default_manager_role_id BIGINT REFERENCES roles(id);
-ALTER TABLE modules ADD COLUMN default_admin_role_id BIGINT REFERENCES roles(id);
+-- Restrict, as the fields rows of the default roles in
+-- 0150_dd_bootstrap.once.sql say: a role cannot be deleted while a module names
+-- it as a default. Deleting a module still deletes the roles it owns
+-- (roles.module_id cascades), its default roles among them, because the module
+-- is gone by the time their check runs.
+ALTER TABLE modules ADD COLUMN default_viewer_role_id BIGINT REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE modules ADD COLUMN default_manager_role_id BIGINT REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE modules ADD COLUMN default_admin_role_id BIGINT REFERENCES roles(id) ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- =====================================================
 -- INDEXES

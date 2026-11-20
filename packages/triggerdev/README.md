@@ -10,9 +10,9 @@ available.
 
 ## Prerequisites
 
-- Node.js 18+
-- pnpm 8+
-- [TriggerDev](https://trigger.dev) v3/v4 account and project
+- Node.js 18.20+
+- pnpm 10.26+
+- [TriggerDev](https://trigger.dev) v4 account and project
 - PostgreSQL database
 
 ---

@@ -374,8 +374,15 @@ ROLLBACK TO sp_m3;
 -- =====================================================
 -- The row being written passes the rule through a token in the setting
 -- app.row_move. A client that runs SQL can write that setting, so the token is
--- made with a secret the request role cannot read: a value the client chose
--- opens nothing, and the token of one row does not open another.
+-- made with a secret: a value the client chose without it opens nothing, and
+-- the token of one row does not open another. Behind PostgREST a value the
+-- client writes opens nothing. A session that runs its own SQL, a bearer
+-- session, can read the secret from app.row_move_secret once a write of its
+-- transaction has kept it there, and get past every select_rule. Before bearer
+-- sessions are enabled, reading the secret from _settings on every row through
+-- the definer function has to be reactivated, with the secret kept in no
+-- setting, and the secret in _settings replaced: it is never rotated, so a
+-- secret read once stays valid.
 SAVEPOINT sp_f1;
 SELECT authenticate_as('user2');
 SELECT set_config('app.row_move', 'test_abac_write', true);

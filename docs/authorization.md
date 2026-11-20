@@ -181,8 +181,13 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
   Three exceptions:
   - `RETURNING` hands a writer the row its own statement wrote, also when the write moved
     that row out of `access(row)`. The writer supplied or could already read every value in
-    it. A client that runs SQL itself can read that one row again until its transaction
-    ends, and no other.
+    it. Behind PostgREST or an app server a value the client writes into the setting that
+    lets that row pass opens nothing. A session that runs its own SQL, a bearer session,
+    can read the secret behind that setting from `app.row_move_secret` once a write of its
+    transaction has kept it there, and get past every `select_rule`. Before bearer sessions
+    are enabled, reading the secret from `_settings` on every row through the definer
+    function has to be reactivated, with the secret kept in no setting, and the secret in
+    `_settings` replaced: it is never rotated, so a secret read once stays valid.
   - A rollup field aggregates over child rows that a reader of the parent may not see only
     when its definition carries `"include_hidden_rows": true`, the administrator's decision
     on record; without the flag such a rollup is refused (`90269`). The rule is in
@@ -231,8 +236,9 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     `dd_ctype_is_core(ctype)` decides: `id`, `label`, `computed_label`, `audit` and `core`
     are core; the empty marker, `rollup` and `computed` are not. A core field cannot be
     deleted unless its entity is, its format and its primary key status cannot change, its
-    default cannot change except the label column's, and it cannot be renamed except the
-    label column. The triggers that enforce this fire for every role.
+    default cannot change except the label column's, its delete mode and its referenced
+    entity cannot change (`90285`, `90286`), and it cannot be renamed except the label
+    column. The triggers that enforce this fire for every role.
   - Renaming the label column is a feature, not a breach: the rename carries to
     `entities.label_column` (pinned by `0460_test_ddl_rename.sql`).
   - The rename of any field, the label column included, is refused while a rule names the

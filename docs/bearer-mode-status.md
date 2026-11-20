@@ -1,6 +1,6 @@
 # Bearer mode status
 
-**Status: experimental. Not a deployment target.** Last updated 2026-11-16.
+**Status: experimental. Not a deployment target.** Last updated 2026-11-19.
 
 Bearer mode is the deployment where a client connects to PostgreSQL 18
 directly with an OAuth access token over SASL `OAUTHBEARER`, PostgreSQL
@@ -36,7 +36,7 @@ codebase:
    checkout. Until one does, bearer mode means one backend per user session,
    which rules it out for anything web-scale.
 
-Three more reasons are ours to fix:
+Four more reasons are ours to fix:
 
 3. **The validator is a third-party compiled module.** PostgreSQL 18 ships the
    `oauth` method but no validator
@@ -54,8 +54,29 @@ Three more reasons are ours to fix:
    rewrite `email`, `name` and any other claim. `rbac.uid()` takes the subject
    from `system_user`, which the client cannot touch, and everything that
    must be trusted is derived from that subject and the `users` row.
+6. **The row move secret is readable.** On an entity with a `select_rule`,
+   the trigger that lets the row being written pass the rule keeps the secret
+   its tokens are made with in the transaction-local setting
+   `app.row_move_secret` once it has marked a row in the transaction. A
+   bearer session can read that setting with `current_setting` and with it
+   forge the token in `app.row_move` that lets any row pass a `select_rule`.
+   Behind PostgREST or an app server the client runs no SQL, no RPC reads a
+   setting whose name the caller chooses, and none reads
+   `app.row_move_secret`, so a value the client writes opens nothing. Before
+   bearer sessions are enabled, reading the secret from `_settings` on every
+   row through the definer function has to be reactivated, with the secret
+   kept in no setting, and the secret in `_settings` replaced: it is never
+   rotated, so a secret read once stays valid.
 
-Bearer mode graduates when 1 and 2 have changed in the ecosystem and 3 to 5
+   A bearer session that may write `fields` has a second way past the
+   dictionary's guards. `update_dd_field` accepts a change of
+   `fields.table_name` when the transaction-local setting `dd.table_rename`
+   names that rename, as the cascade of an entity rename sets it, and then
+   returns before its refusals of core-field changes (90219, 90220, 90285,
+   90286). Such a session can set `dd.table_rename` itself; a client behind
+   PostgREST cannot.
+
+Bearer mode graduates when 1 and 2 have changed in the ecosystem and 3 to 6
 are closed here. Tracking links are at the end.
 
 ## What is disabled in bearer sessions and why
@@ -442,14 +463,16 @@ Ecosystem items that change the status above:
   Variables would be catalog objects with ACLs, so a variable that only
   `semantius_owner` may `LET` would replace both A and B.
 - PgBouncer OAuth: no issue exists yet ([issues](https://github.com/pgbouncer/pgbouncer/issues),
-  [changelog](https://www.pgbouncer.org/changelog.html)). Worth opening one
+  [changelog](https://www.pgbouncer.org/changelog.html)); the Ideas discussion
+  [#1454](https://github.com/pgbouncer/pgbouncer/discussions/1454) asks whether
+  it is feasible and has no plan. Worth opening an issue
   that asks for `OAUTHBEARER` passthrough and describes the per-token backend
   requirement, so there is something to watch.
 - Driver support, as a proxy for ecosystem maturity:
   [pgjdbc #3816](https://github.com/pgjdbc/pgjdbc/issues/3816) (open since
   2025-09-26) and [pgadmin4 #9951](https://github.com/pgadmin-org/pgadmin4/issues/9951)
-  (`libpq-oauth` missing from the image). PostgreSQL's own client side is
-  the `libpq-oauth` module that ships with 18.
+  (closed: the Docker image ships `libpq-oauth` from pgAdmin 9.16 on).
+  PostgreSQL's own client side is the `libpq-oauth` module that ships with 18.
 - Validator: [pg_oidc_validator releases](https://github.com/percona/pg_oidc_validator/releases)
   and the [announcement](https://www.postgresql.org/about/news/announcing-pg_oidc_validator-3160).
   We pin 1.1.0 in `pgdocker/Dockerfile` and both compose files; the claims

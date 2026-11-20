@@ -19,6 +19,7 @@
 #       lock, the next run resumes
 #   1e. first-user bootstrap: two concurrent logins elect exactly one admin
 #   1f. fix_id_sequence gives up on a busy table with 90232
+#   1i. the row move secret a write keeps in a setting ends with its transaction
 #   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data
 #   2b. restore variants: -Fp | psql, -j 4, -1
 #   4.  DROP EXTENSION is inert (no data loss), with and without CASCADE
@@ -466,6 +467,27 @@ if wait_for "$LOCK_HELD" 1; then
 else
   bad "session A never took its lock on lock_probe"
 fi
+
+# --------------------------------- 1i the row move secret ends with its transaction
+step "[1i] The row move secret a write keeps in a setting ends with its transaction"
+# A pooled connection serves one request after another, and the pgTAP suite
+# runs each file in one transaction it rolls back, so it cannot see a setting
+# outlive a commit. Here one session runs two. In the first, race_b writes a
+# bookmark, a row of an entity with a select_rule, so the row move trigger keeps
+# the secret in app.row_move_secret; the transaction says whether it holds the
+# secret, and commits. The second says whether the setting is still there. The
+# answers are compared, never printed: the secret stays out of the log.
+secret_out=$(psqlseq life1e \
+  "BEGIN" \
+  "SET LOCAL \"request.jwt.claim.role\" = 'authenticated'" \
+  "SET LOCAL \"request.jwt.claim.sub\" = 'race_b'" \
+  "INSERT INTO public.user_bookmarks (title, url) VALUES ('Pooled Connection Probe', 'https://example.com')" \
+  "SELECT 'kept:' || coalesce(current_setting('app.row_move_secret', true)
+                              = (SELECT value FROM public._settings WHERE name = 'row_move_secret'), false)" \
+  "COMMIT" \
+  "SELECT 'next:' || (coalesce(current_setting('app.row_move_secret', true), '') = '')")
+check "the secret a write keeps in app.row_move_secret ends with its transaction" \
+  "kept:true|next:true" "$(echo "$secret_out" | grep -E '^(kept|next):' | paste -sd'|')"
 
 # --------------------------------------------------- 2 dump / single-pass restore
 step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data"

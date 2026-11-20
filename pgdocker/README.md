@@ -40,7 +40,8 @@ validator module. This image compiles Percona's
 
 - resolves the issuer's JWKS via `<issuer>/.well-known/openid-configuration` →
   `jwks_uri`,
-- verifies each access token's RS256 signature against those keys, and
+- verifies each access token's signature (RS256 for the test issuer) against
+  those keys, and
 - extracts the identity claim (default `sub`) so PostgreSQL can map it to a role.
 
 ### The roles
@@ -122,9 +123,10 @@ changing a row's `external_id`, the identity a session resolves to, requires `ad
 function that only ever touches the caller's own row.
 
 > **Why not `pg_session_jwt`?** That Neon extension *re-validates* a raw JWT
-> injected into a session var and exposes it via `auth.user_id()`. Here the
-> token is already validated by PG18 OAuth (against the same JWKS), so it would
-> be redundant — and it speaks a different claim API than the `request.jwt.*`
+> passed to `auth.jwt_session_init()` and exposes it via `auth.user_id()`. Here
+> the token is already validated by PG18 OAuth, so it would be redundant (and it
+> verifies only against one Ed25519 key, so it could not check this issuer's
+> RS256 tokens) — and it speaks a different claim API than the `request.jwt.*`
 > convention this codebase (and the Neon **Data API** / Supabase) already uses.
 > It fits Neon's proxy-injection model, not PG18 native OAuth.
 
@@ -206,7 +208,7 @@ For **RS256 tokens** (what the test issuer mints, and most IdPs default to):
 | `session` (Supabase / Neon / self-hosted) | `semantius_authenticator` password | ❌ no off-the-shelf RS256 in-DB verifier | **app-verified** |
 
 > **In `session` mode the app is the sole trust boundary on *every* backend**
-> (Supabase, Neon, self-hosted) for RS256 tokens. The only off-the-shelf in-DB JWKS
+> (Supabase, Neon, self-hosted) for RS256 tokens. The only off-the-shelf in-DB JWT
 > verifier, Neon's `pg_session_jwt`, is **Ed25519/EdDSA-only** (can't verify RS256),
 > and Supabase can't install it anyway. So the DB does not verify the signature in
 > session mode — the `semantius_authenticator` password **plus the app's own jose
@@ -282,11 +284,14 @@ The mechanisms are correct (session mode is genuinely transaction-pooler-safe). 
   production needs an app-side permission cache (keyed by `sub` + roles-version); the
   samples don't implement one.
 - **Validator version (`bearer`)** — the image builds `pg_oidc_validator` 1.1.0
-  (`OIDC_VALIDATOR_REF` in the Dockerfile / compose files). 1.x adds
-  `pg_oidc_validator.authn_field`, `pg_oidc_validator.discovery_url_override`,
-  relaxed empty-scope handling and HTTP/JWKS cache fixes; our one-line claims
-  patch still applies on top. Older builds do a fresh outbound JWKS fetch per
-  connection.
+  (`OIDC_VALIDATOR_REF` in the Dockerfile / compose files). 1.1.0 adds
+  `pg_oidc_validator.discovery_url_override` and `scope=""` to skip scope
+  validation; 1.0.0 pins the HTTP cache's shared memory, so the cache outlives
+  the first connection, and detaches it on exit without writing allocator errors
+  to the log. Our one-line claims patch applies on top. The validator caches
+  the discovery document and the JWKS only for the `max-age` of the issuer's
+  `Cache-Control` header; the test issuer sends none, so every connection
+  fetches both again.
 
 ---
 
@@ -695,7 +700,10 @@ deno run --allow-net test_bearer_cache.ts     # forged app.* permission cache ig
 
 ## TLS
 
-- The issuer / JWKS endpoints **must be HTTPS** — PostgreSQL enforces this.
+- The issuer / JWKS endpoints **must be HTTPS**. PostgreSQL documents the
+  `issuer` as an HTTPS URL, but neither the server nor `pg_oidc_validator`
+  checks the scheme (only libpq's built-in client flow does), so an `http://`
+  value in `pg_hba.conf` is accepted.
 - The client↔server connection uses `host` (no TLS) here for local convenience.
   Bearer tokens are sensitive: for any non-local deployment, configure server
   certs and switch the `oauth` lines in [conf/pg_hba.conf](conf/pg_hba.conf)

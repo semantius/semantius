@@ -7,10 +7,11 @@
 --   • employees.reports_to  → employees  (reference, clear → ON DELETE SET NULL)
 -- Every seeded category/supplier/customer/employee is referenced, so the
 -- delete-mode scenarios insert fresh rows inside this transaction.
--- Writer is user2 (role Northwind Sales: nwind:view + nwind:manage).
+-- Writer is user2 (role Northwind Sales: nwind:view + nwind:manage). The last
+-- part compares the hand-written foreign keys of the core tables, as user3.
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(23);
 
 -- =====================================================
 -- TEST: Foreign key constraints are created
@@ -245,6 +246,55 @@ SELECT is(
     (SELECT reports_to FROM employees WHERE last_name = 'FK Probe Report'),
     NULL::bigint,
     'reports_to should be set to NULL after the manager is deleted (delete mode clear)'
+);
+
+-- =====================================================
+-- TEST: the core foreign keys written by hand have the generated form
+-- =====================================================
+-- 0060_rbac_schema.once.sql writes the foreign keys of the core tables with
+-- the tables, and their fields rows in 0150_dd_bootstrap.once.sql say what
+-- get_schema shows. For these seven the two agree in the form the dictionary
+-- itself generates. A probe entity gets one field per core column, with that
+-- column's reference_table and reference_delete_mode, and the constraint the
+-- dictionary builds for it must read as the core one does, past the column.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+SELECT authenticate_as('user3');
+
+CREATE TEMP TABLE fk_core_columns (table_name TEXT, field_name TEXT);
+INSERT INTO fk_core_columns VALUES
+    ('modules', 'default_viewer_role_id'), ('modules', 'default_manager_role_id'),
+    ('modules', 'default_admin_role_id'), ('user_roles', 'assigned_by'),
+    ('role_permissions', 'granted_by'), ('user_permissions', 'granted_by'),
+    ('roles', 'module_id');
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('fk_form_probe', 'FK Form Probe', 'FK Form Probes', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+SELECT 'fk_form_probe', c.table_name || '__' || c.field_name, c.table_name || ' ' || c.field_name, 'reference',
+       100 + row_number() OVER (ORDER BY c.table_name, c.field_name), f.reference_table, f.reference_delete_mode
+  FROM fk_core_columns c
+  JOIN fields f ON f.table_name = c.table_name AND f.field_name = c.field_name;
+
+-- The definition of the foreign key on one column, without the column.
+CREATE FUNCTION pg_temp.fk_form(p_table TEXT, p_column TEXT) RETURNS TEXT LANGUAGE sql AS $fn$
+    SELECT regexp_replace(pg_get_constraintdef(c.oid), '^FOREIGN KEY \([^)]*\) ', '')
+      FROM pg_constraint c
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
+     WHERE c.contype = 'f'
+       AND c.conrelid = to_regclass(format('public.%I', p_table))
+       AND a.attname = p_column;
+$fn$;
+
+SELECT is(
+    (SELECT string_agg(c.table_name || '.' || c.field_name || ' ' || coalesce(pg_temp.fk_form(c.table_name, c.field_name), '-'),
+                       '; ' ORDER BY c.table_name, c.field_name)
+       FROM fk_core_columns c),
+    (SELECT string_agg(c.table_name || '.' || c.field_name || ' '
+                       || coalesce(pg_temp.fk_form('fk_form_probe', c.table_name || '__' || c.field_name), '-'),
+                       '; ' ORDER BY c.table_name, c.field_name)
+       FROM fk_core_columns c),
+    'the seven hand-written core foreign keys have the form the dictionary generates from their fields rows'
 );
 
 SELECT * FROM finish();

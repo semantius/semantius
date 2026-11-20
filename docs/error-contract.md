@@ -9,13 +9,12 @@ themselves are the tables at the end of the page.
 A client that wants to show an error in the user's language needs two things
 the raw PostgreSQL error does not give it: a stable identity to look a
 translation up by, and the values that belong in the sentence, separate from
-the sentence. Before this contract every message was an English string with
-the values already baked in (`Permission denied: dd:write required`), and the
-only identity was the SQLSTATE, which lumps unrelated situations together
-(42501 alone covered a missing token, a wrong audience, a missing permission
-and a locked system field) and which PostgreSQL raises itself for its own
-reasons (42501 is also a row-level security refusal). Nothing could be
-localized without parsing English.
+the sentence. A plain English message has the values baked in
+(`Permission denied: dd:write required`), and the SQLSTATE alone lumps
+unrelated situations together (42501 alone would cover a missing token, a
+wrong audience, a missing permission and a locked system field) and is one
+PostgreSQL raises itself for its own reasons (42501 is also a row-level
+security refusal). Nothing of that can be localized without parsing English.
 
 ## What the client receives
 
@@ -34,12 +33,14 @@ not travel; only what fits into these four does.
 PostgreSQL's SQLSTATE space is shared. Every standard class is PostgreSQL's,
 and class 42 alone holds about thirty of its codes, several of which reach
 clients straight from PostgreSQL. We therefore invent no code in a standard
-class, reuse exactly two standard codes where REST statuses require them
-(42501 and 42P01, see "HTTP status"), and put every identity of our own in
-two classes PostgreSQL leaves empty:
+class, reuse two standard codes where REST statuses require them (42501 and
+42P01, see "HTTP status") and one, 23514, where the dictionary refuses a field
+change in PostgreSQL's own words (see "Constraint names"), and put every
+identity of our own in two classes PostgreSQL leaves empty:
 
-- **Class 90 is Semantius.** Every error our own code raises for a client has
-  a `90xxx` catalog number, and the number is the identity: one row in the
+- **Class 90 is Semantius.** Every error our own code raises for a client,
+  except the 42P01 of the schema reads and the 23514 of a field change, has a
+  `90xxx` catalog number, and the number is the identity: one row in the
   catalog, one translation on the client. Most sites raise the number as their
   ERRCODE. The families whose HTTP status carries REST meaning raise a standard
   code instead and carry the number as `hint.code`, see "HTTP status".
@@ -79,12 +80,13 @@ Blocks of one hundred, one per domain, so a code says where it comes from:
 A code may be raised from more than one site; every site uses the catalog's
 message template verbatim.
 
-The 900xx, 901xx and 903xx blocks are wire-bearing: their numbers travel as
-42501 or 42P01 and appear only in `hint.code`. A validation rule raises its
-code as the SQLSTATE itself, so a platform rule can never take a number from
-those three blocks - it takes one from a block whose wire is the number, and
-that is why the dictionary's own immutability rules are 902xx rather than
-901xx.
+The 900xx, 901xx and 903xx blocks are wire-bearing: their refusals travel as
+42501 or 42P01 and carry the number in `hint.code`; a number in them that is
+no refusal is raised as itself, see "HTTP status". A validation rule raises its
+code as the SQLSTATE itself, so a platform rule must not take a number from
+those three blocks (the check at save time accepts any `90xxx` code) - it
+takes one from a block whose wire is the number, and that is why the
+dictionary's own immutability rules are 902xx rather than 901xx.
 
 ### Class 99
 
@@ -92,8 +94,8 @@ that is why the dictionary's own immutability rules are 902xx rather than
 `throw_error` raises when no code is given. Two entities can use the same code
 for different things, so a client keys class 99 translations by entity and
 code, not by code alone; the error carries the entity as `hint.entity`, see
-"The generated trigger". A module is a rule author like any other: the
-`nwind` sample module is a custom module, and its rules use class 99.
+"The generated trigger". A module is a rule author like any other, so the
+validation rules and `throw_error` codes of a custom module use class 99.
 
 ### HTTP status
 
@@ -106,7 +108,7 @@ are kept:
 | Family | Wire SQLSTATE | PostgREST status | Identity |
 |---|---|---|---|
 | 900xx authentication, 901xx permissions | 42501 insufficient_privilege | 401 for an anonymous request, 403 with a token | `hint.code` |
-| 903xx unknown entity or table | 42P01 undefined_table | 404 | `hint.code` |
+| 903xx unknown entity or table | 42P01 undefined_table | 404 | none: the block has no numbers, and the schema reads raise 42P01 without a hint |
 | every other 90xxx code | the number itself | 400 | `code` |
 | 99xxx | the number itself | 400 | `code`, scoped by entity |
 
@@ -116,11 +118,13 @@ guard - is raised as itself and answers 400, because 403 would send a client to
 re-authenticate over something authentication cannot fix. The **Wire** column of
 each row settles which it is.
 
-42501 and 42P01 are the only standard codes we ever raise. Every 42501 we
-raise carries a `hint.code` from the 900xx or 901xx block. No 42P01 we raise
+42501 and 42P01 are the only standard codes we raise for their HTTP status;
+the one other standard code our code raises for a client is the 23514 of a
+field change, see "Constraint names". Every 42501 we raise for a client
+carries a `hint.code` from the 900xx or 901xx block. No 42P01 we raise
 carries one: `get_schema`, `get_schemas` and `build_schema_for_table` raise
 `Table "<name>" not found in entities` without a hint, and the 903xx block has
-no numbers yet. PostgreSQL raises the same two codes itself, for a row-level
+no numbers. PostgreSQL raises the same two codes itself, for a row-level
 security refusal, a missing grant or a missing relation, and its errors carry
 no `hint.code` either. So the `hint.code` tells a 42501 of ours from
 PostgreSQL's, and a 42P01 carries none either way.
@@ -142,7 +146,7 @@ can change with its version; re-check it when PostgREST is upgraded.
 | Field | Rule |
 |---|---|
 | SQLSTATE | `99xxx`, a `90xxx` number, or 42501 / 42P01 with the number in `hint.code`, as above. |
-| MESSAGE | English template with `${name}` placeholders. Never interpolated on the server. |
+| MESSAGE | English template with `${name}` placeholders. Never interpolated on the server, except in the 42P01 of the schema reads, whose message names the table, and in the 23514 of a field change, which copies PostgreSQL's sentence. |
 | DETAIL | Optional free-text string with more information. Shown as-is. Absent and empty mean the same thing. |
 | HINT | A JSON object of the parameters. Five keys are reserved: `hint`, an optional suggestion template with the same placeholder grammar; `code`, the catalog number when the SQLSTATE is 42501 or 42P01; and `entity`, `rule` and `field`, which the generated validation trigger adds, see "The generated trigger". Required when the message or the hint template contains a placeholder or when `code` is needed; otherwise it may be absent. Absent and empty mean the same thing. |
 
@@ -164,8 +168,9 @@ identifiers.
 
 In PL/pgSQL this means passing the typed value to `jsonb_build_object`,
 which maps integer, numeric and boolean to their JSON types by itself, and
-never its `::text` or a `format()` result. The contract test asserts the
-JSON type of every parameter it exercises.
+never its `::text` or a `format()` result. The tests read the hint as JSON
+(`catch_error_hint`), and `0110_test_jsonlogic_ext.sql` asserts the JSON type
+of the `throw_error` parameters.
 
 ### The raise pattern
 
@@ -196,9 +201,9 @@ which arrives, with HTTP 403, as
 Every other site raises its number directly and arrives with HTTP 400:
 
 ```sql
-RAISE EXCEPTION 'Cannot change format of core system field ${field}'
-    USING ERRCODE = '90210',
-          HINT = jsonb_build_object('field', OLD.field_name)::text;
+RAISE EXCEPTION 'Cannot change format of core system field ${field_name}'
+    USING ERRCODE = '90219',
+          HINT = jsonb_build_object('field_name', OLD.field_name)::text;
 ```
 
 PostgREST copies the four fields verbatim in both cases; the SQLSTATE only
@@ -216,7 +221,8 @@ an identifier.
 
 `hint`, `code`, `entity`, `rule` and `field` are reserved and cannot be
 parameter names: the last three are merged into the object by the generated
-trigger, and a parameter with one of those names would be overwritten. Every
+trigger, and a parameter with one of those names would hide the key the
+trigger adds, because the merge keeps a key that is already present. Every
 placeholder used in the message or in the hint template must be a key of the
 JSON object; the reserved keys may be used as placeholders where they are
 present.
@@ -273,10 +279,10 @@ the rule belongs to, and `rule`, the rule's code. A rule failure carries no row 
 already holds the row, and copying columns into the hint would be a second
 read path around row-level security. A rule that needs parameters in its text
 uses `throw_error` inside its logic and names them explicitly. The shape is
-checked when the entity is saved: a code outside class 99 is rejected then,
-unless the rule is a platform rule, whose code must be class 90. That the
-code is a catalog row is not checked at save time, because the catalog is a
-document, not a table.
+checked when a managed entity is saved, or an entity is switched to managed:
+a code outside class 99 is rejected then, unless the rule is a platform rule,
+whose code must be class 90. That the code is a catalog row is not checked at
+save time, because the catalog is a document, not a table.
 
 ### The generated trigger
 
@@ -285,22 +291,24 @@ exception handler so that a broken rule reports which rule broke, and so
 that every class 99 error names the entity that scopes it.
 
 - Class 90 passes through untouched: its identity is the code alone.
-- Class 99 is re-raised with the same SQLSTATE, message and DETAIL, and with
-  `entity` (the table name of the entity whose rule was evaluating) and
-  `rule` (that rule's code) merged into the hint object. This covers both a
-  failing validation rule and a `throw_error` inside a rule's logic.
+- Class 99 carries `entity` (the table name of the entity whose rule was
+  evaluating) and `rule` (that rule's code) in the hint object: a failing
+  validation rule is raised with them, and a `throw_error` inside a validation
+  rule's logic is re-raised with the same SQLSTATE, message and DETAIL and the
+  two merged in. A `throw_error` inside a computed field gets `entity` and
+  `field` (the computed field name) instead.
 - Any other error is re-raised with the original SQLSTATE, message, DETAIL
   and HINT, with `entity` and `rule` (the rule code) or `field` (the computed
   field name) added to the hint object, a hint that was not a JSON object
   being wrapped as `{"hint": text}` first. That path carries both
-  PostgreSQL's own errors and our 42501 / 42P01 sites; the latter keep their
-  `hint.code` because the hint object is merged, not replaced.
+  PostgreSQL's own errors and our 42501 sites; those keep their `hint.code`
+  because the hint object is merged, not replaced.
 
 A write can cascade: a row trigger on one entity writes a second entity
 (audit rows, queue events, RACI bookkeeping), whose own compute/validate
-trigger may fail. Every trigger on the way out merges its keys, and the merge
-keeps a key that is already present, so `entity` and `rule` always name the
-innermost entity, the one whose rule actually failed. `set_record` is not
+trigger may fail. No trigger on the way out adds keys to that error, so
+`entity` and `rule` name the innermost entity, the one whose rule actually
+failed. `set_record` is not
 such a case: it reads a record into the rule's data and writes nothing.
 
 The message is never prefixed, because a prefix is an interpolation. `entity`
@@ -312,15 +320,20 @@ stable and language-neutral.
 | Source | SQLSTATE | Note |
 |---|---|---|
 | `require_permission` | 42501, `hint.code` 901xx | the permission error, as raised by rbac |
-| `$user_id` without claims | 42501, `hint.code` 900xx | `rbac.uid`, called by `jl_request_context` |
-| `$user_id` for a subject with no `users` row | 42501, `hint.code` 900xx | `rbac.user_id`; the client has not called `get_userinfo` yet |
-| unknown operator | 909xx | `Unrecognized operation: ${op}` |
+| a `select_rule`, or `set_record`, evaluated without claims | 42501, `hint.code` 900xx | `rbac.uid`, called by `jl_request_context` and by `get_record_by_id`; in a computed field or validation rule `$user_id` itself is null instead |
+| a `select_rule`, or `set_record`, evaluated for a subject with no enabled `users` row | 42501, `hint.code` 900xx | 90006 from `rbac.ensure_context_initialized`; the client has not called `get_userinfo` yet, or the user is disabled |
+| unknown operator | 90910 | `Unrecognized operation: ${op}` |
 | `is_match` with a malformed pattern | 2201B | PostgreSQL's own message |
 | `/` or `%` with a zero divisor, an arithmetic result of Infinity or NaN, arithmetic over text that carries no number | 90920 | `${operator} has no finite result` |
 
-Bad numeric or date strings never raise. Arithmetic reads a string that
-carries no number as 0; `==` and the ordering operators read it as no number
-at all, so every comparison with it is false.
+A comparison never raises on a bad numeric string: `==` and the ordering
+operators read a string that carries no number as no number at all, so every
+comparison of it with a number is false. Arithmetic over such a string raises
+90920. A date operator returns null for a null or empty value, and `to_date`
+reads a number as epoch seconds. Any other value that does not have the shape
+of an ISO 8601 date or date-time raises 90915; a value of that shape that is
+no real date, such as 2026-02-30, raises PostgreSQL's 22008, and one whose
+offset is out of range, such as `+99`, raises 22009.
 
 ## Errors we do not raise
 
@@ -336,9 +349,12 @@ Two more native errors reach a client from an is_a or has_a entity. An upsert
 on its view (`ON CONFLICT`, PostgREST's merge-duplicates and `PUT`) fails with
 42P10 when the statement is planned, before any trigger of ours runs; an
 entities file imports such records with an insert followed by an update
-instead. And PostgreSQL truncates identifiers longer than 63 bytes, which the
-names generated from a long entity name (`<entity>_ext_<field>_fkey`,
-`record_write_<entity>`) can reach, as any generated name can.
+instead. And PostgreSQL truncates identifiers longer than 63 bytes, which a
+generated name can reach; 90273 and 90276 keep the names generated from an
+entity or field name (`<entity>_ext_<field>_fkey`, `record_write_<entity>`)
+within that limit when an entity or field is created or renamed, or an entity
+is switched to managed; queue trigger names (`queue_<queue>_<event>_on_<table>`)
+are checked when the mapping is written, not when the table is renamed.
 
 ## Client rules
 
@@ -357,7 +373,8 @@ names generated from a long entity name (`<entity>_ext_<field>_fkey`,
    parsed object. The English templates in the response are the fallbacks when
    no translation exists.
 4. HTTP statuses keep their REST meaning: 401 and 403 for authentication and
-   permission, 404 for an unknown entity, 400 for every other refusal.
+   permission, 404 for an entity a schema read does not find or may not
+   show, 400 for every other refusal.
    Generic middleware may key on them; localization keys on the code.
 
 ## Security
@@ -374,8 +391,8 @@ Errors raised while installing or operating the database are not
 client-reachable and keep RAISE's ordinary form and their existing SQLSTATE,
 and get no catalog number: the BYPASSRLS check in `0100_rbac_rls.sql`, the
 pgmq conflict check in `0310_pgmq.once.sql`, and the preflight and `migrate()`
-errors of the extension build in `packages/cli/commands/extension.ts`, which
-the extension archive's README already lists for the operator who hits one,
+errors of the extension build in `packages/cli/commands/extension.ts`, most
+of which the extension archive's README lists for the operator who hits one,
 and the definition errors of `ensure_entities` in `0290_ensure_entities.sql`
 (22023 for a malformed `.jsonc` definition, 0A000 for a change that is not
 additive), which only a migration reaches.
@@ -401,7 +418,7 @@ the JSON hint that fill their `${name}` placeholders.
 | `90003` | `42501` | `Authentication required: JWT sub claim is missing` | - | - | The token carries no subject, so there is nobody to be. |
 | `90004` | `42501` | `Authentication required: JWT audience claim is missing (expected ${expected})` | - | `expected` | `_settings.jwt_aud` is set and the token has no `aud`. |
 | `90005` | `42501` | `Authentication required: JWT audience does not match (expected ${expected}, got ${actual})` | - | `expected`, `actual` | The token was minted for a different audience. |
-| `90006` | `42501` | `User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.` | - | `external_id` | The claims are well formed but no `users` row matches yet. |
+| `90006` | `42501` | `User not found: ${external_id}. Client must call get_userinfo() on first login to create user record.` | - | `external_id` | The claims are well formed but no enabled `users` row matches: the client has not called `get_userinfo` yet, or the user is disabled. |
 | `90007` | `90007` | `external_id cannot be null or empty` | - | - | An argument guard, not a refusal, so it answers 400. |
 | `90008` | `90008` | `Failed to create or find user: external_id = ${external_id}` | - | `external_id` | `get_userinfo` upserted the user and got nothing back. |
 | `90009` | `42501` | `Authentication required: Microsoft Entra ID token is missing the tid or oid claim` | - | - | The token's `iss` is an Entra issuer, whose user is identified by `entra.<tid>.<oid>`, and one of the two is absent. Falling back to `sub` would create a second identity for the same person. |
@@ -416,11 +433,11 @@ the JSON hint that fill their `${name}` placeholders.
 | `90101` | `42501` | `Permission denied: ${permission} required` | `Ask an administrator to grant ${permission}` | `permission` | `rbac.require_permission`, the refusal every gated call makes. |
 | `90102` | `42501` | `Permission denied: one of (${permissions}) required` | - | `permissions` | `rbac.require_any_permission`. The list is one string, not an array: a parameter is a value in a sentence. |
 | `90103` | `42501` | `Cannot delete role 1 (User) from user. All users must have the User role.` | - | - | Reachable by editing `user_roles`, so it is a refusal like any other. |
-| `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.` | - | The lockout guard: a DELETE or UPDATE on `user_roles`, `users` or `roles` that would leave no enabled holder of role 2. |
-| `90104` | `42501` | `The Administrator role has to keep the admin permission` | `Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.` | - | The same guard for the grant itself: removing or re-pointing the `role_permissions` row of role 2 for `admin`, and deleting or renaming the permission `admin`. |
-| `90105` | `42501` | `Permission denied for queue ${queue}` | - | `queue` | Hides whether the queue exists from a caller who may not read it. |
-| `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`, or on an entity the caller does not see in the catalog, such as an is_a or has_a entity whose base it does not see. Hides whether the entity exists, as 90105 does for queues. |
-| `90107` | `42501` | `Permission denied: only an administrator can set the external_id of a user` | `external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.` | - | A caller without `admin` inserted a user with an `external_id`, or changed the one of an existing user. An unchanged value and an agent saved without one pass. |
+| `90104` | `42501` | `This would leave the system without an enabled Administrator` | `Grant the Administrator role to another enabled user first. A direct superuser connection is exempt from this check.` | - | The lockout guard: a DELETE on `user_roles`, `users` or `roles`, an UPDATE on `user_roles` or an UPDATE of `users.is_disabled` that would leave no enabled holder of role 2. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
+| `90104` | `42501` | `The Administrator role has to keep the admin permission` | `Role 2 granting admin is what makes its holders Administrators. A direct superuser connection is exempt from this check.` | - | The same guard for the grant itself: removing or re-pointing the `role_permissions` row of role 2 for `admin`, and deleting or renaming the permission `admin`. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
+| `90105` | `42501` | `Permission denied for queue ${queue}` | - | `queue` | A caller without `admin` named a queue that is not registered. A registered queue it may not use answers 90101 with the permission instead, so the answer tells whether a queue name is registered. |
+| `90106` | `42501` | `Permission denied: cannot fix the id sequence of ${table}` | - | `table` | `fix_id_sequence` without the entity's `edit_permission`, or on an entity the caller does not see in the catalog, such as an is_a or has_a entity whose base it does not see. A name that is no entity gets the same answer from a caller without `admin`, so the answer does not tell whether the entity exists. |
+| `90107` | `42501` | `Permission denied: only an administrator can set the external_id of a user` | `external_id is the identity a session resolves to. Send it unchanged, or leave it out, to save the rest of the record.` | - | A caller without `admin` inserted a user with an `external_id`, or changed the one of an existing user. An unchanged value and an agent inserted without one pass. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code such as the sign-in in `get_userinfo`. |
 
 ### 902xx - data dictionary: entities and fields
 
@@ -435,18 +452,20 @@ the JSON hint that fill their `${name}` placeholders.
 | `90207` | `90207` | `A bookmark can only be written by an authenticated user` | - | - | Platform rule on `user_bookmarks`. Its computed `user_id` is the writer's `$user_id`, which is null in a session without claims; the rule refuses that insert or update instead of storing a bookmark without an owner. Deletes are exempt. |
 | `90210` | `90210` | `Cannot add permission hierarchy: would create a cycle. Permission ${including} cannot be both ancestor and descendant of permission ${included}` | - | `including`, `included` | Permission inclusion has to stay a DAG. |
 | `90211` | `90211` | `Cannot add permission hierarchy: maximum depth of 11 levels would be exceeded. Current depth would be ${depth}` | - | `depth` | The depth bound the resolver is written against. |
-| `90212` | `90212` | `Referenced table ${table} not found in entities` | - | `table` | A `reference` or `parent` field naming an entity that does not exist. Raised from three sites: when a field is created, when it is pointed at another entity, and when a change has to rebuild its foreign key. A reference that is not changing is not checked again. |
+| `90212` | `90212` | `Referenced table ${table} not found in entities` | - | `table` | A `reference` or `parent` field naming an entity that does not exist. Raised from three sites: when a field is created, when it is pointed at another entity, and when a change has to rebuild its foreign key. A reference that is not changing is not checked again unless a change of its delete mode or format rebuilds its foreign key. |
 | `90213` | `90213` | `catalog_entity_aliases is append-only: existing alias elements cannot be removed or rewritten` | - | - | A merge record is history; it only grows. |
-| `90214` | `90214` | `ctype is system-managed and cannot be changed on field ${field_name}` | - | `field_name` | The marker that makes a column a core column. `rollup` and `computed` are ctypes too, derived from a rollup definition (docs/rollup-fields.md) and from the entity's `computed_fields`: set and cleared with the definition or rule and never by hand, and the two markers the core protection below (90217-90220) does not apply to. A label column that a rule computes carries `computed_label`, derived the same way, and keeps the label's protection. The label marker follows `entities.label_column` (90270). |
-| `90215` | `90215` | `Table ${table} already has a primary key` | - | `table` | One `is_pk` field per entity. |
+| `90214` | `90214` | `ctype is system-managed and cannot be changed on field ${field_name}` | - | `field_name` | Raised for an UPDATE that changes `ctype` while the current role (`current_user`) lacks BYPASSRLS; under such a role an INSERT gets `ctype` set to empty instead. The marker that makes a column a core column. `rollup` and `computed` are ctypes too, derived from a rollup definition (docs/rollup-fields.md) and from the entity's `computed_fields`: set and cleared with the definition or rule and never by hand, and the two markers the core protection below (90217-90220, 90285, 90286) does not apply to. A label column that a rule computes carries `computed_label`, derived the same way, and keeps the label's protection. The label marker follows `entities.label_column` (90270). |
+| `90215` | `90215` | `Table ${table} already has a primary key` | - | `table` | One `is_pk` field per entity. The unique index `one_pk_per_table_idx` refuses a second key field with 23505 before the trigger that raises this code runs, so a client gets the 23505. |
 | `90217` | `90217` | `Cannot delete core system field ${field_name}. Core fields (ctype id/label/audit/core) cannot be deleted.` | - | `field_name` | A computed label column (ctype `computed_label`) is the label and is protected the same way. A rollup field (ctype `rollup`) and a computed field (ctype `computed`) are not core and are deleted like any other field. |
-| `90218` | `90218` | `Cannot rename core system field ${field_name}` | - | `field_name` | A rollup field is not core and may be renamed. |
+| `90218` | `90218` | `Cannot rename core system field ${field_name}` | - | `field_name` | The label column is exempt. A rollup field is not core and may be renamed. |
 | `90219` | `90219` | `Cannot change format of core system field ${field_name}` | - | `field_name` | A rollup field is not core; its format change goes through 90223 and 90268 instead. |
 | `90220` | `90220` | `Cannot change default value of core system field ${field_name}` | - | `field_name` | The label column is exempt; id, audit and core columns are not. A rollup field is not core. |
+| `90285` | `90285` | `Cannot change reference_delete_mode of core system field ${field_name}` | - | `field_name` | The foreign key of a core column is written by hand in the migrations, some in a form the dictionary does not generate: the one of `modules.view_permission` is deferred. A changed delete mode would have the dictionary drop that constraint and build the generated form in its place. |
+| `90286` | `90286` | `Cannot change reference_table of core system field ${field_name}` | - | `field_name` | As 90285, for the entity the field points at. Renaming `users`, `roles` or `permissions` would re-point the core fields that point at them, so the rename is refused with this code, naming one of those fields. |
 | `90221` | `90221` | `Cannot change table_name of a field` | - | - | Except as the cascade of a table rename. |
 | `90222` | `90222` | `Cannot change primary key status of existing field` | - | - | |
 | `90223` | `90223` | `Cannot change format of field ${field_name} from ${old_format} to ${new_format} because it would require changing the column type from ${old_type} to ${new_type}. Drop and recreate the field instead.` | - | `field_name`, `old_format`, `new_format`, `old_type`, `new_type` | Two sites, one row: the rename guard and the update guard. |
-| `90224` | `90224` | `Field name ${field_name} is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)` | - | `field_name` | The prefix is reserved; the `_label` suffix is not. |
+| `90224` | `90224` | `Field name ${field_name} is reserved: names starting with "_" are reserved for generated/system columns (e.g. _label)` | - | `field_name` | The prefix is reserved; the `_label` suffix is not. Not checked while the current role (`current_user`) has BYPASSRLS, as the owner has inside SECURITY DEFINER code. |
 | `90225` | `90225` | `label_parent cannot be set on junction entity ${table}` | - | `table` | |
 | `90226` | `90226` | `label_parent ${label_parent} is not a field of entity ${table}` | - | `label_parent`, `table` | |
 | `90227` | `90227` | `label_parent ${label_parent} on ${table} must name a reference/parent field` | - | `label_parent`, `table` | |
@@ -458,20 +477,20 @@ the JSON hint that fill their `${name}` placeholders.
 | `90233` | `90233` | `id_type is set when an entity is created and cannot be changed` | - | - | Platform rule on `entities`. Every key and every foreign key pointing at one was built from it. |
 | `90234` | `90234` | `id_type ${id_type} is reserved for system tables and cannot be used for entity ${table}` | - | `id_type`, `table` | `computed` describes the system tables whose key is a generated column; the dictionary cannot build one. Raised when a managed entity is created or switched to managed. |
 | `90235` | `90235` | `Table ${table} cannot be adopted: its key column ${id_column} is ${actual_type}, but id_type ${id_type} needs ${expected_type}` | `Change the table's key column to ${expected_type}, or declare the entity with the id_type that matches it.` | `table`, `id_column`, `actual_type`, `id_type`, `expected_type` | Registering an entity onto an existing table, or switching `managed` on for one, when the key column does not match `id_type`. `actual_type` is `missing` when there is no key column. |
-| `90236` | `90236` | `The key ${column} of ${table} cannot be changed` | - | `column`, `table` | A record key is set once. Writing the unchanged key back passes. Also raised by the write routine of an is_a or has_a entity, naming the entity. |
+| `90236` | `90236` | `The key ${column} of ${table} cannot be changed` | - | `column`, `table` | A record key is set once. Writing the unchanged key back passes. Also raised by the generated write routine of an is_a or has_a entity, naming the entity: on any UPDATE that changes the key, whether the statement or a rule changes it, and on the insert of a has_a record whose rules change the key of the base record it attaches to. |
 | `90237` | `90237` | `Id ${id} does not carry the prefix ${prefix} of ${table}` | - | `id`, `prefix`, `table` | An insert into a typeid entity that brings its own id with another prefix, a former prefix of the entity included. Also an is_a insert whose id lacks the is_a entity's prefix, a direct insert into an is_a root with a subtype's prefix, and a has_a insert that creates its base record with an id lacking the base's prefix. |
 | `90238` | `90238` | `Invalid record id ${id} for entity ${table}` | - | `id`, `table` | `get_record_by_id` (and JsonLogic `set_record` through it) with an id that is not a valid value of the entity's key type. Raised only to a caller who sees the entity in the catalog (a holder of its view or edit permission, on every level of an is_a or has_a entity, or of `admin`); anybody else gets the `NULL` of a missing record. |
 | `90239` | `90239` | `Entity ${table} cannot be managed: its id field ${id_column} has format ${actual_format}, but id_type ${id_type} needs ${expected_format}` | `Change the format of the id field to ${expected_format} while the entity is unmanaged, then switch managed on.` | `table`, `id_column`, `actual_format`, `id_type`, `expected_format` | Switching `managed` on for an entity whose id field row (written while it was unmanaged) describes another key type. Switching managed on never rewrites metadata, so the difference is refused, not fixed. |
 | `90240` | `90240` | `Entity ${table} cannot be based on ${base}` | `An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.` | `table`, `base` | Creating an is_a or has_a entity whose `id_refentity` has the wrong key type, is unmanaged, or is the entity itself. |
 | `90241` | `90241` | `id_refentity is set when an entity is created and cannot be changed` | - | `table` | The records of an is_a or has_a entity are stored in its base. A rename of the base, which `ON UPDATE CASCADE` carries to `id_refentity`, is the one change it takes. |
-| `90242` | `90242` | `label_column and label_parent of ${table} come from its base ${base}` | - | `table`, `base` | An is_a or has_a entity's record is labeled by its root, so both are set from the base when the entity is created and cannot be changed on it. |
+| `90242` | `90242` | `label_column, label_column_label and label_parent of ${table} come from its base ${base}` | - | `table`, `base` | An is_a or has_a entity's record is labeled by its root, so `label_column` and `label_column_label` are set from the root and `label_parent` is set empty when the entity is created, and none of the three can be changed on it. |
 | `90243` | `90243` | `Field ${field_name} of ${table} collides with ${other}, which shares its records` | - | `field_name`, `table`, `other` | A field name already used by an entity above or below this one in its is_a/has_a chain; the views show the fields of the whole chain side by side. Siblings may repeat a name; the key and the audit fields are each entity's own. |
 | `90244` | `90244` | `${relation} stores part of ${table} records; write them through ${table}` | - | `relation`, `table` | A direct write to `<entity>_ext`. Only the entity's write routines write it, so every part and every level's rules are written together. |
 | `90245` | `90245` | `id_prefix of an is_a entity is set when it is created` | - | - | Platform rule on `entities`. An is_a record's type is read from the prefix of its id, so the prefix has to mean the same thing for good. |
 | `90246` | `90246` | `Attaching ${table} to ${base} record ${id}: ${field} differs from the stored value; change it through ${base}` | - | `table`, `base`, `id`, `field` | An insert into a has_a entity with the id of an existing base record attaches to it and writes no base field; a base value in the insert that is neither the stored one nor the column default, or one a computed field changed, is refused. |
 | `90247` | `90247` | `Entity ${table} still has records; delete them first` | - | `table` | Deleting an is_a/has_a entity, or the base of one, while it has records. Their records span several tables, so they are deleted through the entity first. Also refuses a module delete whose cascade reaches such an entity. |
 | `90248` | `90248` | `Entity ${table} cannot be deleted while ${dependents} are based on it` | - | `table`, `dependents` | `dependents` is one comma-separated string. A dependent in the module being deleted does not count. |
-| `90249` | `90249` | `${feature} is not available for ${id_type} entity ${table}` | - | `feature`, `id_type`, `table` | `feature` is an identifier: `order_column`, `queue_table_events` and `process_gates` on an is_a or has_a entity, `cascade` on a reference field of an is_a entity (an RI cascade would delete one part of a record and leave the rest), `rollup` when the parent or the child of a rollup is an is_a or has_a entity. |
+| `90249` | `90249` | `${feature} is not available for ${id_type} entity ${table}` | - | `feature`, `id_type`, `table` | `feature` is an identifier: `order_column`, `queue_table_events` and `process_gates` on an is_a or has_a entity, `cascade` on a reference or parent field of an is_a entity (an RI cascade would delete one part of a record and leave the rest), `rollup` when the parent or the child of a rollup is an is_a or has_a entity. |
 | `90250` | `90250` | `Table name ${relation} is already in use` | - | `relation` | Creating or renaming an is_a or has_a entity whose view name or `<entity>_ext` name is taken by another relation. |
 | `90251` | `90251` | `Record ${id} of ${table} still has a ${extension} record; remove it through ${extension} first` | - | `id`, `table`, `extension` | Deleting a has_a base record that an extension is attached to. Deletes never cascade into the parts of a record. |
 | `90252` | `90252` | `Entity ${table} cannot become unmanaged while ${dependents} are based on it` | - | `table`, `dependents` | Switching `managed` off on a base; its dependents' views and write routines are built on its table. |
@@ -481,28 +500,28 @@ the JSON hint that fill their `${name}` placeholders.
 | `90256` | `90256` | `This change drops ${views}, and with them ${dependents}, which the dictionary did not create` | `Drop those objects, make the change, then create them again.` | `views`, `dependents` | Any change that rebuilds an is_a/has_a family (a field of any level added, changed or deleted, a searchable change, a rename, a root prefix change, rules added to or removed from a level) or deletes a family entity (itself, or through a module delete) drops the family's views, and PostgreSQL would drop what is built on them with them. Refused while such an object exists. `views` and `dependents` are comma-separated strings; a dependent is described as `view <name>`, `function <signature>`, `policy <name> on table <name>` and so on. What the dictionary builds on the views itself does not count. A plain entity's delete still drops what is built on its table. |
 | `90257` | `90257` | `Field ${field_name} on ${table} cannot be required while its delete mode is clear` | - | `table`, `field_name` | `ON DELETE SET NULL` would make every delete of the referenced record fail on this field. Refused when the combination is set, so a field that already has it stays editable. |
 | `90258` | `90258` | `Field ${field_name} on ${table} is required` | - | `table`, `field_name` | A write left a required field missing: `NULL` for `reference`, `date`, `time`, `date-time` and `uuid`, blank or whitespace-only text, an empty enum, JSON `{}`, `[]`, `null` or `""`, an empty `binary`, a `rating` of 0. Raised by the field's required check, so every writer gets it. Explicit `NULL` on a `NOT NULL` column stays PostgreSQL's 23502, because `NOT NULL` runs before any check. |
-| `90259` | `90259` | `Field ${field_name} on ${table} cannot be required while rows have no value for it` | - | `table`, `field_name` | Changing a field to required while rows are missing a value, or adding a required field with no usable default to a table with rows. |
+| `90259` | `90259` | `Field ${field_name} on ${table} cannot be required while rows have no value for it` | - | `table`, `field_name` | Changing a field to required while rows are missing a value, or adding a required field with no usable default, or a parent field whose default is the current user, to a table with rows. |
 | `90260` | `90260` | `Entity ${table} cannot be deleted while ${fields} reference it` | `Delete those fields or point them at another entity first.` | `table`, `fields` | `fields` is one comma-separated string of `entity.field`. The delete would drop their foreign keys and leave the columns, values and field rows pointing at nothing, whatever their delete mode, which governs deleting records rather than the entity. A field of the entity itself, or of an entity in the module being deleted, does not count, so a module delete is refused only by a reference from another module. |
-| `90261` | `90261` | `Rollup ${field_name} on ${table} has an invalid definition: ${problem}` | - | `table`, `field_name`, `problem` | The shape of `fields.rollup` (docs/rollup-fields.md): an unknown key, a value of the wrong type, a definition on the key, a core field or a reference, or a rollup that is `required`, `searchable` or `unique_value`. `problem` says which. |
+| `90261` | `90261` | `Rollup ${field_name} on ${table} has an invalid definition: ${problem}` | - | `table`, `field_name`, `problem` | The shape of `fields.rollup` (docs/rollup-fields.md): an unknown key, a value of the wrong type, a definition on the key, a core field, a computed field or a reference or parent field, or a rollup that is `required`, `searchable` or `unique_value`. `problem` says which. |
 | `90262` | `90262` | `Rollup ${field_name} on ${table}: link_field ${link_field} must name a reference or parent field of another entity that points at ${table}` | - | `table`, `field_name`, `link_field` | `link_field` is `<entity>.<field>`; the field must exist, be a `reference` or `parent`, and have `reference_table` = `table`. |
 | `90263` | `90263` | `Rollup ${field_name} on ${table}: function ${function} is not one of sum, min, max, avg, count` | - | `table`, `field_name`, `function` | |
 | `90264` | `90264` | `Rollup ${field_name} on ${table}: value_field ${value_field} must name a field of ${link_table} that ${function} can aggregate` | - | `table`, `field_name`, `value_field`, `link_table`, `function`, `problem` | `sum` and `avg` take a numeric field; `min` and `max` also a text-typed, `date` or `date-time` field; `count` takes none. `problem` says whether the field is missing, unknown or of the wrong format. |
 | `90265` | `90265` | `Rollup ${field_name} on ${table}: the filter cannot be compiled: ${problem}` | - | `table`, `field_name`, `problem` | The filter uses something outside the compiled subset (an operator, a request variable, a path, a column the child does not have or of a type the compiler does not compare, a literal the column cannot be cast from, an operator object with two keys, an empty `in` list, null in an ordering comparison, arguments a date operator would refuse). `problem` names it. |
 | `90266` | `90266` | `Field ${field_name} on ${table} cannot be deleted while rollups ${rollups} depend on it` | - | `table`, `field_name`, `rollups` | `rollups` is one comma-separated string of `entity.field`. Raised for the link field or the value field of another entity's rollup, and for the entity holding them; a rollup whose entity or module is being deleted in the same cascade does not count, as for 90260. |
-| `90267` | `90267` | `Rollup ${field_name} on ${table} depends on itself through ${chain}` | - | `table`, `field_name`, `chain` | A value field that is itself a rollup is fine; a chain of such rollups that comes back to the field is not. `chain` is the path, `entity.field -> entity.field`. |
-| `90268` | `90268` | `Rollup ${field_name} on ${table}: format ${format} does not fit ${function}; use ${expected_format}` | - | `table`, `field_name`, `format`, `function`, `expected_format`, `value_field` | The field's own format must fit the result: an integer format for `count`, a numeric one for `sum`, a fractional one (`number`, `float`, `double`) for `avg`, and for `min` and `max` one with the value field's column type. |
-| `90269` | `90269` | `Rollup ${field_name} on ${table} aggregates rows of ${link_table} that readers of ${table} may not see; set include_hidden_rows to accept that` | - | `table`, `field_name`, `link_table` | The child has a `select_rule` or another `view_permission` than the parent, so the aggregate would show readers of the parent something about rows their row security hides. Accepted only with `"include_hidden_rows": true` in the definition. Also raised when such a restriction is put on a child that existing rollups aggregate over. |
+| `90267` | `90267` | `Rollup ${field_name} on ${table} depends on itself through ${chain}` | - | `table`, `field_name`, `chain` | A value field that is itself a rollup is fine; a chain of such rollups that comes back to the field is not. `chain` is the path, `entity.field -> entity.field`. A chain longer than 32 steps is refused the same way. |
+| `90268` | `90268` | `Rollup ${field_name} on ${table}: format ${format} does not fit ${function}; use ${expected_format}` | - | `table`, `field_name`, `format`, `function`, `expected_format`, `value_field` | The field's own format must fit the result: an integer format or `number` for `count`, a numeric one for `sum`, a fractional one (`number`, `float`, `double`) for `avg`, and for `min` and `max` one with the value field's column type. |
+| `90269` | `90269` | `Rollup ${field_name} on ${table} aggregates rows of ${link_table} that readers of ${table} may not see; set include_hidden_rows to accept that` | - | `table`, `field_name`, `link_table` | The child has a `select_rule` or another `view_permission` than the parent, so the aggregate would show readers of the parent something about rows their row security hides. Accepted only with `"include_hidden_rows": true` in the definition. Also raised when a change of `select_rule` or `view_permission` on either entity of an existing rollup makes it such a case. |
 | `90270` | `90270` | `label_column of ${table} cannot name ${field_name}, which is already a ${ctype} field` | - | `table`, `field_name`, `ctype` | Pointing `entities.label_column` at a field moves the label marker (ctype `label` or `computed_label`) to it and turns the previous label field into an ordinary field. A field carries one marker, so an `id`, `audit`, `core` or `rollup` field cannot become the label. A plain or computed field can. |
 | `90271` | `90271` | `Table name ${table} is reserved: a name starting with "_" marks an internal table, which cannot be registered or managed as an entity` | - | `table` | Inserting an entity whose `table_name` starts with `_`, renaming one to such a name, or setting `managed` on one. Internal tables (`_settings`, `_apikeys`) have no permission model, and an entity would give them one. Nobody is exempt. |
 | `90272` | `90272` | `Rollup ${field_name} on ${table}: the filter cannot evaluate ${operator} for this record` | - | `table`, `field_name`, `operator`, `cause_code` | Raised on the write of a child record. A date operator in the rollup's filter has no answer for a value the child holds: a date of `infinity`, a year beyond 9999, an amount beyond the integer range, or a sum past the last timestamp. Counting the child in or out would both be a guess, so the write is refused. `cause_code` is the code of the error underneath (90915, 22003, 22008). |
 | `90273` | `90273` | `Table name ${table} is ${length} bytes long: the names generated from it fit only up to ${max} bytes` | - | `table`, `length`, `max` | Inserting an entity, renaming one, or setting `managed` on one whose `table_name` is longer than 41 bytes. PostgreSQL cuts an identifier to 63 bytes without an error, and the longest name generated from a table name adds 22, so a longer name would share its policies, trigger functions or rule functions with another. Existing entities are not touched. |
-| `90274` | `90274` | `Field ${field_name} on ${table} cannot get its index: the name ${name} is already used by ${used_by}` | - | `table`, `field_name`, `name`, `used_by` | A reference field's index `idx_<table>_<field>` or a `unique_value` field's index `<table>_<field>_unique` carries a name that something else in the schema already has: table `a_b` with field `c` spells the name of table `a` with field `b_c`. `used_by` is the table the existing index is on. Rename the field. Raised when the field is created, and when a rename of the field or of its table would give its index such a name. |
+| `90274` | `90274` | `Field ${field_name} on ${table} cannot get its index: the name ${name} is already used by ${used_by}` | - | `table`, `field_name`, `name`, `used_by` | A reference field's index `idx_<table>_<field>` or a `unique_value` field's index `<table>_<field>_unique` carries a name that something else in the schema already has: table `a_b` with field `c` spells the name of table `a` with field `b_c`. `used_by` is the table the existing index is on. Rename the field. Raised whenever the field gets an index: when it is created, when a change rebuilds its foreign key or turns `unique_value` on, and when its entity is switched to managed; and when a rename of the field or of its table would give its index such a name. |
 | `90275` | `90275` | `Field ${field_name} cannot be renamed while ${rule} on ${table} names it` | - | `field_name`, `table`, `rule` | A rename rewrites no rule, and a rule that reads the old name would decide on null. `table` is the entity the rule belongs to, which is the field's entity or an is_a or has_a entity below it; `rule` is its place there: `computed_fields[0]`, `validation_rules[2]`, `select_rule`, or `<field>.input_type_rule`. A computed field also names the field it writes. Change the rule, then rename. A field read through the alias of a `set_record` in another entity's rule is not found. |
 | `90276` | `90276` | `Field name ${field_name} on ${table} is ${length} bytes long: the names generated from it fit only up to ${max} bytes` | - | `table`, `field_name`, `length`, `max` | Creating a field, or renaming one, whose longest generated name, `<relation>_<field>_not_null`, would exceed 63 bytes; `max` is 53 less the length of the relation name, which is `<entity>_ext` for an is_a or has_a entity. Also renaming a table to a longer name under which a field it has would no longer fit; `field_name` is then the longest such field. A field that exists is otherwise left alone. |
 | `90277` | `90277` | `Field ${field_name} is the label_parent of ${table} and has to stay a reference or parent field` | - | `field_name`, `table` | Changing the format of a field away from `reference` or `parent` while its entity names it as `label_parent`. Clear `label_parent` first. |
 | `90278` | `90278` | `order_column ${order_column} of ${table} names a column the table already has` | - | `order_column`, `table` | The order column is the dictionary's own: it adds the column and drops it when the entity stops naming it. A name that a field or a core column of the entity carries is refused where it is newly given, on insert and on a change of `order_column`. |
 | `90280` | `90280` | `Rollup ${field_name} on ${table}: the function of link_field ${link_field} and the guard of a rollup parent would carry one name` | - | `table`, `field_name`, `link_field` | The maintenance function of a link is `common.rollup_<child>_<link>` and the guard of a parent `common.rollup_guard_<parent>`: a child entity named `guard` with link field `x` spells the guard of an entity named `x`. Rename the child entity or the link field. |
-| `90281` | `90281` | `Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}` | `Rename the child entity or the link field.` | `table`, `field_name`, `name`, `used_by` | The maintenance function of a link is `common.rollup_<child>_<link>`. A name longer than an identifier allows keeps 42 characters and 8 hex digits of md5, so two long links can spell one name, and a function name of 58 characters, the length of a shortened one, is not shortened and can spell another link's shortened name; building the second would drop the first one's function and triggers. `name` is the function name, `used_by` a rollup field over the other link, as `<table>.<field>`. Rollups over the same link share the function and are not refused. Checked wherever the definition is validated: when the rollup is saved, and when a rename changes the name of its function. |
+| `90281` | `90281` | `Rollup ${field_name} on ${table}: the function name ${name} is already used by ${used_by}` | `Rename the child entity or the link field.` | `table`, `field_name`, `name`, `used_by` | The maintenance function of a link is `common.rollup_<child>_<link>`. A name longer than 59 characters keeps 42 characters and 8 hex digits of md5, so two long links can spell one name, and a function name of 58 characters, the length of a shortened one, is not shortened and can spell another link's shortened name; building the second would drop the first one's function and triggers. `name` is the function name, `used_by` a rollup field over the other link, as `<table>.<field>`. Rollups over the same link share the function and are not refused. Checked wherever the definition is validated: when the rollup is saved, and when a rename changes the name of its function. |
 | `90282` | `90282` | `Field ${field_name} on ${table} is a parent field and cannot use delete mode clear` | `Use restrict or cascade, or make it a reference with clear.` | `table`, `field_name` | A `parent` column is `NOT NULL`, so `ON DELETE SET NULL` would make every delete of a parent record that has children fail (23502). Refused when the field is created with it, and when its delete mode or its format changes to it, so a field that already has it stays editable. |
 | `90283` | `90283` | `Default ${default_value} of field ${field_name} on ${table} only applies to a reference or parent field to users` | - | `table`, `field_name`, `default_value` | `CURRENT_USER` or `$user_id` as a default means the signed-in user's id, which only a `reference` or `parent` field to `users` can hold. Refused for `$user_id` on any other field, and for `CURRENT_USER` on a reference or parent field to another entity or on a column that is not TEXT, where PostgreSQL's own `CURRENT_USER` (the role name) does not fit. `CURRENT_USER` on a TEXT column stays allowed and stores the role name. Checked when a field comes to carry the token where it cannot work, so a field that already did stays editable. |
 | `90284` | `90284` | `Default ${default_value} of field ${field_name} on ${table} is not a relative day or time a default can hold` | `Write today, tomorrow, yesterday, now, $today or $now on its own; a time field takes only now or $now.` | `table`, `field_name`, `default_value` | A date, date-time or time default that names `today`, `tomorrow`, `yesterday` or `now` other than as the word on its own, such as `tomorrow 09:00`, `$today + 1`, or `today` on a time field. The word on its own becomes an expression that reads the UTC day or clock on every insert. Any other such text would be a literal, which PostgreSQL either refuses or converts once, when the default is set, so every record would get the day the field was saved. Allow-listed expressions such as `now()` are not affected. Checked when a field comes to carry such a default, so a field that already did stays editable. |
@@ -512,7 +531,7 @@ the JSON hint that fill their `${name}` placeholders.
 Reserved. `get_schema`, `get_schemas` and `build_schema_for_table` answer
 42P01 both for a table that does not exist and for one the caller may not see,
 and carry no `hint.code`; `get_record_by_id` answers both with NULL. Those
-sites are deliberately left as they are, so the block has no rows yet.
+sites are deliberately left as they are, so the block has no rows.
 
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|
@@ -540,7 +559,7 @@ sites are deliberately left as they are, so the block has no rows yet.
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|
 | `90601` | `90601` | `Table ${table} cannot be audited because it has no primary key` | - | `table` | An audit row is keyed by the row it describes. |
-| `90602` | `90602` | `Audit log entity ${table} cannot be managed` | `hint` | `table` | The audit logs are append-only evidence; adoption would grant the request role INSERT and UPDATE on the log. |
+| `90602` | `90602` | `Audit log entity ${table} cannot be managed` | `The audit logs are append-only evidence. Managing them would grant the request role INSERT and UPDATE on the log.` | `table` | Switching `managed` on for `audit_record_logs` or `audit_ddl_logs`. The audit logs are append-only evidence; adoption would grant the request role INSERT and UPDATE on the log. |
 
 ### 907xx - modules and slugs
 
@@ -551,8 +570,10 @@ sites are deliberately left as they are, so the block has no rows yet.
 
 ### 908xx - RACI
 
-Reserved. The RACI gates refuse through validation rules, which carry codes of
-their own, so nothing raises from this block yet.
+Reserved. A RACI gate does not refuse: a blocking consultation holds a gated
+state column at its stored value. A refusal that a RACI operator
+(`is_raci_actor`, `has_consultation`) decides comes from a validation rule,
+which carries a code of its own, so nothing raises from this block.
 
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|
@@ -561,7 +582,7 @@ their own, so nothing raises from this block yet.
 
 | Code | Wire | Message | Hint | Parameters | Description |
 |---|---|---|---|---|---|
-| `90900` | `90900` | `computed_fields[${index}] on ${table} is missing required "name"` | - | `index`, `table` | Raised while the entity is saved, by the trigger builder. |
+| `90900` | `90900` | `computed_fields[${index}] on ${table} is missing required "name"` | - | `index`, `table` | Raised while a managed entity is saved, or an entity is switched to managed, by the trigger builder. |
 | `90901` | `90901` | `computed_fields[${index}] on ${table} is missing required "jsonlogic"` | - | `index`, `table` | As 90900. |
 | `90902` | `90902` | `validation_rules[${index}] on ${table} is missing required "code"` | - | `index`, `table` | As 90900. |
 | `90903` | `90903` | `validation_rules[${index}] on ${table} is missing required "message"` | - | `index`, `table` | As 90900. |
@@ -593,12 +614,19 @@ PostgreSQL's own sentence. A delete that a foreign key with
 `ON DELETE RESTRICT` refuses returns 23001 (`restrict_violation`) on
 PostgreSQL 18 and 23503 up to PostgreSQL 17: the code depends on the version,
 the constraint's name in the sentence does not. That name is the only stable
-token in the sentence. The one exception is a required field's check, generated as
-`<table>_<field>_assert`, which calls a function that raises 90258 instead.
-These are the names our own tables declare and the names we
-keep stable, so a translation keyed on one of them survives a rewrite of the
-expression behind it. Names PostgreSQL generates itself (`users_email_key`,
-`entities_pkey`) are not listed - they are not ours to keep.
+token in the sentence. The one exception is a required field's check,
+generated as `<table>_<field>_assert`, which calls a function that raises 90258
+instead of PostgreSQL's 23514. Our own code also raises 23514, with the
+sentence PostgreSQL would give and the name of the generated
+`<table>_<field>_check`, when rows do not fit a field's new enum values or
+default. The table below lists the names
+our own tables declare and the names we keep stable, so a translation keyed
+on one of them survives a rewrite of the expression behind it. Names
+PostgreSQL generates itself (`entities_pkey`, `roles_role_name_key`) are not
+listed - they are not ours to keep - except `entities_id_refentity_fkey`,
+`fields_table_name_fkey`, `modules_module_slug_key` and
+`<entity>_ext_<id_column>_fkey`, which PostgreSQL generates from inline
+`REFERENCES` and `UNIQUE` clauses.
 
 | Constraint | Table | Kind | Meaning |
 |---|---|---|---|
@@ -618,12 +646,15 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 | `valid_id_column` | `entities` | CHECK | `id_column` is a lowercase identifier |
 | `valid_label_column` | `entities` | CHECK | `label_column` is a lowercase identifier |
 | `valid_label_parent` | `entities` | CHECK | `label_parent` is empty or a lowercase identifier |
-| `valid_order_column` | `entities` | CHECK | `order_column` is empty or a lowercase identifier |
+| `valid_order_column` | `entities` | CHECK | `order_column` is empty or a lowercase identifier of at most 63 bytes |
 | `valid_table_name` | `entities` | CHECK | `table_name` is a lowercase identifier that does not end in `_ext` (reserved for the tables of is_a and has_a entities) |
 | `validation_rules_is_array` | `entities` | CHECK | `validation_rules` must be a JSON array |
 | `unique_current_id_prefix` | `entities` | UNIQUE (index) | no two entities use the same `id_prefix` at the same time |
 | `typeid_format` | domain `common.typeid` | CHECK | a TypeID key, or a column referencing one, holds a well-formed TypeID |
-| `<entity>_ext_id_fkey` | `<entity>_ext` | FOREIGN KEY | the record still has a part stored in `<entity>_ext`; delete it through `<entity>`. This is what a cascade into an is_a root hits for a subtype record |
+| `<entity>_ext_<id_column>_fkey` | `<entity>_ext` | FOREIGN KEY | the record still has a part stored in `<entity>_ext`; delete it through `<entity>`. This is what a cascade into an is_a root hits for a subtype record |
+| `<table>_<field>_check` | `<table>` | CHECK | an enum field holds one of its values; also raised by the dictionary when rows do not fit a change of the values or default |
+| `<table>_<field>_fkey` | `<table>` | FOREIGN KEY | a reference or parent field names an existing record; its delete mode decides what deleting that record does |
+| `<table>_<field>_unique` | `<table>` | UNIQUE (index) | a `unique_value` field holds no value twice (NULL and, on a TEXT column, the empty string excepted) |
 | `fields_table_field_unique` | `fields` | UNIQUE | one row per (`table_name`, `field_name`) |
 | `fields_table_name_fkey` | `fields` | FOREIGN KEY | `table_name` must name an entity |
 | `reference_requires_table` | `fields` | CHECK | a `reference` or `parent` field must name a `reference_table` |
@@ -636,6 +667,7 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 | `valid_format` | `fields` | CHECK | `format` is one of the supported field formats |
 | `valid_input_type` | `fields` | CHECK | `input_type` is `default`, `required`, `readonly`, `disabled` or `hidden` |
 | `valid_precision` | `fields` | CHECK | `precision` is between 0 and 18 |
+| `one_pk_per_table_idx` | `fields` | UNIQUE (index) | one `is_pk` field per entity |
 | `valid_reference_delete_mode` | `fields` | CHECK | `reference_delete_mode` is empty, `restrict`, `clear` or `cascade` |
 | `valid_width` | `fields` | CHECK | `width` is `default`, `s`, `m` or `w` |
 | `modules_module_slug_key` | `modules` | UNIQUE | `module_slug` is unique |
@@ -646,8 +678,11 @@ expression behind it. Names PostgreSQL generates itself (`users_email_key`,
 | `valid_permission_hierarchy_origin` | `permission_hierarchy` | CHECK | `origin` is `system`, `model`, `model_master` or `user` |
 | `permission_name_shape` | `permissions` | CHECK | `permission_name` is colon-separated lowercase segments |
 | `process_gates_process_entity_gate_state_key` | `process_gates` | UNIQUE | one gate per (`process_id`, `entity`, `gate_kind`, `to_state`) |
+| `idx_processes_module_key` | `processes` | UNIQUE (index) | a non-empty `process_key` is unique within its module |
+| `idx_processes_global_key` | `processes` | UNIQUE (index) | a non-empty `process_key` is unique among the processes without a module |
 | `valid_process_key` | `processes` | CHECK | `process_key` is empty or a lowercase identifier |
 | `raci_assignments_process_role_raci_key` | `raci_assignments` | UNIQUE | one assignment per (`process_id`, `role_id`, `raci`) |
+| `idx_raci_one_accountable` | `raci_assignments` | UNIQUE (index) | at most one accountable assignment per process |
 | `raci_events_entity_fkey` | `raci_events` | FOREIGN KEY | `entity` must name an entity; an entity cannot be deleted while events name it (23001 on PostgreSQL 18, 23503 up to 17), and a rename carries its events along |
 | `raci_events_target_role_id_fkey` | `raci_events` | FOREIGN KEY | `target_role_id` must name a role; a role cannot be deleted while events name it (23001 on PostgreSQL 18, 23503 up to 17) |
 | `valid_role_origin` | `roles` | CHECK | `origin` is `system`, `model`, `model_master` or `user` |

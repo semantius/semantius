@@ -9,7 +9,7 @@
 --   4. the label marker follows entities.label_column
 BEGIN;
 
-SELECT plan(38);
+SELECT plan(42);
 
 -- =====================================================
 -- PART 1: ctype coverage for the record-versioning timestamps
@@ -87,8 +87,9 @@ SELECT is(
 -- =====================================================
 -- ctype is the single, un-tamperable core marker.
 --
--- Protection (no rename/format/default/delete of a core column) keys on dd_ctype_is_core(ctype),
--- under which rollup and computed are not core. For that to be sound, ctype must be settable
+-- Protection (no rename, delete, or change of format, default, reference table or delete mode
+-- of a core column) keys on dd_ctype_is_core(ctype), under which rollup and computed are not
+-- core. For that to be sound, ctype must be settable
 -- ONLY by privileged DD code and immutable thereafter — otherwise a tenant admin (who holds the
 -- fields edit permission 'admin') could mint a ctype on a field, or clear the id column's ctype
 -- to "free" it for deletion. The fields_ctype_lock trigger enforces this: non-privileged
@@ -140,6 +141,49 @@ SELECT throws_ok(
     '90217',
     NULL,
     'a core (ctype=core) metadata column cannot be deleted');
+
+-- ── A core reference keeps its foreign key: its delete mode and target are fixed ─
+-- The foreign key of a core column is written by hand in the migrations, and
+-- the one of modules.view_permission is deferred, which a generated one never
+-- is. A change of either attribute would have the dictionary replace it with
+-- the generated form, so both are refused; an ordinary reference may change
+-- both.
+SELECT is(
+    (SELECT jsonb_build_object('code', e ->> 'code', 'message', e ->> 'message', 'hint', e ->> 'hint')
+       FROM catch_error($$UPDATE fields SET reference_delete_mode = 'clear'
+                          WHERE table_name = 'modules' AND field_name = 'view_permission'$$) AS e),
+    jsonb_build_object('code', '90285',
+                       'message', 'Cannot change reference_delete_mode of core system field ${field_name}',
+                       'hint', jsonb_build_object('field_name', 'view_permission')::text),
+    'the delete mode of a core reference cannot change (modules.view_permission, whose foreign key is deferred)');
+
+SELECT is(
+    (SELECT jsonb_build_object('code', e ->> 'code', 'message', e ->> 'message', 'hint', e ->> 'hint')
+       FROM catch_error($$UPDATE fields SET reference_table = 'roles'
+                          WHERE table_name = 'user_roles' AND field_name = 'assigned_by'$$) AS e),
+    jsonb_build_object('code', '90286',
+                       'message', 'Cannot change reference_table of core system field ${field_name}',
+                       'hint', jsonb_build_object('field_name', 'assigned_by')::text),
+    'the target of a core reference cannot change (user_roles.assigned_by)');
+
+-- Renaming an entity re-points every reference to it (rename_dd_reference_tables,
+-- 0170_dd_rename.sql), core fields included, so renaming users is refused the same
+-- way. Which of the core fields that point at users is named first is not fixed,
+-- so the hint is left out.
+SELECT throws_ok(
+    $$UPDATE entities SET table_name = 'users_renamed' WHERE table_name = 'users'$$,
+    '90286',
+    'Cannot change reference_table of core system field ${field_name}',
+    'renaming the entity users, which core fields point at, is refused');
+
+INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width,
+                    reference_table, reference_delete_mode)
+VALUES ('lk_probe', 'owner', 'Owner', 'reference', 70, 'default', 'default', 'users', 'restrict');
+
+SELECT lives_ok(
+    $$UPDATE fields SET reference_table = 'roles', reference_delete_mode = 'clear'
+       WHERE table_name = 'lk_probe' AND field_name = 'owner'$$,
+    'an ordinary reference may still change its delete mode and its target, in one write');
 
 -- ── is_core derived from ctype in get_schema ─────────────────────────────────
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width)

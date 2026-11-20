@@ -271,6 +271,11 @@ BEGIN
                 'select_rule_' || OLD.table_name, v_new_rel);
             EXECUTE format('DROP FUNCTION IF EXISTS public.%I(public.%I) CASCADE',
                 'select_rule_' || OLD.table_name, v_new_rel);
+            -- The row move function names the table in its body. CASCADE drops
+            -- the zz_row_move trigger that runs it; manage_select_rule_policy
+            -- generates both again under the new name.
+            EXECUTE format('DROP FUNCTION IF EXISTS common.%I() CASCADE',
+                'row_move_mark_' || OLD.table_name);
 
             -- The family routines generated under the old name: the write
             -- routine (typed by the view, which already answers to the new
@@ -314,7 +319,7 @@ COMMENT ON FUNCTION rename_dd_table IS
 objects when table_name changes: updated_at trigger, order column trigger, RLS policies, GIN search_vector
 index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
-unique indexes, compute_validate and rule functions, select_rule function, and queue event triggers.
+unique indexes, compute_validate and rule functions, select_rule and row move functions, and queue event triggers.
 For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;
 the generated family routines are dropped under the old name for the family refresh to rebuild.
 Sets a transaction-local session variable so the cascaded update to fields.table_name is

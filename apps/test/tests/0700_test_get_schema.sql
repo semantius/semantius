@@ -11,7 +11,7 @@
 --   7. A reference to an entity the caller may not see
 BEGIN;
 
-SELECT plan(193);
+SELECT plan(194);
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -635,6 +635,24 @@ SELECT is(
     (public.get_schema('modules')::jsonb)->'properties'->'view_permission'->>'default',
     'user:read',
     'a reference to a text-keyed entity keeps an explicit default'
+);
+
+-- =====================================================
+-- TEST: The delete modes of the core references are what their constraints do
+-- =====================================================
+-- A role cannot be deleted while a module names it as a default, and a role
+-- goes with its module: get_schema says so, as the foreign keys of
+-- 0060_rbac_schema.once.sql do (0550_test_foreign_keys.sql compares them with
+-- the generated form).
+
+SELECT is(
+    jsonb_build_array(
+        (public.get_schema('modules')::jsonb)->'properties'->'default_viewer_role_id'->>'reference_delete_mode',
+        (public.get_schema('modules')::jsonb)->'properties'->'default_manager_role_id'->>'reference_delete_mode',
+        (public.get_schema('modules')::jsonb)->'properties'->'default_admin_role_id'->>'reference_delete_mode',
+        (public.get_schema('roles')::jsonb)->'properties'->'module_id'->>'reference_delete_mode'),
+    '["restrict", "restrict", "restrict", "cascade"]'::jsonb,
+    'get_schema shows restrict for the default roles of a module and cascade for the module of a role'
 );
 
 -- =====================================================

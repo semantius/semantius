@@ -35,7 +35,7 @@ To run the CLI from this checkout:
 - [Deno](https://deno.land/) 2.9.3+ — the floor is set by `deno task build-cli`,
   which cross-compiles the released binaries and needs a `deno compile` target
   that arrived in 2.9.3
-- [pnpm](https://pnpm.io/) 8+ (for the Node.js packages)
+- [pnpm](https://pnpm.io/) 10.26+ (for the Node.js packages)
 - PostgreSQL database
 
 To run the released `pg_semantius` binary, none of the above — only the

@@ -18,7 +18,7 @@
         "singular": "user_bookmark",
         "singular_label": "User Bookmark",
         "plural_label": "Favorites",
-        "description": "Manage and order your facorites for quick access to frequently used apps and records.",
+        "description": "Manage and order your favorites for quick access to frequently used apps and records.",
         "view_permission": "user:read",
         "edit_permission": "user:read",
         "id_column": "id",

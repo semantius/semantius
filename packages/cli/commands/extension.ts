@@ -838,7 +838,7 @@ a semantic data dictionary, and a message queue.
 
 ## Install
 
-Two statements, as a superuser, in a UTF8 database:
+Two statements, as a superuser with the \`BYPASSRLS\` attribute, in a UTF8 database:
 
 \`\`\`sql
 CREATE EXTENSION ${name};
@@ -889,7 +889,7 @@ file's name and the SHA-256 of its text:
 
 So a build that changed a function reaches an existing install on the next
 \`migrate()\`. A change made by hand to an object a repeatable file creates
-stays until that file changes again; to re-apply a file anyway, clear its
+stays until that file changes again; to re-apply that file anyway, clear its
 checksum: \`UPDATE public._versions SET checksum = NULL WHERE name = '...';\`.
 
 ## Functions
@@ -898,7 +898,7 @@ checksum: \`UPDATE public._versions SET checksum = NULL WHERE name = '...';\`.
 |---|---|
 | \`CALL ${S}.migrate()\` | Applies the bundled migrations that are due. Superuser only, one transaction per file, fails at once while another migration runs. |
 | \`${S}.pending()\` | Bundled migrations the next migrate() would apply. Works before the first migrate(). |
-| \`${S}.version()\` | Version of the installed bundle. |
+| \`${S}.version()\` | Version of the installed bundle (the installer, not the installed schema). |
 | \`${S}.status()\` | Applied/pending counts, unknown migrations, changed run-once migrations, ownership and default-ACL drift, and whether \`jwt_aud\` is set. |
 
 \`\\dx\` shows the *installer's* version, which is not necessarily the state of
@@ -911,7 +911,7 @@ variables, no ordering rules:
 
 \`\`\`sh
 pg_dump -Fc -d appdb -f appdb.dump          # as a superuser or a BYPASSRLS role
-createdb -T template0 newdb
+createdb -T template0 -E UTF8 newdb
 pg_restore -d newdb appdb.dump              # one pass, same cluster or a fresh one
 \`\`\`
 
@@ -921,10 +921,16 @@ pg_restore -d newdb appdb.dump              # one pass, same cluster or a fresh 
   own \`CREATE EXTENSION\` recreates the roles and functions.
 - Restore as a superuser **named like the installing one** (\`postgres\` in the
   shipped images) and **not** with \`--no-owner\`. A differently named superuser
-  still gets working data, but the schemas and event triggers stay owned by the
-  restorer and the installer's default-privilege entries are lost, so functions
-  created by hand later would be PUBLIC-executable. \`${S}.status()\` reports
-  this.
+  still gets working data. On a cluster that has no role of the installer's
+  name, the schemas and event triggers stay owned by the restorer and the
+  installer's default-privilege entries are lost. The default-privilege entries
+  of \`rbac\` grant the request role EXECUTE only on functions created by the
+  role they name, the installing role or \`semantius_owner\`; a function another
+  role creates there, the restorer included, is PUBLIC-executable, and so
+  executable by the request role, until it is revoked from PUBLIC, and then
+  only its owner and superusers can run it. \`${S}.status()\` reports
+  \`default_acls_ok\` from the default-privilege entries of the role that calls
+  it.
 - On a **fresh cluster** the four roles are recreated by the dump's
   \`CREATE EXTENSION\`, but they are NOLOGIN and without passwords: rerun your
   deployment's login step.
@@ -954,9 +960,11 @@ DROP OWNED BY semantius_user, authenticated, semantius_authenticator;
 DROP ROLE semantius_user, authenticated, semantius_authenticator, semantius_owner;
 \`\`\`
 
-The event triggers go first because they fire on every drop below them.
+The event triggers go first because they fire on every drop below them. The
+recipe leaves \`pgcrypto\` installed and keeps the \`timezone\` and
+\`intervalstyle\` settings \`migrate()\` gave the database.
 
-The last statement leaves one \`pg_default_acl\` row behind
+The \`ALTER DEFAULT PRIVILEGES\` statement leaves one \`pg_default_acl\` row behind
 (\`public | FUNCTIONS | {=X/postgres}\`). That is the built-in default written
 out explicitly rather than a leftover privilege: a function created afterwards
 gets the default ACL and PUBLIC can execute it, exactly as in a database that
@@ -965,7 +973,9 @@ never had ${name} installed.
 ## Roles
 
 Created by \`CREATE EXTENSION\` (cluster-wide, never dropped with it). All four
-are NOLOGIN and passwordless; grant LOGIN and a password per environment.
+are NOLOGIN and passwordless; grant LOGIN and a password per environment to the
+roles your deployment logs in as, never to \`semantius_owner\`, which
+\`CREATE EXTENSION\` and \`ALTER EXTENSION ... UPDATE\` refuse once it can log in.
 
 | Role | Purpose |
 |---|---|
@@ -982,10 +992,10 @@ the install refuses.
 
 \`migrate()\` pins \`search_path\`, \`standard_conforming_strings\` and
 \`check_function_bodies\`, and forces \`session_replication_role = origin\`,
-before every file, so an unusual session cannot change what gets installed. It still fails, by
-design, under \`default_transaction_read_only\`, a \`statement_timeout\` or
-\`lock_timeout\` shorter than the install, or an isolation level above read
-committed.
+before every file, so an unusual session cannot change what gets installed. It
+still fails, by design, under \`default_transaction_read_only\`, a
+\`statement_timeout\` shorter than the install, or a \`lock_timeout\` shorter
+than a lock wait the install meets.
 
 ## Runtime configuration
 
@@ -995,8 +1005,9 @@ The code reads these settings from the session:
 |---|---|
 | \`request.jwt.claims\` | PostgREST or your app tier, per request |
 | \`request.jwt.claim.sub\`, \`request.jwt.claim.email\`, \`request.jwt.claim.role\`, \`request.jwt.claim.roles\`, \`request.jwt.claim.name\`, \`request.jwt.claim.given_name\`, \`request.jwt.claim.family_name\`, \`request.jwt.claim.aud\`, \`request.jwt.claim.iss\`, \`request.jwt.claim.tid\`, \`request.jwt.claim.oid\` | the same, one GUC per claim (Neon/Supabase style); \`rbac.uid()\` also writes them, per transaction, when it fans out \`request.jwt.claims\` and when it sets the \`role\` and \`sub\` it resolved |
-| \`app.current_user_id\`, \`app.user_permissions\`, \`app.oauth_scopes\`, \`app.oauth_scopes_expanded\`, \`app.oauth_scopes_expanded_for\`, \`app.current_external_id\`, \`app.context_initialized\`, \`app.bumping_module_version\`, \`app.bearer_cache_notice\` | the RBAC code itself, per transaction |
-| \`app.row_move\`, \`app.select_rule_warned\` | the generated \`select_rule\` predicates and the \`zz_row_move\` triggers of an entity with a \`select_rule\`, per transaction |
+| \`app.oauth_scopes\` | your app tier, to confine a session to the permissions a scope list names and everything they include; unset or empty means no confinement |
+| \`app.current_user_id\`, \`app.user_permissions\`, \`app.oauth_scopes_expanded\`, \`app.oauth_scopes_expanded_for\`, \`app.current_external_id\`, \`app.context_initialized\`, \`app.bumping_module_version\`, \`app.bearer_cache_notice\` | the RBAC code and the module-version triggers, per transaction |
+| \`app.row_move\`, \`app.row_move_secret\`, \`app.select_rule_warned\` | the generated \`select_rule\` predicates and the \`zz_row_move\` triggers of an entity with a \`select_rule\`, per transaction |
 | \`dd.table_rename\` | the data dictionary, during a table rename |
 | \`semantius.notice_level\` | \`ensure_entities()\`, per transaction, to keep the caller's \`client_min_messages\` for its NOTICEs: the dictionary code runs \`SET LOCAL client_min_messages = WARNING\` to silence the notices of the DDL it runs, and that lasts to the end of the transaction |
 
@@ -1017,7 +1028,7 @@ tier".
 
 A token from Microsoft Entra ID is identified by its \`iss\` claim
 (\`login.microsoftonline.com/<tenant>/v2.0\`, \`sts.windows.net/<tenant>/\` or
-\`<tenant>.ciamlogin.com\`), and its user is \`entra.<tid>.<oid>\`, not its
+\`<name>.ciamlogin.com/<tenant>/v2.0\`), and its user is \`entra.<tid>.<oid>\`, not its
 \`sub\`: Entra issues a different \`sub\` to every app registration, so two
 clients of one database would otherwise see the same person as two users.
 \`users.external_id\` holds that value, so a user created ahead of time must
@@ -1035,7 +1046,8 @@ be given it. An app tier that sets the per-claim GUCs instead of
 | 55000 | \`${name} requires a UTF8 database\` |
 | 55000 | \`the pgmq extension is installed; ${name} vendors its own pgmq schema\` |
 | 55000 | \`pgcrypto must be installed in schema public\` |
-| 55000 | \`existing role semantius_owner has unexpected attributes\` |
+| 55000 | \`existing role <role> has unexpected attributes\` |
+| 55000 | \`existing role semantius_owner already has members\` |
 | 55000 | \`${S}.migrate() cannot run inside a CREATE/ALTER EXTENSION script\` |
 | 55P03 | \`another migration is running\` |
 | 2D000 | \`invalid transaction termination\` (\`CALL ${S}.migrate()\` inside a transaction block) |
@@ -1044,7 +1056,8 @@ be given it. An app tier that sets the per-claim GUCs instead of
 ## Requirements
 
 PostgreSQL 18 (the only tested version), a UTF8 database, and superuser rights
-to install. Security model and reporting: see \`SECURITY.md\` in this archive.
+with the \`BYPASSRLS\` attribute to install. Security model and reporting: see
+\`SECURITY.md\` in this archive.
 `;
 }
 

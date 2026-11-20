@@ -244,7 +244,7 @@ CREATE TEMP TABLE sec_sql_builders (name TEXT PRIMARY KEY, builds_sql BOOLEAN NO
 INSERT INTO sec_sql_builders (name, builds_sql)
 SELECT n, TRUE FROM unnest(ARRAY[
             'audit.disable_tracking', 'audit.enable_tracking', 'common.has_a_guard',
-            'common.is_a_part_missing', 'common.row_move_mark', 'common.typeid_assign',
+            'common.is_a_part_missing', 'common.typeid_assign',
             'public.add_dd_field', 'public.apply_field_ddl', 'public.auto_set_order_value',
             'public.build_record_logic_trigger', 'public.build_select_rule_policy', 'public.check_entity_family',
             'public.computed_backfill', 'public.create_dd_table', 'public.create_entity_policies',

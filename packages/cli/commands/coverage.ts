@@ -251,7 +251,13 @@ const GENERATED_TEMPLATES: {
   },
   {
     generator: "build_select_rule_policy",
+    description: /^Per-row FOR SELECT RLS predicate /,
     template: "public.select_rule_<entity>",
+  },
+  {
+    generator: "build_select_rule_policy",
+    description: /^BEFORE INSERT OR UPDATE row trigger function of zz_row_move /,
+    template: "common.row_move_mark_<entity>",
   },
   {
     generator: "rollup_build_guard",
@@ -1266,14 +1272,10 @@ export function renderUncoveredMarkdown(s: CoverageSummary): string {
   const partialAll = s.functions
     .filter((f) => f.called && f.statements && f.statements.pct < 100)
     .sort((a, b) => a.statements!.pct - b.statements!.pct);
-  const partial = partialAll.filter((f) => !f.generated);
-  const partialGenerated = partialAll.filter((f) => f.generated);
-  out.push("");
-  out.push(
-    `## Partially covered migration functions (${partial.length}, sorted by statement coverage)`,
-  );
-  out.push("");
-  for (const f of partial) {
+  const partial = partialAll.filter((f) => !f.vendored && !f.generated);
+  const partialGenerated = partialAll.filter((f) => !f.vendored && f.generated);
+  const partialVendored = partialAll.filter((f) => f.vendored);
+  const partialLine = (f: FunctionCoverage): string => {
     const st = f.statements!;
     const branch = f.branchesPct !== null
       ? `, branches ${fmtPct(f.branchesPct)}`
@@ -1283,11 +1285,19 @@ export function renderUncoveredMarkdown(s: CoverageSummary): string {
       : f.source
       ? ""
       : "; source not mapped";
-    out.push(
-      `- ${signature(f)}${tags(f)}: ${st.executed}/${st.total} statements (${
-        fmtPct(st.pct)
-      })${branch}${sourceRef(f)}${lines}`,
-    );
+    return `- ${signature(f)}${
+      tags(f)
+    }: ${st.executed}/${st.total} statements (${fmtPct(st.pct)})${branch}${
+      sourceRef(f)
+    }${lines}`;
+  };
+  out.push("");
+  out.push(
+    `## Partially covered migration functions (${partial.length}, sorted by statement coverage)`,
+  );
+  out.push("");
+  for (const f of partial) {
+    out.push(partialLine(f));
   }
 
   if (partialGenerated.length > 0) {
@@ -1309,6 +1319,16 @@ export function renderUncoveredMarkdown(s: CoverageSummary): string {
           }: ${st.executed}/${st.total} statements (${fmtPct(st.pct)})`,
         );
       }
+    }
+  }
+  if (partialVendored.length > 0) {
+    out.push("");
+    out.push(
+      `## Partially covered functions in vendored code, not counted (${partialVendored.length})`,
+    );
+    out.push("");
+    for (const f of partialVendored) {
+      out.push(partialLine(f));
     }
   }
 

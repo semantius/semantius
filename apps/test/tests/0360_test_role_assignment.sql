@@ -6,9 +6,10 @@
 --   1. User role auto-assignment and protection
 --   2. user_roles.assigned_by default
 --   3. New permissions are granted to Administrator
+--   4. Deleting the user who assigned a role or granted a permission
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(24);
 
 -- =====================================================
 -- PART 1: User role auto-assignment and protection
@@ -278,6 +279,40 @@ SELECT is(
     (SELECT array_agg(role_id ORDER BY role_id) FROM role_permissions WHERE permission_name = 'test:after_rename'),
     ARRAY[2]::bigint[],
     'a permission created after role 2 was renamed is granted to role 2 and to no other role'
+);
+
+-- =====================================================
+-- PART 4: Deleting the user who assigned a role or granted a permission
+-- =====================================================
+-- assigned_by and granted_by record who made an assignment or a grant, as
+-- references to users with delete mode clear. Deleting that user keeps the
+-- assignment and the grants and empties the column.
+RESET ROLE;
+SET LOCAL search_path TO public, pgtap;
+
+INSERT INTO users (id, external_id, email) VALUES (9101, 'by_probe', 'by_probe@test.com');
+INSERT INTO roles (role_name, slug, description) VALUES ('By Probe Role', 'by_probe_role', 'Assigned and granted by the probe user');
+INSERT INTO user_roles (user_id, role_id, assigned_by)
+SELECT 1001, id, 9101 FROM roles WHERE slug = 'by_probe_role';
+INSERT INTO role_permissions (role_id, permission_name, granted_by)
+SELECT id, 'nwind:view', 9101 FROM roles WHERE slug = 'by_probe_role';
+INSERT INTO user_permissions (user_id, permission_name, granted_by) VALUES (1001, 'nwind:view', 9101);
+
+SELECT lives_ok(
+    $$ DELETE FROM users WHERE id = 9101 $$,
+    'a user who assigned a role and granted permissions can be deleted'
+);
+
+SELECT is(
+    jsonb_build_array(
+        (SELECT count(*) FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+          WHERE r.slug = 'by_probe_role' AND ur.user_id = 1001 AND ur.assigned_by IS NULL),
+        (SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id = rp.role_id
+          WHERE r.slug = 'by_probe_role' AND rp.permission_name = 'nwind:view' AND rp.granted_by IS NULL),
+        (SELECT count(*) FROM user_permissions
+          WHERE user_id = 1001 AND permission_name = 'nwind:view' AND granted_by IS NULL)),
+    '[1, 1, 1]'::jsonb,
+    'the assignment and both grants stay, with assigned_by and granted_by emptied'
 );
 
 SELECT * FROM finish();

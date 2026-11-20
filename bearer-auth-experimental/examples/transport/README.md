@@ -20,8 +20,9 @@ the `authenticated` role is **`oauth`-only**. So:
   `postgresql://user:<JWT>@host/db` form is a different, proxy-based model —
   Supabase/Neon/PostgREST — and is rejected here.)
 - **No Node Postgres driver speaks `OAUTHBEARER` yet** (`pg`, `postgres.js`), and
-  none lets you inject a pre-minted token. Even libpq only supports the
-  *interactive* device flow (the client fetches its own token).
+  none lets you inject a pre-minted token. libpq's built-in flow is the
+  *interactive* device flow (the client fetches its own token); a pre-minted
+  token needs its C hook `PQsetAuthDataHook`.
 
 So this module speaks just enough of the PostgreSQL v3 wire protocol, by hand, to
 do the handshake and query. It is a Node port of the proven

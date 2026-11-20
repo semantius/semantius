@@ -56,13 +56,15 @@ SELECT throws_ok(
 
 -- Deleting the role itself cascades into user_roles and is caught the same way.
 -- Two guards stand in front of it and the first is not this one: modules
--- reference role 2 as their default_admin_role_id, so the FK refuses the delete
--- with 23503 before any trigger runs. Clearing that reference is what makes the
--- cascade reachable, and it is the state a module deletion would leave behind.
-SELECT throws_ok(
+-- reference role 2 as their default_admin_role_id, so the foreign key refuses
+-- the delete before any trigger runs. It is ON DELETE RESTRICT, which raises
+-- 23001 (restrict_violation) on PostgreSQL 18 and 23503 before, so the message
+-- common to both is matched, as in 0550_test_foreign_keys.sql. Clearing that
+-- reference is what makes the cascade reachable, and it is the state a module
+-- deletion would leave behind.
+SELECT throws_like(
     $$DELETE FROM roles WHERE id = 2$$,
-    '23503',
-    NULL,
+    'update or delete on table "roles" violates %foreign key constraint "modules_default_admin_role_id_fkey" on table "modules"',
     'a module referencing the Administrator role blocks the delete on its own');
 
 UPDATE modules SET default_admin_role_id = NULL WHERE default_admin_role_id = 2;

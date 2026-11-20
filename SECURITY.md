@@ -47,12 +47,14 @@ one of these is a vulnerability:
 These are documented behaviors rather than defects. If you think the reasoning
 is wrong, say so, but they will not be treated as vulnerabilities.
 
-- **A restore by a differently named superuser loses the installer's default
-  privileges.** The extension's `ALTER DEFAULT PRIVILEGES` entries bind to the
-  role that installed it, so restoring a dump as a superuser with a different
-  name leaves the four schemas and the event triggers owned by the restorer
-  and drops those entries, so the request role loses its EXECUTE on future
-  functions in `rbac`. `semantius.status()` reports the drift.
+- **A restore by a differently named superuser, on a cluster without the
+  installing role, loses the installer's default privileges.** The `ALTER
+  DEFAULT PRIVILEGES` entries the migrations write bind to the role that ran
+  them, so restoring a dump as a superuser with a different name, on a cluster
+  that has no role of the installer's name, leaves the `common`, `rbac`,
+  `audit` and `pgmq` schemas and the event triggers owned by the restorer and
+  drops those entries. `default_acls_ok` in `semantius.status()` checks the
+  default-privilege entries of the role that calls it.
   `pg_restore --no-owner` additionally loses `OWNER TO semantius_owner`, so the
   dictionary's SECURITY DEFINER code would run as the restorer. Restore as the
   same superuser name, without `--no-owner`.
@@ -67,12 +69,18 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   function, and the `ALTER DEFAULT PRIVILEGES ... REVOKE EXECUTE ON FUNCTIONS
   FROM PUBLIC` entries do not change that: `pg_default_acl` records only the
   privileges a schema *adds*, so a revoke of the built-in PUBLIC grant is not
-  representable there and is dropped. In `rbac` the effect is wider, because the
-  surviving `GRANT EXECUTE ... TO semantius_user` in the same entry does apply:
-  a function you add there is PUBLIC-executable *and* automatically exposed to
-  the request role over RPC. This is a property of any install, restored or not.
-  The extension's own functions are revoked explicitly instead, and guard test
-  `0900_test_security.sql` fails if one is missed; a function you add needs its
+  representable there and is dropped. This is a property of any install,
+  restored or not. In `rbac` the `GRANT EXECUTE ... TO semantius_user` of the
+  same entries does apply, but only to a function created by a role an entry
+  names, the installing role or `semantius_owner`: such a function is
+  PUBLIC-executable *and* executable by the request role through the grant. A
+  function another role creates there gets no grant from them, and once it is
+  revoked from PUBLIC, as `0080_rbac_functions.sql` does for the whole schema
+  when it runs, only its owner and superusers can run it; the restore above
+  removes the installing role's entry.
+  The extension's own functions outside the vendored `pgmq` schema are revoked
+  explicitly instead, and guard test `0900_test_security.sql` fails if one in
+  `public`, `rbac`, `common` or `audit` is missed; a function you add needs its
   own `REVOKE`, whether or not it is SECURITY DEFINER.
 - **Session mode trusts the application tier.** When an application connects
   as `semantius_authenticator`, switches to the request role and writes the
@@ -84,7 +92,7 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   value is non-empty: without it the audience claim is not checked and any
   token from the trusted issuer is accepted, which is also what Neon does when
   the provider's audience is left blank. `semantius.status()` reports
-  `jwt_aud_set = false` until the row is written.
+  `jwt_aud_set = false` until the row is written with a non-empty value.
 - **The transaction-scoped context cache is client-writable, and it stays
   that way.** The `app.*` settings written by
   `rbac.ensure_context_initialized()` are ordinary settings. Behind PostgREST
@@ -98,9 +106,10 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   there is no `db-pre-request` hook, so every permission check would run
   permanently cold - about 1 ms instead of 0.025 ms, and once per *row*
   wherever the JsonLogic `has_permission` operator appears. The readers keep
-  their lazy write instead. Everything they write is transaction-local, so a
-  rolled-back request leaves nothing behind; the full contract is in the
-  comment above `rbac.uid()`.
+  their lazy write instead. Everything they write is transaction-local, so no
+  request leaves anything behind, committed or rolled back; the full contract
+  is in the header of `apps/test/tests/0950_test_volatility_contract.sql`,
+  which pins it.
 - **A row being written passes its entity's `select_rule` for that one
   statement.** The write policies of an entity with a `select_rule` hold the
   row as it was to the rule and the row as it will be to the edit permission
@@ -109,12 +118,17 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   holds the new row to the read policy, so a trigger marks that row in the
   transaction-local setting `app.row_move` to let it pass. The setting is
   client-writable wherever the client runs SQL, so its value is a SHA-256 of a
-  secret in `_settings`, the transaction id, the table and the key, and a
-  value the client writes opens nothing. Behind PostgREST or an app server,
-  the writer can no longer read, update or delete the row once the statement
-  has ended. A client that runs SQL itself can read the token while its
-  statement runs and write it back later in the same transaction, which lets
-  it read that one row, the row it wrote, until the transaction ends. A write
+  secret in `_settings`, the transaction id, the table and the key. Behind
+  PostgREST or an app server a value the client writes opens nothing, and the
+  writer can no longer read, update or delete the row once the statement has
+  ended. A session that runs its own SQL, a bearer session, can read the
+  secret: once the trigger has marked a row in a transaction, it keeps the
+  secret in the transaction-local setting `app.row_move_secret`, and with it
+  the session can make the token of any row and get past every
+  `select_rule`. Before bearer sessions are enabled, the marking trigger has
+  to read the secret from `_settings` on every row through the definer
+  function and keep it in no setting, and the secret in `_settings` has to be
+  replaced: it is never rotated, so a secret read once stays valid. A write
   whose new values make the rule raise is refused with 42501 only when the
   statement reads a column of the table, because only then does PostgreSQL
   hold the new row to the read policy, where a rule that raises answers false
@@ -137,22 +151,21 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   answer anybody else exactly as for a table that does not exist. These still
   show that the entity exists, and part of what it holds:
   - PostgREST's OpenAPI root lists every table the request role is granted,
-    which is every entity table, with its columns, types and foreign key
-    relationships, and `GET /<table>` answers `200 []` for a table whose rows
-    the caller cannot read where it answers 404 for a missing one.
+    which includes every managed entity table, with its columns, types and
+    foreign key relationships, and `GET /<table>` answers `200 []` for a table
+    whose rows the caller cannot read where it answers 404 for a missing one.
   - The table and column comments in the PostgreSQL catalog carry the
     dictionary's labels, descriptions and enum values, and every role reads
     them, directly and through the OpenAPI root.
   - A visible row is returned as stored, with what it says of hidden
-    entities: `reference_table` and `id_refentity` hold a hidden entity's
-    name; a rollup definition is kept whole, so it names the child entity,
-    the child's link field, the fields it aggregates and filters on and the
-    values its filter compares them with; and the rules are kept whole, so a
-    rule that reads a record through `set_record` names the entity and the
-    fields it reads. A reference property in `get_schema` keeps the JSON
-    type and TypeID pattern of its own column, which follow the key type of
-    the entity it references. `get_schema` adds nothing else taken from a
-    hidden entity's row.
+    entities: `reference_table` holds a hidden entity's name; a rollup
+    definition is kept whole, so it names the child entity, the child's link
+    field, the fields it aggregates and filters on and the values its filter
+    compares them with; and the rules are kept whole, so a rule that reads a
+    record through `set_record` names the entity and the fields it reads. A
+    reference property in `get_schema` keeps the JSON type and TypeID pattern
+    of its own column, which follow the key type of the entity it references.
+    `get_schema` adds nothing else taken from a hidden entity's row.
   - Module rows are outside the rule: a visible module row shows its
     `dashboard_config`, and `modules.version` moves with changes to the
     entities and fields of the module.
@@ -161,11 +174,12 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   target. Its status and the remaining hardening are in
   [docs/bearer-mode-status.md](docs/bearer-mode-status.md).
 - **The extension installs as superuser, and dictionary code runs as the
-  schema owner.** Where the installer is a superuser, every core object is
-  owned by `semantius_owner` (NOSUPERUSER, BYPASSRLS) and SECURITY DEFINER
-  dictionary code runs with that role's powers; on managed platforms it runs
-  as the installing role. An administrator can shape every managed table
-  through the dictionary. That is what the `admin` permission means.
+  schema owner.** Where the installer is a superuser, every core object except
+  the schemas and the event triggers is owned by `semantius_owner`
+  (NOSUPERUSER, BYPASSRLS) and SECURITY DEFINER dictionary code runs with that
+  role's powers; on managed platforms it runs as the installing role. An
+  administrator can shape every managed table through the dictionary. That is
+  what the `admin` permission means.
 - **A table created by hand in `public` is invisible to the request role until
   the operator grants it.** There are no default privileges on tables or
   sequences in `public`, so a table the data dictionary did not create is
@@ -183,8 +197,9 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   protected by having no permission model at all is therefore refused. A name
   that starts with `_` (`_settings`, `_apikeys`) cannot be registered as an
   entity, managed or not, and the two audit log entities cannot become managed.
-  Exposing an unmanaged table yourself takes the same two steps in the same
-  order: write its policies, then `GRANT ... TO semantius_user`.
+  Exposing an unmanaged table yourself takes the same steps in the same order:
+  enable row-level security, write its policies, then
+  `GRANT ... TO semantius_user`.
   Never the grant alone - it is what publishes the table, and without policies
   it publishes every row.
 - **Every principal carries a non-empty `external_id`, and that is its
@@ -194,12 +209,12 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   token, whose `sub` differs per app registration; an API key
   resolves to a user id, and the JWT minted from it carries that row's
   `external_id` as `sub`. A user brings theirs from the authentication
-  provider and is refused without one. An agent (`is_agent`) saved without one
-  gets a generated `agent:<uuid>` from a trigger. Only a holder of `admin` sets
-  or changes an `external_id` (42501, `hint.code` `90107`): a holder of
+  provider and is refused without one. An agent (`is_agent`) inserted without
+  one gets a generated `agent:<uuid>` from a trigger. Only a holder of `admin`
+  sets or changes an `external_id` (42501, `hint.code` `90107`): a holder of
   `user:manage` creates agents and edits every other column, and a person's
   row comes from the first sign-in or from an administrator. The column
-  refuses the empty string for both (`users_external_id_not_empty`).
+  refuses an empty or blank string for both (`users_external_id_not_empty`).
   Uniqueness is enforced by the data dictionary's partial unique index, which
   excludes `NULL` and `''`; with the empty string refused, it is total in
   effect.
@@ -220,10 +235,12 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   or owner connection is exempt, so an operator can still empty the set
   deliberately; the next principal to log in *for the first time* is then
   elected.
-- **pgmq's information functions are callable by the request role.** Queue
-  names, metrics and topic bindings are readable. Queue contents are not:
-  they are reachable only through the queue RPCs, which require the queue's
-  view or manage permission.
+- **pgmq's functions are executable by the request role.** It holds no
+  privilege on any pgmq table, so they refuse it with 42501 at the first table
+  they read, the information functions (`list_queues`, `metrics`,
+  `metrics_all`, `list_topic_bindings`) included. Queue contents are reachable
+  only through the queue RPCs, which require the queue's view or manage
+  permission.
 - **A client that runs SQL as the request role can ask whether a record is
   held by a blocking consultation.** The generated write routine of an is_a or
   has_a entity runs as the caller, and before the subtype's rules run it holds
@@ -252,8 +269,8 @@ is wrong, say so, but they will not be treated as vulnerabilities.
   (its own select rule, or another view permission) the dictionary refuses the
   rollup (90269) unless its definition carries `"include_hidden_rows": true`;
   with the flag, the administrator has decided that readers of the parent may
-  learn the sum, count, minimum or maximum over child rows their row security
-  hides. The flag is in the definition, so the decision is on record.
+  learn the sum, count, average, minimum or maximum over child rows their row
+  security hides. The flag is in the definition, so the decision is on record.
 - **Saving a computed rule or a rollup definition rewrites stored values with no
   record audit row.** Applying it to existing records is a recalculation, so it
   moves no `updated_at` and writes no audit row, queue message or RACI event. An

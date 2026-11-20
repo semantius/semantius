@@ -4,7 +4,7 @@
 -- the in-test hierarchy edges are added under user:manage (no persisted edge from there).
 BEGIN;
 
-SELECT plan(57);
+SELECT plan(60);
 
 SELECT authenticate_as('user3');
 
@@ -102,6 +102,40 @@ SELECT is(
     (SELECT default_viewer_role_id FROM modules WHERE module_name = 'master_test'),
     (SELECT id FROM roles WHERE role_name = 'User' LIMIT 1),
     'modules.default_viewer_role_id can reference a valid role'
+);
+
+-- The default roles are restrict: a role cannot be deleted while a module
+-- names it as a default. RESTRICT refuses the delete itself, where NO ACTION
+-- checks at the end of the statement whether a row holds the key by then, so a
+-- statement that deletes the role and puts another one under its id is refused
+-- as well, and a plain delete all the more. Deleting a module still deletes the
+-- roles it owns, its default roles among them. ON DELETE RESTRICT raises 23001
+-- (restrict_violation) on PostgreSQL 18 and 23503 before, so the message common
+-- to both is matched, as in 0550_test_foreign_keys.sql.
+INSERT INTO modules (module_name, module_slug) VALUES ('Default Role Probe', 'default_role_probe');
+INSERT INTO roles (role_name, module_id)
+SELECT 'Default Role Probe Viewer', id FROM modules WHERE module_slug = 'default_role_probe';
+UPDATE modules
+   SET default_viewer_role_id = (SELECT id FROM roles WHERE role_name = 'Default Role Probe Viewer')
+ WHERE module_slug = 'default_role_probe';
+
+SELECT throws_like(
+    $$ WITH gone AS (DELETE FROM roles WHERE role_name = 'Default Role Probe Viewer' RETURNING id, module_id)
+       INSERT INTO roles (id, role_name, module_id)
+       SELECT id, 'Default Role Probe Stand-in', module_id FROM gone $$,
+    'update or delete on table "roles" violates %foreign key constraint "modules_default_viewer_role_id_fkey" on table "modules"',
+    'a default role cannot be deleted while a module names it, not even by a statement that puts another role under its id'
+);
+
+SELECT lives_ok(
+    $$ DELETE FROM modules WHERE module_slug = 'default_role_probe' $$,
+    'a module whose own role is its default can be deleted'
+);
+
+SELECT is(
+    (SELECT count(*)::int FROM roles WHERE role_name = 'Default Role Probe Viewer'),
+    0,
+    'and its default role is deleted with it'
 );
 
 -- =====================================================

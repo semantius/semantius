@@ -405,6 +405,19 @@ installs the core schema as ordinary objects.
   23001 on PostgreSQL 18, 23503 on earlier versions); an event for a name
   that is no entity is refused with 23503. Renaming an entity still carries
   its events along.
+- **The foreign keys of the core tables do what `get_schema` says.** A role
+  that a module names as its default viewer, manager or admin role cannot be
+  deleted (`restrict`): PostgreSQL refuses the delete with SQLSTATE 23001 on
+  PostgreSQL 18 and 23503 on earlier versions, where it was 23503 on every
+  version. Deleting a module still deletes its own roles, its default roles among them.
+  `get_schema` said `clear` for the three, and for a role's `module_id`, which
+  deleted the role with its module and now reads `cascade`. Deleting a user who assigned a role or granted a permission keeps
+  the assignment or the grant and empties `assigned_by` or `granted_by`
+  (`clear`, as `get_schema` said), where the delete was refused. The delete
+  mode and the target of a core field cannot be changed (`90285`, `90286`): the
+  dictionary would replace the constraint the migrations write by hand, such as
+  the deferred one of `modules.view_permission`. Renaming `users`, `roles` or
+  `permissions` would re-point core fields and is refused with `90286`.
 - **A `time` field is nullable**, like `date`, and has no default unless
   `default_value` sets one. A required `time` field refuses a missing value
   with `90258`.
@@ -552,6 +565,7 @@ installs the core schema as ordinary objects.
 published as GitHub Releases but are treated as development snapshots: their
 version history was discarded, so **there is no upgrade path from them**. An
 installation on 0.3.0 or 0.4.0 cannot `ALTER EXTENSION ... UPDATE` to 0.5.0 and
-cannot `DROP EXTENSION` without `CASCADE` (in those builds the core tables were
-extension members). Moving to 0.5.0 means: dump the data, install 0.5.0 into a
-new database, `CALL semantius.migrate()`, reload.
+cannot `DROP EXTENSION` without losing the core tables and their rows (in
+those builds the core tables were extension members). Moving to 0.5.0 means:
+dump the data, install 0.5.0 into a new database, `CALL semantius.migrate()`,
+reload.

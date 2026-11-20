@@ -1867,7 +1867,7 @@ SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
-'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, format and default changes. Empty, rollup and computed are not core.';
+'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, and changes of format, default, reference table and delete mode. Empty, rollup and computed are not core.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
@@ -2274,6 +2274,24 @@ BEGIN
         IF OLD.default_value IS DISTINCT FROM NEW.default_value AND NOT dd_ctype_is_label(OLD.ctype) THEN
             RAISE EXCEPTION 'Cannot change default value of core system field ${field_name}'
                 USING ERRCODE = '90220',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
+        END IF;
+
+        -- The foreign key of a core column is written by hand in the
+        -- migrations, some in a form the dictionary does not generate: the one
+        -- of modules.view_permission, created at the end of
+        -- 0090_rbac_seed.once.sql, is deferred, which RESTRICT never is. A
+        -- change of either attribute would drop that constraint below and
+        -- build the generated form in its place.
+        IF OLD.reference_delete_mode IS DISTINCT FROM NEW.reference_delete_mode THEN
+            RAISE EXCEPTION 'Cannot change reference_delete_mode of core system field ${field_name}'
+                USING ERRCODE = '90285',
+                      HINT = jsonb_build_object('field_name', OLD.field_name)::text;
+        END IF;
+
+        IF OLD.reference_table IS DISTINCT FROM NEW.reference_table THEN
+            RAISE EXCEPTION 'Cannot change reference_table of core system field ${field_name}'
+                USING ERRCODE = '90286',
                       HINT = jsonb_build_object('field_name', OLD.field_name)::text;
         END IF;
     END IF;
