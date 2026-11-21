@@ -835,6 +835,10 @@ function buildReadme(
 Semantius core for PostgreSQL: role-based access control, row-level security,
 a semantic data dictionary, and a message queue.
 
+Documentation: [pg_semantius](https://www.semantius.com/docs/pg-semantius) and
+the [data catalog](https://www.semantius.com/docs/data-catalog) it installs.
+Source: [semantius/semantius](https://github.com/semantius/semantius).
+
 ## Install
 
 Two statements, as a superuser with the \`BYPASSRLS\` attribute, in a UTF8 database:

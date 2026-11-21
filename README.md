@@ -1,7 +1,34 @@
 # Semantius Core
 
-A database-first backend framework with permissions and business logic enforced
-in PostgreSQL via Row Level Security (RLS) and custom RBAC.
+The core of [Semantius](https://www.semantius.com): a database-first backend in
+which permissions and business logic are enforced inside PostgreSQL, through Row
+Level Security (RLS) and custom RBAC, so an agent, a script, a SQL client and the
+web app all pass through the same checks.
+
+## What it is
+
+At its center is the
+[data catalog](https://www.semantius.com/docs/data-catalog): modules, entities
+and fields, permissions and roles, and business rules, kept as rows in ordinary
+tables. Saving an entity creates its table, columns and row-level security
+policies in the same transaction, and PostgREST then serves it as a REST
+endpoint. On top of the catalog come JsonLogic rules (computed fields,
+validation, row visibility), rollup fields, RACI, audit logs of records and
+schema changes, API keys and a message queue.
+
+This repository ships the core two ways, both documented under
+[pg_semantius](https://www.semantius.com/docs/pg-semantius):
+
+- the **`pg_semantius` extension**, for a self-hosted PostgreSQL 18 server
+  ([extension/README.md](extension/README.md)), also published as the
+  `ghcr.io/semantius/postgres` image with the extension installed;
+- the **`pg_semantius` CLI**, which deploys the same schema over an ordinary
+  connection, for Neon, Supabase and other hosts that do not allow custom
+  extensions ([CLI.md](CLI.md)).
+
+Semantius Cloud and the
+[self-hosting stack](https://www.semantius.com/docs/self-hosted) are built on
+this core.
 
 ## Repository structure
 
@@ -94,6 +121,10 @@ For self-hosted PostgreSQL 18 (superuser) you can install Semantius core as a
 **PostgreSQL extension** instead of deploying it with `deno task migrate`. It's an
 **additional** channel — managed providers (Neon/Supabase) don't allow custom
 extensions, so it's self-hosted only, and it replaces nothing.
+
+User documentation: [pg_semantius](https://www.semantius.com/docs/pg-semantius)
+on semantius.com. The README shipped with the extension is
+[extension/README.md](extension/README.md).
 
 ### Install (end users)
 
