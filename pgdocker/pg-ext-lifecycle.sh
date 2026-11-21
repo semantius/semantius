@@ -958,62 +958,94 @@ step "[11] Event-trigger noise: the DDL audit and NOTIFY pgrst are scoped"
 # COMMIT and the suite runs inside a transaction that rolls back.
 psqlrun life1 "CREATE SCHEMA lifecycle_foreign" >/dev/null
 
-# notify_probe <sql> -> echoes "notified", "silent", or one of the failure
-# tokens no-listener / ddl-failed / listener-stuck.
-# A detached psql session LISTENs and then sleeps; psql prints
+# notify_probe <sql> runs <sql> and sets res to "notified" or "silent", or to a
+# failure token: no-listener (the listener was not seen at the barrier both
+# before the DDL and after it returned), ddl-failed, listener-stuck (it did not
+# end once the barrier lifted) or listener-failed (its psql exited with an
+# error). It sets res instead of printing it, so that it runs in this shell,
+# where the `bad "setup: ..."` of a wait that gives up is counted.
+#
+# The listener is a background psql that LISTENs and then waits at a barrier
+# (see 1e), with ON_ERROR_STOP, so it reaches the barrier only through a
+# committed LISTEN. psql prints
 #   Asynchronous notification "pgrst" ... received from server process ...
-# when one arrives. Both waits poll on pg_stat_activity rather than sleeping a
-# fixed time: the LISTEN must be committed before the DDL commits, and the
-# listener must have exited before its output file is read. The poll matches the
-# sleeper's query text exactly, so the polling query never counts itself.
-# Every failure mode returns its OWN token, never "silent": a probe that never
-# started would otherwise pass the three "silent" assertions by accident, and a
-# failing DDL inside $(...) would abort the whole script under `set -e` before
-# step 12 could clean up.
+# for each notification it has read. The DDL runs only once the listener is
+# seen waiting at the barrier, so it is listening before the DDL commits. Once
+# the DDL has returned, the listener must be seen still waiting there, and only
+# then does the barrier lift. The listener enters that wait once, so it stayed
+# connected through the whole DDL and whatever the DDL notifies is queued for
+# it; a barrier session that ended on its own bound before the DDL returned
+# fails that second sighting, so a listener that left early cannot go
+# unnoticed. Its output is read only once its psql has exited. A probe that
+# fails still lifts the barrier and waits for the listener to end, so no
+# session outlives it.
+#
+# A backend sends a notification to its client only between transactions,
+# never during a statement such as the barrier wait, and psql prints the
+# notifications it has read only after a command completes. The DDL's commit
+# signals the listener before the DDL returns, so the notification is pending
+# when the barrier wait ends; the backend sends it when that transaction ends
+# or, at the latest, before it replies to the next command. The trailing
+# SELECT 1 is that next command: once its reply is in, psql has read the
+# notification and prints it, so the probe does not depend on the notification
+# coming with the reply to the wait. Without it, a notification sent after that
+# reply would reach a psql that has nothing left to run and exits without
+# printing it.
+#
+# Every failure has its OWN token, never "silent": a listener that did not
+# listen through the whole DDL, or a psql that exits with an error and may not
+# have printed what it read, would otherwise pass the three "silent" assertions
+# by accident. A failing DDL is a token too, not a `set -e` abort that would
+# skip the cleanup of step 12.
 notify_probe() {
-  docker exec "$CONTAINER" rm -f /tmp/listener.out >/dev/null 2>&1 || true
-  docker exec -d "$CONTAINER" sh -c \
-    "psql -U postgres -d life1 -c 'LISTEN pgrst' -c 'SELECT pg_sleep(5)' > /tmp/listener.out 2>&1"
-  i=0
-  while [ "$(psqlq life1 "SELECT count(*) FROM pg_stat_activity WHERE datname='life1' AND query = 'SELECT pg_sleep(5)'")" != "1" ]; do
-    i=$((i + 1))
-    if [ "$i" -gt 20 ]; then echo no-listener; return 0; fi
-    sleep 1
-  done
-  if ! docker exec "$CONTAINER" psql -U postgres -d life1 -v ON_ERROR_STOP=1 -qc "$1" >/dev/null; then
-    echo ddl-failed; return 0
+  local listener_out listener_pid
+  res=""
+  listener_out="$(mktemp)"
+  barrier_up life1 life11_barrier
+  docker exec -e PGAPPNAME=life11_listener "$CONTAINER" psql -U postgres -d life1 -v ON_ERROR_STOP=1 \
+    -c "LISTEN pgrst" -c "$BARRIER_WAIT" -c "SELECT 1" >"$listener_out" 2>&1 &
+  listener_pid=$!
+  if ! until_t life1 "$(blocked_by life11_listener life11_barrier)"; then
+    bad "setup: the listener did not wait at the barrier"; res=no-listener
+  elif ! docker exec "$CONTAINER" psql -U postgres -d life1 -v ON_ERROR_STOP=1 -qc "$1" >/dev/null; then
+    res=ddl-failed
+  elif [ "$(psqlq life1 "$(blocked_by life11_listener life11_barrier)")" != "t" ]; then
+    bad "setup: the listener left the barrier before the DDL returned"; res=no-listener
   fi
-  i=0
-  while [ "$(psqlq life1 "SELECT count(*) FROM pg_stat_activity WHERE datname='life1' AND query = 'SELECT pg_sleep(5)'")" = "1" ]; do
-    i=$((i + 1))
-    if [ "$i" -gt 20 ]; then echo listener-stuck; return 0; fi
-    sleep 1
-  done
-  if docker exec "$CONTAINER" grep -q 'Asynchronous notification "pgrst"' /tmp/listener.out 2>/dev/null; then
-    echo notified
-  else
-    echo silent
+  end_session life11_barrier
+  # Once the barrier is gone the listener waits for nothing, so once its session
+  # has ended, waiting for its psql cannot hang.
+  if ! until_t life1 "$(gone life11_listener)"; then
+    bad "setup: the listener did not end once the barrier lifted"; end_session life11_listener
+    res="${res:-listener-stuck}"
   fi
+  if ! wait "$listener_pid" && [ -z "$res" ]; then
+    bad "setup: the listener failed: $(tail -3 "$listener_out" | tr '\n' ' ')"; res=listener-failed
+  fi
+  if [ -z "$res" ]; then
+    if grep -q 'Asynchronous notification "pgrst"' "$listener_out"; then res=notified; else res=silent; fi
+  fi
+  rm -f "$listener_out"
 }
 
-res=$(notify_probe "CREATE TABLE lifecycle_foreign.t (id int)")
+notify_probe "CREATE TABLE lifecycle_foreign.t (id int)"
 check "foreign schema: no NOTIFY pgrst" "silent" "$res"
 check "foreign schema: no audit row" "0" \
   "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity LIKE 'lifecycle_foreign.%'")"
 
-res=$(notify_probe "DROP TABLE lifecycle_foreign.t")
+notify_probe "DROP TABLE lifecycle_foreign.t"
 check "foreign schema: no NOTIFY pgrst on DROP" "silent" "$res"
 # The drop half of the audit is a second event trigger on sql_drop, and it is
 # bounded by the same five schemas as the create half.
 check "foreign schema: no audit row on DROP" "0" \
   "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity LIKE 'lifecycle_foreign.%'")"
 
-res=$(notify_probe "CREATE TEMP TABLE lifecycle_tmp (id int)")
+notify_probe "CREATE TEMP TABLE lifecycle_tmp (id int)"
 check "temp table: no NOTIFY pgrst" "silent" "$res"
 check "temp table: no audit row" "0" \
   "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity LIKE '%lifecycle_tmp%'")"
 
-res=$(notify_probe "CREATE TABLE public.lifecycle_owned (id int)")
+notify_probe "CREATE TABLE public.lifecycle_owned (id int)"
 check "public schema: NOTIFY pgrst still fires" "notified" "$res"
 check "public schema: audit row still written" "1" \
   "$(psqlq life1 "SELECT count(*) FROM audit_ddl_logs WHERE object_identity = 'public.lifecycle_owned'")"
@@ -1070,7 +1102,7 @@ else
            life9b life_virgin; do
     dropdb_ "$d"
   done
-  docker exec -u root "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/listener.out /tmp/pgmq.sql || true
+  docker exec -u root "$CONTAINER" rm -f /tmp/life1.dump /tmp/life1.sql /tmp/ext.sql /tmp/ext.control /tmp/pgmq.sql || true
   ok "scratch databases and files removed"
 fi
 

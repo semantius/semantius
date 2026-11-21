@@ -29,10 +29,14 @@
 -- STEP 0: Error-hint merge used by the generated trigger
 -- =====================================================
 -- The merge is additive and the key already present wins - jsonb || takes the
--- right operand. That direction is what lets a 42501 keep its own hint.code;
--- swapping the operands overwrites it silently. A cascaded write keeps the
--- innermost entity and rule for another reason: no trigger on the way out adds
--- keys to its error.
+-- right operand. A 42501 keeps its own hint.code because its hint is merged
+-- into, not replaced, and no caller adds a code key, so the operand order
+-- plays no part in that. The order decides only a key both sides carry, which
+-- is why throw_error refuses parameters named entity, rule or field
+-- (jl_reserved_error_parameters in 0050_jsonlogic.sql): with this order such a
+-- parameter would win over the locating key the trigger adds. A cascaded write
+-- keeps the innermost entity and rule for another reason: no trigger on the way
+-- out adds keys to its error.
 --
 -- The cast is guarded rather than tested with a leading brace: text that starts
 -- with one can still be malformed, and a raise in here would replace the error
