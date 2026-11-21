@@ -22,8 +22,9 @@ CREATE TABLE _apikeys (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- key_id needs no index of its own: its UNIQUE builds _apikeys_key_id_key, which
+-- serves the lookup by key_id on every API-key request.
 CREATE INDEX idx_apikeys_user_id ON _apikeys(user_id);
-CREATE UNIQUE INDEX idx_apikeys_key_id ON _apikeys(key_id);
 
 ALTER TABLE _apikeys ENABLE ROW LEVEL SECURITY;
 

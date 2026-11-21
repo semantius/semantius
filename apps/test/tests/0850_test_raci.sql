@@ -9,7 +9,7 @@
 --   5. the entity and the role an event names
 BEGIN;
 
-SELECT plan(88);
+SELECT plan(92);
 
 -- =====================================================
 -- PART 1: RACI system
@@ -198,6 +198,26 @@ SELECT throws_ok(
     'Duplicate process_key within the same module should be rejected'
 );
 
+-- Test 20b: a process without a module is unique by its key among the
+-- processes without a module. The index on (module_id, process_key) cannot
+-- say so: two NULL module_ids never collide, so a second index covers them.
+INSERT INTO processes (process_key, name) VALUES ('global_probe', 'Global Probe');
+
+SELECT throws_ok(
+    $$INSERT INTO processes (process_key, name) VALUES ('global_probe', 'Global Dup')$$,
+    '23505',
+    'duplicate key value violates unique constraint "idx_processes_global_key"',
+    'Duplicate process_key among the processes without a module should be rejected'
+);
+
+-- Test 20c: the same key inside a module names another process
+SELECT lives_ok(
+    $$INSERT INTO processes (module_id, process_key, name) VALUES (1, 'global_probe', 'Module Probe')$$,
+    'A process in a module may share its key with a process without a module'
+);
+
+DELETE FROM processes WHERE process_key = 'global_probe';
+
 -- Test 21: invalid process_key (not snake_case) rejected
 SELECT throws_ok(
     $$INSERT INTO processes (module_id, process_key, name) VALUES (1, 'Bad Key!', 'Bad')$$,
@@ -281,6 +301,17 @@ SELECT throws_ok(
     'At most one accountable per process should be enforced'
 );
 
+-- Test 25b: one assignment per process, role and letter
+SELECT throws_ok(
+    $$INSERT INTO raci_assignments (process_id, raci, role_id, consult_mode)
+      SELECT p.id, 'responsible', r.id, 'read'
+      FROM   processes p, roles r
+      WHERE  p.process_key = 'make_offer' AND r.role_name = 'Northwind Sales'$$,
+    '23505',
+    'duplicate key value violates unique constraint "raci_assignments_process_role_raci_key"',
+    'The same role holding the same letter twice on one process should be rejected'
+);
+
 -- Test 26: consult_mode validation
 SELECT throws_ok(
     $$UPDATE raci_assignments SET consult_mode = 'bad_mode'
@@ -326,6 +357,16 @@ SELECT ok(
         WHERE entity = 'raci_probe' AND to_state = 'approved' AND emits_events = FALSE
     )),
     'process_gate should be insertable for admin'
+);
+
+-- Test 29a: one gate per process, entity, gate kind and target state
+SELECT throws_ok(
+    $$INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
+      SELECT id, 'raci_probe', 'approval', 'approved', 'status', FALSE
+      FROM   processes WHERE process_key = 'make_offer'$$,
+    '23505',
+    'duplicate key value violates unique constraint "process_gates_process_entity_gate_state_key"',
+    'A second gate for the same process, entity, kind and state should be rejected'
 );
 
 -- Test 29b: computed `name` label mirrors the gate_kind enum value

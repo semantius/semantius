@@ -10,7 +10,9 @@
 -- GROUP 1 sweeps the catalog for that shape rather than naming index names, so
 -- it fails when a duplicate is added under any name. GROUP 2 is the half
 -- a name sweep cannot prove: that the composite can resolve the
--- recursive permission walk through an index. It runs with enable_seqscan off,
+-- recursive permission walk through an index; GROUP 2b, that every rbac lookup
+-- by external_id reaches its index in a plan made for any external_id as well
+-- as in one made for a known value. Both run with enable_seqscan off,
 -- because these tables hold a handful of rows and the planner is right to scan
 -- them sequentially - asserting a plan shape without that would be asserting
 -- whatever ANALYZE last saw.
@@ -36,7 +38,7 @@
 -- writes, plus audit triggers). The catalog sweep runs as the owner.
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(19);
 
 SELECT authenticate_as('user3');
 
@@ -118,12 +120,12 @@ BEGIN
             JOIN user_roles ur ON u.id = ur.user_id
             JOIN roles r ON ur.role_id = r.id
             JOIN role_permissions rp ON r.id = rp.role_id
-            WHERE u.external_id = 'user3' AND u.is_disabled = FALSE
+            WHERE u.external_id = 'user3' AND u.external_id <> '' AND u.is_disabled = FALSE
             UNION
             SELECT DISTINCT up.permission_name
             FROM users u
             JOIN user_permissions up ON u.id = up.user_id
-            WHERE u.external_id = 'user3' AND u.is_disabled = FALSE
+            WHERE u.external_id = 'user3' AND u.external_id <> '' AND u.is_disabled = FALSE
             UNION
             SELECT DISTINCT ph.included_permission_name
             FROM permission_tree pt
@@ -161,6 +163,55 @@ SELECT ok(
 );
 
 RESET enable_seqscan;
+
+-- =====================================================
+-- GROUP 2b: every lookup by external_id reaches its index in a generic plan
+-- =====================================================
+-- The rbac functions are PL/pgSQL, so PostgreSQL may plan a statement once for
+-- any value and reuse that plan. users_external_id_unique leaves out the empty
+-- string, and a plan made for a parameter can use it only because every lookup
+-- by external_id in 0080_rbac_functions.sql repeats external_id <> ''; without
+-- that condition the lookup reads every enabled user through idx_users_enabled
+-- instead. plan_cache_mode forces the generic plan from the first call,
+-- enable_seqscan = off keeps the planner from preferring a scan of these few
+-- rows, and the index's scan counter for this transaction shows whether a call
+-- went through it. The context is warmed first, so that only the function's
+-- own lookup can move the counter; ensure_context_initialized is measured on
+-- its cold path.
+CREATE FUNCTION pg_temp.external_id_scans() RETURNS bigint LANGUAGE sql AS
+$$ SELECT pg_stat_get_xact_numscans('public.users_external_id_unique'::regclass) $$;
+
+CREATE FUNCTION pg_temp.uses_external_id_index(p_call text) RETURNS boolean LANGUAGE plpgsql AS $$
+DECLARE v_before bigint := pg_temp.external_id_scans();
+BEGIN
+    EXECUTE p_call;
+    RETURN pg_temp.external_id_scans() > v_before;
+END $$;
+
+SET LOCAL plan_cache_mode = force_generic_plan;
+SET LOCAL enable_seqscan = off;
+SELECT rbac.ensure_context_initialized();
+
+SELECT ok(pg_temp.uses_external_id_index($$SELECT rbac.get_user_by_external_id('user3')$$),
+    'rbac.get_user_by_external_id: a generic plan reaches the user through users_external_id_unique');
+SELECT ok(pg_temp.uses_external_id_index($$SELECT rbac.user_has_permission('user3', 'admin')$$),
+    'rbac.user_has_permission: a generic plan reaches the user through users_external_id_unique');
+SELECT ok(pg_temp.uses_external_id_index($$SELECT * FROM rbac.get_user_permissions('user3')$$),
+    'rbac.get_user_permissions: a generic plan reaches the user through users_external_id_unique');
+
+SELECT set_config('app.context_initialized', 'false', true);
+SELECT ok(pg_temp.uses_external_id_index($$SELECT rbac.ensure_context_initialized()$$),
+    'rbac.ensure_context_initialized: a generic plan reaches the user through users_external_id_unique');
+
+-- EXECUTE on upsert_user_from_jwt is not granted to the request role (see
+-- GROUP 4), so the owner drives it.
+RESET ROLE;
+SELECT ok(pg_temp.uses_external_id_index($$SELECT rbac.upsert_user_from_jwt('user3', NULL)$$),
+    'rbac.upsert_user_from_jwt: a generic plan reaches the user through users_external_id_unique');
+
+RESET plan_cache_mode;
+RESET enable_seqscan;
+SELECT authenticate_as('user3');
 
 -- =====================================================
 -- GROUP 3: a user must bring an identity, an agent is given one

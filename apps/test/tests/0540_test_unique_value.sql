@@ -7,11 +7,12 @@
 -- required, and a required field refuses an empty string, so this file makes it
 -- optional first: what it tests is that uniqueness leaves empty strings alone.
 --
--- The last part turns unique_value on for fields that already hold rows, for
--- each kind of value: text, integer, date, date-time and uuid.
+-- The next part turns unique_value on for fields that already hold rows, for
+-- each kind of value: text, integer, date, date-time and uuid. The last part
+-- does the same for a reference, on creation and on an existing field.
 BEGIN;
 
-SELECT plan(28);
+SELECT plan(37);
 
 -- Authenticate as admin user (writes territories and fields)
 SELECT authenticate_as('user3');
@@ -265,6 +266,85 @@ SELECT lives_ok(
     $$INSERT INTO fields (table_name, field_name, title, format, unique_value, field_order)
       VALUES ('uq_probe', 'due2', 'Due 2', 'date', TRUE, 110)$$,
     'a date field can be created with unique_value = TRUE'
+);
+
+-- =====================================================
+-- A unique reference
+-- =====================================================
+-- A reference gets the same partial unique index as any other field, next to
+-- the plain index every reference has. What the index leaves out follows the
+-- type of the key the reference points at: NULL for an integer key, NULL and
+-- the empty string for a text key. queue_table_events.table_name, a reference
+-- to the text key of entities, is unique this way.
+--
+-- Fixture: `uq_ref_target`, two rows, created in-tx as user3.
+
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('uq_ref_target', 'Unique Target', 'Unique Targets', 1, 'public:read', 'admin');
+INSERT INTO uq_ref_target (label) VALUES ('t1'), ('t2');
+
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, unique_value, field_order)
+      VALUES ('uq_probe', 'owner', 'Owner', 'reference', 'uq_ref_target', 'restrict', TRUE, 120)$$,
+    'a reference field can be created with unique_value = TRUE'
+);
+
+SELECT is(
+    (SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = 'uq_probe_owner_unique'),
+    'CREATE UNIQUE INDEX uq_probe_owner_unique ON public.uq_probe USING btree (owner) WHERE (owner IS NOT NULL)',
+    'the index over a reference to an integer key leaves out only NULL'
+);
+
+SELECT ok(
+    to_regclass('public.idx_uq_probe_owner') IS NOT NULL,
+    'and the reference keeps its plain index next to the unique one'
+);
+
+UPDATE uq_probe SET owner = (SELECT id FROM uq_ref_target WHERE label = 't1') WHERE label = 'r1';
+
+SELECT throws_ok(
+    $$UPDATE uq_probe SET owner = (SELECT id FROM uq_ref_target WHERE label = 't1') WHERE label = 'r2'$$,
+    '23505',
+    'duplicate key value violates unique constraint "uq_probe_owner_unique"',
+    'a second row pointing at the same record is refused'
+);
+
+SELECT lives_ok(
+    $$INSERT INTO uq_probe (label, n, m) VALUES ('r12', 16, 27), ('r13', 17, 28)$$,
+    'rows that point at nothing stay allowed in a unique reference, any number of them'
+);
+
+-- A text key: permissions is keyed by permission_name.
+SELECT lives_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, unique_value, field_order)
+      VALUES ('uq_probe', 'perm', 'Permission', 'reference', 'permissions', 'restrict', TRUE, 130)$$,
+    'a reference to a text-keyed entity can be created with unique_value = TRUE'
+);
+
+SELECT is(
+    (SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = 'uq_probe_perm_unique'),
+    'CREATE UNIQUE INDEX uq_probe_perm_unique ON public.uq_probe USING btree (perm) WHERE ((perm IS NOT NULL) AND (perm <> ''''::text))',
+    'the index over a reference to a text key leaves out NULL and the empty string'
+);
+
+-- An existing reference: the rows decide, as for every other format.
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('uq_probe', 'buddy', 'Buddy', 'reference', 'uq_ref_target', 'restrict', 140);
+UPDATE uq_probe SET buddy = (SELECT id FROM uq_ref_target WHERE label = 't2') WHERE label IN ('r1', 'r2');
+
+SELECT is(
+    catch_error($$UPDATE fields SET unique_value = TRUE WHERE table_name = 'uq_probe' AND field_name = 'buddy'$$) ->> 'message',
+    'could not create unique index "uq_probe_buddy_unique"',
+    'unique_value cannot be turned on for a reference that holds a duplicate'
+);
+
+UPDATE uq_probe SET buddy = NULL WHERE label = 'r2';
+
+SELECT lives_ok(
+    $$UPDATE fields SET unique_value = TRUE WHERE table_name = 'uq_probe' AND field_name = 'buddy'$$,
+    'unique_value can be turned on for the same reference once the duplicate is gone'
 );
 
 SELECT * FROM finish();

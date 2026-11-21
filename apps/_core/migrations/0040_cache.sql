@@ -2,6 +2,9 @@
 -- This eliminates the need for Redis and provides persistent caching across all function instances
 -- RLS is enabled without policies to prevent access via Data API, only direct SQL functions
 -- UNLOGGED table for better performance (truncated on crash, not replicated)
+-- The UNIQUE on key builds the one index on that column: it serves every lookup
+-- by key and is the arbiter of the ON CONFLICT (key) upsert below, so a second,
+-- plain index on key would only add write cost.
 CREATE UNLOGGED TABLE IF NOT EXISTS common._cache (
     id BIGSERIAL PRIMARY KEY,
     key TEXT NOT NULL UNIQUE,
@@ -10,9 +13,6 @@ CREATE UNLOGGED TABLE IF NOT EXISTS common._cache (
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- Create index on key for fast lookups
-CREATE INDEX IF NOT EXISTS idx_cache_key ON common._cache(key);
 
 -- Create index on expires_at for efficient cleanup of expired entries
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON common._cache(expires_at);

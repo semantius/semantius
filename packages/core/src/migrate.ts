@@ -188,13 +188,12 @@ export function getVersionsTableSql(): string {
   // file runs again when it differs, and semantius.status() lists a `.once.`
   // file whose source changed after it was applied. ADD COLUMN IF NOT EXISTS
   // keeps the statement idempotent for databases created before the column
-  // existed.
+  // existed. The primary key on name is the table's only index and serves every
+  // lookup by file name.
   return `CREATE TABLE IF NOT EXISTS _versions (
   name TEXT PRIMARY KEY,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_versions_name ON _versions(name);
 
 ALTER TABLE _versions ADD COLUMN IF NOT EXISTS checksum TEXT;
 

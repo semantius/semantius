@@ -684,11 +684,11 @@ are not listed - they are not ours to keep - except `entities_id_refentity_fkey`
 | `no_self_reference` | `permission_hierarchy` | CHECK | a permission cannot include itself |
 | `valid_permission_hierarchy_origin` | `permission_hierarchy` | CHECK | `origin` is `system`, `model`, `model_master` or `user` |
 | `permission_name_shape` | `permissions` | CHECK | `permission_name` is colon-separated lowercase segments |
-| `process_gates_process_entity_gate_state_key` | `process_gates` | UNIQUE | one gate per (`process_id`, `entity`, `gate_kind`, `to_state`) |
+| `process_gates_process_entity_gate_state_key` | `process_gates` | UNIQUE | one gate per (`to_state`, `entity`, `gate_kind`, `process_id`), the order the 23505 DETAIL lists them in |
 | `idx_processes_module_key` | `processes` | UNIQUE (index) | a non-empty `process_key` is unique within its module |
 | `idx_processes_global_key` | `processes` | UNIQUE (index) | a non-empty `process_key` is unique among the processes without a module |
 | `valid_process_key` | `processes` | CHECK | `process_key` is empty or a lowercase identifier |
-| `raci_assignments_process_role_raci_key` | `raci_assignments` | UNIQUE | one assignment per (`process_id`, `role_id`, `raci`) |
+| `raci_assignments_process_role_raci_key` | `raci_assignments` | UNIQUE | one assignment per (`raci`, `process_id`, `role_id`), the order the 23505 DETAIL lists them in |
 | `idx_raci_one_accountable` | `raci_assignments` | UNIQUE (index) | at most one accountable assignment per process |
 | `raci_events_entity_fkey` | `raci_events` | FOREIGN KEY | `entity` must name an entity; an entity cannot be deleted while events name it (23001 on PostgreSQL 18, 23503 up to 17), and a rename carries its events along |
 | `raci_events_target_role_id_fkey` | `raci_events` | FOREIGN KEY | `target_role_id` must name a role; a role cannot be deleted while events name it (23001 on PostgreSQL 18, 23503 up to 17) |

@@ -30,12 +30,12 @@ SELECT ok(
     '_apikeys should NOT be in entities metadata'
 );
 
--- Test 4: _apikeys has key_id unique index
-SELECT ok(
-    (SELECT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE indexname = 'idx_apikeys_key_id'
-    )),
+-- Test 4: _apikeys has key_id unique index (the one the column's UNIQUE builds;
+-- it serves the lookup by key_id on every API-key request)
+SELECT is(
+    (SELECT indexdef FROM pg_indexes
+      WHERE schemaname = 'public' AND indexname = '_apikeys_key_id_key'),
+    'CREATE UNIQUE INDEX _apikeys_key_id_key ON public._apikeys USING btree (key_id)',
     'Unique index on key_id should exist'
 );
 

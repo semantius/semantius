@@ -10,7 +10,7 @@
 --   5. a mapping that names no queue
 BEGIN;
 
-SELECT plan(107);
+SELECT plan(108);
 
 -- =====================================================
 -- PART 1: Queue system
@@ -696,6 +696,18 @@ SELECT is(
 SELECT lives_ok(
     $$UPDATE queue_table_events SET table_name = table_name WHERE table_name = 'regions'$$,
     'writing the same table_name back is accepted');
+
+-- A table has one mapping at most: table_name is a unique reference, so a
+-- second mapping for regions is refused by its index, whichever queue it
+-- names. The queue trigger finds its mapping by the table's name alone
+-- (queue_build_record_json, 0340_queue.sql), so with two mappings it would
+-- send every write to whichever of them it found first.
+SELECT throws_ok(
+    $$INSERT INTO queue_table_events (queue_id, event_name, table_name, event_handler)
+      SELECT id, 'region insert, again', 'regions', 'insert' FROM queues WHERE queue_name = 'edit_q2'$$,
+    '23505',
+    'duplicate key value violates unique constraint "queue_table_events_table_name_unique"',
+    'a second mapping for a table that is already mapped is refused');
 
 -- One insert, one update and one delete of a region, and the messages they
 -- leave on both queues.

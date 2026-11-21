@@ -430,9 +430,17 @@ BEGIN
         RETURN NULL;
     END IF;
 
+    -- external_id <> '' repeats the predicate of users_external_id_unique, the
+    -- dictionary's partial unique index and the only index on the column. A
+    -- cached generic plan knows p_external_id only as a parameter and cannot
+    -- prove it is not '', so without the condition it cannot use that index
+    -- and reads users from start to end. The guard above has already refused
+    -- the empty string, so the condition changes no result. Every lookup by
+    -- external_id in this file repeats it for the same reason.
     SELECT id INTO v_user_id
     FROM users
     WHERE external_id = p_external_id
+      AND external_id <> ''
       AND is_disabled = FALSE;
 
     RETURN v_user_id;
@@ -468,7 +476,8 @@ BEGIN
 
     SELECT id, last_seen, email, display_name, first_name, last_name
       INTO v_id, v_last_seen, v_email, v_display_name, v_first_name, v_last_name
-      FROM users WHERE external_id = p_external_id;
+      FROM users WHERE external_id = p_external_id
+       AND external_id <> '';  -- lets a cached plan use users_external_id_unique (rbac.get_user_by_external_id)
 
     IF FOUND THEN
         -- Each test below is the SET expression of the UPDATE compared with
@@ -613,7 +622,10 @@ BEGIN
     -- confirm a subject cannot fail to be itself, since its argument is the
     -- external_id this function just resolved one line up. This function is
     -- already a definer, so nothing is lost by reading the row directly instead.
-    SELECT id INTO v_user_id FROM users WHERE external_id = v_external_id AND is_disabled = FALSE;
+    -- external_id <> '' lets a cached plan use users_external_id_unique
+    -- (rbac.get_user_by_external_id).
+    SELECT id INTO v_user_id FROM users
+     WHERE external_id = v_external_id AND external_id <> '' AND is_disabled = FALSE;
 
     -- User must exist - client should have called get_userinfo() on first login
     IF v_user_id IS NULL THEN
@@ -684,7 +696,8 @@ BEGIN
     END IF;
     
     -- Check if user has the permission (including hierarchy)
-    -- Using recursive CTE to follow the hierarchy
+    -- Using recursive CTE to follow the hierarchy. external_id <> '' lets a
+    -- cached plan use users_external_id_unique (rbac.get_user_by_external_id).
     v_has_permission := EXISTS (
     WITH RECURSIVE permission_tree AS (
         -- Start with direct permissions from roles
@@ -694,15 +707,17 @@ BEGIN
         JOIN roles r ON ur.role_id = r.id
         JOIN role_permissions rp ON r.id = rp.role_id
         WHERE u.external_id = p_external_id
+          AND u.external_id <> ''
           AND u.is_disabled = FALSE
-        
+
         UNION
-        
+
         -- Direct per-user permissions
         SELECT DISTINCT up.permission_name
         FROM users u
         JOIN user_permissions up ON u.id = up.user_id
         WHERE u.external_id = p_external_id
+          AND u.external_id <> ''
           AND u.is_disabled = FALSE
         
         UNION
@@ -1201,7 +1216,9 @@ BEGIN
     -- No is_disabled filter here: an unknown external_id leaves v_user_id NULL,
     -- and a disabled one resolves to a real id, but rbac.get_user_permissions_by_id
     -- applies the same is_disabled = FALSE test on the id either way.
-    SELECT id INTO v_user_id FROM users WHERE external_id = p_external_id;
+    -- external_id <> '' lets a cached plan use users_external_id_unique
+    -- (rbac.get_user_by_external_id).
+    SELECT id INTO v_user_id FROM users WHERE external_id = p_external_id AND external_id <> '';
 
     RETURN QUERY SELECT * FROM rbac.get_user_permissions_by_id(v_user_id);
 END;

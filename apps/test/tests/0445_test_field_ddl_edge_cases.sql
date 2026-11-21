@@ -11,7 +11,7 @@
 -- creates its own entities; the transaction is rolled back.
 BEGIN;
 
-SELECT plan(68);
+SELECT plan(72);
 
 SELECT authenticate_as('user3');
 
@@ -37,6 +37,17 @@ SELECT lives_ok(
     $$INSERT INTO fields (table_name, field_name, title, format, enum_values, default_value)
       VALUES ('fd_main', 'status', 'Status', 'enum', '["open", "closed"]', 'open')$$,
     'the same field with a default from its list is accepted');
+
+-- A field name is unique within its table. The key of fields is the generated
+-- id table_name.field_name, so fields_pkey refuses the second row before the
+-- add trigger could try to add the column a second time;
+-- fields_table_field_unique states the same rule on the pair. Only the code
+-- is pinned: the rule holds whichever of the two enforces it.
+SELECT throws_ok(
+    $$INSERT INTO fields (table_name, field_name, title, format)
+      VALUES ('fd_main', 'status', 'Status again', 'text')$$,
+    '23505', NULL,
+    'a second field with the same name on the same table is refused');
 
 -- Every entity has exactly one primary key field, and a unique index on fields
 -- keeps it that way before the add trigger could ask.
@@ -195,6 +206,17 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_fd_child_k
     'and the index built for it');
 SELECT is((SELECT keyed_id FROM fd_child), 'k1', 'and keeps its values');
 
+-- And back: the text column turned into a reference again gets both its
+-- foreign key and its index. A reference without the index would make every
+-- delete of a fd_keyed row scan fd_child for referencing rows.
+UPDATE fields SET format = 'reference', reference_table = 'fd_keyed', reference_delete_mode = 'restrict'
+ WHERE table_name = 'fd_child' AND field_name = 'keyed_id';
+
+SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fd_child_keyed_id_fkey'),
+    'a text field turned into a reference gets its foreign key');
+SELECT ok(EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_fd_child_keyed_id'),
+    'and the index on the column');
+
 -- unique_value turned on for a field that already exists
 INSERT INTO fields (table_name, field_name, title, format) VALUES
     ('fd_main', 'code2', 'Code', 'text'),
@@ -236,6 +258,7 @@ VALUES ('fd_flip', 'Flip', 'Flips', 1, FALSE);
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, unique_value, enum_values) VALUES
     ('fd_flip', 'ref_r', 'Restrict', 'reference', 'fd_target', 'restrict', FALSE, NULL),
     ('fd_flip', 'par_c', 'Cascade',  'parent',    'fd_target', 'cascade',  FALSE, NULL),
+    ('fd_flip', 'ref_u', 'Unique',   'reference', 'fd_target', 'restrict', TRUE,  NULL),
     ('fd_flip', 'us',    'Text',     'text',      '',          '',         TRUE,  NULL),
     ('fd_flip', 'ui',    'Number',   'int32',     '',          '',         TRUE,  NULL),
     ('fd_flip', 'en',    'Enum',     'enum',      '',          '',         FALSE, '["a", "b"]');
@@ -244,7 +267,7 @@ UPDATE entities SET managed = TRUE WHERE table_name = 'fd_flip';
 SELECT is(
     (SELECT string_agg(conname || ':' || confdeltype::text, ', ' ORDER BY conname) FROM pg_constraint
       WHERE conrelid = 'fd_flip'::regclass AND contype = 'f'),
-    'fd_flip_par_c_fkey:c, fd_flip_ref_r_fkey:r',
+    'fd_flip_par_c_fkey:c, fd_flip_ref_r_fkey:r, fd_flip_ref_u_fkey:r',
     'the flip gives a reference its restrict action and a parent its cascade action');
 SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fd_flip_en_check' AND contype = 'c'),
     'and an enum its check');
@@ -256,6 +279,10 @@ SELECT is(
     (SELECT indexdef FROM pg_indexes WHERE indexname = 'fd_flip_ui_unique'),
     'CREATE UNIQUE INDEX fd_flip_ui_unique ON public.fd_flip USING btree (ui) WHERE (ui IS NOT NULL)',
     'and a unique number field its index without NULLs');
+SELECT is(
+    (SELECT indexdef FROM pg_indexes WHERE indexname = 'fd_flip_ref_u_unique'),
+    'CREATE UNIQUE INDEX fd_flip_ref_u_unique ON public.fd_flip USING btree (ref_u) WHERE (ref_u IS NOT NULL)',
+    'and a unique reference to an integer key its index without NULLs');
 
 -- A table that already exists and has rows is adopted without touching them.
 -- A column the field rows add gets what it can: a required field with no

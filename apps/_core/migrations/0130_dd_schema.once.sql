@@ -231,7 +231,8 @@ CREATE UNIQUE INDEX one_pk_per_table_idx
 ON fields (table_name)
 WHERE is_pk;-- Ensure only one primary key per table    
 
-CREATE INDEX idx_fields_table ON fields(table_name);
+-- A lookup by table_name alone is served by fields_table_field_unique, which
+-- starts with that column, so it has no index of its own.
 CREATE INDEX idx_fields_name ON fields(field_name);
 CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
 CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';

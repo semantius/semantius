@@ -76,7 +76,7 @@ AS $f$ SELECT $formats${
   },
   "icon": {
     "type": "string",
-    "description": "Name of a build-in icon"
+    "description": "Name of a built-in icon"
   },
   "rating": {
     "type": "integer",

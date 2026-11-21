@@ -24,13 +24,21 @@ CREATE UNIQUE INDEX idx_raci_one_accountable
     ON raci_assignments(process_id)
     WHERE raci = 'accountable';
 
--- One assignment per (process, role, letter)
+-- One assignment per (process, role, letter), and one gate per (process,
+-- entity, kind, state). Neither key starts with a reference column (raci and
+-- to_state are a plain enum and text, and must stay so for this to hold): the
+-- dictionary gives every reference its own index idx_<table>_<field>, and
+-- builds it again whenever a fields edit rebuilds that reference's foreign
+-- key, so a unique index that started with process_id would repeat
+-- idx_raci_assignments_process_id or idx_process_gates_process_id. The gate
+-- key starts with to_state and entity because the gate lookups in
+-- 0370_raci.sql name both.
 ALTER TABLE raci_assignments
-    ADD CONSTRAINT raci_assignments_process_role_raci_key UNIQUE (process_id, role_id, raci);
+    ADD CONSTRAINT raci_assignments_process_role_raci_key UNIQUE (raci, process_id, role_id);
 
 ALTER TABLE process_gates
     ADD CONSTRAINT process_gates_process_entity_gate_state_key
-    UNIQUE (process_id, entity, gate_kind, to_state);
+    UNIQUE (to_state, entity, gate_kind, process_id);
 
 -- process_gates.entity is a reference to entities, which the dictionary
 -- creates as a nullable TEXT column with its index idx_process_gates_entity.
@@ -51,10 +59,13 @@ ALTER TABLE raci_events ALTER COLUMN target_role_id SET NOT NULL;
 -- target_role_id it has no default: an insert that leaves it out is refused
 -- as a missing value (23502), where a default would turn that into a foreign
 -- key violation for a value nobody wrote. The lookups of a record's events
--- name the entity and the record, so they have an index of their own on both.
+-- name the record, most of them with its entity, so they have an index of
+-- their own on both. record_id comes first: entity is a reference and has the
+-- dictionary's idx_raci_events_entity, which an index starting with entity
+-- would repeat.
 ALTER TABLE raci_events ALTER COLUMN entity SET NOT NULL;
 
-CREATE INDEX idx_raci_events_entity_record ON raci_events(entity, record_id);
+CREATE INDEX idx_raci_events_entity_record ON raci_events(record_id, entity);
 CREATE INDEX idx_raci_events_status ON raci_events(status) WHERE status != 'acted';
 
 -- =====================================================
