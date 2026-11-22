@@ -1,6 +1,7 @@
 /**
- * Unit pins for the two generator helpers whose behavior nothing else can
- * fail on: LF normalization and the manifest checksum.
+ * Unit pins for generator behavior nothing else can fail on: LF
+ * normalization, the manifest checksum, and the order in which an upgrade
+ * script replaces the read-only functions.
  *
  * Why a test and not a byte grep. On a fresh checkout `.gitattributes`
  * (`* text=auto eol=lf`) makes the whole tree LF, so the generator would keep
@@ -14,7 +15,12 @@
  */
 
 import { dirname, fromFileUrl, join } from "@std/path";
-import { compareVersions, sha256hex, toLf } from "./extension.ts";
+import {
+  compareVersions,
+  renderInstaller,
+  sha256hex,
+  toLf,
+} from "./extension.ts";
 
 const REPO_ROOT = join(dirname(fromFileUrl(import.meta.url)), "..", "..", "..");
 
@@ -66,4 +72,38 @@ Deno.test("versions.json records sha256hex(toLf(source))", async () => {
     recorded,
     `${KEY} in ${newest} does not match the migration on disk`,
   );
+});
+
+Deno.test("an upgrade drops the read-only functions before creating them", () => {
+  // CREATE OR REPLACE cannot change a result type, so the first release that
+  // changes status()'s columns needs the drop to come first, or
+  // ALTER EXTENSION ... UPDATE fails with 42P13. No release with different
+  // columns exists yet, and no harness runs an upgrade script, so the
+  // rendered text is the only place the order can be checked.
+  const migs = [{
+    app: "_core",
+    name: "0010_probe.sql",
+    content: "SELECT 1;\n",
+    processed: "SELECT 1;\n",
+    checksum: "0".repeat(64),
+  }];
+  const upgrade = renderInstaller("pg_semantius", migs, { upgrade: true });
+  for (const fn of ["status", "pending", "version"]) {
+    const drop = upgrade.indexOf(`DROP FUNCTION IF EXISTS semantius.${fn}();`);
+    const create = upgrade.indexOf(`CREATE FUNCTION semantius.${fn}()`);
+    if (drop < 0) throw new Error(`the upgrade script does not drop ${fn}()`);
+    if (create < 0) {
+      throw new Error(`the upgrade script does not create ${fn}()`);
+    }
+    if (drop > create) {
+      throw new Error(`the upgrade script creates ${fn}() before dropping it`);
+    }
+  }
+
+  // The full install creates the schema in the same script, so there is
+  // nothing to drop, and the install script stays what it was.
+  const install = renderInstaller("pg_semantius", migs, { upgrade: false });
+  if (install.includes("DROP FUNCTION IF EXISTS semantius.status()")) {
+    throw new Error("the full install must not drop status()");
+  }
 });

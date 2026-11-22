@@ -303,6 +303,8 @@ jobs:
           cat > notes.md <<EOF
           PostgreSQL extension build of **Semantius core v$V**.
 
+          Documentation: https://www.semantius.com/docs/pg-semantius
+
           **Install**
           - PGXN: \`pgxn install pg_semantius\`
           - From this release: download \`pg_semantius-$V.zip\`, unzip, run \`make install\`.

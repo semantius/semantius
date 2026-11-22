@@ -329,9 +329,6 @@ export async function extensionCommand(
   // the `k in prevFiles` test below, which exempts migrations added in THIS
   // version. Do not relax either without reading RELEASE.md.
   const prev = highestVersionBelow(version, manifest);
-  // Members dropped from the bundle since `prev`. An upgrade script must DROP
-  // them explicitly or they linger as members of the upgraded extension.
-  const removedMembers: string[] = [];
   if (prev) {
     const prevFiles = manifest.versions[prev].files;
     const added = migs.filter((m) => !(`${m.app}/${m.name}` in prevFiles));
@@ -421,17 +418,14 @@ export async function extensionCommand(
       ``,
     ].join("\n");
     // An upgrade is the SAME installer, minus `CREATE SCHEMA` (the schema
-    // already exists) and with CREATE OR REPLACE for the functions - replacing
-    // a member of the same extension inside its own script is allowed. The
-    // whole bundle is embedded, not just the delta: migrate() decides per file
-    // from `_versions` (new files, changed repeatable files, the 9900 files),
-    // so one code path serves install, upgrade and re-run.
+    // already exists), with CREATE OR REPLACE for migrate() and a drop and
+    // create for the read-only functions (see renderInstaller). The whole
+    // bundle is embedded, not just the delta: migrate() decides per file from
+    // `_versions` (new files, changed repeatable files, the 9900 files), so one
+    // code path serves install, upgrade and re-run.
     await Deno.writeTextFile(
       `${outputDir}/${name}--${prev}--${version}.sql`,
-      toLf(
-        upgradeHeader +
-          renderInstaller(name, migs, { upgrade: true, removedMembers }),
-      ),
+      toLf(upgradeHeader + renderInstaller(name, migs, { upgrade: true })),
     );
     console.info(
       `Wrote upgrade ${name}--${prev}--${version}.sql ` +
@@ -756,7 +750,8 @@ function buildMetaJson(
     description:
       "Semantius core packaged as a PostgreSQL extension: role-based access " +
       "control, row-level security, a semantic data dictionary, and a message " +
-      "queue. An alternative to deploying the migrations with the Semantius CLI.",
+      "queue. Hosts that do not allow custom extensions get the same schema " +
+      "from the pg_semantius CLI.",
     version,
     maintainer: ["adenin TECHNOLOGIES <support@adenin.com>"],
     license: "mit",
@@ -777,8 +772,11 @@ function buildMetaJson(
         requires: prereqRequires,
       },
     },
+    // PGXN shows homepage, repository and bugtracker as three separate links,
+    // so the homepage is the user documentation rather than the repository
+    // again.
     resources: {
-      homepage: "https://github.com/semantius/semantius",
+      homepage: "https://www.semantius.com/docs/pg-semantius",
       bugtracker: {
         web: "https://github.com/semantius/semantius/issues",
       },
@@ -1192,11 +1190,19 @@ function assertNoTagCollisions(
 /**
  * Renders the whole extension script: roles, schema, and the functions.
  *
- * `upgrade` omits `CREATE SCHEMA` (it already exists) and uses CREATE OR
- * REPLACE, which is allowed for a member of the same extension inside its own
- * script. `removedMembers` are dropped so they do not linger as members.
+ * `upgrade` omits `CREATE SCHEMA` (it already exists), replaces migrate() with
+ * CREATE OR REPLACE, and drops pending(), version() and status() before
+ * creating them again. CREATE OR REPLACE cannot change a function's result
+ * type, so the first release that changes status()'s columns would otherwise
+ * fail `ALTER EXTENSION ... UPDATE` with 42P13. Dropping a member inside its
+ * own extension's script is allowed, and the CREATE that follows makes the new
+ * function a member again. The cost: an EXECUTE grant someone added on one of
+ * the three by hand does not survive an upgrade. They are superuser-only by
+ * design, and the schema grants no USAGE, so no supported setup has one.
+ *
+ * Exported for `extension_test.ts`, which pins the drop-before-create order.
  */
-function renderInstaller(
+export function renderInstaller(
   name: string,
   migs: {
     app: string;
@@ -1206,7 +1212,7 @@ function renderInstaller(
     processed: string;
     checksum: string;
   }[],
-  opts: { upgrade: boolean; removedMembers?: string[] },
+  opts: { upgrade: boolean },
 ): string {
   const S = INSTALLER_SCHEMA;
   const orReplace = opts.upgrade ? "CREATE OR REPLACE" : "CREATE";
@@ -1293,9 +1299,18 @@ function renderInstaller(
     })),
   ).replace(/'/g, "''");
 
-  const drops = (opts.removedMembers ?? [])
-    .map((sig) => `DROP FUNCTION IF EXISTS ${sig};\n`)
-    .join("");
+  // The full install renders this as the empty line it has always had, so the
+  // install script does not change when only the upgrade path does.
+  const readOnlyDrops = opts.upgrade
+    ? `-- The read-only functions are dropped and created again below: CREATE OR
+-- REPLACE cannot change a function's result type, so a release that changes
+-- status()'s columns would fail here otherwise. An EXECUTE grant added on one
+-- of them by hand does not survive the upgrade.
+DROP FUNCTION IF EXISTS ${S}.status();
+DROP FUNCTION IF EXISTS ${S}.pending();
+DROP FUNCTION IF EXISTS ${S}.version();
+`
+    : "";
 
   return `-- =====================================================
 -- Thin installer. This script creates ONLY cluster roles, the ${S} schema
@@ -1403,7 +1418,7 @@ COMMENT ON SCHEMA ${S} IS
   'Installer for the ${name} extension. Holds migrate()/pending()/version()/status(); no data.';
 `
   }
-${drops}
+${readOnlyDrops}
 -- 4. The installer, a PROCEDURE so it can commit after every file. Not
 --    SECURITY DEFINER: current_user, session_user and the superuser check
 --    must be the CALLER's, which 0010_core.sql, 0100_rbac_rls.sql and
@@ -1581,7 +1596,7 @@ COMMENT ON PROCEDURE ${S}.migrate(jsonb) IS
   'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Superuser only. CALL it outside a transaction block.';
 
 -- 5. Read-only companions.
-${orReplace} FUNCTION ${S}.pending() RETURNS SETOF text
+CREATE FUNCTION ${S}.pending() RETURNS SETOF text
 LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
@@ -1622,7 +1637,7 @@ REVOKE EXECUTE ON FUNCTION ${S}.pending() FROM PUBLIC;
 COMMENT ON FUNCTION ${S}.pending() IS
   'Bundled migrations the next migrate() would run: new files, changed repeatable files, and the 9900 files that follow them.';
 
-${orReplace} FUNCTION ${S}.version() RETURNS text
+CREATE FUNCTION ${S}.version() RETURNS text
 LANGUAGE sql STABLE
 SET search_path = public
 AS $pgsem_version$
@@ -1634,7 +1649,7 @@ REVOKE EXECUTE ON FUNCTION ${S}.version() FROM PUBLIC;
 COMMENT ON FUNCTION ${S}.version() IS
   'Version of the installed bundle (the installer, not the installed schema).';
 
-${orReplace} FUNCTION ${S}.status()
+CREATE FUNCTION ${S}.status()
 RETURNS TABLE (
   extversion        text,
   db_version        text,

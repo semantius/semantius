@@ -1,7 +1,7 @@
 {
   "name": "pg_semantius",
   "abstract": "Database-first RBAC, RLS, data dictionary, and message queue for PostgreSQL",
-  "description": "Semantius core packaged as a PostgreSQL extension: role-based access control, row-level security, a semantic data dictionary, and a message queue. An alternative to deploying the migrations with the Semantius CLI.",
+  "description": "Semantius core packaged as a PostgreSQL extension: role-based access control, row-level security, a semantic data dictionary, and a message queue. Hosts that do not allow custom extensions get the same schema from the pg_semantius CLI.",
   "version": "0.5.0-beta1",
   "maintainer": [
     "adenin TECHNOLOGIES <support@adenin.com>"
@@ -25,7 +25,7 @@
     }
   },
   "resources": {
-    "homepage": "https://github.com/semantius/semantius",
+    "homepage": "https://www.semantius.com/docs/pg-semantius",
     "bugtracker": {
       "web": "https://github.com/semantius/semantius/issues"
     },

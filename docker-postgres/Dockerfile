@@ -22,6 +22,11 @@
 # ---------------------------------------------------------------------------
 FROM postgres:18
 
+# --- Image metadata: GHCR connects the package to its repository through
+#     `source`; `docker inspect` shows both labels. -------------------------
+LABEL org.opencontainers.image.source="https://github.com/semantius/semantius" \
+      org.opencontainers.image.documentation="https://www.semantius.com/docs/pg-semantius/docker"
+
 # --- Extension files: staged into the cluster's extension dir so the init step
 #     below can CREATE EXTENSION. The glob picks up whatever version is present,
 #     so a version bump needs no edit here. ---------------------------------
