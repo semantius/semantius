@@ -848,7 +848,7 @@ Many-to-many mapping between roles and permissions
 | `role_id` (core) | parent | Role | - | integer | false | - | 10 | default | default | core | false | - | 2 | roles | cascade | has permissions | Permission | Permissions | false | auto | - | - | - |
 | `permission_name` (core) | parent | Permission | - | string | false | - | 20 | default | default | core | false | - | 2 | permissions | cascade | granted to | Role | Roles | false | auto | - | - | - |
 | `granted_at` (core) | date-time | Granted At | - | string | false | - | 30 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `granted_by` (core) | reference | Granted By | - | integer | false | - | 40 | default | default | core | false | - | 2 | users | clear | has granted | - | - | false | auto | - | - | - |
+| `granted_by` (core) | reference | Granted By | The user who made the grant. The database records the caller; a client cannot set or change it. | integer | false | - | 40 | disabled | default | core | false | - | 2 | users | clear | has granted | - | - | false | auto | - | - | - |
 
 ---
 
@@ -1004,7 +1004,7 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | `user_id` (core) | parent | User | - | integer | false | - | 10 | required | default | core | false | - | 2 | users | cascade | has permissions | Permission | Permissions | false | auto | - | - | - |
 | `permission_name` (core) | parent | Permission | - | string | false | - | 20 | required | default | core | false | - | 2 | permissions | cascade | granted to | User | Users | false | auto | - | - | - |
 | `granted_at` (core) | date-time | Granted At | - | string | false | - | 30 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `granted_by` (core) | reference | Granted By | - | integer | false | - | 40 | default | default | core | false | - | 2 | users | clear | has granted | - | - | false | auto | - | - | - |
+| `granted_by` (core) | reference | Granted By | The user who made the grant. The database records the caller; a client cannot set or change it. | integer | false | - | 40 | disabled | default | core | false | - | 2 | users | clear | has granted | - | - | false | auto | - | - | - |
 
 ---
 
@@ -1055,7 +1055,7 @@ Many-to-many mapping between users and roles
 | `user_id` (core) | parent | User | - | integer | false | - | 10 | required | default | core | false | - | 2 | users | cascade | has roles | Role | Roles | false | auto | - | - | - |
 | `role_id` (core) | parent | Role | - | integer | false | - | 20 | required | default | core | false | - | 2 | roles | cascade | assigned to | User | Users | false | auto | - | - | - |
 | `assigned_at` (core) | date-time | Assigned At | - | string | false | - | 30 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `assigned_by` (core) | reference | Assigned By | - | integer | false | - | 40 | default | default | core | false | - | 2 | users | clear | has assigned | - | - | false | auto | - | - | - |
+| `assigned_by` (core) | reference | Assigned By | The user who made the assignment. The database records the caller; a client cannot set or change it. | integer | false | - | 40 | disabled | default | core | false | - | 2 | users | clear | has assigned | - | - | false | auto | - | - | - |
 
 ---
 

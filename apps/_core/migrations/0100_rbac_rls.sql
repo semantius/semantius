@@ -474,74 +474,109 @@ COMMENT ON TRIGGER assert_external_id_writer_trigger ON users IS
 'Refuses a chosen external_id on INSERT and a changed one on UPDATE from a caller without admin.';
 
 -- =====================================================
--- TRIGGER: Default assigned_by to current user
+-- GUARD: assigned_by and granted_by record the caller
 -- =====================================================
--- When a user_role record is inserted without an assigned_by value,
--- automatically set it to the current user ID from the session context
-
--- A trigger rather than a column default because it also fills an explicit NULL.
--- rbac.user_id_or_null() is the one place that resolves the user, and gives NULL in
--- a session without one (a migration, a seed script).
-CREATE OR REPLACE FUNCTION rbac.default_assigned_by()
+-- user_roles.assigned_by, role_permissions.granted_by and
+-- user_permissions.granted_by name the user who handed out the access. They are
+-- the audit trail of who gave whom which role or permission, so a client does
+-- not choose them: an INSERT records the caller and an UPDATE keeps the value.
+-- Otherwise anyone who can write user_roles could make an assignment look like
+-- another administrator's, when inserting it or afterward.
+--
+-- What a client may still send:
+--   * nothing, or NULL, on INSERT. The column gets the caller, or stays NULL in
+--     a session that resolves no user (rbac.user_id_or_null). A trigger and not
+--     a column default, because a default does not replace an explicit NULL;
+--   * its own user id on INSERT, and the value already there on UPDATE, which
+--     is what a client that saves a whole record sends.
+-- Anything else is refused with 90109.
+--
+-- A role with BYPASSRLS is exempt, as from the other guards in this file: a
+-- migration, a seed script or an import that runs as the owner may record the
+-- user who really made an assignment, and still gets the caller when it leaves
+-- the column empty. The same exemption lets the foreign keys act. Deleting the
+-- recorded user empties the column (ON DELETE SET NULL), and a change of the
+-- user's id carries over (ON UPDATE CASCADE). Both are UPDATEs that run as the
+-- referencing table's owner.
+--
+-- SECURITY INVOKER for the reason given at rbac.assert_administrator_remains:
+-- inside a definer function current_user is the owner, and every caller would
+-- be exempt. TG_ARGV[0] names the column, which is read and written through
+-- jsonb because PL/pgSQL cannot address a record field whose name is only
+-- known at run time.
+CREATE OR REPLACE FUNCTION rbac.record_actor()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_column TEXT   := TG_ARGV[0];
+    v_sent   BIGINT := (to_jsonb(NEW) ->> TG_ARGV[0])::bigint;
+    v_caller BIGINT;
 BEGIN
-    IF NEW.assigned_by IS NULL THEN
-        NEW.assigned_by := rbac.user_id_or_null();
+    IF TG_OP = 'UPDATE' THEN
+        IF v_sent IS NOT DISTINCT FROM (to_jsonb(OLD) ->> v_column)::bigint THEN
+            RETURN NEW;
+        END IF;
+    ELSE
+        v_caller := rbac.user_id_or_null();
+        IF v_sent IS NULL THEN
+            IF v_caller IS NOT NULL THEN
+                -- EXECUTE, not an assignment, for the reason given at
+                -- common.typeid_assign (0045_typeid.sql): an assignment keeps
+                -- the row type the table had when the trigger first ran in the
+                -- session, and would drop a column added since.
+                EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
+                   INTO NEW
+                  USING NEW, jsonb_build_object(v_column, v_caller);
+            END IF;
+            RETURN NEW;
+        END IF;
+        IF v_sent = v_caller THEN
+            RETURN NEW;
+        END IF;
     END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
-GRANT EXECUTE ON FUNCTION rbac.default_assigned_by() TO semantius_user;
 
-COMMENT ON FUNCTION rbac.default_assigned_by IS
-'Trigger function to default assigned_by to the current user ID when not explicitly provided.';
-
-CREATE OR REPLACE TRIGGER default_assigned_by_trigger
-    BEFORE INSERT ON user_roles
-    FOR EACH ROW
-    EXECUTE FUNCTION rbac.default_assigned_by();
-
-COMMENT ON TRIGGER default_assigned_by_trigger ON user_roles IS
-'Defaults assigned_by to the current session user when not provided on insert.';
-
--- =====================================================
--- TRIGGER: Default granted_by to current user, for role_permissions and
--- user_permissions
--- =====================================================
-
--- As rbac.default_assigned_by.
-CREATE OR REPLACE FUNCTION rbac.default_granted_by()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.granted_by IS NULL THEN
-        NEW.granted_by := rbac.user_id_or_null();
+    IF (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user) THEN
+        RETURN NEW;
     END IF;
-    RETURN NEW;
+
+    RAISE EXCEPTION '${column} is recorded by the database and cannot be set or changed'
+        USING ERRCODE = 'insufficient_privilege',
+              HINT = jsonb_build_object(
+                  'code', '90109',
+                  'hint', '${column} names the user who made the assignment or the grant. Leave it out, or send it unchanged, to save the rest of the record.',
+                  'column', v_column)::text;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = rbac, public, pg_temp;
-GRANT EXECUTE ON FUNCTION rbac.default_granted_by() TO semantius_user;
+$$ LANGUAGE plpgsql SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.record_actor() TO semantius_user;
 
-COMMENT ON FUNCTION rbac.default_granted_by IS
-'Trigger function to default granted_by to the current user ID when not explicitly provided.';
+COMMENT ON FUNCTION rbac.record_actor IS
+'Row-level trigger on user_roles, role_permissions and user_permissions (TG_ARGV[0]: assigned_by or granted_by). Fills an empty column with the caller on INSERT, and refuses a value other than the caller on INSERT and any change on UPDATE (42501, hint.code 90109). SECURITY INVOKER so the BYPASSRLS exemption tests the real caller.';
 
-CREATE OR REPLACE TRIGGER default_granted_by_trigger
-    BEFORE INSERT ON user_permissions
+CREATE OR REPLACE TRIGGER record_assigned_by_trigger
+    BEFORE INSERT OR UPDATE OF assigned_by ON user_roles
     FOR EACH ROW
-    EXECUTE FUNCTION rbac.default_granted_by();
+    EXECUTE FUNCTION rbac.record_actor('assigned_by');
 
-COMMENT ON TRIGGER default_granted_by_trigger ON user_permissions IS
-'Defaults granted_by to the current session user when not provided on insert.';
+COMMENT ON TRIGGER record_assigned_by_trigger ON user_roles IS
+'Records the caller in assigned_by on INSERT and refuses a chosen or changed assigned_by.';
 
-CREATE OR REPLACE TRIGGER default_granted_by_trigger
-    BEFORE INSERT ON role_permissions
+CREATE OR REPLACE TRIGGER record_granted_by_trigger
+    BEFORE INSERT OR UPDATE OF granted_by ON role_permissions
     FOR EACH ROW
-    EXECUTE FUNCTION rbac.default_granted_by();
+    EXECUTE FUNCTION rbac.record_actor('granted_by');
 
-COMMENT ON TRIGGER default_granted_by_trigger ON role_permissions IS
-'Defaults granted_by to the current session user when not provided on insert.';
+COMMENT ON TRIGGER record_granted_by_trigger ON role_permissions IS
+'Records the caller in granted_by on INSERT and refuses a chosen or changed granted_by.';
 
--- Revoke default PUBLIC execute on trigger functions defined in this file
+CREATE OR REPLACE TRIGGER record_granted_by_trigger
+    BEFORE INSERT OR UPDATE OF granted_by ON user_permissions
+    FOR EACH ROW
+    EXECUTE FUNCTION rbac.record_actor('granted_by');
+
+COMMENT ON TRIGGER record_granted_by_trigger ON user_permissions IS
+'Records the caller in granted_by on INSERT and refuses a chosen or changed granted_by.';
+
+-- Revoke default PUBLIC execute on trigger functions defined in this file.
+-- The request role keeps EXECUTE on rbac.record_actor: it is the invoker.
 REVOKE EXECUTE ON FUNCTION rbac.auto_assign_user_role() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION rbac.prevent_user_role_deletion() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rbac.default_assigned_by() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION rbac.record_actor() FROM PUBLIC;

@@ -444,6 +444,15 @@ installs the core schema as ordinary objects.
   `permissions` would re-point core fields and is refused with `90286`.
 - A `role_permissions` row inserted without `granted_by` records the caller,
   as `user_permissions` does; it stayed empty before.
+- **`assigned_by` and `granted_by` are recorded by the database.** On
+  `user_roles`, `role_permissions` and `user_permissions` an INSERT records the
+  caller, and a value naming another user is refused, as is any UPDATE that
+  changes the column (42501, `hint.code` `90109`). An INSERT used to keep
+  whatever value it was sent, and an UPDATE could change it, so anyone allowed
+  to assign roles could record the assignment as another user's. A role with
+  BYPASSRLS, such as the owner running a migration or an import, is exempt.
+  The three fields are `disabled` inputs, like `assigned_at` and `granted_at`,
+  so a form no longer offers them.
 - **A `time` field is nullable**, like `date`, and has no default unless
   `default_value` sets one. A required `time` field refuses a missing value
   with `90258`.

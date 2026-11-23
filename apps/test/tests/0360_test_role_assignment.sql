@@ -1,15 +1,16 @@
 -- The triggers that assign roles and permissions on their own: the User
--- role for every new user, assigned_by, and the Administrator auto-grant.
+-- role for every new user, assigned_by and granted_by, and the Administrator
+-- auto-grant.
 --
 -- Each part sets up its own fixtures; a part after the first starts by
 -- restoring the connection's role and the runner's search_path. Parts:
 --   1. User role auto-assignment and protection
---   2. user_roles.assigned_by default
+--   2. assigned_by and granted_by record the caller and cannot be changed
 --   3. New permissions are granted to Administrator
 --   4. Deleting the user who assigned a role or granted a permission
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(34);
 
 -- =====================================================
 -- PART 1: User role auto-assignment and protection
@@ -102,44 +103,124 @@ SELECT ok(
 );
 
 -- =====================================================
--- PART 2: user_roles.assigned_by default
+-- PART 2: assigned_by and granted_by record the caller
 -- =====================================================
--- Test that assigned_by defaults to the current user when not provided
+-- The three columns name the user who handed out access, and only the
+-- database writes them (rbac.record_actor in 0100_rbac_rls.sql): the caller on
+-- INSERT, and the same value on every UPDATE. user3 holds admin and may write
+-- all three tables, so user3 is exactly the caller who could otherwise make an
+-- assignment look like another administrator's.
 
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 
--- =====================================================
--- TEST: assigned_by defaults to current user on insert
--- =====================================================
+-- The SQLSTATE and the hint of a refused statement, without the hint's text.
+CREATE FUNCTION pg_temp.refusal(p_sql TEXT) RETURNS JSONB AS $$
+    SELECT jsonb_build_object('sqlstate', e ->> 'code') || ((e ->> 'hint')::jsonb - 'hint')
+    FROM (SELECT catch_error(p_sql) AS e) s;
+$$ LANGUAGE sql;
 
--- Authenticate as user3 (admin with user:manage permission)
 SELECT authenticate_as('user3');
 
--- Test 1: Insert a user_role without assigned_by — should default to current user
 INSERT INTO user_roles (user_id, role_id)
 VALUES (1001, 2);
 
 SELECT is(
     (SELECT assigned_by FROM user_roles WHERE user_id = 1001 AND role_id = 2),
     1003::bigint,
-    'assigned_by should default to current user (1003) when not provided'
+    'assigned_by records the caller (1003) when not provided'
 );
 
--- Clean up for next test
 DELETE FROM user_roles WHERE user_id = 1001 AND role_id = 2;
 
--- Test 2: Insert with explicit assigned_by — should preserve the provided value
-INSERT INTO user_roles (user_id, role_id, assigned_by)
-VALUES (1001, 2, 1002);
+SELECT is(
+    pg_temp.refusal($$ INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES (1001, 2, 1002) $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "assigned_by"}'::jsonb,
+    'an INSERT naming another user as assigned_by is refused with 90109'
+);
+
+SELECT lives_ok(
+    $$ INSERT INTO user_roles (user_id, role_id, assigned_by) VALUES (1001, 2, 1003) $$,
+    'an INSERT naming the caller itself as assigned_by is accepted'
+);
+
+-- The assignment exists now, recorded as user3's. It cannot be moved to
+-- another user, nor emptied.
+SELECT is(
+    pg_temp.refusal($$ UPDATE user_roles SET assigned_by = 1002 WHERE user_id = 1001 AND role_id = 2 $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "assigned_by"}'::jsonb,
+    'an UPDATE that changes assigned_by is refused with 90109'
+);
+
+SELECT is(
+    pg_temp.refusal($$ UPDATE user_roles SET assigned_by = NULL WHERE user_id = 1001 AND role_id = 2 $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "assigned_by"}'::jsonb,
+    'an UPDATE that empties assigned_by is refused with 90109'
+);
+
+-- A client that saves a whole record sends the value back as it read it.
+SELECT lives_ok(
+    $$ UPDATE user_roles SET assigned_by = 1003 WHERE user_id = 1001 AND role_id = 2 $$,
+    'an UPDATE that sends assigned_by unchanged is accepted'
+);
+
+SELECT is(
+    (SELECT assigned_by FROM user_roles WHERE user_id = 1001 AND role_id = 2),
+    1003::bigint,
+    'assigned_by still names the user who made the assignment'
+);
+
+-- granted_by on role_permissions and user_permissions, through the same
+-- trigger function.
+INSERT INTO roles (role_name, slug, description)
+VALUES ('Actor Probe Role', 'actor_probe_role', 'Holds grants made by user3');
+INSERT INTO role_permissions (role_id, permission_name)
+SELECT id, 'nwind:view' FROM roles WHERE slug = 'actor_probe_role';
+INSERT INTO user_permissions (user_id, permission_name)
+VALUES (1001, 'public:read');
+
+SELECT is(
+    pg_temp.refusal($$ INSERT INTO role_permissions (role_id, permission_name, granted_by)
+                       SELECT id, 'nwind:manage', 1002 FROM roles WHERE slug = 'actor_probe_role' $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "granted_by"}'::jsonb,
+    'an INSERT naming another user as granted_by of a role_permissions row is refused with 90109'
+);
+
+SELECT is(
+    pg_temp.refusal($$ UPDATE role_permissions SET granted_by = 1002
+                        WHERE permission_name = 'nwind:view'
+                          AND role_id = (SELECT id FROM roles WHERE slug = 'actor_probe_role') $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "granted_by"}'::jsonb,
+    'an UPDATE that changes granted_by of a role_permissions row is refused with 90109'
+);
+
+SELECT is(
+    pg_temp.refusal($$ INSERT INTO user_permissions (user_id, permission_name, granted_by)
+                       VALUES (1001, 'nwind:manage', 1002) $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "granted_by"}'::jsonb,
+    'an INSERT naming another user as granted_by of a user_permissions row is refused with 90109'
+);
+
+SELECT is(
+    pg_temp.refusal($$ UPDATE user_permissions SET granted_by = 1002
+                        WHERE user_id = 1001 AND permission_name = 'public:read' $$),
+    '{"sqlstate": "42501", "code": "90109", "column": "granted_by"}'::jsonb,
+    'an UPDATE that changes granted_by of a user_permissions row is refused with 90109'
+);
+
+-- A role with BYPASSRLS is exempt: a migration or an import run as the owner
+-- may record who really made an assignment. The claims are still user3's, so
+-- the exemption, not the caller, is what lets this through.
+RESET ROLE;
+UPDATE user_roles SET assigned_by = 1002 WHERE user_id = 1001 AND role_id = 2;
 
 SELECT is(
     (SELECT assigned_by FROM user_roles WHERE user_id = 1001 AND role_id = 2),
     1002::bigint,
-    'assigned_by should preserve explicit value (1002) when provided'
+    'a role with BYPASSRLS may change assigned_by'
 );
 
--- Test 3: without an authenticated caller there is nobody to record, so the
+-- Without an authenticated caller there is nobody to record, so the
 -- column stays NULL and the insert still succeeds. A direct owner connection
 -- (a migration, a seed script) is the case: its claims are blank, and the
 -- default must not turn that into an error.
@@ -287,6 +368,11 @@ SELECT is(
 -- assigned_by and granted_by record who made an assignment or a grant, as
 -- references to users with delete mode clear. Deleting that user keeps the
 -- assignment and the grants and empties the column.
+--
+-- The fixtures are written as the owner, which may record any user (part 2).
+-- The delete runs as user3, who has no BYPASSRLS: emptying the columns is an
+-- UPDATE that rbac.record_actor would refuse from user3, and it passes because
+-- the foreign key's action runs as the referencing table's owner.
 RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 
@@ -298,10 +384,12 @@ INSERT INTO role_permissions (role_id, permission_name, granted_by)
 SELECT id, 'nwind:view', 9101 FROM roles WHERE slug = 'by_probe_role';
 INSERT INTO user_permissions (user_id, permission_name, granted_by) VALUES (1001, 'nwind:view', 9101);
 
+SELECT authenticate_as('user3');
 SELECT lives_ok(
     $$ DELETE FROM users WHERE id = 9101 $$,
     'a user who assigned a role and granted permissions can be deleted'
 );
+RESET ROLE;
 
 SELECT is(
     jsonb_build_array(

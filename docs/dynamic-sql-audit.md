@@ -90,6 +90,12 @@ path, with the reason and the test that pins the reason.
 |---|---|---|---|---|
 | DO block (`DROP FUNCTION`) | function signature | literal array in the file | allow-list | not needed: no caller text reaches the statement |
 
+### 0100_rbac_rls.sql
+
+| Function | Value | Source of the value | How quoted | Test |
+|---|---|---|---|---|
+| `rbac.record_actor` | none | the statement is constant text; the row and the caller's user id are bound with `USING`, and the trigger argument (`assigned_by` or `granted_by`, fixed in the file) reaches it only as a JSON key | - | not needed: no caller text reaches the statement |
+
 ### 0150_dd_bootstrap.once.sql
 
 | Function | Value | Source of the value | How quoted | Test |

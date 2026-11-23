@@ -273,7 +273,8 @@ SELECT n, TRUE FROM unnest(ARRAY[
             'public.rollup_filter_operand', 'public.rollup_filter_operands', 'public.rollup_rename_field_refs',
             'public.rollup_sync_field', 'public.rollup_value_sql', 'public.update_dd_field',
             'public.update_dd_table_comment', 'public.update_entity_policies', 'public.update_search_vector_column',
-            'public.validate_field_rename_and_format', 'public.zz_rollup_entity_change', 'public.zz_rollup_entity_delete'
+            'public.validate_field_rename_and_format', 'public.zz_rollup_entity_change', 'public.zz_rollup_entity_delete',
+            'rbac.record_actor'
         ]) AS n
 UNION ALL
 SELECT n, FALSE FROM unnest(ARRAY[

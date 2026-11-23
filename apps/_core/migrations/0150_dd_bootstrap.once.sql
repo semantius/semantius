@@ -333,7 +333,7 @@ VALUES
     ('user_roles', 'user_id',     'User',     '',           'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users', 'cascade', 'has roles', 'Role', 'Roles'),
     ('user_roles', 'role_id',     'Role',     '',               'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'roles', 'cascade', 'assigned to', 'User', 'Users'),
     ('user_roles', 'assigned_at', 'Assigned At', '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',      '',        '', '', ''),
-    ('user_roles', 'assigned_by', 'Assigned By', '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users', 'clear',   'has assigned', '', '');
+    ('user_roles', 'assigned_by', 'Assigned By', 'The user who made the assignment. The database records the caller; a client cannot set or change it.', 'reference', FALSE, 40, 'disabled', 'default', 'core', FALSE, 'users', 'clear',   'has assigned', '', '');
 
 -- Insert fields metadata for role_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
@@ -342,7 +342,7 @@ VALUES
     ('role_permissions', 'role_id',         'Role',         '',             'parent',    FALSE, 10, 'default',  'default', 'core', FALSE, 'roles',        'cascade', 'has permissions', 'Permission', 'Permissions'),
     ('role_permissions', 'permission_name', 'Permission', '',        'parent',    FALSE, 20, 'default',  'default', 'core', FALSE, 'permissions',  'cascade', 'granted to', 'Role', 'Roles'),
     ('role_permissions', 'granted_at',    'Granted At',    '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',             '',        '', '', ''),
-    ('role_permissions', 'granted_by',    'Granted By',    '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',        'clear',   'has granted', '', '');
+    ('role_permissions', 'granted_by',    'Granted By',    'The user who made the grant. The database records the caller; a client cannot set or change it.', 'reference', FALSE, 40, 'disabled', 'default', 'core', FALSE, 'users',        'clear',   'has granted', '', '');
 
 -- Insert fields metadata for user_permissions table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
@@ -351,7 +351,7 @@ VALUES
     ('user_permissions', 'user_id',         'User',         '',             'parent',    FALSE, 10, 'required', 'default', 'core', FALSE, 'users',         'cascade', 'has permissions', 'Permission', 'Permissions'),
     ('user_permissions', 'permission_name', 'Permission', '',        'parent',    FALSE, 20, 'required', 'default', 'core', FALSE, 'permissions',   'cascade', 'granted to', 'User', 'Users'),
     ('user_permissions', 'granted_at',    'Granted At',    '',        'date-time', FALSE, 30, 'disabled', 'default', 'core', FALSE, '',              '',        '', '', ''),
-    ('user_permissions', 'granted_by',    'Granted By',    '',             'reference', FALSE, 40, 'default',  'default', 'core', FALSE, 'users',         'clear',   'has granted', '', '');
+    ('user_permissions', 'granted_by',    'Granted By',    'The user who made the grant. The database records the caller; a client cannot set or change it.', 'reference', FALSE, 40, 'disabled', 'default', 'core', FALSE, 'users',         'clear',   'has granted', '', '');
 
 -- Insert fields metadata for permission_hierarchy table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent, enum_values, default_value)
