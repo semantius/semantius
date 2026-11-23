@@ -25,7 +25,7 @@
     }
   },
   "resources": {
-    "homepage": "https://www.semantius.com/docs/pg-semantius",
+    "homepage": "https://www.semantius.com/pg-semantius",
     "bugtracker": {
       "web": "https://github.com/semantius/semantius/issues"
     },

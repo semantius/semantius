@@ -119,15 +119,17 @@ if [ "$FORCE" != "1" ] && [ "${ASSUME_YES:-}" != "1" ] && [ "${CI:-}" != "true" 
 fi
 
 # [0/5] Regenerate the extension from CURRENT migrations, so the rebuilt image
-# tests what is on disk now. Version inferred from the highest built extension SQL,
-# exactly like docker-postgres/build.sh.
+# tests what is on disk now. The version is the control file's default_version,
+# exactly like docker-postgres/build.sh. The SQL file names cannot give it: an
+# upgrade script sits beside the full install, and a pre-release version such
+# as 0.5.0-beta1 is more than dotted numbers.
 if [ "$PULL" = 1 ]; then
   echo "== [0/4] Skipped — --pull tests the PUBLISHED image, not local source =="
 elif [ "${SKIP_EXT_REGEN:-0}" != "1" ]; then
-  VERSION="$(ls "$REPO_ROOT"/extension/pg_semantius--*.sql 2>/dev/null \
-    | sed -E 's/.*--([0-9.]+)\.sql/\1/' | sort -V | tail -1)"
+  VERSION="$(sed -nE "s/^default_version = '(.*)'/\1/p" \
+    "$REPO_ROOT/extension/pg_semantius.control" 2>/dev/null)"
   if [ -z "$VERSION" ]; then
-    echo "Cannot infer extension version. Run 'deno task extension <ver>' once, or set SKIP_EXT_REGEN=1." >&2
+    echo "Cannot read default_version from extension/pg_semantius.control. Run 'deno task extension <ver>' once, or set SKIP_EXT_REGEN=1." >&2
     exit 1
   fi
   echo "== [0/4] Regenerating the extension SQL from current migrations (v$VERSION) =="

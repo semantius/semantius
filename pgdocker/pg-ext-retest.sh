@@ -132,7 +132,20 @@ fi
 echo "Audit records written after 0230_entity_order_column.sql carry order_column ($carrying rows)."
 
 echo "== [4/5] Deploying nwind,test (migrate skips the seeded _core) =="
+# The CLI and the extension of one build record the same value for each file,
+# so the CLI must take the extension's _core as its own and apply none of it.
+# Applying a file rewrites its row, created_at included, so unchanged rows mean
+# no _core file ran; the CLI's per-file output is silent without --verbose.
+CORE_ROWS_SQL="SELECT name || ' ' || coalesce(checksum, '-') || ' ' || created_at FROM public._versions WHERE pg_catalog.starts_with(name, '_core.') ORDER BY name"
+core_before="$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc "$CORE_ROWS_SQL")"
 ( cd "$REPO_ROOT" && deno task migrate --apps nwind,test --database-url "$EXT_URL" )
+core_after="$(docker exec "$CONTAINER" psql -U postgres -d "$DB" -tAc "$CORE_ROWS_SQL")"
+if [ -z "$core_before" ] || [ "$core_before" != "$core_after" ]; then
+  echo "FAIL: the CLI applied _core files to the extension's install:" >&2
+  diff <(printf '%s\n' "$core_before") <(printf '%s\n' "$core_after") | grep '^>' | cut -d' ' -f2 >&2 || true
+  exit 1
+fi
+echo "The CLI applied none of the extension's $(printf '%s\n' "$core_before" | wc -l | tr -d ' ') _core files."
 
 echo "== [5/5] Running the pgTAP suite against the extension DB =="
 ( cd "$REPO_ROOT" && deno task test --database-url "$EXT_URL" "$@" )

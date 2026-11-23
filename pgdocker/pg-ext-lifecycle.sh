@@ -22,6 +22,9 @@
 #   1i. the row move secret a write keeps in a setting ends with its transaction
 #   1j. an rbac function another superuser's pass recreates keeps the request
 #       role's EXECUTE
+#   1k. a release build of the current version refuses a database a newer
+#       build migrated and one it cannot update, on the extension, the CLI and
+#       script mode, and passes the rows it must not judge
 #   2.  plain pg_dump -> SINGLE-PASS pg_restore, with custom data
 #   2b. restore variants: -Fp | psql, -j 4, -1
 #   4.  DROP EXTENSION is inert (no data loss), with and without CASCADE
@@ -135,7 +138,11 @@ CONTROL="$REPO_ROOT/extension/pg_semantius.control"
 EXT_VERSION="$(sed -nE "s/^default_version = '(.*)'/\1/p" "$CONTROL")"
 ( cd "$REPO_ROOT" && deno task extension "$EXT_VERSION" --check ) \
   || { echo "Refusing to test a stale extension build." >&2; exit 1; }
-SQLFILE="$(ls "$REPO_ROOT"/extension/pg_semantius--*.sql | head -1)"
+# The full install of that version by name, not the first match of a glob: an
+# upgrade script can sort first, as pg_semantius--0.5.0-beta1--0.5.0.sql does
+# before pg_semantius--0.5.0.sql.
+SQLFILE="$REPO_ROOT/extension/pg_semantius--$EXT_VERSION.sql"
+[ -f "$SQLFILE" ] || { echo "No full install $SQLFILE. Run: deno task extension $EXT_VERSION" >&2; exit 1; }
 
 grep -q "^schema = public$"       "$CONTROL" && ok "control: schema = public"        || bad "control: schema = public missing"
 grep -q "^relocatable = false$"   "$CONTROL" && ok "control: relocatable = false"    || bad "control: relocatable = false missing"
@@ -396,6 +403,13 @@ end_session life1h_holder
 out=$(cd "$REPO_ROOT" && deno task migrate --apps _core --database-url "$CLI_URL" 2>&1) \
   && ok "the next CLI run resumes and completes" || bad "CLI resume: $(echo "$out" | tail -3 | tr '\n' ' ')"
 check "  and it equals an uninterrupted install" "$SIG1_NOAUDIT" "$(psqlq life1h "$SIGNATURE_NOAUDIT_SQL")"
+# The CLI and the extension of one build record the same value for each file,
+# so either runner takes over a database the other built without running
+# anything.
+psqlrun life1h "CREATE EXTENSION pg_semantius" >/dev/null
+out=$(psqlq life1h "CALL semantius.migrate()")
+echo "$out" | grep -q '"applied": 0' && ok "  and migrate() over the CLI's install applies nothing" \
+  || bad "migrate() over the CLI's install: $out"
 if [ "$KEEP" != "1" ]; then
   dropdb_ life1h
   psqlq postgres "DROP ROLE IF EXISTS lifecycle_squatter" >/dev/null 2>&1 || true
@@ -561,6 +575,225 @@ if [ "$KEEP" != "1" ]; then
   dropdb_ life1j
   psqlq postgres "DROP ROLE IF EXISTS lifecycle_migrator" >/dev/null 2>&1 || true
 fi
+
+# ----------------------------------------- 1k the update checks of a release build
+step "[1k] The update checks of a release build: the extension, the CLI and script mode"
+# A development build stamps every file it changed with 99999999999999, which
+# sorts after every real ts, so no row can be newer than such a build and its
+# "newer" refusal cannot be reached. A release build carries real ts values.
+# So this step builds the current version in release mode, as release.sh does,
+# in a copy of the repository: the CLI reads its values from the
+# extension/versions.json beside its own source, so the copy's CLI and its
+# script mode are the same build as the extension it installs. Forged ledger
+# rows then drive each refusal and each pass through all three runners.
+#
+# The build compares with the manifest of the release it would follow, as
+# release.sh does: the version's own tag, otherwise the highest tag below it. A
+# checkout without that tag (a shallow CI clone) compares with the working
+# tree's own manifest, which gives the same value to every file whose text a
+# release already stamped.
+. "$REPO_ROOT/scripts/semver.sh"
+REL_COPY="$(mktemp -d)"
+EXTSAVE=/tmp/lifecycle-extsave
+# From here on the container's extension files are the release build's, so a
+# trap puts the staged ones back on every way out.
+restore_release_build() {
+  docker exec -u root "$CONTAINER" sh -c "if [ -d $EXTSAVE ]; then rm -f $EXT_DIR/pg_semantius* && cp -p $EXTSAVE/* $EXT_DIR/ && rm -rf $EXTSAVE; fi" || true
+  rm -rf "$REL_COPY"
+}
+trap restore_release_build EXIT
+docker exec -u root "$CONTAINER" sh -c "rm -rf $EXTSAVE && mkdir $EXTSAVE && cp -p $EXT_DIR/pg_semantius* $EXTSAVE/"
+tar -C "$REPO_ROOT" --exclude=node_modules -cf - deno.json deno.lock package.json packages/core packages/cli apps extension \
+  | tar -C "$REL_COPY" -xf -
+# git runs from inside the checkout: under Git Bash, Git for Windows needs the
+# path conversion that MSYS_NO_PATHCONV turns off for this whole script.
+repo_git() { ( cd "$REPO_ROOT" && git "$@" ); }
+REL_TAG=""
+if repo_git rev-parse -q --verify "refs/tags/v$EXT_VERSION" >/dev/null 2>&1; then
+  REL_TAG="v$EXT_VERSION"
+else
+  REL_BELOW="$(repo_git tag -l 'v*' | while IFS= read -r t; do
+                 if [ "$(semver_cmp "$t" "$EXT_VERSION")" = "-1" ]; then echo "$t"; fi
+               done | semver_max_of)"
+  [ -z "$REL_BELOW" ] || REL_TAG="v$REL_BELOW"
+fi
+if [ -n "$REL_TAG" ] && repo_git show "$REL_TAG:extension/versions.json" > "$REL_COPY/tag-versions.json" 2>/dev/null; then
+  echo "   release mode compares with versions.json of $REL_TAG"
+else
+  cp "$REPO_ROOT/extension/versions.json" "$REL_COPY/tag-versions.json"
+  echo "   no release tag in this checkout: release mode compares with the working tree's versions.json"
+fi
+# Relative paths only: deno is not a Git Bash program, and MSYS_NO_PATHCONV
+# keeps a POSIX path from being converted for it.
+#
+# Always with --allow-edited-migrations: this build only stamps a state that
+# the generation of extension/ (release.sh's, or the one committed with the
+# migrations) has already checked. A deliberate hot-patch of a released
+# run-once file passes that generation only with the flag, so without it this
+# copy would stop on the very edit the release allowed, and the release with
+# it. The guard itself is pinned by packages/cli/commands/migrate_build_test.ts.
+if gen_out=$(cd "$REL_COPY" && deno task extension "$EXT_VERSION" --release tag-versions.json --allow-edited-migrations 2>&1) \
+   && script_out=$(cd "$REL_COPY" && deno task migrate --apps _core --script 2>&1); then
+  ok "the current version builds in release mode, with its script-mode file"
+  REL_BUILT=1
+else
+  bad "the release build failed: $(printf '%s\n%s' "${gen_out:-}" "${script_out:-}" | tail -3 | tr '\n' ' ')"
+  REL_BUILT=0
+fi
+
+if [ "$REL_BUILT" = "1" ]; then
+  for f in extension/pg_semantius.control "extension/pg_semantius--$EXT_VERSION.sql" migrate.sql; do
+    docker cp "$(cygpath -w "$REL_COPY/$f" 2>/dev/null || echo "$REL_COPY/$f")" "$CONTAINER:/tmp/life1k-$(basename "$f")" >/dev/null
+  done
+  docker exec -u root "$CONTAINER" sh -c "cp /tmp/life1k-pg_semantius.control $EXT_DIR/pg_semantius.control && cp /tmp/life1k-pg_semantius--$EXT_VERSION.sql $EXT_DIR/pg_semantius--$EXT_VERSION.sql"
+  # The script up to its version check, without ON_ERROR_STOP, so the session
+  # goes on after a refusal and can show whether it still holds the lock. The
+  # rest of the script stays out: it would apply the files.
+  awk '/^\\set ON_ERROR_STOP on$/ { next }
+       { print }
+       /^-- Refuse a database this build must not update/ { check = 1 }
+       check && /^\$pgsem_script\$;$/ { exit }' "$REL_COPY/migrate.sql" > "$REL_COPY/check.sql"
+  if grep -q "^-- Refuse a database this build must not update" "$REL_COPY/check.sql" \
+     && [ "$(tail -1 "$REL_COPY/check.sql")" = '$pgsem_script$;' ]; then
+    docker cp "$(cygpath -w "$REL_COPY/check.sql" 2>/dev/null || echo "$REL_COPY/check.sql")" "$CONTAINER:/tmp/life1k-check.sql" >/dev/null
+  else
+    bad "setup: the version check was not found in the script-mode file"
+  fi
+
+  newdb life1k
+  psqlrun life1k "CREATE EXTENSION pg_semantius" >/dev/null
+  out=$(psqlq life1k "CALL semantius.migrate()")
+  echo "$out" | grep -q '"applied"' && ok "the release build installs" || bad "release build install: $out"
+  check "  every _core row carries a real ts" "0" \
+    "$(psqlq life1k "SELECT count(*) FROM public._versions WHERE pg_catalog.starts_with(name, '_core.') AND (checksum !~ '^[0-9]{14}[.][0-9a-f]{64}\$' OR pg_catalog.left(checksum, 14) = '99999999999999')")"
+
+  L1K_URL="postgresql://postgres:$(read_env POSTGRES_PASSWORD)@localhost:${CLI_PORT:-5433}/life1k"
+  L1K_LEDGER="SELECT md5(coalesce(string_agg(name || ' ' || coalesce(checksum, '-') || ' ' || created_at, '|' ORDER BY name), '')) FROM public._versions"
+  l1k_state() {
+    printf '%s/%s' "$(psqlq life1k "$L1K_LEDGER")" \
+      "$(docker exec "$CONTAINER" pg_dump -U postgres -s -d life1k 2>/dev/null | grep -v '^[\]' | grep -v '^--' | grep -v '^$' | md5sum | cut -c1-32)"
+  }
+  l1k_cli()    { (cd "$REL_COPY" && deno task migrate --apps _core --database-url "$L1K_URL" 2>&1); }
+  l1k_script() { docker exec "$CONTAINER" psql -U postgres -d life1k -q -f /tmp/life1k-migrate.sql 2>&1; }
+  # Answers unlock:false in a session that no longer holds the migration lock
+  # (a boolean concatenated to text reads true or false, not t or f).
+  UNLOCK_SQL="SELECT 'unlock:' || pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'))"
+  # A fresh session takes the lock and gives it back: no session holds it.
+  lock_free() { [ "$(psqlseq life1k "SELECT pg_try_advisory_lock(hashtext('migrate'))" "SELECT pg_advisory_unlock(hashtext('migrate'))" | head -1)" = "t" ]; }
+
+  before=$(l1k_state)
+  out=$(l1k_cli) && [ "$(l1k_state)" = "$before" ] \
+    && ok "  the CLI of the same build applies nothing" || bad "the CLI of the same build: $(echo "$out" | tail -2 | tr '\n' ' ')"
+  out=$(l1k_script) && [ "$(l1k_state)" = "$before" ] \
+    && ok "  its script mode applies nothing" || bad "script mode of the same build: $(echo "$out" | tail -2 | tr '\n' ' ')"
+
+  # A runner's answer to a refused database: <output> carries <want>, and the
+  # ledger and the schema still equal <state before>. Prints what is wrong.
+  refusal_problems() { # refusal_problems <want> <output> <state before>
+    local p=""
+    printf '%s' "$2" | grep -qF -- "$1" || p="no \"$1\" in: $(printf '%s' "$2" | grep -m1 -iE 'error|failed' | cut -c1-240)"
+    [ "$(l1k_state)" = "$3" ] || p="${p:+$p; }the ledger or the schema changed"
+    printf '%s' "$p"
+  }
+  # refused <label> <want>: each runner refuses life1k as it stands with
+  # <want>, the lock is free afterwards, and nothing changed. The extension
+  # and script mode are asked in the refusing session itself; the CLI's
+  # session ends with the CLI, so a fresh session asks for it.
+  refused() {
+    local label="$1" want="$2" before out rc why
+    before=$(l1k_state)
+    out=$(psqlseq life1k "CALL semantius.migrate()" "$UNLOCK_SQL")
+    why=$(refusal_problems "$want" "$out" "$before")
+    echo "$out" | grep -q '^unlock:false$' || why="${why:+$why; }the session still held the lock"
+    [ -z "$why" ] && ok "$label: the extension refuses, the lock is free, nothing changed" || bad "$label, extension: $why"
+    rc=0; out=$(l1k_cli) || rc=$?
+    why=$(refusal_problems "$want" "$out" "$before")
+    [ "$rc" != "0" ] || why="${why:+$why; }it exited 0"
+    lock_free || why="${why:+$why; }the lock is held"
+    [ -z "$why" ] && ok "$label: the CLI refuses, the lock is free, nothing changed" || bad "$label, CLI: $why"
+    rc=0; out=$(l1k_script) || rc=$?
+    why=$(refusal_problems "$want" "$out" "$before")
+    [ "$rc" != "0" ] || why="${why:+$why; }psql exited 0"
+    out=$(docker exec "$CONTAINER" psql -U postgres -d life1k -qtA -f /tmp/life1k-check.sql -c "$UNLOCK_SQL" 2>&1 || true)
+    echo "$out" | grep -q '^unlock:false$' || why="${why:+$why; }the session still held the lock"
+    [ "$(l1k_state)" = "$before" ] || why="${why:+$why; }the ledger or the schema changed"
+    [ -z "$why" ] && ok "$label: script mode refuses, the lock is free, nothing changed" || bad "$label, script mode: $why"
+  }
+  # passes <label> <forge sql> <expect>: each runner, on life1k forged anew,
+  # succeeds; <expect> is a query that must answer t afterwards, or
+  # "unchanged" for a ledger no runner may touch.
+  passes() {
+    local label="$1" forge="$2" expect="$3" runner out rc ledger
+    for runner in extension CLI "script mode"; do
+      psqlrun life1k "$forge" >/dev/null
+      ledger=$(psqlq life1k "$L1K_LEDGER")
+      rc=0
+      case "$runner" in
+        extension) out=$(psqlq life1k "CALL semantius.migrate()"); echo "$out" | grep -q '"applied"' || rc=1 ;;
+        CLI)       out=$(l1k_cli) || rc=$? ;;
+        *)         out=$(l1k_script) || rc=$? ;;
+      esac
+      if [ "$rc" != "0" ]; then
+        bad "$label, $runner: it failed: $(echo "$out" | grep -m1 -iE 'error|failed' | cut -c1-240)"
+      elif [ "$expect" = unchanged ] && [ "$(psqlq life1k "$L1K_LEDGER")" != "$ledger" ]; then
+        bad "$label, $runner: it applied files"
+      elif [ "$expect" != unchanged ] && [ "$(psqlq life1k "$expect")" != "t" ]; then
+        bad "$label, $runner: the row does not carry this build's value"
+      else
+        ok "$label: $runner"
+      fi
+    done
+  }
+
+  F_ONCE=$(psqlq life1k "SELECT pg_catalog.substr(name, 7) FROM public._versions WHERE name ~ '^_core[.][0-9]{4}_.*[.]once[.](sql|jsonc)\$' ORDER BY name COLLATE \"C\" LIMIT 1")
+  F_REP=$(psqlq life1k "SELECT pg_catalog.substr(name, 7) FROM public._versions WHERE name ~ '^_core[.][0-9]{4}_' AND name !~ '[.]once[.]' AND name !~ '^_core[.]99' ORDER BY name COLLATE \"C\" LIMIT 1")
+  V_ONCE=$(psqlq life1k "SELECT checksum FROM public._versions WHERE name = '_core.$F_ONCE'")
+  V_REP=$(psqlq life1k "SELECT checksum FROM public._versions WHERE name = '_core.$F_REP'")
+  NEWER_TS=29991231235959
+  OLDER_TS=20000101000000
+  set_row() { psqlrun life1k "UPDATE public._versions SET checksum = $2 WHERE name = '_core.$1'" >/dev/null; }
+  REPLACE="this database cannot be updated; replace the database with a fresh install"
+  echo "   forged rows: run-once $F_ONCE, repeatable $F_REP"
+
+  set_row "$F_REP" "'$NEWER_TS' || pg_catalog.substr(checksum, 15)"
+  refused "a newer ts on a repeatable row" "$F_REP from a newer pg_semantius build"
+  set_row "$F_REP" "'$V_REP'"
+  set_row "$F_ONCE" "pg_catalog.left(checksum, 15) || pg_catalog.repeat('0', 64)"
+  refused "another value of a run-once row" "run-once migration $F_ONCE in this database differs from this version: $REPLACE"
+  set_row "$F_ONCE" "pg_catalog.substr('$V_ONCE', 16)"
+  refused "a plain run-once row with the same hash" "run-once migration $F_ONCE in this database differs from this version: $REPLACE"
+  set_row "$F_ONCE" "'$NEWER_TS.' || pg_catalog.repeat('0', 64)"
+  refused "a newer database with a changed run-once file" "$F_ONCE from a newer pg_semantius build"
+  set_row "$F_ONCE" "'$V_ONCE'"
+  psqlrun life1k "INSERT INTO public._versions (name, checksum) VALUES ('_core.0999_lifecycle_unknown.sql', '$OLDER_TS.' || pg_catalog.repeat('a', 64))" >/dev/null
+  refused "a stamped row for a file this build does not have" "migration 0999_lifecycle_unknown.sql in this database is not part of this version: $REPLACE"
+  psqlrun life1k "UPDATE public._versions SET checksum = '$NEWER_TS.' || pg_catalog.repeat('a', 64) WHERE name = '_core.0999_lifecycle_unknown.sql'" >/dev/null
+  refused "  and the same row with a newer ts" "0999_lifecycle_unknown.sql from a newer pg_semantius build"
+  psqlrun life1k "DELETE FROM public._versions WHERE name = '_core.0999_lifecycle_unknown.sql'" >/dev/null
+  check "the forged rows are undone" "$before" "$(l1k_state)"
+
+  passes "an older repeatable row runs again" \
+    "UPDATE public._versions SET checksum = '$OLDER_TS' || pg_catalog.substr(checksum, 15) WHERE name = '_core.$F_REP'" \
+    "SELECT checksum = '$V_REP' FROM public._versions WHERE name = '_core.$F_REP'"
+  passes "a run-once row without a checksum passes" \
+    "UPDATE public._versions SET checksum = NULL WHERE name = '_core.$F_ONCE'" unchanged
+  set_row "$F_ONCE" "'$V_ONCE'"
+  passes "nwind rows are not judged" \
+    "INSERT INTO public._versions (name, checksum) VALUES
+       ('nwind.0001_lifecycle_newer.once.sql', '$NEWER_TS.' || pg_catalog.repeat('b', 64)),
+       ('nwind.0002_lifecycle_plain.once.sql', pg_catalog.repeat('c', 64))
+     ON CONFLICT (name) DO NOTHING" unchanged
+  psqlrun life1k "DELETE FROM public._versions WHERE name LIKE 'nwind.%lifecycle%'" >/dev/null
+  [ "$KEEP" = "1" ] || dropdb_ life1k
+  docker exec -u root "$CONTAINER" rm -f /tmp/life1k-pg_semantius.control "/tmp/life1k-pg_semantius--$EXT_VERSION.sql" \
+    /tmp/life1k-migrate.sql /tmp/life1k-check.sql || true
+fi
+restore_release_build
+trap - EXIT
+check "the container's extension files are back" "$EXT_VERSION" \
+  "$(docker exec "$CONTAINER" sed -nE "s/^default_version = '(.*)'/\1/p" "$EXT_DIR/pg_semantius.control")"
+cmp -s <(docker exec "$CONTAINER" cat "$EXT_DIR/pg_semantius--$EXT_VERSION.sql") "$SQLFILE" \
+  && ok "  and the full install is the working tree's again" || bad "the container's full install is not the working tree's"
 
 # --------------------------------------------------- 2 dump / single-pass restore
 step "[2] Plain pg_dump -> SINGLE-PASS pg_restore, with custom data"
@@ -1097,7 +1330,7 @@ step "[12] Cleanup"
 if [ "$KEEP" = "1" ]; then
   echo "   --keep: scratch databases left in place"
 else
-  for d in life1 life1b life1c life1d life1d2 life1e life1g life1h life1j life2 life2p life2j life2t life5 \
+  for d in life1 life1b life1c life1d life1d2 life1e life1g life1h life1j life1k life2 life2p life2j life2t life5 \
            life6 life6b life6c life6d life7 life7b life7c life7d life8 life8c life8d life9 \
            life9b life_virgin; do
     dropdb_ "$d"

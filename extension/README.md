@@ -35,26 +35,30 @@ another schema the install refuses with a hint.
 
 ## Upgrade
 
+Install the newer version's files on the server, then run in each database:
+
 ```sql
 ALTER EXTENSION pg_semantius UPDATE;
 CALL semantius.migrate();
 ```
 
-`ALTER EXTENSION ... UPDATE` replaces the installer; `migrate()` applies
-whatever is due. Both are safe to re-run. `SELECT * FROM semantius.pending()`
-lists what a `migrate()` would apply; `SELECT * FROM semantius.status()`
-reports drift.
+`ALTER EXTENSION ... UPDATE` replaces the installer and nothing else;
+`migrate()` applies whatever is due. Both are safe to re-run.
+`semantius.pending()` and `semantius.status()` are part of the installer, so they
+answer for the version the database's installer is at: between the two
+statements, `SELECT * FROM semantius.pending()` lists what the new version's
+`migrate()` would apply.
 
 What is due is decided per file from `public._versions`, which records each
-file's name and the SHA-256 of its text:
+file's name and its value, `<ts>.<sha256>`: the UTC time of the release that
+last changed the file, and the SHA-256 of its text.
 
 - a file with no row runs;
 - a repeatable file (`NNNN_name.sql`, `NNNN_name.jsonc`: functions,
-  triggers, views, policies, entity definitions) runs again when its text
+  triggers, views, policies, entity definitions) runs again when its value
   changed;
 - a run-once file (`NNNN_name.once.sql`: tables, columns, seed rows) never
-  runs again; if its text changed, `semantius.status()` lists it in
-  `changed_versions`;
+  runs again;
 - the files numbered 9900 and above (ownership hardening) run after any pass
   that ran something.
 
@@ -63,14 +67,55 @@ So a build that changed a function reaches an existing install on the next
 stays until that file changes again; to re-apply that file anyway, clear its
 checksum: `UPDATE public._versions SET checksum = NULL WHERE name = '...';`.
 
+### Databases migrate() refuses
+
+Before the first file, `migrate()` refuses two kinds of database, with
+SQLSTATE 55000. A refusal changes nothing and releases the migration lock.
+
+- **A newer build migrated it**: a row's ts is later than this build's ts for
+  that file, or a row for a file this build does not have carries a ts later
+  than this build's newest. The message names the file, the row's ts and this
+  build's newest ts, and ends with *use a newer pg_semantius, then ALTER
+  EXTENSION pg_semantius UPDATE and CALL semantius.migrate()*.
+  An older installer meets this after a restore onto a server whose extension
+  files are older than the dump's.
+- **It cannot be brought to this build's schema**: it recorded a run-once file
+  with a value other than this build's, or it recorded a file this build does
+  not have with a ts no later than this build's newest. A run-once file never
+  runs again, so such a database would never get the schema this build's
+  files create. The message ends with *this database cannot be updated;
+  replace the database with a fresh install*: install this version into a new
+  database and move the data across.
+
+A row whose checksum is NULL is never refused. `semantius.pending()` does not
+run these checks, so on a refused database it still lists the files that are
+due, and `semantius.status()` lists the refused run-once files in
+`changed_versions`.
+
+### A re-release of the same version
+
+A re-release keeps the version number, and there is no update path from a
+version to itself, so `ALTER EXTENSION ... UPDATE` leaves the installer as
+it was. Install the re-released files on the server, then:
+
+```sql
+DROP EXTENSION pg_semantius;
+CREATE EXTENSION pg_semantius;
+CALL semantius.migrate();
+```
+
+`DROP EXTENSION` removes only the installer (see Uninstall), so the data
+stays, and `migrate()` then applies what the re-release changed, or refuses
+the database as above.
+
 ## Functions
 
 | Function | Purpose |
 |---|---|
 | `CALL semantius.migrate()` | Applies the bundled migrations that are due. Superuser only, one transaction per file, fails at once while another migration runs. |
-| `semantius.pending()` | Bundled migrations the next migrate() would apply. Works before the first migrate(). |
+| `semantius.pending()` | Bundled migrations that are due by the run rules above. Works before the first migrate(), and does not run migrate()'s refusal checks. |
 | `semantius.version()` | Version of the installed bundle (the installer, not the installed schema). |
-| `semantius.status()` | Applied/pending counts, unknown migrations, changed run-once migrations, ownership and default-ACL drift, and whether `jwt_aud` is set. |
+| `semantius.status()` | Applied/pending counts, unknown migrations (ledger rows this bundle does not have, among them those of apps the CLI deployed), run-once migrations recorded with a value other than this bundle's, ownership and default-ACL drift, and whether `jwt_aud` is set. |
 
 `\dx` shows the *installer's* version, which is not necessarily the state of
 the installed schema; `semantius.status()` is the authority.
@@ -92,6 +137,10 @@ psql -d newdb -c "ALTER DATABASE newdb SET intervalstyle = 'iso_8601';"
 
 - Restore into an **empty** database. Do not run `migrate()` first: the dump's
   own `CREATE EXTENSION` recreates the roles and functions.
+- Restore onto a server whose extension files are the dump's version or
+  **newer**. The dump's `CREATE EXTENSION` names no version, so it installs
+  the server's default version, and an older installer's `migrate()` refuses
+  the restored database as one a newer build migrated.
 - The two `ALTER DATABASE` statements give the new database the
   `timezone` and `intervalstyle` that `migrate()` set. `pg_dump` and
   `pg_restore` carry them only with `--create`, and `get_userinfo()`
@@ -221,6 +270,9 @@ be given it. An app tier that sets the per-claim GUCs instead of
 | 55000 | `existing role <role> has unexpected attributes` |
 | 55000 | `existing role semantius_owner already has members` |
 | 55000 | `semantius.migrate() cannot run inside a CREATE/ALTER EXTENSION script` |
+| 55000 | `_core in this database contains <file> from a newer pg_semantius build (<ts>); this runner's newest is <ts>; use a newer pg_semantius, then ALTER EXTENSION pg_semantius UPDATE and CALL semantius.migrate()` |
+| 55000 | `run-once migration <file> in this database differs from this version: this database cannot be updated; replace the database with a fresh install` |
+| 55000 | `migration <file> in this database is not part of this version: this database cannot be updated; replace the database with a fresh install` |
 | 55P03 | `another migration is running` |
 | 2D000 | `invalid transaction termination` (`CALL semantius.migrate()` inside a transaction block) |
 | P0001 | `migration <app>.<file> failed: <message> (SQLSTATE <code>)` |

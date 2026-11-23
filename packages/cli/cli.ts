@@ -56,6 +56,8 @@ interface CliArgs {
   "allow-edited-migrations"?: boolean;
   /** `extension --check`: compare the build with the migrations, write nothing. */
   check?: boolean;
+  /** `extension --release <path>`: release mode, against the tag's versions.json. */
+  release?: string;
   "coverage-min"?: string;
   env?: string;
   "database-url"?: string;
@@ -245,7 +247,9 @@ OPTIONS:
     --config <FILE>         Specify config file path
     --output <DIR>          Specify output directory
     --apps <APPS>           Comma-separated list of app names (for migrate, extension and test)
-    --confirm               Skip confirmation prompt (for dropall, reset, and retest commands)
+    --confirm               Skip the confirmation prompt (for dropall, reset and retest), and for
+                            migrate the question before it applies a _core from ./apps/_core
+                            whose files are not part of this pg_semantius build
     --script                Generate SQL file instead of executing (migrate.sql for migrate, dropall.sql for dropall)
     --failfast              Stop test execution after the first failed test file (for test and retest commands)
     --coverage              Measure which functions/statements/tables the suite executes (for test and retest);
@@ -276,10 +280,18 @@ ${checkoutCommands}    migrate          Process and validate app folders (requir
                      --check writes nothing and exits 1 when ./extension no
                      longer matches the migrations (the pgdocker extension
                      harnesses run it before installing the build).
+                     --release <PATH> is release mode: PATH is the
+                     versions.json of the tag this release follows. A file
+                     keeps a real ts that ./extension or that tag records for
+                     its text; every other file gets one ts for the run, its
+                     UTC time. Without --release, a file whose text has no
+                     ts yet gets 99999999999999, which every released
+                     pg_semantius refuses as newer than itself. Not with
+                     --check.
                      Prefer ./release.sh <VER>, which also tests and tags.
     dropall          ⚠️ DROP ALL database objects in public schema (DESTRUCTIVE!)
-    reset            ⚠️ Drop all and migrate --apps _core (requires --confirm)
-    retest           ⚠️ Drop all, migrate --apps nwind,test, and run tests (requires --confirm)
+    reset            ⚠️ Drop all and migrate --apps _core (asks first unless --confirm)
+    retest           ⚠️ Drop all, migrate --apps nwind,test, and run tests (asks first unless --confirm)
     docgen           Generate schema.md documentation from entities metadata
     drizzlegen       Generate a Drizzle ORM schema (one file per module) from the catalog
     kyselygen        Generate Kysely type definitions (a single types file with the DB interface) from the catalog
@@ -361,6 +373,7 @@ async function main(): Promise<void> {
       "env",
       "database-url",
       "coverage-min",
+      "release",
       "_",
     ],
     alias: {
@@ -452,7 +465,12 @@ async function main(): Promise<void> {
       // Use --apps flag if provided, otherwise use positional arguments after "migrate"
       const appsParam = args.apps ||
         (args._.length > 1 ? args._.slice(1).join(",") : "");
-      await migrateCommand(appsParam, databaseUrl!, args.script || false);
+      await migrateCommand(
+        appsParam,
+        databaseUrl!,
+        args.script || false,
+        args.confirm || false,
+      );
       break;
     }
 
@@ -488,6 +506,7 @@ async function main(): Promise<void> {
         outputDir: args.output || "./extension",
         allowEditedMigrations: args["allow-edited-migrations"] === true,
         check: args.check === true,
+        release: args.release,
       });
       break;
     }

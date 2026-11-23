@@ -1,7 +1,8 @@
 /**
  * Unit tests for the run rules in migrate.ts, against an in-memory stand-in
  * for the database: which files run, in which order, what the ledger records,
- * and what happens around a failing file. The same rules are re-implemented in
+ * what happens around a failing file, and which databases the version checks
+ * refuse before anything runs. The same rules are re-implemented in
  * SQL by the extension's migrate()/pending() and by the CLI's script mode;
  * pgdocker/pg-ext-lifecycle.sh exercises those against a real server.
  *
@@ -9,16 +10,22 @@
  */
 
 import {
+  checkCoreVersions,
   type DatabaseClient,
   executeMigrations,
   isFinal,
   isOnce,
+  isStamped,
   JSONC_TAG,
+  latestTs,
   migrationChecksum,
   type MigrationFile,
   orderMigrationNames,
   runMigrations,
   shouldRun,
+  UNRELEASED_TS,
+  versionHash,
+  versionTs,
   wrapJsonc,
 } from "./migrate.ts";
 
@@ -47,13 +54,16 @@ async function assertRejects(
 
 /**
  * A DatabaseClient that understands exactly the statements the runner sends:
- * the lock, the ledger read and upsert, transaction control, NOTIFY, the
- * _versions DDL, and migration bodies - which it "runs" by recording them and
- * failing when the body contains FAIL.
+ * the lock, the ledger read and upsert, the read of the `_core.` rows, the
+ * probe for dd_install_missing_checks (absent here), transaction control,
+ * NOTIFY, the _versions DDL, and migration bodies - which it "runs" by
+ * recording them and failing when the body contains FAIL. `log` records the
+ * kind of every statement in order, so a test can pin where a step runs.
  */
 class FakeDb implements DatabaseClient {
   ledger = new Map<string, string | null>();
   executed: string[] = [];
+  log: string[] = [];
   locked = false;
   lockHeldElsewhere = false;
   private pending: { name: string; checksum: string } | null = null;
@@ -66,11 +76,13 @@ class FakeDb implements DatabaseClient {
   ): Promise<{ rows: Record<string, unknown>[] }> {
     const s = sql.trim();
     if (s.startsWith("SELECT pg_try_advisory_lock")) {
+      this.log.push("lock");
       const acquired = !this.lockHeldElsewhere;
       if (acquired) this.locked = true;
       return Promise.resolve({ rows: [{ acquired }] });
     }
     if (s.startsWith("SELECT pg_advisory_unlock")) {
+      this.log.push("unlock");
       this.locked = false;
       return Promise.resolve({ rows: [{ pg_advisory_unlock: true }] });
     }
@@ -78,7 +90,20 @@ class FakeDb implements DatabaseClient {
       return Promise.resolve({ rows: [{ exists: true }] });
     }
     if (s.startsWith("CREATE TABLE IF NOT EXISTS _versions")) {
+      this.log.push("ledger ddl");
       return Promise.resolve({ rows: [] });
+    }
+    if (s.startsWith("SELECT name, checksum FROM public._versions")) {
+      assert(this.locked, "the version check ran without the migration lock");
+      this.log.push("version check");
+      return Promise.resolve({
+        rows: [...this.ledger]
+          .filter(([name]) => name.startsWith("_core."))
+          .map(([name, checksum]) => ({ name, checksum })),
+      });
+    }
+    if (s.includes("to_regprocedure('public.dd_install_missing_checks(text)')")) {
+      return Promise.resolve({ rows: [{ present: false }] });
     }
     if (s.startsWith("SELECT checksum FROM public._versions")) {
       assert(this.locked, "a ledger row was read without the migration lock");
@@ -88,6 +113,7 @@ class FakeDb implements DatabaseClient {
       });
     }
     if (s === "BEGIN") {
+      this.log.push("begin");
       this.inTx = true;
       this.tx = [];
       this.pending = null;
@@ -223,8 +249,9 @@ Deno.test("executeMigrations: first pass, second pass, changes", async () => {
       ["schema v1", "code v1", `SELECT public.ensure_entities(`, "harden"],
       "in byte order, the .jsonc wrapped",
     );
-    // The ledger key is the full name, the checksum is of the raw file text
-    // (not of the wrapped SQL), as in every other runner.
+    // The ledger key is the full name. A file without a version value records
+    // the SHA-256 of its raw text (not of the wrapped SQL), which is also the
+    // hash part of the value every other runner records for it.
     assertEquals(
       db.ledger.get("app.0030_entities.jsonc"),
       await migrationChecksum('{"version": 1}'),
@@ -308,6 +335,255 @@ Deno.test("runMigrations: fails at once while another migration holds the lock",
       "failing run",
     );
     assert(!failing.locked, "the lock is released after a failure");
+  } finally {
+    restore();
+  }
+});
+
+// Hashes and ts values for the version checks. Only their form matters.
+const HA = "a".repeat(64);
+const HB = "b".repeat(64);
+const HC = "c".repeat(64);
+const T1 = "20260101000000";
+const T2 = "20260201000000";
+const T3 = "20260301000000";
+const REPLACE =
+  "this database cannot be updated; replace the database with a fresh install";
+
+Deno.test("version values: stamped and plain forms", () => {
+  assert(isStamped(`${T1}.${HA}`), "ts.hash is stamped");
+  assert(isStamped(`${UNRELEASED_TS}.${HA}`), "the unreleased ts is a ts");
+  assert(!isStamped(HA), "a bare hash is plain");
+  assert(!isStamped(`2026.${HA}`), "a short ts is plain");
+  assert(!isStamped(`${T1}.${HA.toUpperCase()}`), "upper-case hex is plain");
+  assertEquals(versionTs(`${T1}.${HA}`), T1, "the ts part");
+  assertEquals(versionTs(HA), undefined, "a plain value has no ts");
+  assertEquals(versionHash(`${T1}.${HA}`), HA, "the hash part of a stamped value");
+  assertEquals(versionHash(HA), HA, "a plain value is its own hash part");
+  assertEquals(latestTs([HA, `${T2}.${HB}`, `${T1}.${HC}`]), T2, "latest ts");
+  assertEquals(latestTs([HA]), undefined, "no stamped value, no latest ts");
+});
+
+Deno.test("checkCoreVersions: refusals, passes and their order", () => {
+  const files = [
+    { name: "0010_schema.once.sql", value: `${T1}.${HA}` },
+    { name: "0020_code.sql", value: `${T2}.${HB}` },
+  ];
+  assertEquals(
+    checkCoreVersions([
+      { name: "_core.0010_schema.once.sql", checksum: `${T1}.${HA}` },
+      { name: "_core.0020_code.sql", checksum: `${T2}.${HB}` },
+    ], files),
+    undefined,
+    "the same build passes",
+  );
+  assertEquals(
+    checkCoreVersions([
+      { name: "_core.0010_schema.once.sql", checksum: `${T1}.${HA}` },
+      { name: "_core.0020_code.sql", checksum: `${T1}.${HC}` },
+    ], files),
+    undefined,
+    "an older stamped repeatable row passes (it runs again)",
+  );
+  assertEquals(
+    checkCoreVersions([
+      { name: "_core.0020_code.sql", checksum: `${T3}.${HC}` },
+    ], files),
+    `_core in this database contains 0020_code.sql from a newer pg_semantius build (${T3}); this runner's newest is ${T2}; use a newer pg_semantius`,
+    "a row later than the runner's ts for that file",
+  );
+  assertEquals(
+    checkCoreVersions([
+      { name: "_core.0010_schema.once.sql", checksum: `${T1}.${HC}` },
+    ], files),
+    `run-once migration 0010_schema.once.sql in this database differs from this version: ${REPLACE}`,
+    "a run-once row with another value",
+  );
+  // Newer comes first, even when a run-once row that sorts before it would be
+  // refused as well.
+  const both = checkCoreVersions([
+    { name: "_core.0010_schema.once.sql", checksum: `${T1}.${HC}` },
+    { name: "_core.0020_code.sql", checksum: `${T3}.${HB}` },
+  ], files);
+  assert(
+    /0020_code\.sql from a newer pg_semantius build \(20260301000000\)/.test(both ?? ""),
+    `newer first: ${both}`,
+  );
+  // A newer database whose run-once file changed is "newer", not "replace".
+  const changedAndNewer = checkCoreVersions([
+    { name: "_core.0010_schema.once.sql", checksum: `${T3}.${HC}` },
+  ], files);
+  assert(
+    /0010_schema\.once\.sql from a newer/.test(changedAndNewer ?? ""),
+    `a newer changed run-once file: ${changedAndNewer}`,
+  );
+  assertEquals(
+    checkCoreVersions([
+      { name: "nwind.0010_schema.once.sql", checksum: `${T3}.${HC}` },
+      { name: "test.0020_x.sql", checksum: `${T3}.${HC}` },
+    ], files),
+    undefined,
+    "nwind and test rows are not looked at",
+  );
+});
+
+Deno.test("checkCoreVersions: plain and NULL rows", () => {
+  const files = [
+    { name: "0010_schema.once.sql", value: `${T1}.${HA}` },
+    { name: "0020_code.sql", value: `${T1}.${HB}` },
+  ];
+  assertEquals(
+    checkCoreVersions([{ name: "_core.0010_schema.once.sql", checksum: HA }], files),
+    `run-once migration 0010_schema.once.sql in this database differs from this version: ${REPLACE}`,
+    "a plain run-once row is refused, also with the same hash",
+  );
+  assertEquals(
+    checkCoreVersions([
+      { name: "_core.0010_schema.once.sql", checksum: null },
+      { name: "_core.0020_code.sql", checksum: null },
+      { name: "_core.0030_gone.sql", checksum: null },
+    ], files),
+    undefined,
+    "NULL rows are never refused",
+  );
+  assertEquals(
+    checkCoreVersions([
+      { name: "_core.0020_code.sql", checksum: HC },
+      { name: "_core.0015_renamed.sql", checksum: HC },
+    ], files),
+    undefined,
+    "a plain repeatable row and a plain row of an unknown file pass",
+  );
+  // A runner that records plain values itself compares whole strings too.
+  assertEquals(
+    checkCoreVersions(
+      [{ name: "_core.0010_schema.once.sql", checksum: HA }],
+      [{ name: "0010_schema.once.sql", value: HA }],
+    ),
+    undefined,
+    "a plain row equal to a plain runner value passes",
+  );
+});
+
+Deno.test("checkCoreVersions: a stamped row for a file the runner does not have", () => {
+  const files = [{ name: "0010_schema.once.sql", value: `${T2}.${HA}` }];
+  assertEquals(
+    checkCoreVersions([{ name: "_core.0030_new.sql", checksum: `${T3}.${HB}` }], files),
+    `_core in this database contains 0030_new.sql from a newer pg_semantius build (${T3}); this runner's newest is ${T2}; use a newer pg_semantius`,
+    "later than the runner's latest ts: newer",
+  );
+  assertEquals(
+    checkCoreVersions([{ name: "_core.0030_gone.sql", checksum: `${T1}.${HB}` }], files),
+    `migration 0030_gone.sql in this database is not part of this version: ${REPLACE}`,
+    "not later: replace",
+  );
+  // No stamped value at all (a provisioner, or a fully local _core): nothing
+  // to compare the row with, so it is one the runner cannot place.
+  assertEquals(
+    checkCoreVersions(
+      [{ name: "_core.0030_gone.sql", checksum: `${T3}.${HB}` }],
+      [{ name: "0010_schema.once.sql", value: HA }],
+    ),
+    `migration 0030_gone.sql in this database is not part of this version: ${REPLACE}`,
+    "a runner without any ts refuses it as replace",
+  );
+});
+
+Deno.test("checkCoreVersions: a file the runner has no ts for is compared with its latest ts", () => {
+  // 0020 is a local file the build does not hold: a plain value, no ts.
+  const files = [
+    { name: "0010_schema.once.sql", value: `${T2}.${HA}` },
+    { name: "0020_code.sql", value: HB },
+  ];
+  assertEquals(
+    checkCoreVersions([{ name: "_core.0020_code.sql", checksum: `${T3}.${HC}` }], files),
+    `_core in this database contains 0020_code.sql from a newer pg_semantius build (${T3}); this runner's newest is ${T2}; use a newer pg_semantius`,
+    "later than the latest ts: newer",
+  );
+  assertEquals(
+    checkCoreVersions([{ name: "_core.0020_code.sql", checksum: `${T1}.${HC}` }], files),
+    undefined,
+    "not later: the repeatable file runs again",
+  );
+  assertEquals(
+    checkCoreVersions(
+      [{ name: "_core.0020_code.sql", checksum: `${UNRELEASED_TS}.${HC}` }],
+      [{ name: "0020_code.sql", value: `${T2}.${HB}` }],
+    ),
+    `_core in this database contains 0020_code.sql from a newer pg_semantius build (${UNRELEASED_TS}); this runner's newest is ${T2}; use a newer pg_semantius`,
+    "a database with unreleased content is newer than a released runner",
+  );
+});
+
+Deno.test("runMigrations: a refusal comes after the lock and before the first file, and releases the lock", async () => {
+  const restore = quiet();
+  try {
+    const files: MigrationFile[] = [
+      { name: "0010_schema.once.sql", content: "schema", version: `${T1}.${HA}` },
+      { name: "0020_code.sql", content: "code", version: `${T2}.${HB}` },
+    ];
+    const newer = new FakeDb();
+    newer.ledger.set("_core.0010_schema.once.sql", `${T1}.${HA}`);
+    newer.ledger.set("_core.0020_code.sql", `${T3}.${HC}`);
+    const before = JSON.stringify([...newer.ledger]);
+    await assertRejects(
+      () => runMigrations(newer, [{ app: "_core", migrations: files }]),
+      /^_core in this database contains 0020_code\.sql from a newer pg_semantius build \(20260301000000\)/,
+      "a newer database",
+    );
+    assertEquals(
+      newer.log,
+      ["lock", "ledger ddl", "version check", "unlock"],
+      "checked under the lock, before any file",
+    );
+    assertEquals(newer.executed, [], "nothing ran");
+    assertEquals(JSON.stringify([...newer.ledger]), before, "the ledger is unchanged");
+    assert(!newer.locked, "the lock is released after a refusal");
+
+    const replace = new FakeDb();
+    replace.ledger.set("_core.0010_schema.once.sql", HA);
+    await assertRejects(
+      () => runMigrations(replace, [{ app: "_core", migrations: files }]),
+      /^run-once migration 0010_schema\.once\.sql in this database differs from this version: .*replace the database with a fresh install$/,
+      "a plain run-once row",
+    );
+    assertEquals(replace.executed, [], "nothing ran");
+    assert(!replace.locked, "the lock is released after a refusal");
+
+    // A pass: the check precedes the first file, and the values are recorded.
+    const older = new FakeDb();
+    older.ledger.set("_core.0010_schema.once.sql", `${T1}.${HA}`);
+    older.ledger.set("_core.0020_code.sql", `${T1}.${HC}`);
+    const r = await runMigrations(older, [{ app: "_core", migrations: files }]);
+    assertEquals(r, { applied: 1, skipped: 1 }, "the older repeatable file runs again");
+    assert(
+      older.log.indexOf("version check") < older.log.indexOf("begin"),
+      `the check comes before the first file: ${older.log.join(", ")}`,
+    );
+    assertEquals(
+      older.ledger.get("_core.0020_code.sql"),
+      `${T2}.${HB}`,
+      "the runner's value is recorded",
+    );
+    assert(!older.locked, "the lock is released after the run");
+  } finally {
+    restore();
+  }
+});
+
+Deno.test("runMigrations: without a version value the plain hash is recorded", async () => {
+  const restore = quiet();
+  try {
+    const db = new FakeDb();
+    await runMigrations(db, [{
+      app: "_core",
+      migrations: [{ name: "0010_a.sql", content: "a" }],
+    }]);
+    assertEquals(
+      db.ledger.get("_core.0010_a.sql"),
+      await migrationChecksum("a"),
+      "plain hash",
+    );
   } finally {
     restore();
   }

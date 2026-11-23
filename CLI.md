@@ -51,6 +51,16 @@ working directory does have an `apps/<name>`, that copy is used instead of the
 embedded one, per app, and the CLI says so on the line it prints. So a project
 with its own `apps/myapp` still gets `_core` from the binary.
 
+A `_core` taken from `./apps/_core` is applied as it is, but each file whose
+text this build does not carry is recorded with a plain hash instead of the
+build's value, and a released `pg_semantius` refuses to update a database that
+recorded one of its run-once files that way. So before it opens a connection,
+the binary's `migrate` (and `migrate --script`) lists those files and asks
+`Type 'Y' to apply it anyway:`. Any other answer, or no terminal to ask, exits 1
+with nothing applied; `--confirm` skips the question. `reset` and `retest` do
+not ask, since they rebuild the database. A run from a checkout
+(`deno task migrate`) does not ask either: it is a development build.
+
 Commands that act on _every_ app rather than a named one — `test` — read only
 the working directory's own `apps/` when it has one. In a project holding just
 `apps/myapp`, `pg_semantius test` runs that project's suites and not the `test`
@@ -147,12 +157,13 @@ deno task [COMMAND] [OPTIONS]
 | `--version` | Show version information |
 | `-v, --verbose` | Enable verbose output |
 | `--apps <APPS>` | Comma-separated app names (for `migrate`, `extension`, `test`) |
-| `--confirm` | Skip confirmation prompt (for `dropall`, `reset`, `retest`) |
+| `--confirm` | Skip the confirmation prompt (for `dropall`, `reset`, `retest`), and for `migrate` the question before it applies a `_core` from `./apps/_core` that this build does not carry |
 | `--script` | Generate SQL file instead of executing (`migrate.sql` for `migrate`, `dropall.sql` for `dropall`) |
 | `--tap` | Plain TAP output (for `test`) |
 | `--failfast` | Stop after the first failed test file (for `test`, `retest`) |
 | `--output <PATH>` | Where to write (for `extension`, default `./extension`; `drizzlegen`, default `./drizzle/schema`; `kyselygen`, default `./kysely/types.ts`) |
 | `--check` | Compare `./extension` with the migrations and write nothing; exit 1 when it is stale (for `extension`) |
+| `--release <PATH>` | Release mode, for `release.sh` (for `extension`, not with `--check`): `PATH` is the `versions.json` of the tag the release follows. A file keeps a real ts that `./extension` or that tag records for its text, and every other file gets the run's UTC time. Without it, such a file gets the ts `99999999999999`, which every released `pg_semantius` refuses as newer than itself |
 | `--allow-edited-migrations` | Waive the check that refuses an edit to a migration an earlier version shipped (for `extension`) |
 | `--env <ENV>` | Load `.env.<ENV>` instead of `.env.local` |
 | `--database-url <URL>` | Database URL — overrides `DATABASE_URL` env var and `.env` file |
@@ -238,6 +249,33 @@ deno task test --coverage
 deno task test --coverage --coverage-min 80   # exit 1 below 80% function coverage
 ```
 
+### Databases `migrate` refuses
+
+`migrate` reads the version manifest it was built with,
+`extension/versions.json`, for the value each `_core` file records (a binary
+carries it inside). When it cannot read it, it exits 1 before it connects,
+naming the manifest, and `reset` and `retest` exit before they drop anything.
+Then, before the first file, it refuses two kinds of database, changing
+nothing:
+
+- **One a newer build migrated**: a row whose ts is later than this build's ts
+  for that file, or, for a file this build does not have or has no ts for, a
+  row whose ts is later than this build's newest ts. The message is `_core in
+  this database contains <file> from a newer pg_semantius build (<ts>); this
+  runner's newest is <ts>; use a newer pg_semantius`; its first ts is the
+  row's, the second this build's newest. An older binary is refused this way
+  even when it is only asked to deploy a module: `_core` is always part of the
+  run. (A binary released without these checks refuses nothing.)
+- **One it cannot update**: a run-once file recorded with a value other than
+  this build's, or a file this build does not have, recorded with a ts no later
+  than this build's newest. A run-once file never runs again, so such a
+  database would never get this build's schema. The message ends with `this
+  database cannot be updated; replace the database with a fresh install`.
+
+The script mode writes the same checks into `migrate.sql`, before the first
+file. [RELEASE.md](RELEASE.md#how-a-change-reaches-an-existing-database) has
+the full rules.
+
 ---
 
 ## Environment configuration
@@ -280,6 +318,7 @@ Edit them to match your `pgdocker/.env` (password, port, database), then either:
 
 Permanently deletes **ALL** objects in the public schema (tables, views,
 functions, sequences, types, and user-owned schemas). **Cannot be undone.**
+Without `--confirm` it asks you to type `Y` first:
 
 ```bash
 deno task dropall --confirm
@@ -288,7 +327,7 @@ deno task dropall --confirm
 ### `reset`
 
 Combines `dropall --confirm` → `migrate --apps _core` (no sample data, no
-tests). Requires `--confirm`:
+tests). Without `--confirm` it asks you to type `yes` first:
 
 ```bash
 deno task reset --confirm
@@ -297,7 +336,7 @@ deno task reset --confirm
 ### `retest`
 
 Combines `dropall --confirm` → `migrate --apps nwind,test` (`_core` is prepended
-automatically) → `test`. Requires `--confirm`:
+automatically) → `test`. Without `--confirm` it asks you to type `yes` first:
 
 ```bash
 deno task retest --confirm

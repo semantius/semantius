@@ -367,7 +367,7 @@ extension-`_core` ≡ migrate-`_core`.
 | Path | Harness | What it does |
 | ---- | ------- | ------------ |
 | **A — plain CLI** | `pg-cli-retest` (`.sh`/`.cmd`) | `pg-cli-create` → `retest --confirm` (dropall → migrate `_core,nwind,test` → test), on port 5432 |
-| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` + `CALL semantius.migrate()` install `_core`) → migrate `nwind,test` → test, on port 5433 |
+| **B — extension** | `pg-ext-retest` (`.sh`/`.cmd`) | `down -v` → `pg-ext-create` (`CREATE EXTENSION` + `CALL semantius.migrate()` install `_core`) → migrate `nwind,test`, failing if the CLI applies any `_core` file → test, on port 5433 |
 
 ```bash
 ./pg-cli-retest.sh      # Path A — migrate-installed _core
@@ -384,9 +384,10 @@ extension-`_core` ≡ migrate-`_core`.
 ```
 
 In **Path B**, `migrate --apps nwind,test` auto-prepends `_core`, but
-`migrate()` already recorded every `_core` file in `_versions` with its checksum,
-so every `_core.*` migration is **skipped** (not re-run) and only `test`/`nwind` are
-deployed onto the extension's `_core` — the exact same app set Path A migrates,
+`migrate()` already recorded every `_core` file in `_versions` with the value
+the CLI of the same build records for it, so every `_core.*` migration is
+**skipped** (not re-run; the harness fails if any `_core` row changes) and only
+`test`/`nwind` are deployed onto the extension's `_core` — the exact same app set Path A migrates,
 so the two paths run the identical suite over an identical schema. (The
 `webhook_receivers`/`dashboards` tables that the Northwind seed
 `0030_nwind_platform.once.sql` and several test files use are part of `_core`,
@@ -416,7 +417,7 @@ does not disturb `appdb`:
 
 | Step | Proves |
 |---|---|
-| 0 | the build in `../extension` matches the migrations; the control file (`schema = public`, `relocatable = false`, `superuser = true`, `encoding = 'UTF8'`, no `requires`); a generated script with exactly one `pg_extension_config_dump` call (`migrate()`'s own guard), no table registered for `pg_dump` and no `skip_audit`; the generator's LF normalization and manifest checksum (`extension_test.ts`); no CR byte in the script or the control file |
+| 0 | the build in `../extension` matches the migrations; the control file (`schema = public`, `relocatable = false`, `superuser = true`, `encoding = 'UTF8'`, no `requires`); a generated script with exactly one `pg_extension_config_dump` call (`migrate()`'s own guard), no table registered for `pg_dump` and no `skip_audit`; the generator's LF normalization and the hash part of the manifest's values (`extension_test.ts`); no CR byte in the script or the control file |
 | 1 | two-statement install with no CASCADE; `pending()` and `version()` work before `migrate()`; a second `migrate()` runs nothing, and a forced re-run of every repeatable file leaves the schema and the dictionary unchanged; `pgcrypto` lands in `public`; no relation is a member of the extension; `extconfig IS NULL`; the DDL audit names `migrate()` as the query |
 | 1b | a second database on the same cluster, with the roles already present; `postgres` is not made a member of `semantius_user`, and schema `common` has the same ACL as `rbac`, with no extra grant to the installer |
 | 1c | while a session holds the migration lock, `CALL migrate()` fails at once with `another migration is running` (55P03) and writes nothing; while a `CALL` runs, a second `CALL` fails the same way and a CLI runner cannot take the lock; the lock is released when the `CALL` ends, and each migration is applied exactly once |
@@ -424,9 +425,10 @@ does not disturb `appdb`:
 | 1e | two concurrent first logins elect exactly one administrator, the earlier one, and the other keeps the User role; a later login is not elected |
 | 1f | `fix_id_sequence` behind an open insert fails with 90232 instead of queueing; the retry succeeds |
 | 1g | a file failing mid-pass is named with its original error and not recorded, earlier files stay committed, the 9900 files still run and leave nothing owned by the installing superuser, and the next `CALL migrate()` resumes to an install equal to an uninterrupted one |
-| 1h | the CLI runner (`deno task migrate`): a failing file fails the run with its original error, the 9900 files still run and leave nothing owned by the installing superuser, and the next run resumes to an install equal to an uninterrupted one; like the procedure, it fails at once while another session holds the migration lock |
+| 1h | the CLI runner (`deno task migrate`): a failing file fails the run with its original error, the 9900 files still run and leave nothing owned by the installing superuser, and the next run resumes to an install equal to an uninterrupted one; like the procedure, it fails at once while another session holds the migration lock; `CREATE EXTENSION` and `CALL migrate()` over that CLI install then apply nothing |
 | 1i | in one session that runs two transactions, a write to an entity with a `select_rule` keeps the row move secret in `app.row_move_secret` for its own transaction, and the next transaction no longer has it; the values are compared, never printed |
 | 1j | after `rbac.whoami()` is dropped and its file's checksum cleared, a `CALL migrate()` run by another superuser recreates it, and `semantius_user` can execute it while PUBLIC cannot |
+| 1k | the update checks of a release build: the current version, built in release mode in a copy of the repository against the `versions.json` of the tag it follows (the working tree's own when the checkout has no tag), is installed with real ts values, and its CLI and script mode apply nothing to that install. Forged ledger rows are then refused by the extension, the CLI and script mode alike, each time with the lock free and the ledger and schema unchanged: a newer ts on a repeatable row ("newer"); another value of a run-once row, and a plain run-once row with the same hash ("replace"); a newer ts on a changed run-once row ("newer", checked first); a stamped row for a file the build does not have ("replace", or "newer" with a later ts). They pass an older repeatable row (it runs again and takes the build's value), a run-once row without a checksum, and nwind rows. The container's extension files are the working tree's again afterwards |
 | 2 | plain `pg_dump` → **single-pass** `pg_restore`, with a custom field on a core entity and a custom entity's rows; nothing is pending on the restored database |
 | 2b | the same dump through `-Fp \| psql`, `-j 4` and `-1` |
 | 4 | `DROP EXTENSION` is inert, with and without CASCADE: the schema `semantius` goes, the data and the four roles stay, and a re-created extension has nothing to migrate |

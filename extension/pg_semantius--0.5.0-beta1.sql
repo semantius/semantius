@@ -215,6 +215,56 @@ BEGIN
     ALTER TABLE _versions ADD COLUMN IF NOT EXISTS checksum TEXT;
 
     ALTER TABLE _versions ENABLE ROW LEVEL SECURITY;
+    -- Refuse a database this bundle must not update, before the first file:
+    -- a newer bundle migrated it, or it cannot reach this bundle's schema.
+    -- The handler below releases the lock, and nothing has changed.
+    DECLARE
+      v_core   jsonb := '{"0010_core.sql":{"value":"99999999999999.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false},"0020_settings.once.sql":{"value":"99999999999999.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true},"0030_session_authenticator.sql":{"value":"99999999999999.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false},"0040_cache.sql":{"value":"99999999999999.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false},"0045_typeid.sql":{"value":"99999999999999.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false},"0046_typeid.once.sql":{"value":"99999999999999.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true},"0050_jsonlogic.sql":{"value":"99999999999999.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","once":false},"0060_rbac_schema.once.sql":{"value":"99999999999999.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true},"0070_rbac_schema.sql":{"value":"99999999999999.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false},"0080_rbac_functions.sql":{"value":"99999999999999.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","once":false},"0090_rbac_seed.once.sql":{"value":"99999999999999.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true},"0100_rbac_rls.sql":{"value":"99999999999999.47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","once":false},"0110_rbac_grants.once.sql":{"value":"99999999999999.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true},"0120_dd_formats.sql":{"value":"99999999999999.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false},"0130_dd_schema.once.sql":{"value":"99999999999999.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","once":true},"0140_dd_schema.sql":{"value":"99999999999999.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false},"0150_dd_bootstrap.once.sql":{"value":"99999999999999.d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true},"0160_dd_functions.sql":{"value":"99999999999999.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false},"0170_dd_rename.sql":{"value":"99999999999999.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false},"0180_managed_enable.sql":{"value":"99999999999999.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false},"0190_audit_log.once.sql":{"value":"99999999999999.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true},"0200_audit_log.sql":{"value":"99999999999999.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false},"0210_computed_validation.sql":{"value":"99999999999999.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","once":false},"0220_entity_insert_defaults.sql":{"value":"99999999999999.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false},"0230_entity_order_column.sql":{"value":"99999999999999.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false},"0240_dd_bootstrap_complete.once.sql":{"value":"99999999999999.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true},"0250_public_functions.sql":{"value":"99999999999999.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false},"0260_notify_triggers.sql":{"value":"99999999999999.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false},"0270_apikeys.once.sql":{"value":"99999999999999.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true},"0280_apikeys.sql":{"value":"99999999999999.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false},"0290_ensure_entities.sql":{"value":"99999999999999.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false},"0300_audit_log.jsonc":{"value":"99999999999999.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false},"0310_pgmq.once.sql":{"value":"99999999999999.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true},"0320_queue.jsonc":{"value":"99999999999999.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false},"0330_queue_setup.once.sql":{"value":"99999999999999.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true},"0340_queue.sql":{"value":"99999999999999.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false},"0350_raci.jsonc":{"value":"99999999999999.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false},"0360_raci_setup.once.sql":{"value":"99999999999999.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true},"0370_raci.sql":{"value":"99999999999999.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false},"0380_webhook_receiver.jsonc":{"value":"99999999999999.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false},"0390_webhook_receiver_setup.once.sql":{"value":"99999999999999.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true},"0400_dashboard.jsonc":{"value":"99999999999999.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false},"0410_user_bookmarks.jsonc":{"value":"99999999999999.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false},"0420_module_version.sql":{"value":"99999999999999.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false},"0430_required_field_description.once.sql":{"value":"99999999999999.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true},"0440_rollup.sql":{"value":"99999999999999.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false},"9900_owner_hardening.sql":{"value":"99999999999999.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false}}'::jsonb;
+      v_newest text := '99999999999999';
+      v_row    record;
+      v_file   text;
+      v_entry  jsonb;
+      v_mine   text;
+    BEGIN
+      -- Newer: a stamped row later than this runner's ts for that file, or than
+      -- its newest ts when it has no ts for the file.
+      FOR v_row IN
+        SELECT v.name, v.checksum FROM public._versions v
+         WHERE pg_catalog.starts_with(v.name, '_core.')
+           AND v.checksum ~ '^[0-9]{14}[.][0-9a-f]{64}$'
+         ORDER BY v.name COLLATE "C"
+      LOOP
+        v_file := pg_catalog.substr(v_row.name, 7);
+        v_mine := v_core -> v_file ->> 'value';
+        v_mine := CASE WHEN v_mine ~ '^[0-9]{14}[.][0-9a-f]{64}$'
+                       THEN pg_catalog.left(v_mine, 14) ELSE v_newest END;
+        IF pg_catalog.left(v_row.checksum, 14) COLLATE "C" > v_mine THEN
+          RAISE EXCEPTION '_core in this database contains % from a newer pg_semantius build (%); this runner''s newest is %; use a newer pg_semantius, then ALTER EXTENSION pg_semantius UPDATE and CALL semantius.migrate()', v_file, pg_catalog.left(v_row.checksum, 14), v_newest
+            USING ERRCODE = '55000';
+        END IF;
+      END LOOP;
+      -- Replace: a run-once row whose value differs from this runner's, and a
+      -- stamped row for a file this runner does not have. NULL rows pass.
+      FOR v_row IN
+        SELECT v.name, v.checksum FROM public._versions v
+         WHERE pg_catalog.starts_with(v.name, '_core.')
+           AND v.checksum IS NOT NULL
+         ORDER BY v.name COLLATE "C"
+      LOOP
+        v_file := pg_catalog.substr(v_row.name, 7);
+        v_entry := v_core -> v_file;
+        IF v_entry IS NULL THEN
+          IF v_row.checksum ~ '^[0-9]{14}[.][0-9a-f]{64}$' THEN
+            RAISE EXCEPTION 'migration % in this database is not part of this version: this database cannot be updated; replace the database with a fresh install', v_file
+              USING ERRCODE = '55000';
+          END IF;
+        ELSIF (v_entry ->> 'once')::boolean
+              AND v_row.checksum IS DISTINCT FROM v_entry ->> 'value' THEN
+          RAISE EXCEPTION 'run-once migration % in this database differs from this version: this database cannot be updated; replace the database with a fresh install', v_file
+            USING ERRCODE = '55000';
+        END IF;
+      END LOOP;
+    END;
   EXCEPTION WHEN OTHERS THEN
     PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
     RAISE;
@@ -232,7 +282,7 @@ BEGIN
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0010_core.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0010_core.sql';
       EXECUTE $pgsem__core_0010_core_sql$-- =====================================================
@@ -330,7 +380,7 @@ REVOKE EXECUTE ON FUNCTION common.update_updated_at_column() FROM PUBLIC;
 $pgsem__core_0010_core_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0010_core.sql', '6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad')
+        VALUES ('_core.0010_core.sql', '99999999999999.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -449,7 +499,7 @@ CREATE POLICY settings_deny_all ON _settings
 $pgsem__core_0020_settings_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0020_settings.once.sql', '546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d')
+        VALUES ('_core.0020_settings.once.sql', '99999999999999.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -486,7 +536,7 @@ $pgsem__core_0020_settings_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0030_session_authenticator.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0030_session_authenticator.sql';
       EXECUTE $pgsem__core_0030_session_authenticator_sql$-- =====================================================================================
@@ -567,7 +617,7 @@ COMMENT ON ROLE semantius_authenticator IS
 $pgsem__core_0030_session_authenticator_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0030_session_authenticator.sql', '60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee')
+        VALUES ('_core.0030_session_authenticator.sql', '99999999999999.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -604,7 +654,7 @@ $pgsem__core_0030_session_authenticator_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0040_cache.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0040_cache.sql';
       EXECUTE $pgsem__core_0040_cache_sql$-- Create generic cache table for storing key-value pairs with expiration
@@ -746,7 +796,7 @@ COMMENT ON FUNCTION common.cache_stats() IS 'Get cache statistics including tota
 $pgsem__core_0040_cache_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0040_cache.sql', '5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f')
+        VALUES ('_core.0040_cache.sql', '99999999999999.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -783,7 +833,7 @@ $pgsem__core_0040_cache_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0045_typeid.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0045_typeid.sql';
       EXECUTE $pgsem__core_0045_typeid_sql$-- =====================================================
@@ -1265,7 +1315,7 @@ GRANT EXECUTE ON FUNCTION common.typeid_generate_text(text) TO semantius_user;
 $pgsem__core_0045_typeid_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0045_typeid.sql', 'cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98')
+        VALUES ('_core.0045_typeid.sql', '99999999999999.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -1337,7 +1387,7 @@ GRANT USAGE ON DOMAIN common.typeid TO semantius_user;
 $pgsem__core_0046_typeid_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0046_typeid.once.sql', 'b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d')
+        VALUES ('_core.0046_typeid.once.sql', '99999999999999.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -1374,7 +1424,7 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -3450,7 +3500,7 @@ END $$;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', '4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a')
+        VALUES ('_core.0050_jsonlogic.sql', '99999999999999.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -3762,7 +3812,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA rbac
 $pgsem__core_0060_rbac_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0060_rbac_schema.once.sql', 'b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2')
+        VALUES ('_core.0060_rbac_schema.once.sql', '99999999999999.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -3799,7 +3849,7 @@ $pgsem__core_0060_rbac_schema_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0070_rbac_schema.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0070_rbac_schema.sql';
       EXECUTE $pgsem__core_0070_rbac_schema_sql$-- =====================================================
@@ -3933,7 +3983,7 @@ CREATE OR REPLACE TRIGGER pk_immutable
 $pgsem__core_0070_rbac_schema_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0070_rbac_schema.sql', 'c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c')
+        VALUES ('_core.0070_rbac_schema.sql', '99999999999999.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -3970,7 +4020,7 @@ $pgsem__core_0070_rbac_schema_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
       EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
@@ -5527,7 +5577,7 @@ REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
 $pgsem__core_0080_rbac_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0080_rbac_functions.sql', '3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1')
+        VALUES ('_core.0080_rbac_functions.sql', '99999999999999.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5681,7 +5731,7 @@ ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
 $pgsem__core_0090_rbac_seed_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0090_rbac_seed.once.sql', '90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa')
+        VALUES ('_core.0090_rbac_seed.once.sql', '99999999999999.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5718,7 +5768,7 @@ $pgsem__core_0090_rbac_seed_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0100_rbac_rls.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0100_rbac_rls.sql';
       EXECUTE $pgsem__core_0100_rbac_rls_sql$-- =====================================================
@@ -6271,7 +6321,7 @@ REVOKE EXECUTE ON FUNCTION rbac.default_granted_by() FROM PUBLIC;
 $pgsem__core_0100_rbac_rls_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0100_rbac_rls.sql', '47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8')
+        VALUES ('_core.0100_rbac_rls.sql', '99999999999999.47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6345,7 +6395,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 $pgsem__core_0110_rbac_grants_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0110_rbac_grants.once.sql', 'fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5')
+        VALUES ('_core.0110_rbac_grants.once.sql', '99999999999999.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6382,7 +6432,7 @@ $pgsem__core_0110_rbac_grants_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0120_dd_formats.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0120_dd_formats.sql';
       EXECUTE $pgsem__core_0120_dd_formats_sql$-- =====================================================
@@ -6614,7 +6664,7 @@ REVOKE EXECUTE ON FUNCTION dd_formats() FROM PUBLIC;
 $pgsem__core_0120_dd_formats_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0120_dd_formats.sql', 'af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92')
+        VALUES ('_core.0120_dd_formats.sql', '99999999999999.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6902,7 +6952,7 @@ ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', 'a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc')
+        VALUES ('_core.0130_dd_schema.once.sql', '99999999999999.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6939,7 +6989,7 @@ $pgsem__core_0130_dd_schema_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0140_dd_schema.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0140_dd_schema.sql';
       EXECUTE $pgsem__core_0140_dd_schema_sql$-- =====================================================
@@ -7094,7 +7144,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;
 $pgsem__core_0140_dd_schema_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0140_dd_schema.sql', '7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6')
+        VALUES ('_core.0140_dd_schema.sql', '99999999999999.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7500,7 +7550,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', 'd867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', '99999999999999.d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7537,7 +7587,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -12870,7 +12920,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', 'bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130')
+        VALUES ('_core.0160_dd_functions.sql', '99999999999999.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12907,7 +12957,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -13719,7 +13769,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', 'cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c')
+        VALUES ('_core.0170_dd_rename.sql', '99999999999999.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13756,7 +13806,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -15063,7 +15113,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb')
+        VALUES ('_core.0180_managed_enable.sql', '99999999999999.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15301,7 +15351,7 @@ GRANT USAGE ON SCHEMA audit TO semantius_user;
 $pgsem__core_0190_audit_log_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0190_audit_log.once.sql', 'c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79')
+        VALUES ('_core.0190_audit_log.once.sql', '99999999999999.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -15338,7 +15388,7 @@ $pgsem__core_0190_audit_log_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0200_audit_log.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0200_audit_log.sql';
       EXECUTE $pgsem__core_0200_audit_log_sql$-- =====================================================
@@ -16275,7 +16325,7 @@ REVOKE EXECUTE ON FUNCTION manage_audit_log() FROM PUBLIC;
 $pgsem__core_0200_audit_log_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0200_audit_log.sql', '0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587')
+        VALUES ('_core.0200_audit_log.sql', '99999999999999.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -16312,7 +16362,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -18095,7 +18145,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', 'f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11')
+        VALUES ('_core.0210_computed_validation.sql', '99999999999999.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18132,7 +18182,7 @@ $pgsem__core_0210_computed_validation_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0220_entity_insert_defaults.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0220_entity_insert_defaults.sql';
       EXECUTE $pgsem__core_0220_entity_insert_defaults_sql$-- =====================================================
@@ -18290,7 +18340,7 @@ COMMENT ON TRIGGER set_entity_defaults_trigger ON entities IS
 $pgsem__core_0220_entity_insert_defaults_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0220_entity_insert_defaults.sql', 'bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53')
+        VALUES ('_core.0220_entity_insert_defaults.sql', '99999999999999.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18327,7 +18377,7 @@ $pgsem__core_0220_entity_insert_defaults_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0230_entity_order_column.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0230_entity_order_column.sql';
       EXECUTE $pgsem__core_0230_entity_order_column_sql$-- =====================================================
@@ -18527,7 +18577,7 @@ CREATE OR REPLACE TRIGGER a_auto_order_fields
 $pgsem__core_0230_entity_order_column_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0230_entity_order_column.sql', '875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594')
+        VALUES ('_core.0230_entity_order_column.sql', '99999999999999.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18735,7 +18785,7 @@ SELECT create_entity_policies(t)
 $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668')
+        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '99999999999999.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18772,7 +18822,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -19771,7 +19821,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636')
+        VALUES ('_core.0250_public_functions.sql', '99999999999999.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -19808,7 +19858,7 @@ $pgsem__core_0250_public_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0260_notify_triggers.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0260_notify_triggers.sql';
       EXECUTE $pgsem__core_0260_notify_triggers_sql$-- =====================================================
@@ -20028,7 +20078,7 @@ GRANT USAGE ON SCHEMA common TO semantius_user;
 $pgsem__core_0260_notify_triggers_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0260_notify_triggers.sql', '8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c')
+        VALUES ('_core.0260_notify_triggers.sql', '99999999999999.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -20111,7 +20161,7 @@ GRANT USAGE, SELECT ON SEQUENCE _apikeys_id_seq TO semantius_user;
 $pgsem__core_0270_apikeys_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0270_apikeys.once.sql', '42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79')
+        VALUES ('_core.0270_apikeys.once.sql', '99999999999999.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -20148,7 +20198,7 @@ $pgsem__core_0270_apikeys_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0280_apikeys.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0280_apikeys.sql';
       EXECUTE $pgsem__core_0280_apikeys_sql$-- =====================================================
@@ -20443,7 +20493,7 @@ CREATE OR REPLACE TRIGGER pk_immutable
 $pgsem__core_0280_apikeys_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0280_apikeys.sql', 'fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b')
+        VALUES ('_core.0280_apikeys.sql', '99999999999999.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -20480,7 +20530,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -21504,7 +21554,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', '999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c')
+        VALUES ('_core.0290_ensure_entities.sql', '99999999999999.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -21541,7 +21591,7 @@ $pgsem__core_0290_ensure_entities_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0300_audit_log.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0300_audit_log.jsonc';
       EXECUTE $pgsem__core_0300_audit_log_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Audit log entities: registers the audit tables audit_record_logs and
@@ -21668,7 +21718,7 @@ $pgsem_jsonc$));
 $pgsem__core_0300_audit_log_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0300_audit_log.jsonc', 'f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7')
+        VALUES ('_core.0300_audit_log.jsonc', '99999999999999.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -23848,7 +23898,7 @@ $$;
 $pgsem__core_0310_pgmq_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0310_pgmq.once.sql', '77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85')
+        VALUES ('_core.0310_pgmq.once.sql', '99999999999999.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -23885,7 +23935,7 @@ $pgsem__core_0310_pgmq_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0320_queue.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0320_queue.jsonc';
       EXECUTE $pgsem__core_0320_queue_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Queue entities: queues (each row is a pgmq queue) and queue_table_events
@@ -23984,7 +24034,7 @@ $pgsem_jsonc$));
 $pgsem__core_0320_queue_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0320_queue.jsonc', '8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf')
+        VALUES ('_core.0320_queue.jsonc', '99999999999999.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24042,7 +24092,7 @@ ALTER TABLE queue_table_events ALTER COLUMN table_name SET NOT NULL;
 $pgsem__core_0330_queue_setup_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0330_queue_setup.once.sql', '9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11')
+        VALUES ('_core.0330_queue_setup.once.sql', '99999999999999.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24079,7 +24129,7 @@ $pgsem__core_0330_queue_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0340_queue.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0340_queue.sql';
       EXECUTE $pgsem__core_0340_queue_sql$-- =====================================================
@@ -24735,7 +24785,7 @@ GRANT EXECUTE ON FUNCTION public.queue_delete(TEXT, BIGINT) TO semantius_user;
 $pgsem__core_0340_queue_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0340_queue.sql', 'ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005')
+        VALUES ('_core.0340_queue.sql', '99999999999999.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -24772,7 +24822,7 @@ $pgsem__core_0340_queue_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0350_raci.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0350_raci.jsonc';
       EXECUTE $pgsem__core_0350_raci_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// RACI entities (Responsible, Accountable, Consulted, Informed):
@@ -24975,7 +25025,7 @@ $pgsem_jsonc$));
 $pgsem__core_0350_raci_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0350_raci.jsonc', '5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d')
+        VALUES ('_core.0350_raci.jsonc', '99999999999999.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25102,7 +25152,7 @@ FROM   queues WHERE queue_name = 'raci_notify';
 $pgsem__core_0360_raci_setup_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0360_raci_setup.once.sql', '0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243')
+        VALUES ('_core.0360_raci_setup.once.sql', '99999999999999.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25139,7 +25189,7 @@ $pgsem__core_0360_raci_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0370_raci.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0370_raci.sql';
       EXECUTE $pgsem__core_0370_raci_sql$-- =====================================================
@@ -25769,7 +25819,7 @@ CREATE OR REPLACE TRIGGER raci_entity_renamed_trigger
 $pgsem__core_0370_raci_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0370_raci.sql', '99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d')
+        VALUES ('_core.0370_raci.sql', '99999999999999.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25806,7 +25856,7 @@ $pgsem__core_0370_raci_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0380_webhook_receiver.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0380_webhook_receiver.jsonc';
       EXECUTE $pgsem__core_0380_webhook_receiver_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Webhook receiver entities: webhook_receivers (configuration of the webhook
@@ -25931,7 +25981,7 @@ $pgsem_jsonc$));
 $pgsem__core_0380_webhook_receiver_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0380_webhook_receiver.jsonc', '33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95')
+        VALUES ('_core.0380_webhook_receiver.jsonc', '99999999999999.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -25983,7 +26033,7 @@ ALTER TABLE webhook_receivers ALTER COLUMN table_name SET NOT NULL;
 $pgsem__core_0390_webhook_receiver_setup_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0390_webhook_receiver_setup.once.sql', 'a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec')
+        VALUES ('_core.0390_webhook_receiver_setup.once.sql', '99999999999999.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26020,7 +26070,7 @@ $pgsem__core_0390_webhook_receiver_setup_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0400_dashboard.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0400_dashboard.jsonc';
       EXECUTE $pgsem__core_0400_dashboard_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Dashboard entity: user-configured dashboard layouts and configurations.
@@ -26064,7 +26114,7 @@ $pgsem_jsonc$));
 $pgsem__core_0400_dashboard_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0400_dashboard.jsonc', '8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e')
+        VALUES ('_core.0400_dashboard.jsonc', '99999999999999.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26101,7 +26151,7 @@ $pgsem__core_0400_dashboard_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0410_user_bookmarks.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0410_user_bookmarks.jsonc';
       EXECUTE $pgsem__core_0410_user_bookmarks_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
@@ -26173,7 +26223,7 @@ $pgsem_jsonc$));
 $pgsem__core_0410_user_bookmarks_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0410_user_bookmarks.jsonc', 'e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804')
+        VALUES ('_core.0410_user_bookmarks.jsonc', '99999999999999.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26210,7 +26260,7 @@ $pgsem__core_0410_user_bookmarks_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0420_module_version.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0420_module_version.sql';
       EXECUTE $pgsem__core_0420_module_version_sql$-- =====================================================
@@ -26395,7 +26445,7 @@ REVOKE EXECUTE ON FUNCTION bump_module_version_from_fields() FROM PUBLIC;
 $pgsem__core_0420_module_version_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0420_module_version.sql', 'c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e')
+        VALUES ('_core.0420_module_version.sql', '99999999999999.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26447,7 +26497,7 @@ UPDATE fields
 $pgsem__core_0430_required_field_description_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0430_required_field_description.once.sql', '464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936')
+        VALUES ('_core.0430_required_field_description.once.sql', '99999999999999.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26484,7 +26534,7 @@ $pgsem__core_0430_required_field_description_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0440_rollup.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0440_rollup.sql';
       EXECUTE $pgsem__core_0440_rollup_sql$-- =====================================================
@@ -28375,7 +28425,7 @@ REVOKE EXECUTE ON FUNCTION zz_rollup_entity_delete() FROM PUBLIC;
 $pgsem__core_0440_rollup_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0440_rollup.sql', 'f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972')
+        VALUES ('_core.0440_rollup.sql', '99999999999999.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -28412,7 +28462,7 @@ $pgsem__core_0440_rollup_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.9900_owner_hardening.sql';
     v_found := FOUND;
-    IF v_ran OR (v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM 'ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff')) THEN
+    IF v_ran OR (v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff')) THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.9900_owner_hardening.sql';
       EXECUTE $pgsem__core_9900_owner_hardening_sql$-- =====================================================
@@ -28653,7 +28703,7 @@ END $$;
 $pgsem__core_9900_owner_hardening_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.9900_owner_hardening.sql', 'ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff')
+        VALUES ('_core.9900_owner_hardening.sql', '99999999999999.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -28747,7 +28797,7 @@ $pgsem_migrate_body$;
 
 REVOKE EXECUTE ON PROCEDURE semantius.migrate(jsonb) FROM PUBLIC;
 COMMENT ON PROCEDURE semantius.migrate(jsonb) IS
-  'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Superuser only. CALL it outside a transaction block.';
+  'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Before the first file it refuses, changing nothing, a database a newer build migrated and one this bundle cannot update. Superuser only. CALL it outside a transaction block.';
 
 -- 5. Read-only companions.
 CREATE FUNCTION semantius.pending() RETURNS SETOF text
@@ -28755,7 +28805,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"99999999999999.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"99999999999999.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"99999999999999.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"99999999999999.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"99999999999999.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"99999999999999.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"99999999999999.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"99999999999999.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"99999999999999.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"99999999999999.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"99999999999999.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"99999999999999.47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"99999999999999.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"99999999999999.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"99999999999999.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"99999999999999.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"99999999999999.d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"99999999999999.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"99999999999999.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"99999999999999.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"99999999999999.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"99999999999999.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"99999999999999.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"99999999999999.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"99999999999999.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"99999999999999.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"99999999999999.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"99999999999999.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"99999999999999.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"99999999999999.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"99999999999999.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"99999999999999.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"99999999999999.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"99999999999999.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"99999999999999.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"99999999999999.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"99999999999999.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"99999999999999.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"99999999999999.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"99999999999999.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"99999999999999.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"99999999999999.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"99999999999999.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"99999999999999.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"99999999999999.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"99999999999999.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"99999999999999.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -28763,9 +28813,11 @@ DECLARE
   v_sum   text;
   v_found boolean;
 BEGIN
-  -- The files the next migrate() would run, by the same rules: no ledger row;
-  -- a repeatable file whose checksum differs; a 9900 file after anything else
-  -- of its app. Works before _versions exists (before the first migrate()).
+  -- The files due by migrate()'s run rules: no ledger row; a repeatable file
+  -- whose recorded value differs; a 9900 file after anything else of its app.
+  -- Works before _versions exists (before the first migrate()). It leaves out
+  -- migrate()'s refusal of a newer or a non-updatable database, so on such a
+  -- database it still lists the files that are due.
   FOR f IN SELECT e FROM jsonb_array_elements(v_files) WITH ORDINALITY AS t(e, i) ORDER BY i
   LOOP
     IF v_app IS DISTINCT FROM f->>'app' THEN
@@ -28789,7 +28841,7 @@ END
 $pgsem_pending$;
 REVOKE EXECUTE ON FUNCTION semantius.pending() FROM PUBLIC;
 COMMENT ON FUNCTION semantius.pending() IS
-  'Bundled migrations the next migrate() would run: new files, changed repeatable files, and the 9900 files that follow them.';
+  'Bundled migrations due by migrate()''s run rules: new files, changed repeatable files, and the 9900 files that follow them. It does not run migrate()''s refusal checks.';
 
 CREATE FUNCTION semantius.version() RETURNS text
 LANGUAGE sql STABLE
@@ -28819,7 +28871,7 @@ AS $pgsem_status$
 DECLARE
   v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","_core.0045_typeid.sql":"cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","_core.0060_rbac_schema.once.sql":"b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","_core.0090_rbac_seed.once.sql":"90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","_core.0110_rbac_grants.once.sql":"fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","_core.0130_dd_schema.once.sql":"a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","_core.0140_dd_schema.sql":"7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","_core.0150_dd_bootstrap.once.sql":"d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","_core.0170_dd_rename.sql":"cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","_core.0190_audit_log.once.sql":"c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","_core.0220_entity_insert_defaults.sql":"bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","_core.0260_notify_triggers.sql":"8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","_core.0280_apikeys.sql":"fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","_core.0320_queue.jsonc":"8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","_core.0350_raci.jsonc":"5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","_core.0370_raci.sql":"99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","_core.9900_owner_hardening.sql":"ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"99999999999999.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"99999999999999.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"99999999999999.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"99999999999999.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","_core.0045_typeid.sql":"99999999999999.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"99999999999999.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"99999999999999.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","_core.0060_rbac_schema.once.sql":"99999999999999.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"99999999999999.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"99999999999999.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","_core.0090_rbac_seed.once.sql":"99999999999999.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"99999999999999.47175c213814c23b6bad0d68a23acb3a7a2b4a8d70c426d6cd7aafb210fa53c8","_core.0110_rbac_grants.once.sql":"99999999999999.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"99999999999999.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","_core.0130_dd_schema.once.sql":"99999999999999.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","_core.0140_dd_schema.sql":"99999999999999.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","_core.0150_dd_bootstrap.once.sql":"99999999999999.d867fa686a7f6b02314735b16e96b09b36ebdd6fbf681b2a0f738271a429d31c","_core.0160_dd_functions.sql":"99999999999999.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","_core.0170_dd_rename.sql":"99999999999999.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"99999999999999.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","_core.0190_audit_log.once.sql":"99999999999999.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"99999999999999.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"99999999999999.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","_core.0220_entity_insert_defaults.sql":"99999999999999.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"99999999999999.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"99999999999999.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"99999999999999.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","_core.0260_notify_triggers.sql":"99999999999999.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"99999999999999.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","_core.0280_apikeys.sql":"99999999999999.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"99999999999999.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"99999999999999.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"99999999999999.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","_core.0320_queue.jsonc":"99999999999999.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"99999999999999.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"99999999999999.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","_core.0350_raci.jsonc":"99999999999999.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"99999999999999.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","_core.0370_raci.sql":"99999999999999.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"99999999999999.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"99999999999999.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"99999999999999.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"99999999999999.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"99999999999999.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"99999999999999.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"99999999999999.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","_core.9900_owner_hardening.sql":"99999999999999.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;
@@ -28851,16 +28903,19 @@ BEGIN
   IF to_regclass('public._versions') IS NOT NULL THEN
     SELECT count(*)::int INTO applied
       FROM public._versions WHERE name = ANY(v_all);
-    -- Rows this bundle does not know: a dump from a NEWER bundle restored onto
-    -- an older installer.
+    -- Rows this bundle does not have: those of the apps the CLI deployed on
+    -- top of it (nwind, a project's own), and those of a newer bundle, as
+    -- after a dump restored onto an older installer.
     SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
       INTO unknown_versions
       FROM public._versions v
      WHERE v.name LIKE '%.%' AND NOT (v.name = ANY(v_all));
-    -- Run-once files whose source text has changed since they were applied
-    -- (Flyway's validate). They are not re-run, so the database keeps what
-    -- the old text created. A changed repeatable file is not listed here: the
-    -- next migrate() runs it, and pending() already says so.
+    -- Run-once files recorded with a value other than this bundle's (Flyway's
+    -- validate): their text differed, or a build that did not stamp its
+    -- values recorded them. They are not re-run, so the database keeps what
+    -- the other text created, and migrate() refuses to update a database
+    -- with such a _core file. A changed repeatable file is not listed here:
+    -- the next migrate() runs it, and pending() already says so.
     SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
       INTO changed_versions
       FROM public._versions v

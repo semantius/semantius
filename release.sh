@@ -35,7 +35,7 @@
 # clean checkout to prove the result is REPRODUCIBLE rather than green only on
 # this machine. The porcelain guard is that same check for the artifacts.
 #
-# See plans/release-script.md for the reasoning, RELEASE.md for the rules.
+# See RELEASE.md for the rules.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -217,7 +217,7 @@ echo
 STAGE="preflight"
 echo "== [1/10] Preflight =="
 
-for t in deno docker git jq; do
+for t in deno docker git jq curl; do
   command -v "$t" >/dev/null 2>&1 && ok "$t present" || bad "$t is not installed"
 done
 
@@ -306,6 +306,152 @@ else
   ok "tag v$TARGET does not exist yet"
 fi
 
+# Release mode gives every file whose text changed one new ts, and keeps the
+# released ts of every file whose text the tag still has; the runners compare
+# those ts values to refuse a database a newer build migrated. It reads them
+# from the versions.json of the release this one follows: the version's own
+# tag for a re-release, otherwise the highest released tag below it. A
+# re-release is only allowed of the highest released version, so both are
+# v$RELEASED.
+if [ -z "$RELEASED" ]; then
+  bad "no version is tagged, so release mode has no $MANIFEST to compare with"
+elif git cat-file -e "v$RELEASED:$MANIFEST" 2>/dev/null; then
+  ok "release mode compares with $MANIFEST of v$RELEASED"
+else
+  bad "v$RELEASED has no $MANIFEST for release mode to compare with"
+fi
+
+# A database a release built is updated by every later release, and no runner
+# runs a run-once file a second time. So the migrations of a final release are
+# frozen once it is out: a run-once file changed in place reaches fresh
+# installs only, a removed or renamed file leaves its objects behind (and a
+# renamed one runs again), and a file added before the release's last file
+# runs mid-sequence on a fresh install but last on an update. The 9900 files
+# run last on every path, so they may be added anywhere. A pre-release is
+# exempt: a database it built may be replaced instead of updated.
+#
+# The comparison is with the working tree, which is what this run builds; the
+# clean-tree check above makes it HEAD.
+CORE_MIGRATIONS="apps/_core/migrations"
+is_migration_name() { case "$1" in */*) return 1 ;; *.sql|*.jsonc) return 0 ;; esac; return 1; }
+is_once_name()      { case "$1" in *.once.sql|*.once.jsonc) return 0 ;; esac; return 1; }
+is_final_name()     { case "$1" in 99[0-9][0-9]_*) return 0 ;; esac; return 1; }
+# migration_findings <tag>: one line per change since <tag> that a database
+# <tag> built cannot follow; nothing when there is none.
+migration_findings() {
+  local tag="$1" last="" f status a b
+  for f in $(git ls-tree --name-only "$tag" -- "$CORE_MIGRATIONS/" | tr -d '\r'); do
+    f="${f#"$CORE_MIGRATIONS"/}"
+    if is_migration_name "$f" && ! is_final_name "$f"; then
+      if [ -z "$last" ] || [ "$(printf '%s\n%s\n' "$f" "$last" | LC_ALL=C sort | tail -1)" = "$f" ]; then
+        last="$f"
+      fi
+    fi
+  done
+  git diff --name-status -M "$tag" -- "$CORE_MIGRATIONS" | tr -d '\r' \
+    | while IFS=$'\t' read -r status a b; do
+        a="${a#"$CORE_MIGRATIONS"/}"
+        b="${b#"$CORE_MIGRATIONS"/}"
+        case "$status" in
+          R*)
+            if is_migration_name "$a"; then
+              echo "$a was renamed to $b"
+              continue
+            fi
+            status=A; a="$b" ;;
+        esac
+        is_migration_name "$a" || continue
+        case "$status" in
+          M|T) if is_once_name "$a"; then echo "run-once file $a changed"; fi ;;
+          D)   echo "$a was removed" ;;
+          A)   if ! is_final_name "$a" && [ -n "$last" ] && [ "$a" != "$last" ] \
+                  && [ "$(printf '%s\n%s\n' "$a" "$last" | LC_ALL=C sort | head -1)" = "$a" ]; then
+                 echo "$a was added and sorts before $last, the last file $tag shipped"
+               fi ;;
+          *)   echo "$a: unexpected change (git status $status)" ;;
+        esac
+      done
+}
+report_findings() { # report_findings <stream> <findings>: indented, below the line they belong to
+  if [ "$1" = err ]; then printf '%s\n' "$2" | sed 's/^/          /' >&2
+  else printf '%s\n' "$2" | sed 's/^/          /'; fi
+}
+
+FINAL_RELEASED="$(git tag -l 'v*' | semver_finals | semver_max_of)"
+if [ "$MODE" = "refresh" ] && ! semver_is_prerelease "$TARGET"; then
+  findings="$(migration_findings "v$TARGET")"
+  if [ -z "$findings" ]; then
+    ok "re-release check: the migrations extend those v$TARGET shipped"
+  else
+    bad "re-release check: v$TARGET is a final release, so its migrations are frozen
+  (--allow-edited-migrations does not waive this); a re-release would leave
+  every database v$TARGET built behind:"
+    report_findings err "$findings"
+  fi
+elif [ "$MODE" = "refresh" ]; then
+  ok "re-release check: skipped, v$TARGET is a pre-release"
+else
+  ok "re-release check: skipped, $TARGET is a new version"
+fi
+
+if [ -z "$FINAL_RELEASED" ]; then
+  ok "final-tag check: skipped, no final release is tagged yet"
+elif [ "$MODE" = "refresh" ] && [ "$FINAL_RELEASED" = "$TARGET" ]; then
+  ok "final-tag check: covered by the re-release check against v$TARGET"
+else
+  findings="$(migration_findings "v$FINAL_RELEASED")"
+  if [ -z "$findings" ]; then
+    ok "final-tag check: the migrations extend those v$FINAL_RELEASED shipped"
+  elif [ "$ALLOW_EDITED" = "1" ]; then
+    ok "final-tag check against v$FINAL_RELEASED: waived by --allow-edited-migrations:"
+    report_findings out "$findings"
+  else
+    bad "final-tag check: v$FINAL_RELEASED is the highest final release, and every
+  database it built must update to $TARGET:"
+    report_findings err "$findings"
+    echo "  To hot-patch a released run-once file on purpose, pass
+  --allow-edited-migrations; every database built before the patch is then
+  refused with \"replace the database with a fresh install\"." >&2
+  fi
+fi
+
+# A PGXN release is permanent: a re-release of a version PGXN already has would
+# publish different artifacts under a version PGXN keeps serving as it was.
+# Only a clear answer passes: 404 (the distribution does not exist) or the
+# distribution's release list without this version. Any other answer, or none,
+# refuses, since it says nothing about what is published.
+PGXN_DIST_URL="${PGXN_DIST_URL:-https://api.pgxn.org/dist/$NAME.json}"
+if [ "$MODE" = "refresh" ]; then
+  pgxn_body="$(mktemp)"
+  pgxn_code="$(curl -sS --max-time 30 -o "$pgxn_body" -w '%{http_code}' "$PGXN_DIST_URL" 2>"$pgxn_body.err" || true)"
+  case "$pgxn_code" in
+    200)
+      pgxn_listed="$(jq -r --arg v "$TARGET" \
+        'if (.releases | type) == "object"
+         then [.releases | (.stable, .testing, .unstable) | (. // [])[] | .version] | any(. == $v)
+         else "no release list" end' \
+        "$pgxn_body" 2>/dev/null | tr -d '\r' || true)"
+      case "$pgxn_listed" in
+        false) ok "PGXN check: $TARGET is not among the published releases of $NAME" ;;
+        true)  bad "PGXN check: $TARGET is published on PGXN, which keeps a release forever;
+  a re-release cannot replace it. Release a higher version instead." ;;
+        *)     bad "PGXN check: the answer of $PGXN_DIST_URL is not a release list;
+  cannot tell whether $TARGET is published there" ;;
+      esac ;;
+    404)
+      ok "PGXN check: $NAME is not on PGXN, so $TARGET is not published there" ;;
+    000|"")
+      bad "PGXN check: no answer from $PGXN_DIST_URL ($(tr -d '\r' < "$pgxn_body.err" | head -1));
+  cannot tell whether $TARGET is published there" ;;
+    *)
+      bad "PGXN check: $PGXN_DIST_URL answered HTTP $pgxn_code;
+  cannot tell whether $TARGET is published there" ;;
+  esac
+  rm -f "$pgxn_body" "$pgxn_body.err"
+else
+  ok "PGXN check: skipped, $TARGET is a new version"
+fi
+
 [ "$fail_n" -eq 0 ] || die "preflight failed ($fail_n problem(s) above); nothing was changed"
 
 # ==========================================================================
@@ -315,12 +461,19 @@ NEW_VERSION_NOTE=""
 if [ "$MODE" = "new" ] && [ -n "$BUILT" ]; then
   NEW_VERSION_NOTE=", write the $BUILT -> $TARGET upgrade script and prune the $BUILT full install"
 fi
+UPDATE_TEST_NOTE=""
+if semver_is_prerelease "$RELEASED"; then
+  UPDATE_TEST_NOTE="; v$RELEASED is a pre-release, so a
+                          refusal with \"replace\" that changes nothing passes"
+fi
 
 echo
 cat >&2 <<EOF
 release.sh will release $NAME $TARGET ($MODE), in order:
 
-  1. regenerate $EXT_DIR/ at $TARGET$NEW_VERSION_NOTE
+  1. regenerate $EXT_DIR/ at $TARGET$NEW_VERSION_NOTE, in release
+     mode against $MANIFEST of v$RELEASED: every file whose text has no
+     released ts gets the ts of this run
   2. write $TARGET into packages/cli/deno.json and package.json - the CLI
      reports its version from the first of those, and CI refuses a tag whose
      copy disagrees
@@ -337,6 +490,10 @@ release.sh will release $NAME $TARGET ($MODE), in order:
                           stack, then migrate + pgTAP; then deno task docgen
                           regenerates schema.md from that database
        pg-ext-lifecycle.sh  install, dump/restore, drop, uninstall, refusals
+       pg-compare-installs.sh --upgrade and --upgrade-ext v$RELEASED
+                          a database v$RELEASED built, updated through the CLI
+                          and through the extension, must equal a fresh
+                          install$UPDATE_TEST_NOTE
   6. build ghcr.io/semantius/postgres:$TARGET-pg<major> locally - no push, no
      registry login, but it does retag your local :latest when $TARGET is the
      highest version
@@ -356,10 +513,13 @@ if [ "$MODE" = "refresh" ]; then
     - CI runs 'gh release delete v$TARGET' and recreates it, so the existing
       release's download counts and any hand-edited notes are destroyed.
     - The GHCR image for $TARGET is overwritten.
-    - Databases that already installed $TARGET are NOT updated. migrate() skips
-      by migration name, there is no checksum re-apply, and there is no
-      $TARGET -> $TARGET upgrade path. semantius.status().changed_versions is
-      the only signal. See RELEASE.md.
+    - There is no $TARGET -> $TARGET upgrade path, so ALTER EXTENSION UPDATE
+      leaves a database that installed $TARGET as it was. It gets the
+      re-release through DROP EXTENSION, CREATE EXTENSION and
+      CALL semantius.migrate(), or through the CLI's next migrate. A
+      pre-release's run-once files may have changed in place; a database
+      that recorded one with its earlier text is then refused with
+      "replace the database with a fresh install". See RELEASE.md.
 EOF
 fi
 cat >&2 <<EOF
@@ -412,11 +572,22 @@ fi
 echo
 STAGE="generate"
 echo "== [2/10] Regenerating $EXT_DIR/ at $TARGET =="
+# Release mode, against the manifest of v$RELEASED (see the preflight): this
+# is the one run that gives changed files a real ts.
+echo "  release mode, against $MANIFEST of v$RELEASED"
+REL_MANIFEST_FILE="$(mktemp)"
+git show "v$RELEASED:$MANIFEST" > "$REL_MANIFEST_FILE" \
+  || { rm -f "$REL_MANIFEST_FILE"; die "could not read $MANIFEST of v$RELEASED"; }
+# Deno takes a native path; Git Bash's mktemp gives a POSIX one.
+REL_MANIFEST_ARG="$(cygpath -m "$REL_MANIFEST_FILE" 2>/dev/null || echo "$REL_MANIFEST_FILE")"
+gen_rc=0
 if [ "$ALLOW_EDITED" = "1" ]; then
-  deno task extension "$TARGET" --allow-edited-migrations
+  deno task extension "$TARGET" --release "$REL_MANIFEST_ARG" --allow-edited-migrations || gen_rc=$?
 else
-  deno task extension "$TARGET"
+  deno task extension "$TARGET" --release "$REL_MANIFEST_ARG" || gen_rc=$?
 fi
+rm -f "$REL_MANIFEST_FILE"
+[ "$gen_rc" = "0" ] || die "deno task extension $TARGET --release failed (exit $gen_rc, see above)"
 
 echo
 STAGE="version"
@@ -533,6 +704,20 @@ else
   the extension-vs-migrate equivalence check instead of failing"
   done
   ./pgdocker/pg-ext-lifecycle.sh
+
+  echo
+  STAGE="update test"
+  echo "== [8b/10] Update test: a database v$RELEASED built, updated to $TARGET =="
+  # The way a deployment updates: through the CLI on the CLI container, and
+  # through the extension on the extension container. Each must give the
+  # database a fresh install gives. A pre-release's run-once files may still
+  # change in place, so a database it built may be refused with "replace the
+  # database with a fresh install" instead, which passes only when it left the
+  # database unchanged.
+  REF_PRERELEASE=0
+  semver_is_prerelease "$RELEASED" && REF_PRERELEASE=1
+  REF_PRERELEASE="$REF_PRERELEASE" ./pgdocker/pg-compare-installs.sh --upgrade "v$RELEASED"
+  REF_PRERELEASE="$REF_PRERELEASE" ./pgdocker/pg-compare-installs.sh --upgrade-ext "v$RELEASED"
 fi
 
 if [ "$NO_IMAGE" = "1" ]; then
@@ -605,7 +790,9 @@ RELEASE_COMMIT="$(git rev-parse HEAD)"
 if [ "$NOTHING_CHANGED" = "1" ]; then
   # Nothing to commit is NORMAL when finishing an interrupted release: the build
   # was committed by the run that stopped, and this run only has to tag and push
-  # it. It is only wrong if the build for this version is genuinely absent - so
+  # it. Release mode keeps every real ts that build recorded for unchanged text,
+  # so the regeneration above wrote the same files although its clock moved on.
+  # It is only wrong if the build for this version is genuinely absent - so
   # check for the artifacts rather than assuming a new version must produce a
   # diff, which is what used to make the recovery run die.
   [ -f "$EXT_DIR/$NAME--$TARGET.sql" ]     || die "internal: nothing to commit, but $EXT_DIR/$NAME--$TARGET.sql does not
@@ -618,8 +805,10 @@ fi
 # The CI porcelain guard, run locally. It must come AFTER the commit: before it,
 # the diff is the new build itself and the check would be vacuous. What it
 # actually proves is that the generator is deterministic - which is the only
-# reason the CI guard can work, and which any future generated field carrying a
-# build timestamp would silently break.
+# reason the CI guard can work. It regenerates in development mode, as CI does:
+# that mode keeps every stamped value whose hash still matches, so it rebuilds
+# the release run's ts values byte for byte. A generated field that changes
+# from run to run, such as a build time outside those values, would break it.
 STAGE="reproducibility check"
 echo "  verifying the build is reproducible..."
 if [ "$ALLOW_EDITED" = "1" ]; then

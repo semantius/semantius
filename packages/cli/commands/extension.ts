@@ -9,7 +9,7 @@
  *   - <name>.control            extension metadata (default_version, schema, ...)
  *   - <name>--<version>.sql      current full install (thin installer)
  *   - <name>--<prev>--<version>.sql  upgrade script (migrations added since prev)
- *   - versions.json             manifest of each version's migration set + hashes
+ *   - versions.json             manifest of each version's migration set + values
  *   - META.json                 PGXN distribution manifest
  *   - Makefile                  PGXS makefile so self-hosters can `make install`
  *   - README.md                 install instructions
@@ -21,6 +21,14 @@
  * added since the prior version (per versions.json) and every changed repeatable
  * file. Editing a released `.once.` file, removing a released file, or adding one
  * that sorts before the last released file is refused.
+ *
+ * Each file's value in versions.json, and in the `_versions` rows the bundle
+ * writes, is `<ts>.<sha256>`; a plain SHA-256 value, as the published
+ * 0.5.0-beta1's entries are, names no build. A development build gives every
+ * file it changed the ts UNRELEASED_TS (developmentValue); only a release run,
+ * `--release <path>` with the versions.json of the tag it follows, gives them
+ * a real one (releaseValues). The runners read the ts to refuse a database a
+ * newer build migrated.
  *
  * SHAPE: a THIN INSTALLER, not a concatenation of the migrations.
  *
@@ -38,8 +46,10 @@
  * migrate() is a PROCEDURE that commits after every migration file, the same
  * one-transaction-per-file shape as the CLI runner, and applies the run rules
  * documented in packages/core/src/migrate.ts: repeatable files run again when
- * their checksum changes, `.once.` files run once, the 9900 files follow any
- * pass that ran something.
+ * their value changes, `.once.` files run once, the 9900 files follow any
+ * pass that ran something. Before the first file it refuses, as the CLI does,
+ * a database a newer build migrated and one whose `_core` run-once files were
+ * recorded with other values.
  *
  * The migration text is embedded VERBATIM in dollar-quoted EXECUTE blocks: no
  * rewriting, no lifting of CREATE EXTENSION (0010_core.sql creates pgcrypto itself,
@@ -57,11 +67,19 @@ import {
   isFinal,
   isJsonc,
   isOnce,
+  isStamped,
   JSONC_TAG,
+  UNRELEASED_TS,
+  versionHash,
+  versionTs,
   wrapJsonc,
 } from "@semantius/core";
 import { resolveAppDir, validateAppNames } from "../assets.ts";
-import { loadMigrationFiles, migrationTag } from "./migrate.ts";
+import {
+  loadMigrationFiles,
+  migrationTag,
+  versionCheckSql,
+} from "./migrate.ts";
 
 /**
  * The schema the installer owns. NOT `pg_semantius`: PostgreSQL refuses
@@ -90,8 +108,10 @@ export function toLf(text: string): string {
 
 /**
  * PGXN-style version manifest. Records, per released version, the set of source
- * migrations it contained and their content hashes — so a later run can compute
- * the upgrade delta and detect edits to already-released migrations.
+ * migrations it contained and each one's value, `<ts>.<sha256>` (isStamped in
+ * @semantius/core) — so a later run can compute the upgrade delta and detect
+ * edits to already-released migrations, and the runners can tell which build
+ * last changed each file.
  */
 interface VersionsManifest {
   versions: Record<string, { files: Record<string, string> }>;
@@ -106,9 +126,12 @@ interface ExtensionOptions {
    * Waive the released-migration check. OFF by default: a `.once.` migration an
    * earlier version already shipped may not be edited, and no shipped migration
    * may be removed or renamed. A `.once.` file never runs again on a database
-   * that has it, so an edit would give fresh installs and upgraded ones two
-   * different schemas; the ledger key is the file name, so a rename runs the
-   * file a second time. Repeatable `.sql`/`.jsonc` files stay editable - that
+   * that has it, so an edit reaches fresh installs only, and the edited file
+   * gets a new value, with which every runner of this build refuses a database
+   * that recorded the old one ("replace the database with a fresh install"):
+   * a deliberate hot-patch therefore strands every database built before it.
+   * The ledger key is the file name, so a rename runs the file a second time.
+   * Repeatable `.sql`/`.jsonc` files stay editable - that
    * is what they are for. Migrations added IN THIS version are editable, which
    * falls out of two things that must not be "fixed": highestVersionBelow()'s
    * strict `< 0` filter (a version is never its own prev, so regenerating the
@@ -123,6 +146,12 @@ interface ExtensionOptions {
    * this a migration change is silently tested against the previous core.
    */
   check?: boolean;
+  /**
+   * Release mode: the path of the versions.json of the tag this release is
+   * compared with (releaseValues). Without it the build is a development
+   * build, whose changed files carry UNRELEASED_TS (developmentValue).
+   */
+  release?: string;
 }
 
 export async function extensionCommand(
@@ -144,6 +173,13 @@ export async function extensionCommand(
         `accepted either: the first is the separator in the upgrade-script ` +
         `filename, the second is rejected by PostgreSQL.`,
     );
+    Deno.exit(1);
+  }
+
+  // --check compares the hashes alone and writes nothing, so there is no ts for
+  // a release manifest to decide.
+  if (options.check && options.release !== undefined) {
+    console.error("Error: --release cannot be combined with --check.");
     Deno.exit(1);
   }
 
@@ -187,8 +223,8 @@ export async function extensionCommand(
     name: string;
     content: string;
     processed: string;
-    /** SHA-256 of the LF-normalized source, written into `_versions`. */
-    checksum: string;
+    /** SHA-256 of the LF-normalized source: the hash part of its value. */
+    hash: string;
   }[] = [];
 
   for (const app of appList) {
@@ -221,8 +257,8 @@ export async function extensionCommand(
       // Verbatim, only LF-normalized. Nothing is lifted or rewritten: the
       // migrations run inside migrate(), not inside an extension script, so
       // 0010_core.sql's own `CREATE EXTENSION pgcrypto` is legal there. A `.jsonc` runs
-      // as the same ensure_entities() call every runner makes; its checksum is
-      // of the file text, as in every other runner.
+      // as the same ensure_entities() call every runner makes; its hash is of
+      // the file text, as in every other runner.
       const content = toLf(migration.content);
       if (!isJsonc(migration.name)) {
         lintMigration(`${app}/${migration.name}`, content);
@@ -232,7 +268,7 @@ export async function extensionCommand(
         name: migration.name,
         content,
         processed: isJsonc(migration.name) ? wrapJsonc(content) : content,
-        checksum: await sha256hex(content),
+        hash: await sha256hex(content),
       });
     }
   }
@@ -260,10 +296,12 @@ export async function extensionCommand(
       );
       Deno.exit(1);
     }
+    // The hash part only: a build stamps the values itself (developmentValue,
+    // releaseValues), so a ts that differs says nothing about the migrations.
     const current: Record<string, string> = {};
-    for (const m of migs) current[`${m.app}/${m.name}`] = m.checksum;
+    for (const m of migs) current[`${m.app}/${m.name}`] = m.hash;
     const changed = Object.keys(current).filter((k) =>
-      k in recorded && recorded[k] !== current[k]
+      k in recorded && versionHash(recorded[k]) !== current[k]
     );
     const added = Object.keys(current).filter((k) => !(k in recorded));
     const removed = Object.keys(recorded).filter((k) => !(k in current));
@@ -278,6 +316,12 @@ export async function extensionCommand(
     console.error(`Run: deno task extension ${version}`);
     Deno.exit(1);
   }
+
+  // Read before anything is written: a release run that cannot read the tag's
+  // manifest must not stamp a build.
+  const tag = options.release === undefined
+    ? undefined
+    : await readReleaseManifest(options.release);
 
   await Deno.mkdir(outputDir, { recursive: true });
 
@@ -318,9 +362,7 @@ export async function extensionCommand(
   }
 
   const currentFiles: Record<string, string> = {};
-  for (const m of migs) {
-    currentFiles[`${m.app}/${m.name}`] = await sha256hex(m.content);
-  }
+  for (const m of migs) currentFiles[`${m.app}/${m.name}`] = m.hash;
 
   // `prev` is the highest version STRICTLY below the target, so a version is
   // never its own prev: regenerating the highest build skips this whole block and
@@ -329,13 +371,44 @@ export async function extensionCommand(
   // the `k in prevFiles` test below, which exempts migrations added in THIS
   // version. Do not relax either without reading RELEASE.md.
   const prev = highestVersionBelow(version, manifest);
+
+  // Each file's value, from what the manifest recorded before this run.
+  const recorded: Record<string, string | undefined> = {};
+  for (const k of Object.keys(currentFiles)) {
+    recorded[k] = recordedValue(manifest, version, prev, k);
+  }
+  let values: Record<string, string>;
+  if (tag) {
+    values = releaseValues(
+      currentFiles,
+      recorded,
+      tag.files,
+      latestRealTs(manifest, tag.manifest),
+      new Date(),
+    );
+  } else {
+    values = {};
+    for (const [k, hash] of Object.entries(currentFiles)) {
+      values[k] = developmentValue(recorded[k], hash);
+    }
+  }
+  // What the installer embeds: each file with the value it records.
+  const bundle = migs.map((m) => ({
+    ...m,
+    checksum: values[`${m.app}/${m.name}`],
+  }));
+
   if (prev) {
     const prevFiles = manifest.versions[prev].files;
     const added = migs.filter((m) => !(`${m.app}/${m.name}` in prevFiles));
+    // The hash part only: this generator rewrites the ts itself (a plain value
+    // becomes stamped, UNRELEASED_TS becomes the release's ts) while the text
+    // stays the same, so a whole-value comparison would flag every such file
+    // as edited.
     const edited = migs.filter((m) => {
       const k = `${m.app}/${m.name}`;
       return isOnce(m.name) && k in prevFiles &&
-        prevFiles[k] !== currentFiles[k];
+        versionHash(prevFiles[k]) !== currentFiles[k];
     });
     const removed = Object.keys(prevFiles).filter((k) => !(k in currentFiles));
 
@@ -389,7 +462,9 @@ export async function extensionCommand(
       for (const m of edited) complain(`  - ${m.app}/${m.name}`);
       complain(
         `A .once. file never runs again on a database that has it, so the ` +
-          `edit would reach fresh installs only. Add a new .once. file instead.`,
+          `edit would reach fresh installs only, and this build would refuse ` +
+          `every database that has the file with "replace the database with a ` +
+          `fresh install". Add a new .once. file instead.`,
       );
     }
     if (removed.length > 0) {
@@ -425,7 +500,7 @@ export async function extensionCommand(
     // code path serves install, upgrade and re-run.
     await Deno.writeTextFile(
       `${outputDir}/${name}--${prev}--${version}.sql`,
-      toLf(upgradeHeader + renderInstaller(name, migs, { upgrade: true })),
+      toLf(upgradeHeader + renderInstaller(name, bundle, { upgrade: true })),
     );
     console.info(
       `Wrote upgrade ${name}--${prev}--${version}.sql ` +
@@ -436,7 +511,7 @@ export async function extensionCommand(
   // Record this version's migration set FIRST, so the prune below sees the
   // version being generated as a known one, then drop everything in the output
   // directory that the manifest does not account for.
-  manifest.versions[version] = { files: currentFiles };
+  manifest.versions[version] = { files: values };
   await Deno.writeTextFile(manifestPath, serializeManifest(manifest));
   const pruned = await pruneStaleScripts(
     outputDir,
@@ -457,7 +532,7 @@ export async function extensionCommand(
   );
   // Full install = header + the thin installer. No audit silencer, no seeded
   // `_versions` rows, no pg_dump registration: nothing here creates a table.
-  const installSql = header + renderInstaller(name, migs, { upgrade: false });
+  const installSql = header + renderInstaller(name, bundle, { upgrade: false });
   await Deno.writeTextFile(sqlPath, toLf(installSql));
   await Deno.writeTextFile(makefilePath, toLf(buildMakefile(name)));
   await Deno.writeTextFile(
@@ -505,8 +580,8 @@ function escapeSqlLiteral(text: string): string {
 }
 
 /** SHA-256 hex digest of a string (used to fingerprint migration sources).
- * Exported with `toLf` so `extension_test.ts` can pin what the manifest
- * records. */
+ * Exported with `toLf` so `extension_test.ts` can pin the hash part of what
+ * the manifest records. */
 export async function sha256hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -608,6 +683,164 @@ async function loadManifest(path: string): Promise<VersionsManifest> {
     if (error instanceof Deno.errors.NotFound) return { versions: {} };
     throw error;
   }
+}
+
+/**
+ * The tag's files in release mode: those of the highest version in the
+ * manifest at `path`, plus the manifest itself. Unlike loadManifest it refuses
+ * a missing file and one without such a version: without the tag's values a
+ * release would give every file a new ts, and a new ts on an unchanged
+ * run-once file would make the release refuse every database that has it.
+ */
+async function readReleaseManifest(
+  path: string,
+): Promise<{ manifest: VersionsManifest; files: Record<string, string> }> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await Deno.readTextFile(path));
+  } catch (error) {
+    console.error(
+      `Error: cannot read the release manifest ${path}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    Deno.exit(1);
+  }
+  const versions = typeof parsed === "object" && parsed !== null
+    ? (parsed as { versions?: unknown }).versions
+    : undefined;
+  const names = typeof versions === "object" && versions !== null
+    ? Object.keys(versions).sort(compareVersions)
+    : [];
+  const highest = names[names.length - 1];
+  const files = highest === undefined
+    ? undefined
+    : (versions as Record<string, { files?: unknown } | null>)[highest]?.files;
+  if (typeof files !== "object" || files === null) {
+    console.error(
+      `Error: the release manifest ${path} records no version with a file ` +
+        `list; --release takes the versions.json of the tag this release is ` +
+        `compared with.`,
+    );
+    Deno.exit(1);
+  }
+  return {
+    manifest: parsed as VersionsManifest,
+    files: files as Record<string, string>,
+  };
+}
+
+/**
+ * The value a regeneration starts from: the file's entry under `version`, or,
+ * when that version does not list the file, its entry under `prev`.
+ */
+function recordedValue(
+  manifest: VersionsManifest,
+  version: string,
+  prev: string | undefined,
+  key: string,
+): string | undefined {
+  return manifest.versions[version]?.files[key] ??
+    (prev === undefined ? undefined : manifest.versions[prev]?.files[key]);
+}
+
+/**
+ * A file's value in a development build. A stamped value whose hash still
+ * matches is kept; anything else (a changed file, a plain value, or no value
+ * at all) becomes UNRELEASED_TS with the current hash. Only a release run
+ * writes a real ts, so a build from a working tree never passes for a
+ * release, and every released runner refuses a database it installed.
+ */
+export function developmentValue(
+  recorded: string | undefined,
+  hash: string,
+): string {
+  return recorded !== undefined && isStamped(recorded) &&
+      versionHash(recorded) === hash
+    ? recorded
+    : `${UNRELEASED_TS}.${hash}`;
+}
+
+/** The ts a release wrote: any stamped ts but UNRELEASED_TS. */
+function realTs(value: string | undefined): string | undefined {
+  const ts = value === undefined ? undefined : versionTs(value);
+  return ts === UNRELEASED_TS ? undefined : ts;
+}
+
+/** The latest real ts any version of these manifests records. */
+export function latestRealTs(
+  ...manifests: VersionsManifest[]
+): string | undefined {
+  let latest: string | undefined;
+  for (const manifest of manifests) {
+    for (const entry of Object.values(manifest.versions)) {
+      for (const value of Object.values(entry?.files ?? {})) {
+        const ts = realTs(value);
+        if (ts !== undefined && (latest === undefined || ts > latest)) {
+          latest = ts;
+        }
+      }
+    }
+  }
+  return latest;
+}
+
+/** A date as a ts: UTC, YYYYMMDDHHMMSS. */
+function tsOf(date: Date): string {
+  return date.toISOString().slice(0, 19).replace(/[-T:]/g, "");
+}
+
+/**
+ * The ts a release run gives the files it changes: UTC now, but never earlier
+ * than one second after `latestReal`. ts values must rise with every release
+ * for the runners' "newer" check to hold, and a clock that runs behind, or two
+ * releases within one second, would otherwise break that.
+ */
+export function releaseTs(now: Date, latestReal: string | undefined): string {
+  const current = tsOf(now);
+  if (latestReal === undefined) return current;
+  const next = tsOf(
+    new Date(
+      Date.UTC(
+        Number(latestReal.slice(0, 4)),
+        Number(latestReal.slice(4, 6)) - 1,
+        Number(latestReal.slice(6, 8)),
+        Number(latestReal.slice(8, 10)),
+        Number(latestReal.slice(10, 12)),
+        Number(latestReal.slice(12, 14)),
+      ) + 1000,
+    ),
+  );
+  return next > current ? next : current;
+}
+
+/**
+ * The values of a release build. Each file gets the first of these that
+ * applies:
+ *   1. its working-tree value (`recorded`), if it has a real ts and its hash
+ *      matches: a restarted release keeps what its first run wrote;
+ *   2. the tag's value, if it has a real ts and the same hash: a file that is
+ *      back at its released text keeps the released ts, so a database that
+ *      has it is not refused as changed. A plain tag value does not count, as
+ *      it says nothing about which build wrote it;
+ *   3. the run's ts (releaseTs), one value for all such files.
+ */
+export function releaseValues(
+  hashes: Record<string, string>,
+  recorded: Record<string, string | undefined>,
+  tag: Record<string, string>,
+  latestReal: string | undefined,
+  now: Date,
+): Record<string, string> {
+  const runTs = releaseTs(now, latestReal);
+  const values: Record<string, string> = {};
+  for (const [key, hash] of Object.entries(hashes)) {
+    const keep = [recorded[key], tag[key]].find((v): v is string =>
+      v !== undefined && realTs(v) !== undefined && versionHash(v) === hash
+    );
+    values[key] = keep ?? `${runTs}.${hash}`;
+  }
+  return values;
 }
 
 /** Serializes the manifest with versions and file keys sorted, for stable diffs. */
@@ -776,7 +1009,7 @@ function buildMetaJson(
     // so the homepage is the user documentation rather than the repository
     // again.
     resources: {
-      homepage: "https://www.semantius.com/docs/pg-semantius",
+      homepage: "https://www.semantius.com/pg-semantius",
       bugtracker: {
         web: "https://github.com/semantius/semantius/issues",
       },
@@ -865,26 +1098,30 @@ another schema the install refuses with a hint.
 
 ## Upgrade
 
+Install the newer version's files on the server, then run in each database:
+
 \`\`\`sql
 ALTER EXTENSION ${name} UPDATE;
 CALL ${S}.migrate();
 \`\`\`
 
-\`ALTER EXTENSION ... UPDATE\` replaces the installer; \`migrate()\` applies
-whatever is due. Both are safe to re-run. \`SELECT * FROM ${S}.pending()\`
-lists what a \`migrate()\` would apply; \`SELECT * FROM ${S}.status()\`
-reports drift.
+\`ALTER EXTENSION ... UPDATE\` replaces the installer and nothing else;
+\`migrate()\` applies whatever is due. Both are safe to re-run.
+\`${S}.pending()\` and \`${S}.status()\` are part of the installer, so they
+answer for the version the database's installer is at: between the two
+statements, \`SELECT * FROM ${S}.pending()\` lists what the new version's
+\`migrate()\` would apply.
 
 What is due is decided per file from \`public._versions\`, which records each
-file's name and the SHA-256 of its text:
+file's name and its value, \`<ts>.<sha256>\`: the UTC time of the release that
+last changed the file, and the SHA-256 of its text.
 
 - a file with no row runs;
 - a repeatable file (\`NNNN_name.sql\`, \`NNNN_name.jsonc\`: functions,
-  triggers, views, policies, entity definitions) runs again when its text
+  triggers, views, policies, entity definitions) runs again when its value
   changed;
 - a run-once file (\`NNNN_name.once.sql\`: tables, columns, seed rows) never
-  runs again; if its text changed, \`${S}.status()\` lists it in
-  \`changed_versions\`;
+  runs again;
 - the files numbered 9900 and above (ownership hardening) run after any pass
   that ran something.
 
@@ -893,14 +1130,55 @@ So a build that changed a function reaches an existing install on the next
 stays until that file changes again; to re-apply that file anyway, clear its
 checksum: \`UPDATE public._versions SET checksum = NULL WHERE name = '...';\`.
 
+### Databases migrate() refuses
+
+Before the first file, \`migrate()\` refuses two kinds of database, with
+SQLSTATE 55000. A refusal changes nothing and releases the migration lock.
+
+- **A newer build migrated it**: a row's ts is later than this build's ts for
+  that file, or a row for a file this build does not have carries a ts later
+  than this build's newest. The message names the file, the row's ts and this
+  build's newest ts, and ends with *use a newer pg_semantius, then ALTER
+  EXTENSION ${name} UPDATE and CALL ${S}.migrate()*.
+  An older installer meets this after a restore onto a server whose extension
+  files are older than the dump's.
+- **It cannot be brought to this build's schema**: it recorded a run-once file
+  with a value other than this build's, or it recorded a file this build does
+  not have with a ts no later than this build's newest. A run-once file never
+  runs again, so such a database would never get the schema this build's
+  files create. The message ends with *this database cannot be updated;
+  replace the database with a fresh install*: install this version into a new
+  database and move the data across.
+
+A row whose checksum is NULL is never refused. \`${S}.pending()\` does not
+run these checks, so on a refused database it still lists the files that are
+due, and \`${S}.status()\` lists the refused run-once files in
+\`changed_versions\`.
+
+### A re-release of the same version
+
+A re-release keeps the version number, and there is no update path from a
+version to itself, so \`ALTER EXTENSION ... UPDATE\` leaves the installer as
+it was. Install the re-released files on the server, then:
+
+\`\`\`sql
+DROP EXTENSION ${name};
+CREATE EXTENSION ${name};
+CALL ${S}.migrate();
+\`\`\`
+
+\`DROP EXTENSION\` removes only the installer (see Uninstall), so the data
+stays, and \`migrate()\` then applies what the re-release changed, or refuses
+the database as above.
+
 ## Functions
 
 | Function | Purpose |
 |---|---|
 | \`CALL ${S}.migrate()\` | Applies the bundled migrations that are due. Superuser only, one transaction per file, fails at once while another migration runs. |
-| \`${S}.pending()\` | Bundled migrations the next migrate() would apply. Works before the first migrate(). |
+| \`${S}.pending()\` | Bundled migrations that are due by the run rules above. Works before the first migrate(), and does not run migrate()'s refusal checks. |
 | \`${S}.version()\` | Version of the installed bundle (the installer, not the installed schema). |
-| \`${S}.status()\` | Applied/pending counts, unknown migrations, changed run-once migrations, ownership and default-ACL drift, and whether \`jwt_aud\` is set. |
+| \`${S}.status()\` | Applied/pending counts, unknown migrations (ledger rows this bundle does not have, among them those of apps the CLI deployed), run-once migrations recorded with a value other than this bundle's, ownership and default-ACL drift, and whether \`jwt_aud\` is set. |
 
 \`\\dx\` shows the *installer's* version, which is not necessarily the state of
 the installed schema; \`${S}.status()\` is the authority.
@@ -922,6 +1200,10 @@ psql -d newdb -c "ALTER DATABASE newdb SET intervalstyle = 'iso_8601';"
 
 - Restore into an **empty** database. Do not run \`migrate()\` first: the dump's
   own \`CREATE EXTENSION\` recreates the roles and functions.
+- Restore onto a server whose extension files are the dump's version or
+  **newer**. The dump's \`CREATE EXTENSION\` names no version, so it installs
+  the server's default version, and an older installer's \`migrate()\` refuses
+  the restored database as one a newer build migrated.
 - The two \`ALTER DATABASE\` statements give the new database the
   \`timezone\` and \`intervalstyle\` that \`migrate()\` set. \`pg_dump\` and
   \`pg_restore\` carry them only with \`--create\`, and \`get_userinfo()\`
@@ -1051,6 +1333,9 @@ be given it. An app tier that sets the per-claim GUCs instead of
 | 55000 | \`existing role <role> has unexpected attributes\` |
 | 55000 | \`existing role semantius_owner already has members\` |
 | 55000 | \`${S}.migrate() cannot run inside a CREATE/ALTER EXTENSION script\` |
+| 55000 | \`_core in this database contains <file> from a newer pg_semantius build (<ts>); this runner's newest is <ts>; use a newer pg_semantius, then ALTER EXTENSION ${name} UPDATE and CALL ${S}.migrate()\` |
+| 55000 | \`run-once migration <file> in this database differs from this version: this database cannot be updated; replace the database with a fresh install\` |
+| 55000 | \`migration <file> in this database is not part of this version: this database cannot be updated; replace the database with a fresh install\` |
 | 55P03 | \`another migration is running\` |
 | 2D000 | \`invalid transaction termination\` (\`CALL ${S}.migrate()\` inside a transaction block) |
 | P0001 | \`migration <app>.<file> failed: <message> (SQLSTATE <code>)\` |
@@ -1210,6 +1495,7 @@ export function renderInstaller(
     content: string;
     /** What EXECUTE runs: the file, or the ensure_entities() call of a `.jsonc`. */
     processed: string;
+    /** The file's value, as `_versions.checksum` records it. */
     checksum: string;
   }[],
   opts: { upgrade: boolean },
@@ -1217,6 +1503,21 @@ export function renderInstaller(
   const S = INSTALLER_SCHEMA;
   const orReplace = opts.upgrade ? "CREATE OR REPLACE" : "CREATE";
   const names = migs.map((m) => `${m.app}.${m.name}`);
+
+  // Runs inside the ledger block below, whose handler releases the lock, so a
+  // refusal leaves the lock free and nothing changed.
+  const versionCheck = versionCheckSql(
+    migs.filter((m) => m.app === "_core").map((m) => ({
+      name: m.name,
+      value: m.checksum,
+      once: isOnce(m.name),
+    })),
+    {
+      unlock: false,
+      newerAdvice:
+        `, then ALTER EXTENSION ${name} UPDATE and CALL ${S}.migrate()`,
+    },
+  );
 
   // One block per file, in run order, each followed by COMMIT. The session
   // settings are set again before every file because set_config(..., true)
@@ -1287,7 +1588,7 @@ export function renderInstaller(
 `;
   }).join("");
 
-  // What pending() and status() decide from: every file with its checksum and
+  // What pending() and status() decide from: every file with its value and
   // its run rule, in run order.
   const fileList = JSON.stringify(
     migs.map((m) => ({
@@ -1520,6 +1821,10 @@ BEGIN
   BEGIN
     PERFORM pg_catalog.set_config('search_path', 'public', true);
 ${getVersionsTableSql().split("\n").map((l) => (l ? "    " + l : l)).join("\n")}
+    -- Refuse a database this bundle must not update, before the first file:
+    -- a newer bundle migrated it, or it cannot reach this bundle's schema.
+    -- The handler below releases the lock, and nothing has changed.
+${(versionCheck + ";").split("\n").map((l) => (l ? "    " + l : l)).join("\n")}
   EXCEPTION WHEN OTHERS THEN
     PERFORM pg_catalog.pg_advisory_unlock(pg_catalog.hashtext('migrate'));
     RAISE;
@@ -1593,7 +1898,7 @@ ${OUTER_TAG};
 
 REVOKE EXECUTE ON PROCEDURE ${S}.migrate(jsonb) FROM PUBLIC;
 COMMENT ON PROCEDURE ${S}.migrate(jsonb) IS
-  'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Superuser only. CALL it outside a transaction block.';
+  'Applies the bundled core migrations as ordinary objects, one transaction per file: new files, changed repeatable files, and the 9900 files after any pass that ran something. Before the first file it refuses, changing nothing, a database a newer build migrated and one this bundle cannot update. Superuser only. CALL it outside a transaction block.';
 
 -- 5. Read-only companions.
 CREATE FUNCTION ${S}.pending() RETURNS SETOF text
@@ -1609,9 +1914,11 @@ DECLARE
   v_sum   text;
   v_found boolean;
 BEGIN
-  -- The files the next migrate() would run, by the same rules: no ledger row;
-  -- a repeatable file whose checksum differs; a 9900 file after anything else
-  -- of its app. Works before _versions exists (before the first migrate()).
+  -- The files due by migrate()'s run rules: no ledger row; a repeatable file
+  -- whose recorded value differs; a 9900 file after anything else of its app.
+  -- Works before _versions exists (before the first migrate()). It leaves out
+  -- migrate()'s refusal of a newer or a non-updatable database, so on such a
+  -- database it still lists the files that are due.
   FOR f IN SELECT e FROM jsonb_array_elements(v_files) WITH ORDINALITY AS t(e, i) ORDER BY i
   LOOP
     IF v_app IS DISTINCT FROM f->>'app' THEN
@@ -1635,7 +1942,7 @@ END
 $pgsem_pending$;
 REVOKE EXECUTE ON FUNCTION ${S}.pending() FROM PUBLIC;
 COMMENT ON FUNCTION ${S}.pending() IS
-  'Bundled migrations the next migrate() would run: new files, changed repeatable files, and the 9900 files that follow them.';
+  'Bundled migrations due by migrate()''s run rules: new files, changed repeatable files, and the 9900 files that follow them. It does not run migrate()''s refusal checks.';
 
 CREATE FUNCTION ${S}.version() RETURNS text
 LANGUAGE sql STABLE
@@ -1709,16 +2016,19 @@ BEGIN
   IF to_regclass('public._versions') IS NOT NULL THEN
     SELECT count(*)::int INTO applied
       FROM public._versions WHERE name = ANY(v_all);
-    -- Rows this bundle does not know: a dump from a NEWER bundle restored onto
-    -- an older installer.
+    -- Rows this bundle does not have: those of the apps the CLI deployed on
+    -- top of it (nwind, a project's own), and those of a newer bundle, as
+    -- after a dump restored onto an older installer.
     SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
       INTO unknown_versions
       FROM public._versions v
      WHERE v.name LIKE '%.%' AND NOT (v.name = ANY(v_all));
-    -- Run-once files whose source text has changed since they were applied
-    -- (Flyway's validate). They are not re-run, so the database keeps what
-    -- the old text created. A changed repeatable file is not listed here: the
-    -- next migrate() runs it, and pending() already says so.
+    -- Run-once files recorded with a value other than this bundle's (Flyway's
+    -- validate): their text differed, or a build that did not stamp its
+    -- values recorded them. They are not re-run, so the database keeps what
+    -- the other text created, and migrate() refuses to update a database
+    -- with such a _core file. A changed repeatable file is not listed here:
+    -- the next migrate() runs it, and pending() already says so.
     SELECT coalesce(array_agg(v.name ORDER BY v.name), ARRAY[]::text[])
       INTO changed_versions
       FROM public._versions v

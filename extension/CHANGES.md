@@ -16,11 +16,19 @@ installs the core schema as ordinary objects.
   there.
 - **Repeatable migrations.** A `.sql` or `.jsonc` migration runs again whenever
   its text changes; a `.once.sql` / `.once.jsonc` file runs exactly once. The
-  ledger key is `<app>.<full file name>` with the file's SHA-256, and
-  `pending()` / `status()` follow the same rules. Entity metadata is declared in
-  `.jsonc` files (the semantius-cli export format) and applied by the new
-  `public.ensure_entities()`, which creates what is missing and updates what
-  differs, never deleting; `public.jsonc_to_jsonb()` parses the files.
+  ledger key is `<app>.<full file name>` with the file's value, `<ts>.<sha256>`
+  for a core file (the UTC time of the release that last changed it, and the
+  SHA-256 of its text), and `pending()` / `status()` follow the same rules.
+  Entity metadata is declared in `.jsonc` files (the semantius-cli export
+  format) and applied by the new `public.ensure_entities()`, which creates
+  what is missing and updates what differs, never deleting;
+  `public.jsonc_to_jsonb()` parses the files.
+- **Refused updates.** Before the first file, `migrate()` and the CLI refuse,
+  changing nothing, a database a newer build migrated ("use a newer
+  pg_semantius") and one whose core run-once files were recorded with other
+  values ("replace the database with a fresh install"). A database installed
+  from 0.5.0-beta1 as first published is refused that way and has to be
+  reinstalled.
 - The core migrations are renumbered `0010`, `0020`, ... and split into
   `.once.sql` (tables, indexes, seeds), repeatable `.sql` (functions, triggers,
   policies) and `.jsonc` (entity metadata). A database installed from an
@@ -84,7 +92,7 @@ installs the core schema as ordinary objects.
   `requires`, so `CASCADE` can no longer install pgcrypto into the wrong
   schema. LATIN1 and SQL_ASCII databases are refused.
 - New `semantius.pending()`, `semantius.version()` and `semantius.status()`.
-- `_versions` gained a `checksum` column, written by both install paths and compared by both to decide what runs.
+- `_versions` gained a `checksum` column, written by both install paths and compared by both to decide what runs. For a core file it holds `<ts>.<sha256>`.
 - `rbac.uid()` accepts a token that carries **no** `role` claim when its `roles`
   claim contains `authenticated`. Microsoft Entra ID is the case this exists
   for: `role` and `roles` are both in its restricted claim set, so no

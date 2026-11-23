@@ -14,10 +14,10 @@ A version stays **mutable while it is the highest version built**. It may be
 regenerated, re-tagged and re-released as often as needed. It becomes **frozen
 the moment a higher version is committed** to `extension/versions.json`.
 
-This is deliberate. `0.5.0` is the first version in the manifest, so there is
-no upgrade chain into it.
-Until 0.5.0 is declared final it is developed in place rather than accreting
-patch versions for changes nobody has consumed yet.
+This is deliberate. `0.5.0-beta1` is the first version in the manifest, so
+there is no upgrade chain into it. Until 0.5.0 is declared final its line is
+developed in place rather than accreting patch versions for changes nobody has
+consumed yet.
 
 Two things enforce it:
 
@@ -28,6 +28,15 @@ Two things enforce it:
   away, its upgrade script is orphaned, and `default_version` moves backwards.
 - The version argument is **required**: the command has no default version, so
   it never builds a version nobody named.
+
+**A final release's migrations are frozen the moment it is tagged**, even while
+it is the highest. A database it built is updated by every later release, and no
+runner runs a run-once file a second time, so a re-release of a final may
+change repeatable files and add files after its last one, and nothing else.
+`release.sh` refuses it otherwise (the re-release check, below). A pre-release
+stays fully mutable while it is the highest: its run-once files may still change
+in place, and a database built from it is then refused with "replace the
+database with a fresh install" instead of being updated.
 
 The one channel that does not honor the rule is **PGXN** — see below.
 
@@ -46,13 +55,66 @@ It prints the preflight results and exactly what it is about to do, and
 *then* asks. `--confirm` skips the prompt for non-interactive use; it is not
 the normal way to invoke it.
 
-One script, and the version argument selects the outcome. It regenerates
-`extension/`, runs all three harnesses in the order they depend on, regenerates
-`schema.md` from the database Path A just migrated and tested, builds the
+One script, and the version argument selects the outcome. Its read-only
+preflight includes the checks of the migrations against the released tags and
+of PGXN (below). Then it regenerates `extension/` in release mode, runs all
+three harnesses in the order they depend on, regenerates `schema.md` from the
+database Path A just migrated and tested, runs the update test, builds the
 image locally, commits the build, proves the generator is deterministic by
 regenerating a second time, then tags and pushes. Pushing the tag is what starts
 [the workflow](.github/workflows/extension-release.yml), which rebuilds from a
 clean checkout and publishes the GitHub Release and the GHCR image.
+
+### The checks against the released tags
+
+Both compare `apps/_core/migrations` of the working tree with a tag, and both
+refuse a run-once file that changed, any file that was removed or renamed, and
+a file added that sorts before the tag's last file (the 9900 files run last on
+every path, so they may be added anywhere):
+
+- **The re-release check**, for a re-release of a final release, against that
+  release's own tag. `--allow-edited-migrations` does not waive it. A
+  re-release of a pre-release skips it.
+- **The final-tag check**, for every release, against the highest released
+  final tag: every database that release built must update to this one. It is
+  skipped while no final release is tagged, and `--allow-edited-migrations`
+  waives it.
+
+### Release mode, and the update test
+
+Every `_core` file's value in `extension/versions.json`, and in `_versions`
+after a pg_semantius build applied it, is `<ts>.<sha256>`: the UTC time
+(`YYYYMMDDHHMMSS`) of the release run that last changed its text, and the
+SHA-256 of the text. The runners compare the ts to refuse a database a newer
+build migrated, so ts values must rise with every release.
+
+- **Development mode**, `deno task extension <ver>`, the mode of every local
+  run and of CI: a file keeps a stamped value whose hash matches its text, and
+  every other file gets the ts `99999999999999`. It sorts after every real ts,
+  so every released runner refuses a database such a build installed as newer
+  than itself, and that database has to be rebuilt.
+- **Release mode**, `deno task extension <ver> --release <path>`, run only by
+  `release.sh`, with the `versions.json` of the release this one follows: the
+  version's own tag for a re-release, otherwise the highest released tag below
+  it. A file keeps its working-tree value if that has a real ts and a matching
+  hash, so a restarted release writes what its first run wrote; otherwise the
+  tag's value, if that has a real ts and the same hash, so a file back at its
+  released text keeps the released ts; otherwise it gets the run's ts, one UTC
+  time for all such files, never earlier than one second after the latest real
+  ts either manifest records.
+
+The reproducibility check and CI's porcelain guard regenerate in development
+mode, which keeps every stamped value whose hash still matches, so they rebuild
+the release run's values byte for byte.
+
+**The update test** runs after the lifecycle: a database the highest released
+tag built, updated to this build, must equal a fresh install of this build,
+through the CLI (`pgdocker/pg-compare-installs.sh --upgrade v<tag>` on the CLI
+container) and through the extension (`--upgrade-ext v<tag>` on the extension
+container: `ALTER EXTENSION pg_semantius UPDATE` and `migrate()` for a new
+version, `DROP` and `CREATE EXTENSION` and `migrate()` for a re-release). When
+that tag is a pre-release, a refusal with "replace the database with a fresh
+install" passes too, if it left the ledger and the schema exactly as they were.
 
 The duplication is the design. The harnesses run locally to prove the current
 working tree is green; CI re-runs them to prove the result is **reproducible**
@@ -63,13 +125,16 @@ PGXN is separate and manual — see below.
 
 ## How a change reaches an existing database
 
-Every runner (the CLI's `migrate`, the extension's `CALL semantius.migrate()`,
-the provisioners) applies the same rules, recorded per file in
-`public._versions` as `<app>.<file name>` with the file's SHA-256:
+Every runner (the CLI's `migrate`, its script mode, the extension's
+`CALL semantius.migrate()`, the provisioners) applies the same rules, recorded
+per file in `public._versions` as `<app>.<file name>` with the file's value:
+`<ts>.<sha256>` for a `_core` file of a pg_semantius build (see release mode
+above), and the plain SHA-256 of the text for the files of every other app and
+for a `_core` file the build does not hold with that text:
 
 | File | Runs |
 |---|---|
-| `NNNN_name.sql`, `NNNN_name.jsonc` (repeatable) | when it has no ledger row, or its text changed since it last ran |
+| `NNNN_name.sql`, `NNNN_name.jsonc` (repeatable) | when it has no ledger row, or its value changed since it last ran |
 | `NNNN_name.once.sql`, `NNNN_name.once.jsonc` | when it has no ledger row; never again, even when changed |
 | `9900_*` and above | last, and after every pass that ran anything, including a failed one |
 
@@ -78,25 +143,58 @@ So a fix to a function, trigger, view or policy is an edit of its repeatable
 existing database on its next migrate. A change to a table, a column or seed
 data is a new `.once.` file numbered after every released file.
 
+Before the first file, every runner refuses two kinds of database, looking at
+the `_core.` rows only. A refusal changes nothing and releases the migration
+lock; a row with a NULL checksum is never refused.
+
+1. **Newer**: a stamped row whose ts is later than the runner's ts for that
+   file, or, when the runner does not have the file or has no ts for it, later
+   than the runner's latest ts. The message names a newer pg_semantius. Without
+   this an older runner would re-apply its older text of every repeatable file
+   and then fail on a schema it does not know, leaving a half-downgraded
+   database. A database with content no release has stamped yet
+   (`99999999999999`) is newer than every released runner.
+2. **Replace**, checked after "newer": a run-once row whose value differs from
+   the runner's, and a stamped row for a file the runner does not have. A plain
+   row differs from every stamped value. The message ends with "this database
+   cannot be updated; replace the database with a fresh install", because a
+   run-once file never runs again and such a database would never get the
+   schema the runner's text creates.
+
+So a database the published `0.5.0-beta1` built, whose rows are plain, is
+refused with "replace" by every later build. The provisioners record plain
+values, so they are refused the same way on every database a pg_semantius build
+migrated. Two gaps are accepted: a runner released without these checks (the
+published `0.5.0-beta1`) is not stopped, and a development build does not
+refuse a database as newer through the files it changed, because it stamps
+them `99999999999999`.
+
 **Through the CLI**, the next `migrate` runs whatever changed. **Through the
 extension**, the migration texts are embedded in the installed
 `semantius.migrate()`, so a database runs the texts of the version it has
 installed:
 
-- A **re-release of the same version** does not reach a database that already
-  installed it: there is no `0.5.0 -> 0.5.0` update path, so
+- A **re-release of the same version** has no `0.5.0 -> 0.5.0` update path, so
   `ALTER EXTENSION pg_semantius UPDATE` is a no-op and `migrate()` keeps the old
-  texts. This is accepted, not a defect - it is the price of developing a
-  version in place, and a re-release reaches fresh installs and containers.
+  texts. A database takes the re-release through
+  `DROP EXTENSION pg_semantius`, `CREATE EXTENSION pg_semantius` and
+  `CALL semantius.migrate()`: `DROP EXTENSION` removes only the installer, and
+  the new `migrate()` applies what changed.
 - **A new version** ships an upgrade script that replaces `migrate()` with the
   full new bundle. `ALTER EXTENSION pg_semantius UPDATE` followed by
   `CALL semantius.migrate()` then runs the new files and every changed
   repeatable one.
 
-`semantius.pending()` lists what the next migrate would run.
+`semantius.pending()` lists what is due by the run rules; it does not run the
+refusal checks, so on a refused database it still lists files.
 `semantius.status()` also lists, in `changed_versions`, the `.once.` files whose
-text differs from what ran - that is drift, and it has no remedy by design:
-a `.once.` file that shipped is never run again.
+recorded value differs from the build's. A database with such a `_core` file is
+refused with "replace": a `.once.` file that shipped is never run again, so the
+only remedy is a fresh install with the data moved across.
+
+**`--allow-edited-migrations` strands databases.** A deliberate hot-patch of a
+released `.once.` file gives the file a new value, so every database built
+before the patch is refused with "replace the database with a fresh install".
 
 **Forward only, additive only** once a version has been released: no down
 migrations, no edits to a released `.once.` file, and no rename, drop or type
@@ -105,8 +203,9 @@ one marked deprecated in its description. This is what keeps the repeatable
 files (current state, edited in place) and the `.once.` files (history, never
 edited) consistent: every `.once.` file sees the same starting point on a
 fresh install and on an upgrade. `pgdocker/pg-compare-installs.sh --upgrade
-<previous tag>` proves it: the previous release migrated forward must equal a
-fresh install.
+<previous tag>` and `--upgrade-ext <previous tag>` prove it, and `release.sh`
+runs both as its update test: the previous release updated must equal a fresh
+install.
 
 A change to a dictionary generator (`create_dd_table`, `build_select_rule_policy`,
 `build_record_logic_trigger`, ...) replaces the generator, not the policies,
@@ -130,7 +229,7 @@ block the versions below it.
 
 | `./release.sh v<a.b.c>` | |
 |---|---|
-| **a tag `v<a.b.c>` exists and it is the highest released** | refresh - a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten |
+| **a tag `v<a.b.c>` exists and it is the highest released** | refresh - a re-release. The tag moves, the GitHub Release is replaced, the version-pinned image is overwritten. Refused for a final whose migrations changed in a way its databases cannot follow, and for a version PGXN has published |
 | **a tag exists but something higher is released** | rejected: published, superseded, frozen |
 | **no tag, and it sorts above the highest released** | a new release |
 | **no tag, and it does not sort above the highest released** | rejected: it is in the past |
@@ -152,9 +251,11 @@ the generator too. The build then refuses:
   (9900 and above excepted) - it would run mid-sequence on a fresh install but
   last on an upgrade.
 
-`--allow-edited-migrations` waives the first two for a deliberate hot-patch; the
-third is fixed by renaming the file, never waived. Repeatable `.sql` and `.jsonc`
-files stay editable - that is their purpose.
+`--allow-edited-migrations` waives the first two for a deliberate hot-patch, at
+the cost of every database built before it (see above); the third is fixed by
+renaming the file, never waived. Repeatable `.sql` and `.jsonc` files stay
+editable - that is their purpose. `release.sh` applies the same three rules
+against the released tags, in the checks described under "Doing it".
 
 ## Pre-releases
 
@@ -307,4 +408,9 @@ hands that archive to `pgxn release` (or tells you to upload it at
 manager.pgxn.org).
 
 **Publish to PGXN only when the version is final.** Afterwards, stop re-tagging
-it: cut the next version for any further change.
+it: cut the next version for any further change. `release.sh` enforces that
+for a re-release: it asks `https://api.pgxn.org/dist/pg_semantius.json` and
+refuses when the version is among the distribution's releases. Only two answers
+pass: 404 (the distribution does not exist) and a release list without the
+version. Any other status, or no answer, refuses, since it says nothing about
+what is published.

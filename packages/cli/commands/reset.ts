@@ -4,12 +4,16 @@
  */
 
 import { dropallCommand } from "./dropall.ts";
-import { migrateCommand } from "./migrate.ts";
+import { migrateCommand, requireManifestFiles } from "./migrate.ts";
 
 export async function resetCommand(
   databaseUrl: string,
   confirm: boolean = false,
 ): Promise<void> {
+  // Before dropall: a build that cannot read its manifest refuses to migrate,
+  // and must not have dropped the database first.
+  await requireManifestFiles();
+
   if (!confirm) {
     const answer = prompt(
       '⚠️  This will drop all database objects and re-run migrations (_core). Type "yes" to continue:',
@@ -26,7 +30,9 @@ export async function resetCommand(
   await dropallCommand(databaseUrl, true, false);
 
   console.log("\n--- Step 2/2: migrate --apps _core ---");
-  await migrateCommand("_core", databaseUrl, false);
+  // No question about a local _core: reset rebuilds the database from scratch,
+  // so there is no database to keep updatable.
+  await migrateCommand("_core", databaseUrl, false, true);
 
   console.log("\nReset completed successfully!");
 }

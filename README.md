@@ -166,32 +166,38 @@ The argument is the tag. A bare `0.5.0` works too and means the same thing: the
 tag is `v0.5.0`, while the extension itself is versioned `0.5.0` in
 `default_version`, `META.json` and `pg_semantius--0.5.0.sql`.
 
-One script builds a version: it regenerates `extension/`, runs the full suite on
-both install paths plus the lifecycle proof, builds the DB image locally, commits
-the build, proves the generator is deterministic, then tags and pushes. Pushing
-the tag starts the release workflow, which rebuilds from a clean checkout and
-publishes the GitHub Release and the GHCR image — locally to prove it is green,
-in CI to prove it is reproducible.
+One script builds a version: it checks the migrations against the released
+tags, regenerates `extension/` in release mode, runs the full suite on both
+install paths plus the lifecycle proof, tests the update of a database the
+previous release built, builds the DB image locally, commits the build, proves
+the generator is deterministic, then tags and pushes. Pushing the tag starts the
+release workflow, which rebuilds from a clean checkout and publishes the GitHub
+Release and the GHCR image — locally to prove it is green, in CI to prove it is
+reproducible.
 
 **One version for the whole repo.** Every artifact shares a single version, so
 releases are tagged `v<version>` (e.g. `v0.5.0`), not per-artifact. The tag is
 what CI builds *from*; `extension/versions.json` is what may be built — the
 highest version there is mutable and can be re-released, and is frozen once a
-higher one exists.
+higher one exists. A final release's run-once files are frozen as soon as it is
+tagged: a re-release of it may change only repeatable files and add files after
+its last one.
 
 Versioning follows the [pgTAP](https://github.com/theory/pgtap/tree/main/sql)
 model: **one current full install plus an accumulated chain of upgrade scripts.**
-Because the `_core` migrations are append-only ordered deltas, both are derived
-automatically. An upgrade script is the same installer with `CREATE OR REPLACE`
-for the functions; `migrate()` is idempotent per migration, so one code path
-serves install, upgrade and re-run.
+Both embed the whole migration bundle and are derived automatically. An upgrade
+script is the same installer, replacing `migrate()` and recreating the
+read-only functions; `migrate()` decides per file from `_versions` what is due,
+so one code path serves install, upgrade and re-run. Before the first file it
+refuses a database a newer build migrated, and one this build cannot update
+(see [RELEASE.md](RELEASE.md#how-a-change-reaches-an-existing-database)).
 
 PGXN is the exception: a release there is permanent, so it is never automated.
 `./scripts/pgxn-release.sh <version>` uploads the archive the GitHub
 Release already published, after verifying it.
 
-**[RELEASE.md](RELEASE.md) is the maintainer guide** — the mutability rule, what
-a re-release does not do, and what a release produces.
+**[RELEASE.md](RELEASE.md) is the maintainer guide** — the mutability rule, how
+a change reaches an existing database, and what a release produces.
 
 ---
 

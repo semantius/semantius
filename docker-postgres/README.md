@@ -150,6 +150,15 @@ backwards.
 The self-hosting stack's `docker-compose.yml`
 ([semantius-self-hosted](https://github.com/semantius/semantius-self-hosted))
 references `ghcr.io/semantius/postgres:${SEMANTIUS_DB_VERSION:-latest}`. Pin
-`SEMANTIUS_DB_VERSION` in its `.env` for reproducible/server deploys; leave it at
-`latest` to track the moving published tag (or run its `create`/`up` with
-`--no-pull` to use your local build instead).
+`SEMANTIUS_DB_VERSION` in its `.env` for server deploys; leave it at `latest` to
+track the moving published tag (or run its `create`/`up` with `--no-pull` to
+use your local build instead). A pinned version tag still changes while that
+version is the highest: a re-release overwrites it.
+
+A newer image on an existing data volume brings newer extension files and
+leaves the database as it was, since the init scripts run only on an empty
+volume. Update the database yourself, in each database that uses Semantius:
+`ALTER EXTENSION pg_semantius UPDATE` and `CALL semantius.migrate()`, or, for
+a re-release of the version it already has, `DROP EXTENSION pg_semantius`,
+`CREATE EXTENSION pg_semantius` and `CALL semantius.migrate()`
+([extension/README.md](../extension/README.md#upgrade)).
