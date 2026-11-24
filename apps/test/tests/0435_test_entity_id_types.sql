@@ -573,8 +573,8 @@ SELECT ok(
           WHERE attrelid = 'public.idt_ens'::regclass AND attname = 'id'),
     'ensure_entities: the entity gets a typeid key');
 
--- id_type is create-only: a later file that names another type changes nothing
--- (rule 90233 would refuse it), while a changed prefix is applied.
+-- A later file with a changed prefix has it applied. A file that names another
+-- key type is pinned by 0437_test_entity_key_changes.sql.
 SELECT public.ensure_entities('{
     "version": 1,
     "entities": [{"entity": {
