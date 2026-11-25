@@ -1,4 +1,4 @@
-# pg_semantius 0.5.0-beta1
+# pg_semantius 0.5.0
 
 Semantius core for PostgreSQL: role-based access control, row-level security,
 a semantic data dictionary, and a message queue.

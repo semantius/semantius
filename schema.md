@@ -2,7 +2,7 @@
 
 This document describes the database schema for the _core module.
 
-**Version:** 0.5.0-beta1
+**Version:** 0.5.0
 
 ---
 
