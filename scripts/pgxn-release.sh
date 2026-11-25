@@ -65,7 +65,9 @@ else
 fi
 
 # ---------------------------------------------------------------- local state
-[ -z "$(git status --porcelain)" ] \
+# plans/ is disposable working notes (AGENTS.md) and never reaches the archive,
+# so it is left out here as in release.sh.
+[ -z "$(git status --porcelain -- . ':(exclude)plans')" ] \
   || die "the working tree is dirty; commit or stash before publishing"
 
 git fetch --tags --force --quiet origin 2>/dev/null || true

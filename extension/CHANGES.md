@@ -1,9 +1,10 @@
 # Changes
 
-## 0.5.0
+## 0.6.0
 
-First build of the rebuilt packaging. The extension is now a **thin
-installer**: `CREATE EXTENSION pg_semantius` creates only the cluster roles,
+First early-access release, and the first release of the rebuilt packaging.
+It follows the 0.5.0-beta1 pre-release; 0.5.0 itself is not released. The
+extension is now a **thin installer**: `CREATE EXTENSION pg_semantius` creates only the cluster roles,
 the `semantius` schema and its functions, and `CALL semantius.migrate()`
 installs the core schema as ordinary objects.
 
@@ -27,8 +28,8 @@ installs the core schema as ordinary objects.
   changing nothing, a database a newer build migrated ("use a newer
   pg_semantius") and one whose core run-once files were recorded with other
   values ("replace the database with a fresh install"). A database installed
-  from 0.5.0-beta1 as first published is refused that way and has to be
-  reinstalled.
+  from the 0.5.0-beta1 pre-release is refused that way and has to be
+  reinstalled: core run-once files changed after it.
 - The core migrations are renumbered `0010`, `0020`, ... and split into
   `.once.sql` (tables, indexes, seeds), repeatable `.sql` (functions, triggers,
   policies) and `.jsonc` (entity metadata). A database installed from an
