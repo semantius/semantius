@@ -1,10 +1,10 @@
 # Changes
 
-## 0.6.0
+## 0.5.0
 
 First early-access release, and the first release of the rebuilt packaging.
-It follows the 0.5.0-beta1 pre-release; 0.5.0 itself is not released. The
-extension is now a **thin installer**: `CREATE EXTENSION pg_semantius` creates only the cluster roles,
+It follows the 0.5.0-beta1 pre-release. The extension is now a **thin
+installer**: `CREATE EXTENSION pg_semantius` creates only the cluster roles,
 the `semantius` schema and its functions, and `CALL semantius.migrate()`
 installs the core schema as ordinary objects.
 
