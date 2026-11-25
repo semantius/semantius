@@ -78,7 +78,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Under Git Bash, the arguments of docker exec must not be path-converted;
-# those of git must.
+# those of git must. A conversion switch inherited from the caller's environment
+# (an editor's terminal settings, for one) would hand git `/c/...` paths it
+# cannot resolve, so it is dropped here and dk() sets its own.
+unset MSYS_NO_PATHCONV MSYS2_ARG_CONV_EXCL
 dk() { MSYS_NO_PATHCONV=1 docker "$@"; }
 
 MODE=fresh
