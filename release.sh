@@ -256,12 +256,14 @@ else
     || bad "$BEHIND commit(s) behind $UPSTREAM; pull first"
 fi
 
-# All paths, no exceptions: "the tag points at exactly what was tested" is the
+# All paths but plans/: "the tag points at exactly what was tested" is the
 # property everything else rests on. release.sh commits only what it generates.
-if [ -z "$(git status --porcelain)" ]; then
-  ok "working tree clean"
+# plans/ is disposable working notes (AGENTS.md); nothing is built or tested
+# from it, so a plan in progress does not block a release.
+if [ -z "$(git status --porcelain -- . ':(exclude)plans')" ]; then
+  ok "working tree clean (plans/ ignored)"
 else
-  git status --porcelain >&2
+  git status --porcelain -- . ':(exclude)plans' >&2
   bad "working tree is dirty; commit your source changes first"
 fi
 
