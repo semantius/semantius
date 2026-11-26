@@ -931,7 +931,8 @@ fi
 # ==========================================================================
 # Hand over to CI
 # ==========================================================================
-REPO="$(git remote get-url origin 2>/dev/null | sed -E 's#.*[:/]([^/]+/[^/]+?)(\.git)?$#\1#' || true)"
+# Two steps: sed -E has no lazy `+?`, so a single pattern keeps the `.git`.
+REPO="$(git remote get-url origin 2>/dev/null | sed -E -e 's#\.git$##' -e 's#.*[:/]([^/]+/[^/]+)$#\1#' || true)"
 cat <<EOF
 
 Done locally. CI now rebuilds from a clean checkout and publishes.

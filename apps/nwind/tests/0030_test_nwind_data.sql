@@ -305,7 +305,7 @@ SELECT is(
 SELECT is(
     (SELECT amount FROM order_details WHERE order_id = 10250 AND product_id = 51),
     1261.40,
-    'order_details.amount should take the discount off as a rate'
+    'order_details.amount should take the discount off as a percentage'
 );
 
 -- Test 40: 25 × 7.70 less 15% is 163.625, which the column's two decimals round
@@ -318,7 +318,7 @@ SELECT is(
 -- Test 41: the import writes no amount, so this proves the load computed all of them
 SELECT is(
     (SELECT COUNT(*)::integer FROM order_details
-      WHERE amount IS DISTINCT FROM round(quantity * unit_price * (1 - discount), 2)),
+      WHERE amount IS DISTINCT FROM round(quantity * unit_price * (1 - discount / 100), 2)),
     0,
     'Every loaded order line should carry its computed amount'
 );

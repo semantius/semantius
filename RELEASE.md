@@ -399,8 +399,9 @@ So it is a separate, manual, guarded step:
 
 [scripts/pgxn-release.sh](scripts/pgxn-release.sh) refuses unless the build on
 disk is that version (full install, `META.json` and `default_version` all agree)
-and equals a fresh regeneration, the working tree is clean, the tag `v<ver>`
-exists and matches origin, `HEAD` is the commit that tag points at, and the
+and equals a fresh regeneration, `extension/` has no uncommitted changes (others
+only draw a warning), the tag `v<ver>` exists and matches origin, `HEAD` is the
+commit that tag points at, and the
 archive attached to the GitHub Release holds exactly the manifest's files with
 the build's content. It refuses a `release_status` other than `stable` unless
 `--allow-testing-release` is passed, requires the version to be typed, then

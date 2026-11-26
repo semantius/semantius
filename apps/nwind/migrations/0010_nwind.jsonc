@@ -367,19 +367,21 @@
         // the local label is quantity × product name, set when the line is
         // written
         "label_parent": "order_id",
-        // amount is the line total after discount; discount is a rate (0.15 is
-        // 15%), not percentage points, so it is subtracted from 1
+        // amount is the line total after discount; discount is in percent (15
+        // is 15%), the figure people type, so the rate is discount / 100. The
+        // column keeps two decimals, which hold 12.50% exactly where a stored
+        // rate would round 0.125 to 0.13
         "computed_fields": [
           {"name": "label", "jsonlogic": {"set_record": ["p", "products", {"var": "product_id"}, {"cat": [{"var": "quantity"}, " × ", {"var": "p.product_name"}]}]}},
-          {"name": "amount", "jsonlogic": {"*": [{"var": "quantity"}, {"var": "unit_price"}, {"-": [1, {"var": "discount"}]}]}}
+          {"name": "amount", "jsonlogic": {"*": [{"var": "quantity"}, {"var": "unit_price"}, {"-": [1, {"/": [{"var": "discount"}, 100]}]}]}}
         ],
         "fields": [
           {"field_name": "order_id", "title": "Order", "format": "parent", "field_order": 10, "input_type": "required", "width": "default", "description": "", "reference_table": "orders", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "contains"},
           {"field_name": "product_id", "title": "Product", "format": "reference", "field_order": 20, "input_type": "required", "width": "default", "description": "", "reference_table": "products", "reference_delete_mode": "restrict", "searchable": false, "relationship_label": "ordered in"},
           {"field_name": "unit_price", "title": "Unit Price", "format": "number", "field_order": 30, "input_type": "default", "width": "default", "description": "Actual price per unit charged on this order", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
           {"field_name": "quantity", "title": "Quantity", "format": "int32", "field_order": 40, "input_type": "default", "width": "default", "description": "Number of units ordered", "default_value": "0", "searchable": false, "ctype": "", "cube_type": "measure"},
-          {"field_name": "discount", "title": "Discount", "format": "number", "field_order": 50, "input_type": "default", "width": "default", "description": "Discount rate applied to this line item", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
-          {"field_name": "amount", "title": "Amount", "format": "number", "field_order": 60, "input_type": "default", "width": "default", "description": "Line total after discount: quantity × unit price × (1 - discount)", "default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "measure"}
+          {"field_name": "discount", "title": "Discount (%)", "format": "number", "field_order": 50, "input_type": "default", "width": "default", "description": "Discount in percent applied to this line item","default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "auto"},
+          {"field_name": "amount", "title": "Amount", "format": "number", "field_order": 60, "input_type": "default", "width": "default", "description": "Line total after discount: quantity × unit price × (1 - discount / 100)","default_value": "0.0", "searchable": false, "ctype": "", "cube_type": "measure"}
         ]
       }
     }

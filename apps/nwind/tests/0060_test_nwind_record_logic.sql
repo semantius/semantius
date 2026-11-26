@@ -78,7 +78,7 @@ SELECT is(
 -- =====================================================
 
 INSERT INTO order_details (order_id, product_id, unit_price, quantity, discount)
-VALUES (pg_temp.ord('RL Order A'), pg_temp.prod('Queso Cabrales'), 10.00, 3, 0.10);
+VALUES (pg_temp.ord('RL Order A'), pg_temp.prod('Queso Cabrales'), 10.00, 3, 10);
 
 SELECT is(
     (SELECT label || ' ' || amount FROM order_details WHERE order_id = pg_temp.ord('RL Order A')),
@@ -140,7 +140,7 @@ UPDATE order_details SET quantity = 4
 SELECT is(pg_temp.money('RL Order A'), '84.00 91.50',
     'rollup update: a changed quantity moves the subtotal through the amount');
 
-UPDATE order_details SET discount = 0.5
+UPDATE order_details SET discount = 50
  WHERE order_id = pg_temp.ord('RL Order A') AND unit_price = 20.00;
 
 SELECT is(pg_temp.money('RL Order A'), '74.00 81.50',
