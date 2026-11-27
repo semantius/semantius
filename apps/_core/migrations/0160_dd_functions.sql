@@ -2464,6 +2464,28 @@ BEGIN
         END IF;
     END IF;
 
+    -- The values of a reference or parent column are keys of the entity the
+    -- field names. Pointed at another entity, the column would keep every value
+    -- and each record would reference whichever row of the new entity carries
+    -- the same key, a different record or none; the foreign key rebuilt below
+    -- accepts that as soon as the keys exist there, as auto_increment keys of
+    -- two entities usually do. Converting a field into or out of a reference
+    -- sets or clears reference_table, so that is refused as well: out and back
+    -- in would be the same re-pointing in two writes. Unmanaged entities are
+    -- held to it too: they have no foreign key, but get_schema and the UI still
+    -- resolve the stored keys through reference_table. The one change let through is the
+    -- cascade of an entity rename, which keeps every key on the same rows:
+    -- rename_dd_reference_tables names it in dd.reference_table_rename for the
+    -- one statement that writes it.
+    IF OLD.reference_table IS DISTINCT FROM NEW.reference_table
+       AND current_setting('dd.reference_table_rename', TRUE)
+           IS DISTINCT FROM OLD.reference_table || ':' || NEW.reference_table THEN
+        RAISE EXCEPTION 'reference_table of field ${field_name} on ${table} is set when the field is created and cannot be changed'
+            USING ERRCODE = '90289',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.field_name,
+                                            'hint', 'Create a new field that references the other entity instead.')::text;
+    END IF;
+
     -- Skip DDL operations if table is not managed (but allow metadata updates like description)
     IF NOT v_is_managed THEN
         -- Keep the column comment in sync even if not managed, but only when the
@@ -2746,6 +2768,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION update_dd_field IS
 'Trigger function that updates column properties when a field is updated.
 table_name changes are allowed only as part of a cascade from rename_dd_table().
+reference_table is set when the field is created; only the cascade of an entity rename
+from rename_dd_reference_tables() changes it (90289).
 field_name renames are handled by the validate_field_rename_and_format BEFORE trigger.
 format changes that alter the underlying data type are rejected by the BEFORE trigger.
 When the physical column is missing from a managed table (e.g. defined while managed=false),
@@ -2902,7 +2926,7 @@ BEGIN
                   HINT = jsonb_build_object(
                       'table', OLD.table_name,
                       'fields', v_references,
-                      'hint', 'Delete those fields or point them at another entity first.')::text;
+                      'hint', 'Delete those fields first.')::text;
     END IF;
 
     -- A plain entity is dropped with its data. A family entity is not: its

@@ -332,12 +332,14 @@ SELECT is(
     'pnkq:beta',
     'a rename cascades into a dictionary-created reference column too');
 
--- The format-change guard has to use the same rule, or it refuses the very
--- conversion this typing makes legal. It is a BEFORE UPDATE trigger on fields
--- and it runs ahead of the one in update_dd_field, so if it judges a reference
--- by its format alone it is the one the caller hits: text -> reference is TEXT
--- to TEXT when the target is `permissions` and must be allowed, TEXT to INTEGER
--- when the target is `users` and must not.
+-- The format-change guard has to use the same rule. It is a BEFORE UPDATE
+-- trigger on fields and runs ahead of update_dd_field, so if it judged a
+-- reference by its format alone it would be the one the caller hits: text ->
+-- reference is TEXT to TEXT when the target is `permissions` and passes it,
+-- TEXT to INTEGER when the target is `users` and does not. A conversion that
+-- passes it is still refused by update_dd_field, because it would set
+-- reference_table on an existing field (90289), so the code the caller gets
+-- tells which of the two refused it.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,
                       module_id, view_permission, edit_permission)
 VALUES ('pnkf_thing', 'pnkf_thing', 'Thing', 'Things', 'format change fixture',
@@ -346,11 +348,12 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, default_
 VALUES ('pnkf_thing', 'perm', 'Perm', 'text', 10, 'admin'),
        ('pnkf_thing', 'owner', 'Owner', 'text', 20, '');
 
-SELECT lives_ok(
-    $$UPDATE fields SET format = 'reference', reference_table = 'permissions',
-                        reference_delete_mode = 'restrict'
-       WHERE table_name = 'pnkf_thing' AND field_name = 'perm'$$,
-    'a text column can become a reference to a text-keyed entity');
+SELECT is(
+    catch_error($$UPDATE fields SET format = 'reference', reference_table = 'permissions',
+                                    reference_delete_mode = 'restrict'
+                   WHERE table_name = 'pnkf_thing' AND field_name = 'perm'$$) ->> 'code',
+    '90289',
+    'a text column passes the type guard toward a text-keyed entity and is refused only because reference_table is set once');
 
 SELECT throws_like(
     $$UPDATE fields SET format = 'reference', reference_table = 'users',

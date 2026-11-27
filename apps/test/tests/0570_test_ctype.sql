@@ -148,8 +148,10 @@ SELECT throws_ok(
 -- The foreign key of a core column is written by hand in the migrations, and
 -- the one of modules.view_permission is deferred, which a generated one never
 -- is. A change of either attribute would have the dictionary replace it with
--- the generated form, so both are refused; an ordinary reference may change
--- both.
+-- the generated form, so both are refused under their own codes. An ordinary
+-- reference may change its delete mode; its target is fixed for every field
+-- (90289, 0566_test_reference_table_write_once.sql), and a core field names
+-- 90286 because that check comes first.
 SELECT is(
     (SELECT jsonb_build_object('code', e ->> 'code', 'message', e ->> 'message', 'hint', e ->> 'hint')
        FROM catch_error($$UPDATE fields SET reference_delete_mode = 'clear'
@@ -183,9 +185,9 @@ INSERT INTO fields (table_name, field_name, title, format, field_order, input_ty
 VALUES ('lk_probe', 'owner', 'Owner', 'reference', 70, 'default', 'default', 'users', 'restrict');
 
 SELECT lives_ok(
-    $$UPDATE fields SET reference_table = 'roles', reference_delete_mode = 'clear'
+    $$UPDATE fields SET reference_delete_mode = 'clear'
        WHERE table_name = 'lk_probe' AND field_name = 'owner'$$,
-    'an ordinary reference may still change its delete mode and its target, in one write');
+    'an ordinary reference may still change its delete mode');
 
 -- ── is_core derived from ctype in get_schema ─────────────────────────────────
 INSERT INTO fields (table_name, field_name, title, format, field_order, input_type, width)

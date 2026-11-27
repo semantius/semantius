@@ -354,9 +354,19 @@ BEGIN
     -- Update every field in any table that references the old entity name.
     -- update_dd_field() (AFTER trigger on fields) will detect the reference_table
     -- change and rebuild the FK constraint to point at NEW.table_name.
+    --
+    -- update_dd_field refuses every other change of reference_table (90289), so
+    -- this one is named in dd.reference_table_rename, set for this statement
+    -- and cleared after it. dd.table_rename cannot serve: it stays set to the
+    -- end of the transaction, where it would still let a field pointing at a
+    -- new entity of the old name be re-pointed to the renamed one, and a
+    -- rename of several entities in one statement overwrites it row by row
+    -- before these AFTER triggers run.
+    PERFORM set_config('dd.reference_table_rename', OLD.table_name || ':' || NEW.table_name, TRUE);
     UPDATE fields
     SET reference_table = NEW.table_name
     WHERE reference_table = OLD.table_name;
+    PERFORM set_config('dd.reference_table_rename', '', TRUE);
 
     RETURN NEW;
 END;
@@ -365,7 +375,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION rename_dd_reference_tables IS
 'AFTER UPDATE trigger on entities: when table_name changes, updates fields.reference_table
 in all fields across all tables that referenced the old name.  Cascades through
-update_dd_field() to rebuild the physical FK constraint on the referencing table.';
+update_dd_field() to rebuild the physical FK constraint on the referencing table.
+The transaction-local setting dd.reference_table_rename names the rename for that one
+statement, the only change of reference_table update_dd_field() accepts (90289).';
 
 CREATE OR REPLACE TRIGGER rename_reference_tables_trigger
     AFTER UPDATE ON entities

@@ -614,10 +614,8 @@ SELECT is(pg_temp.fc_snapshot('fcc_parties'), (SELECT v FROM fc_marks WHERE k = 
 
 -- A root reference field: its <fk>_label is a function of every view.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id)
-VALUES ('fcx_owners', 'Owner', 'Owners', 1),
-       ('fcx_owners2', 'Second Owner', 'Second Owners', 1);
+VALUES ('fcx_owners', 'Owner', 'Owners', 1);
 INSERT INTO fcx_owners (id, label) VALUES (1, 'Ann');
-INSERT INTO fcx_owners2 (id, label) VALUES (1, 'Zed');
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
 VALUES ('fcc_parties', 'owner_id', 'Owner', 'reference', 'fcx_owners', 'restrict', 60);
 UPDATE fcc_banks SET owner_id = 1 WHERE label = 'B1';
@@ -633,10 +631,13 @@ SELECT is(pg_temp.value_of($$SELECT public.owner_id_label(b) FROM fcc_banks b WH
 
 SELECT * FROM pg_temp.fc_checks('after a root reference field add', 'fcc_');
 
-UPDATE fields SET reference_table = 'fcx_owners2' WHERE table_name = 'fcc_parties' AND field_name = 'owner_id';
+-- reference_table is set once (90289); the rename of the referenced entity is
+-- the one change that reaches it, and the label function of every level names
+-- the referenced table, so a function left naming the old name would fail.
+UPDATE entities SET table_name = 'fcx_owners2' WHERE table_name = 'fcx_owners';
 
-SELECT is(pg_temp.value_of($$SELECT public.owner_id_label(b) FROM fcc_banks b WHERE b.label = 'B1'$$), 'Zed',
-    'root reference field: a changed reference_table repoints the label function of every level');
+SELECT is(pg_temp.value_of($$SELECT public.owner_id_label(b) FROM fcc_banks b WHERE b.label = 'B1'$$), 'Ann',
+    'root reference field: a rename of the referenced entity repoints the label function of every level');
 
 SELECT * FROM pg_temp.fc_checks('after a root reference field is repointed', 'fcc_');
 

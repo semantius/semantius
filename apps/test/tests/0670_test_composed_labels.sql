@@ -384,7 +384,9 @@ SELECT is((SELECT public._label(c) FROM lb_contacts c), 'Ada',
 -- reference or parent field. The field can change afterward, and a spine that
 -- is no reference any more composes nothing: the label would fall back to the
 -- record's own without a word. So the format change is refused while an entity
--- names the field, and goes through once none does.
+-- names the field. Once none does, it gets past this guard and meets
+-- update_dd_field, which refuses it because leaving the reference format
+-- clears reference_table, set when the field was created (90289).
 SELECT authenticate_as('user3');
 
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
@@ -414,10 +416,11 @@ UPDATE fields SET format = 'reference', reference_table = 'lpf_parents', referen
  WHERE table_name = 'lpf_children' AND field_name = 'parent_id' AND format <> 'reference';
 UPDATE entities SET label_parent = '' WHERE table_name = 'lpf_children';
 
-SELECT lives_ok(
-    $$UPDATE fields SET format = 'int64', reference_table = '', reference_delete_mode = ''
-       WHERE table_name = 'lpf_children' AND field_name = 'parent_id'$$,
-    'label_parent: the same change goes through once no entity names the field');
+SELECT is(
+    catch_error($$UPDATE fields SET format = 'int64', reference_table = '', reference_delete_mode = ''
+                   WHERE table_name = 'lpf_children' AND field_name = 'parent_id'$$) ->> 'code',
+    '90289',
+    'label_parent: once no entity names the field, this guard lets the change pass and the write-once reference_table refuses it');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -246,6 +246,10 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
     column. The triggers that enforce this fire for every role.
   - Renaming the label column is a feature, not a breach: the rename carries to
     `entities.label_column` (pinned by `0460_test_ddl_rename.sql`).
+  - The entity any reference or parent field points at, core or not, is set when the field
+    is created and never changes (`90289`): the stored keys would otherwise reference the
+    rows of another entity that carry the same keys. Only the rename of that entity carries
+    to the field (pinned by `0566_test_reference_table_write_once.sql`).
   - The rename of any field, the label column included, is refused while a rule names the
     field (`90275`), when a generated name would exceed 63 bytes (`90276`), and when the new
     index name is already taken (`90274`).

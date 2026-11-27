@@ -11,7 +11,7 @@
 -- creates its own entities; the transaction is rolled back.
 BEGIN;
 
-SELECT plan(72);
+SELECT plan(71);
 
 SELECT authenticate_as('user3');
 
@@ -175,10 +175,13 @@ SET LOCAL search_path TO public, pgtap;
 ALTER TABLE fields ENABLE TRIGGER validate_field_rename_and_format_trigger;
 SELECT authenticate_as('user3');
 
--- A reference to a text key becomes a plain text field: the column keeps its
--- type and loses its foreign key and the index built for it. While the entity
--- names the field as its label spine the change is refused, because a spine
--- that is no reference composes nothing; label_parent is cleared first.
+-- A reference to a text key cannot become a plain text field. While the entity
+-- names the field as its label spine, the BEFORE trigger refuses it first
+-- (90277), because a spine that is no reference composes nothing. With
+-- label_parent cleared, the change reaches update_dd_field, which refuses it
+-- because it would clear reference_table (90289,
+-- 0566_test_reference_table_write_once.sql); the column keeps its foreign
+-- key, the index built for it and its values.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type) VALUES ('fd_keyed', 'Keyed', 'Keyed', 1, 'text');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fd_child', 'Child', 'Children', 1);
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode)
@@ -197,25 +200,18 @@ SELECT is(
     'a reference that is the label spine of its entity cannot become text');
 
 UPDATE entities SET label_parent = '' WHERE table_name = 'fd_child';
-UPDATE fields SET format = 'text', reference_table = '', reference_delete_mode = ''
- WHERE table_name = 'fd_child' AND field_name = 'keyed_id';
 
-SELECT ok(NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fd_child_keyed_id_fkey'),
-    'a reference turned into text loses its foreign key');
-SELECT ok(NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_fd_child_keyed_id'),
-    'and the index built for it');
-SELECT is((SELECT keyed_id FROM fd_child), 'k1', 'and keeps its values');
-
--- And back: the text column turned into a reference again gets both its
--- foreign key and its index. A reference without the index would make every
--- delete of a fd_keyed row scan fd_child for referencing rows.
-UPDATE fields SET format = 'reference', reference_table = 'fd_keyed', reference_delete_mode = 'restrict'
- WHERE table_name = 'fd_child' AND field_name = 'keyed_id';
+SELECT is(
+    catch_error($$UPDATE fields SET format = 'text', reference_table = '', reference_delete_mode = ''
+                   WHERE table_name = 'fd_child' AND field_name = 'keyed_id'$$) ->> 'code',
+    '90289',
+    'with no entity naming it as its spine, a reference still cannot become text');
 
 SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fd_child_keyed_id_fkey'),
-    'a text field turned into a reference gets its foreign key');
+    'the reference keeps its foreign key');
 SELECT ok(EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_fd_child_keyed_id'),
-    'and the index on the column');
+    'and the index built for it');
+SELECT is((SELECT keyed_id FROM fd_child), 'k1', 'and its values');
 
 -- unique_value turned on for a field that already exists
 INSERT INTO fields (table_name, field_name, title, format) VALUES

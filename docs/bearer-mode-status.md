@@ -84,7 +84,10 @@ Four more reasons are ours to fix:
    90286). Such a session can set `dd.table_rename` itself; a client behind
    PostgREST cannot. The same setting is trusted at `0340_queue.sql` around
    129 (a mapping's `table_name`) and at `0440_rollup.sql` around 1591 and
-   1721 (the rollup guards).
+   1721 (the rollup guards). `update_dd_field` likewise accepts a change of a
+   field's `reference_table` (90289) when `dd.reference_table_rename` names
+   it, as `rename_dd_reference_tables` sets it for the one statement of an
+   entity rename's cascade; such a session can set that one too.
 
 Bearer mode graduates when 1 and 2 have changed in the ecosystem and 3 to 6
 are closed here. Tracking links are at the end.

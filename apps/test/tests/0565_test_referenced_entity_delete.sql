@@ -7,7 +7,7 @@
 -- have: pgdocker/pg-reference-delete-race.sh covers that.
 BEGIN;
 
-SELECT plan(40);
+SELECT plan(41);
 
 -- The hint of the error a statement raises, or NULL when it succeeds.
 CREATE FUNCTION pg_temp.hint_of(p_sql TEXT) RETURNS JSONB LANGUAGE plpgsql AS $fn$
@@ -54,7 +54,7 @@ SELECT is(pg_temp.hint_of($$DELETE FROM entities WHERE table_name = 'rd_regions'
     jsonb_build_object(
         'table', 'rd_regions',
         'fields', 'rd_customers.region, rd_notes.region, rd_tasks.region',
-        'hint', 'Delete those fields or point them at another entity first.'),
+        'hint', 'Delete those fields first.'),
     'the refusal names the entity and every field, whatever its format and delete mode');
 
 SELECT ok(
@@ -85,12 +85,22 @@ SELECT is(pg_temp.hint_of($$DELETE FROM entities WHERE table_name = 'rd_areas'$$
     'rd_customers.region, rd_notes.region',
     'a deleted field no longer counts');
 
+-- Pointing a field at another entity is no way out, even with no records that
+-- would follow it: its reference_table is set once
+-- (0566_test_reference_table_write_once.sql).
 DELETE FROM rd_notes;
-UPDATE fields SET reference_table = 'rd_other' WHERE table_name = 'rd_notes' AND field_name = 'region';
+
+SELECT is(
+    catch_error($$UPDATE fields SET reference_table = 'rd_other'
+                   WHERE table_name = 'rd_notes' AND field_name = 'region'$$) ->> 'code',
+    '90289',
+    'a field cannot be pointed at another entity to get it out of the way');
+
+DELETE FROM fields WHERE table_name = 'rd_notes' AND field_name = 'region';
 
 SELECT is(pg_temp.hint_of($$DELETE FROM entities WHERE table_name = 'rd_areas'$$) ->> 'fields',
     'rd_customers.region',
-    'a field pointed at another entity no longer counts');
+    'a deleted parent field no longer counts either');
 
 SELECT lives_ok($$DELETE FROM entities WHERE table_name = 'rd_customers'$$,
     'the entity holding a reference can be deleted');
@@ -136,15 +146,16 @@ INSERT INTO entities (table_name, singular_label, plural_label, module_id, manag
 
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode) VALUES
     ('rd_unm_ref', 'target', 'Target', 'reference', 'rd_unm_target', 'restrict'),
-    ('rd_unm_ref', 'other',  'Other',  'reference', 'rd_other',      'restrict');
+    ('rd_unm_ref', 'other',  'Other',  'reference', 'rd_other',      'restrict'),
+    ('rd_tasks',   'other',  'Other',  'reference', 'rd_other',      'restrict');
 
 SELECT throws_ok($$DELETE FROM entities WHERE table_name = 'rd_unm_target'$$,
     '90260', NULL,
     'an unmanaged entity is protected too');
 
 SELECT is(pg_temp.hint_of($$DELETE FROM entities WHERE table_name = 'rd_other'$$) ->> 'fields',
-    'rd_notes.region, rd_unm_ref.other',
-    'a field of an unmanaged entity counts, as does one that was pointed here');
+    'rd_tasks.other, rd_unm_ref.other',
+    'a field of an unmanaged entity counts, next to one of a managed entity');
 
 -- =====================================================
 -- GROUP 6: module deletes
@@ -329,17 +340,21 @@ SELECT throws_ok(
     '90212', NULL,
     'it cannot be pointed at another entity that does not exist');
 
+-- Nor at one that exists, even with its values cleared so that no record would
+-- point anywhere: reference_table is set once (90289), and the way out for a
+-- field pointing at nothing is to delete it.
 UPDATE rd_left2 SET gone = NULL;
 
-SELECT lives_ok(
-    $$UPDATE fields SET reference_table = 'rd_depts' WHERE table_name = 'rd_left2' AND field_name = 'gone'$$,
-    'it can be pointed at an entity that exists');
+SELECT is(
+    catch_error($$UPDATE fields SET reference_table = 'rd_depts'
+                   WHERE table_name = 'rd_left2' AND field_name = 'gone'$$) ->> 'code',
+    '90289',
+    'nor at an entity that exists');
 
 SELECT is(
-    (SELECT count(*)::integer FROM pg_constraint
-      WHERE conrelid = 'public.rd_left2'::regclass AND conname = 'rd_left2_gone_fkey'),
-    1,
-    'which gives it a foreign key again');
+    (SELECT reference_table FROM fields WHERE table_name = 'rd_left2' AND field_name = 'gone'),
+    'rd_gone',
+    'and it keeps naming the entity it was created with');
 
 SELECT lives_ok($$DELETE FROM fields WHERE table_name = 'rd_left2' AND field_name = 'gone2'$$,
     'and it can be deleted');
