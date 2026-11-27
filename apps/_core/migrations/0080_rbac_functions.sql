@@ -1398,6 +1398,35 @@ GRANT EXECUTE ON FUNCTION rbac.user_id_or_null() TO semantius_user;
 COMMENT ON FUNCTION rbac.user_id_or_null IS
 'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
 
+-- The ids of the roles the current user holds, the one source of them: $role_ids
+-- in the rules that read it (public.jl_role_ids, 0210_computed_validation.sql),
+-- and the role queues of public.my_tasks(). Empty without a user, as
+-- rbac.user_id_or_null answers NULL for a session without valid claims: a
+-- rule written without a user (a migration, a seed) then sees no roles. A
+-- permission reader like rbac.user_id, which it reaches: STABLE, and it
+-- writes only the transaction-local context, through
+-- rbac.ensure_context_initialized. SECURITY DEFINER, because user_roles is the
+-- administrators' to read; it answers for the caller alone, after rbac.uid()
+-- has checked the claims of a session that has a user.
+CREATE OR REPLACE FUNCTION rbac.user_role_ids()
+RETURNS BIGINT[] AS $$
+DECLARE
+    v_user BIGINT := rbac.user_id_or_null();
+BEGIN
+    IF v_user IS NULL THEN
+        RETURN ARRAY[]::BIGINT[];
+    END IF;
+    PERFORM rbac.uid();
+    RETURN (SELECT coalesce(array_agg(ur.role_id ORDER BY ur.role_id), ARRAY[]::BIGINT[])
+              FROM user_roles ur
+             WHERE ur.user_id = v_user);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.user_role_ids() TO semantius_user;
+
+COMMENT ON FUNCTION rbac.user_role_ids IS
+'The ids of the roles the current user holds, ascending; empty for a user without roles and for a session without a user.';
+
 -- =====================================================
 -- DEBUGGING AND INTROSPECTION
 -- =====================================================

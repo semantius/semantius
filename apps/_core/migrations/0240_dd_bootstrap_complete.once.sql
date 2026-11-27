@@ -155,11 +155,11 @@ $$;
 -- =====================================================
 -- POLICIES OF THE CORE TABLES
 -- =====================================================
--- The ten core tables were registered as entities in 0150_dd_bootstrap.once.sql
+-- The eleven core tables were registered as entities in 0150_dd_bootstrap.once.sql
 -- before create_dd_table existed, so nothing generated their policies. Generate them
 -- now, the same way the dictionary does for every other entity, so that a
 -- later change to one of their permissions rebuilds them like any other.
 SELECT create_entity_policies(t)
   FROM unnest(ARRAY['entities', 'fields', 'users', 'modules', 'roles', 'permissions',
                     'user_roles', 'role_permissions', 'user_permissions',
-                    'permission_hierarchy']) AS t;
+                    'permission_hierarchy', 'entity_attachables']) AS t;

@@ -29,6 +29,10 @@ DDL audit trail for schema change events
 | label_column | Label Column | `command_tag` |
 | label_column_label | Label Column Label | Command Tag |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | false |
 | searchable | Searchable | true |
@@ -44,6 +48,10 @@ DDL audit trail for schema change events
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -82,6 +90,10 @@ DML audit trail for entity table records
 | label_column | Label Column | `table_name` |
 | label_column_label | Label Column Label | Table Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | false |
 | searchable | Searchable | true |
@@ -97,6 +109,10 @@ DML audit trail for entity table records
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -117,6 +133,65 @@ DML audit trail for entity table records
 | `table_name` (label) | text | Table Name | - | string | false | - | 80 | readonly | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `record` (core) | json | Record | Full record after INSERT/UPDATE (JSONB) | json | false | - | 90 | readonly | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `old_record` (core) | json | Old Record | Previous record before UPDATE/DELETE (JSONB) | json | false | - | 100 | readonly | w | core | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+
+---
+
+## Entity: comments
+
+Comments on a record, seen and changed by whoever may see and change the record.
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `comments` |
+| singular | Singular | comment |
+| plural | Plural | comments |
+| singular_label | Singular Label | Comment |
+| plural_label | Plural Label | Comments |
+| icon_name | Icon | message-square |
+| description | Description | Comments on a record, seen and changed by whoever may see and change the record. |
+| module_id | Module | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `public:write` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `typeid` |
+| id_prefix | Id Prefix | `comment` |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `label` |
+| label_column_label | Label Column Label | Label |
+| label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | operational_record |
+| name_sort | Name Sort | 320 |
+| computed_fields | Computed Fields | [{"name":"label","jsonlogic":{"substr":[{"var":"body"},0,80]}},{"name":"created_by","jsonlogic":{"if":[{"==":[{"var":"$mode"},"insert"]},{"var":"$user_id"},{"var":"$old.created_by"}]}}] |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | single |
+| attach_permission | Attach Permission | view |
+| attach_on_target_delete | Attach On Target Delete | cascade |
+| link_of | Link Of | - |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code | rollup |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | string | Id | - | string | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `label` (computed_label) | text | Label | - | string | false | - | 20 | required | default | computed_label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `attached_to` (attached_to) | text | Attached to | The record this one is attached to, as its record reference <table_name>:<key>. Set when the record is created and never changed. | string | false | - | 25 | required | default | attached_to | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `body` | multiline | Body | The comment | string | false | - | 30 | required | w | - | true | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `created_by` (computed) | reference | Created By | Who wrote the comment (set by the database) | integer | false | - | 40 | readonly | default | computed | false | - | 2 | users | clear | wrote | - | - | false | auto | - | - | - |
 
 ---
 
@@ -143,6 +218,10 @@ User-configured dashboard layouts and configurations
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -158,6 +237,10 @@ User-configured dashboard layouts and configurations
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -195,6 +278,10 @@ Catalog of tables in Semantius
 | label_column | Label Column | `singular_label` |
 | label_column_label | Label Column Label | Singular Label |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -210,6 +297,10 @@ Catalog of tables in Semantius
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -232,6 +323,10 @@ Catalog of tables in Semantius
 | `label_column` (core) | text | Label Column | Name of label/display column | string | false | label | 150 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `label_column_label` (core) | text | Label Column Label | Title of the label field. Give it when the entity is created; left empty, it is derived from label_column without the entity's own name (company_name on companies gives Name, region_description on regions gives Description), except that a column ending in _number, _no, _id or _code keeps it (offer_number gives Offer Number). Always equal to the label field's title: changing either one changes both. | string | false | - | 155 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `label_parent` (core) | text | Label Parent | Names the reference/parent FK that is this entity's identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label). | string | false | - | 160 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `label_format` (core) | enum | Label Format | How the label column is filled. custom (the default): by the caller or a computed rule. number: by the database when a record is inserted, as label_number_prefix and a number - the record's id for an auto_increment or bigint key, the next value of a counter of the entity for every other key type. A numbered label never changes on update, and only a seed or import running as a privileged session may supply one for a counter. Numbers have gaps: an insert that is rolled back has used its number up. They are assigned when a record is inserted, not when it commits, so the order of the numbers is not the order in which records were committed. Switching an entity with records to number keeps their labels; only new records get numbers. An is_a family takes it from its root. | string | false | custom | 161 | required | default | core | false | [{"label":"Custom (by the caller or a rule)","value":"custom"},{"label":"Number (assigned by the database)","value":"number"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `label_number_prefix` (core) | text | Label Number Prefix | Text before the number of a numbered label, e.g. INC gives INC0000001: letters, digits, - and _, at most 20 characters. A change applies to new numbers only; existing labels keep theirs. An is_a subtype with a prefix of its own has its own counter, digits and start (INC0001, CHG0001); one without numbers with its root's. | string | false | - | 162 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]} | - | - |
+| `label_number_digits` (core) | int32 | Label Number Digits | Minimum number of digits of a numbered label, filled with leading zeros (0 to 18; 0 = no padding). A longer number is never cut. A change applies to new numbers only. | integer | false | 0 | 163 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]} | - | - |
+| `label_number_start` (core) | int64 | Label Number Start | First number of the counter of a numbered label whose key is not a number (uuid, typeid, is_a, text). The counter always starts above the highest existing label of the format. An auto_increment or bigint key numbers by its id and has no counter. | integer | false | 1 | 164 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]} | - | - |
 | `order_column` (core) | text | Order Column | Store a fixed row order in this column | string | false | - | 170 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `managed` (core) | boolean | Managed | When disabled, changes to this entity and its fields run no DDL | boolean | false | true | 180 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `searchable` (core) | boolean | Searchable | Auto-computed: true when any field of the entity's record is searchable, the fields of its is_a or has_a bases included | boolean | false | - | 190 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
@@ -247,6 +342,67 @@ Catalog of tables in Semantius
 | `catalog_entity_code` (core) | text | Catalog Entity Code | Stable canonical identity this entity realizes (domain-map code, e.g. vendors); the rename/dialect/silo join key. table_name holds the deployed name. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec. | string | false | - | 290 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `catalog_owner_module` (core) | text | Catalog Owner Module | For an embedded-master placeholder, the slug of the module that should own this entity. Soft pointer (not an FK); empty when this module is the owner or the entity is local. | string | false | - | 300 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `catalog_entity_aliases` (core) | json | Catalog Entity Aliases | Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target. | json | false | [] | 310 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `attach_mode` (core) | enum | Attach Mode | Whether and how the records of this entity are attached to records of other entities, its target entities (entity_attachables). none (the default): not attachable. single: each record is attached to exactly one target record, held in attached_to, and whoever may see and change that record may see and change it (a comment). owned_shared: one target record owns it, held in attached_to, and decides who sees and changes it; further target records in the link entity <entity>_links only show it (a file). multiple: any number of equal target records in <entity>_links, or none, under the entity's own permissions (a task). Only a managed entity that is not is_a or has_a and has a name of at most 22 bytes can be attachable; an is_a family is attachable through its root. Cannot change while the entity has records. | string | false | none | 320 | required | default | core | false | [{"label":"Not attachable","value":"none"},{"label":"Single (one target, which decides access)","value":"single"},{"label":"Owned and shared (one owner, further targets)","value":"owned_shared"},{"label":"Multiple (any number of targets)","value":"multiple"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `attach_permission` (core) | enum | Attach Permission | What attaching a record needs on the target record: view, to see it; edit, to see it and to hold the edit permission of its entity. Adding or removing a link also needs edit rights on the attachable record. Required on an attachable entity. | string | false | - | 330 | hidden | default | core | false | [{"label":"View the target","value":"view"},{"label":"Edit the target","value":"edit"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"!=":[{"var":"attach_mode"},"none"]},"required","hidden"]} | - | - |
+| `attach_on_target_delete` (core) | enum | Attach On Target Delete | What deleting the target record held in attached_to does to the records attached to it: cascade deletes them too, as a foreign key cascade does, past their own row-level security; restrict refuses the delete while records are attached. Required for single and owned_shared. A target held in the link entity loses only the link, and a multiple record that loses its last target is deleted. | string | false | - | 340 | hidden | default | core | false | [{"label":"Cascade (delete the attached records)","value":"cascade"},{"label":"Restrict (block the delete)","value":"restrict"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"attach_mode"},["single","owned_shared"]]},"required","hidden"]} | - | - |
+| `link_of` (core) | reference | Link Of | The attachable entity whose link entity <entity>_links this is, empty for every other entity. The dictionary creates, renames and drops a link entity with its attachable entity, and nobody else may change it. | string | false | - | 350 | readonly | default | core | false | - | 2 | entities | cascade | has the link entity | - | - | false | auto | - | - | - |
+
+---
+
+## Entity: entity_attachables
+
+The target entities whose records the records of an attachable entity can be attached to
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `entity_attachables` |
+| singular | Singular | entity_attachable |
+| plural | Plural | entity_attachables |
+| singular_label | Singular Label | Entity Attachable |
+| plural_label | Plural Label | Entity Attachables |
+| icon_name | Icon | paperclip |
+| description | Description | The target entities whose records the records of an attachable entity can be attached to |
+| module_id | Module | 1 |
+| view_permission | View Permission | `admin` |
+| edit_permission | Edit Permission | `admin` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `computed` |
+| id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `id` |
+| label_column_label | Label Column Label | Id |
+| label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | false |
+| is_child | Is Child | true |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | true |
+| entity_type | Entity Type | junction |
+| name_sort | Name Sort | 900 |
+| computed_fields | Computed Fields | - |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code | rollup |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | text | Id | Generated identifier (target.attachable) | string | true | - | 1 | readonly | default | id | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `target` (core) | parent | Target | The target entity, whose records the records of the attachable entity can be attached to. An is_a base admits the records of its subtypes. Removing it is refused while records are attached there. | string | false | - | 10 | required | default | core | false | - | 2 | entities | cascade | accepts attachments of | Attachable | Attachables | false | auto | - | - | - |
+| `attachable` (core) | parent | Attachable | The attachable entity switched on for the target entity | string | false | - | 20 | required | default | core | false | - | 2 | entities | cascade | can be attached to | Target | Targets | false | auto | - | - | - |
 
 ---
 
@@ -273,6 +429,10 @@ Catalog of the fields that make up a table
 | label_column | Label Column | `title` |
 | label_column_label | Label Column Label | Title |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | field_order |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -288,6 +448,10 @@ Catalog of the fields that make up a table
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -304,7 +468,7 @@ Catalog of the fields that make up a table
 | `field_order` (core) | int32 | Field Order | - | integer | false | - | 100 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `input_type` (core) | enum | Input Type | How the UI presents the field for input; input_type_rule can override it per record. On a required field with no input_type_rule, the database also refuses a missing value; a number, boolean or duration always has one, except a rating of 0. | string | false | default | 110 | required | default | core | false | ["default","required","readonly","disabled","hidden"] | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `width` (core) | enum | Width | default (automatic), s (small), m (medium), w (wide) | string | false | default | 120 | required | default | core | false | [{"label":"Automatic","value":"default"},{"label":"Small","value":"s"},{"label":"Medium","value":"m"},{"label":"Wide","value":"w"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `ctype` (core) | enum | Column Type | Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity's computed_fields rules writes, and computed_label the label column when such a rule writes it. A form shows rollup, computed and computed_label fields disabled. Derived, never set by hand. | string | false | - | 130 | default | default | core | false | [{"label":"Regular field","value":""},{"label":"Primary key","value":"id"},{"label":"Display label","value":"label"},{"label":"Audit column","value":"audit"},{"label":"System column","value":"core"},{"label":"Rollup (aggregated by the database)","value":"rollup"},{"label":"Computed (by a rule of the entity)","value":"computed"},{"label":"Computed display label (by a rule of the entity)","value":"computed_label"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `ctype` (core) | enum | Column Type | Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity's computed_fields rules writes, computed_label the label column when such a rule writes it, number_label the label column of an entity whose label_format is number, which the database fills on insert, and attached_to the field holding the record reference of an attachable record's target, set on insert and never changed. A form shows rollup, computed, computed_label and number_label fields disabled. Derived, never set by hand. | string | false | - | 130 | default | default | core | false | [{"label":"Regular field","value":""},{"label":"Primary key","value":"id"},{"label":"Display label","value":"label"},{"label":"Audit column","value":"audit"},{"label":"System column","value":"core"},{"label":"Rollup (aggregated by the database)","value":"rollup"},{"label":"Computed (by a rule of the entity)","value":"computed"},{"label":"Computed display label (by a rule of the entity)","value":"computed_label"},{"label":"Numbered display label (assigned by the database)","value":"number_label"},{"label":"Attached to (the target record)","value":"attached_to"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `searchable` (core) | boolean | Searchable | - | boolean | false | - | 150 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]} | - | - |
 | `enum_values` (core) | json | Enum Values | JSON array in display order. Each entry is a value or a {"value", "label"} object with an optional "description", "color" and "icon", e.g. ["active", {"value": "on_hold", "label": "On hold", "color": "amber"}] | json | false | - | 160 | hidden | w | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]} | - | - |
 | `precision` (core) | int32 | Precision | Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats | integer | false | 2 | 170 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]} | - | - |
@@ -318,6 +482,125 @@ Catalog of the fields that make up a table
 | `input_type_rule` (core) | jsonlogic | Input Type Rule | JsonLogic rule evaluated client-side against the record being edited. It returns an input_type (default, required, readonly, disabled or hidden) that replaces the static input_type. Empty = no rule. | json | false | - | 250 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `catalog_field_code` (core) | text | Catalog Field Code | Stable design-time field identity (blueprint field name, e.g. status); the field-rename join key. Write-once: set on create or filled once while empty, then never changed. Empty = not generated from a catalog spec. | string | false | - | 260 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `rollup` (core) | json | Rollup | Rollup definition, empty for an ordinary field. Keys: link_field (<child entity>.<reference or parent field pointing at this entity>), function (sum, min, max, avg or count), value_field (a field of the child; not with count), filter (JsonLogic over the child record, restricted to and, or, !, !!, comparisons, in, var and, as values, the date operators date_add, date_diff, date_part, date_trunc, to_date and date_format; optional) and include_hidden_rows (true accepts aggregating child records that readers of this entity may not see). The field keeps an ordinary format that fits the result: an integer format or number for count, one with the value field's column type for min and max, a numeric format for sum, and number, float or double for avg; precision is copied from a number value field. The database maintains the column and sets ctype to rollup. | json | false | - | 270 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
+
+---
+
+## Entity: files
+
+Files owned by one record and shown on further ones; the contents are stored with the file.
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `files` |
+| singular | Singular | file |
+| plural | Plural | files |
+| singular_label | Singular Label | File |
+| plural_label | Plural Label | Files |
+| icon_name | Icon | paperclip |
+| description | Description | Files owned by one record and shown on further ones; the contents are stored with the file. |
+| module_id | Module | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `public:write` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `typeid` |
+| id_prefix | Id Prefix | `file` |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `name` |
+| label_column_label | Label Column Label | Name |
+| label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | operational_record |
+| name_sort | Name Sort | 310 |
+| computed_fields | Computed Fields | [{"name":"created_by","jsonlogic":{"if":[{"==":[{"var":"$mode"},"insert"]},{"var":"$user_id"},{"var":"$old.created_by"}]}}] |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | owned_shared |
+| attach_permission | Attach Permission | edit |
+| attach_on_target_delete | Attach On Target Delete | cascade |
+| link_of | Link Of | - |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code | rollup |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | string | Id | - | string | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `name` (label) | text | Name | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `attached_to` (attached_to) | text | Attached to | The record this one is attached to, as its record reference <table_name>:<key>. Set when the record is created and never changed. | string | false | - | 25 | required | default | attached_to | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `content_type` | text | Content Type | The MIME type of the contents | string | false | - | 30 | default | default | - | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `size` | int64 | Size | The size of the contents in bytes (set by the database) | integer | false | - | 40 | readonly | default | - | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `content` | binary | Content | The contents of the file | string | false | - | 50 | default | w | - | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `created_by` (computed) | reference | Created By | Who uploaded the file (set by the database) | integer | false | - | 60 | readonly | default | computed | false | - | 2 | users | clear | uploaded | - | - | false | auto | - | - | - |
+
+---
+
+## Entity: files_links
+
+Further target records of Files
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `files_links` |
+| singular | Singular | files_link |
+| plural | Plural | files_links |
+| singular_label | Singular Label | File Link |
+| plural_label | Plural Label | File Links |
+| icon_name | Icon | link |
+| description | Description | Further target records of Files |
+| module_id | Module | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `public:write` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `auto_increment` |
+| id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `label` |
+| label_column_label | Label Column Label | Label |
+| label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | false |
+| is_child | Is Child | true |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | junction |
+| name_sort | Name Sort | 900 |
+| computed_fields | Computed Fields | - |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | files |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code | rollup |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `label` (label) | text | Label | - | string | false | - | 20 | default | default | label | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `files_id` | parent | File | The File record that is attached | string | false | - | 30 | required | default | - | false | - | 2 | files | cascade | is attached through | - | - | false | auto | - | - | - |
+| `attached_to` (attached_to) | text | Attached to | A further record the attachable record is attached to, as its record reference <table_name>:<key>. Set when the link is created and never changed. | string | false | - | 40 | required | default | attached_to | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 
 ---
 
@@ -344,6 +627,10 @@ Groups of related tables and permissions
 | label_column | Label Column | `module_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -359,6 +646,10 @@ Groups of related tables and permissions
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -411,6 +702,10 @@ Defines permission inclusion (including permission implies included permissions)
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -426,6 +721,10 @@ Defines permission inclusion (including permission implies included permissions)
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -461,6 +760,10 @@ System permissions that can be assigned to roles and organized via hierarchy
 | label_column | Label Column | `permission_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -476,6 +779,10 @@ System permissions that can be assigned to roles and organized via hierarchy
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -510,6 +817,10 @@ Governance registry: maps entity transitions to processes
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -525,6 +836,10 @@ Governance registry: maps entity transitions to processes
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -564,6 +879,10 @@ RACI process catalog
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -579,6 +898,10 @@ RACI process catalog
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -616,6 +939,10 @@ Maps table DML events to queues
 | label_column | Label Column | `event_name` |
 | label_column_label | Label Column Label | Event Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -631,6 +958,10 @@ Maps table DML events to queues
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -667,6 +998,10 @@ Message queues backed by pgmq
 | label_column | Label Column | `queue_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -682,6 +1017,10 @@ Message queues backed by pgmq
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -717,6 +1056,10 @@ RACI matrix rows assigning roles to processes
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -732,6 +1075,10 @@ RACI matrix rows assigning roles to processes
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -770,6 +1117,10 @@ Notify/consult audit log for RACI-governed record transitions
 | label_column | Label Column | `record_id` |
 | label_column_label | Label Column Label | Record Id |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -785,6 +1136,10 @@ Notify/consult audit log for RACI-governed record transitions
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -824,6 +1179,10 @@ Many-to-many mapping between roles and permissions
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -839,6 +1198,10 @@ Many-to-many mapping between roles and permissions
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -866,7 +1229,7 @@ Groups of permissions that can be assigned to users
 | icon_name | Icon | shield-user |
 | description | Description | Groups of permissions that can be assigned to users |
 | module_id | Module | 1 |
-| view_permission | View Permission | `admin` |
+| view_permission | View Permission | `public:read` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
@@ -875,6 +1238,10 @@ Groups of permissions that can be assigned to users
 | label_column | Label Column | `role_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -890,6 +1257,10 @@ Groups of permissions that can be assigned to users
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -902,6 +1273,129 @@ Groups of permissions that can be assigned to users
 | `description` (core) | multiline | Description | - | string | false | - | 20 | default | w | core | true | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `origin` (core) | enum | Origin | How the role was created: system (platform built-in), model (scaffold role of a domain module), model_master (scaffold role of a master module) or user (created by an admin). Set on insert and never changed. | string | false | user | 25 | readonly | default | core | false | [{"label":"System (built-in)","value":"system"},{"label":"Domain module scaffold","value":"model"},{"label":"Master module scaffold","value":"model_master"},{"label":"Created by an admin","value":"user"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `module_id` (core) | reference | Module | - | integer | false | - | 30 | default | default | core | false | - | 2 | modules | cascade | contains | - | - | false | auto | - | - | - |
+
+---
+
+## Entity: tasks
+
+Work to do, for a user or for the members of a role, attached to any number of records. A user's open tasks are their inbox (my_tasks()).
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `tasks` |
+| singular | Singular | task |
+| plural | Plural | tasks |
+| singular_label | Singular Label | Task |
+| plural_label | Plural Label | Tasks |
+| icon_name | Icon | list-checks |
+| description | Description | Work to do, for a user or for the members of a role, attached to any number of records. A user's open tasks are their inbox (my_tasks()). |
+| module_id | Module | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `public:write` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `typeid` |
+| id_prefix | Id Prefix | `task` |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `title` |
+| label_column_label | Label Column Label | Title |
+| label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | true |
+| is_child | Is Child | false |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | operational_workflow |
+| name_sort | Name Sort | 300 |
+| computed_fields | Computed Fields | [{"name":"created_by","jsonlogic":{"if":[{"==":[{"var":"$mode"},"insert"]},{"var":"$user_id"},{"var":"$old.created_by"}]}},{"name":"completed_at","jsonlogic":{"if":[{"==":[{"var":"status"},"done"]},{"if":[{"==":[{"var":"$old.status"},"done"]},{"var":"$old.completed_at"},{"var":"$now"}]},null]}}] |
+| validation_rules | Validation Rules | [{"code":"90279","message":"A task is changed or deleted by its assignee, its creator or a holder of tasks:manage_all; a member of its role may only claim it","jsonlogic":{"or":[{"==":[{"var":"$user_id"},null]},{"==":[{"var":"$mode"},"insert"]},{"has_permission":"tasks:manage_all"},{"==":[{"var":"$old.assigned_user"},{"var":"$user_id"}]},{"==":[{"var":"$old.created_by"},{"var":"$user_id"}]},{"and":[{"==":[{"var":"$mode"},"update"]},{"==":[{"var":"$old.assigned_user"},null]},{"==":[{"var":"assigned_user"},{"var":"$user_id"}]},{"in":[{"var":"$old.assigned_role"},{"var":"$role_ids"}]},{"!":{"value_changed":"title"}},{"!":{"value_changed":"description"}},{"!":{"value_changed":"status"}},{"!":{"value_changed":"priority"}},{"!":{"value_changed":"due_at"}},{"!":{"value_changed":"snoozed_until"}},{"!":{"value_changed":"assigned_role"}}]}]},"source_module":"platform"}] |
+| select_rule | Select Rule | {"or":[{"has_permission":"tasks:view_all"},{"==":[{"var":"assigned_user"},{"var":"$user_id"}]},{"==":[{"var":"created_by"},{"var":"$user_id"}]},{"in":[{"var":"assigned_role"},{"var":"$role_ids"}]}]} |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | multiple |
+| attach_permission | Attach Permission | view |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code | rollup |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | string | Id | - | string | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `title` (label) | text | Title | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `description` | multiline | Description | What the task is about | string | false | - | 30 | default | w | - | true | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `status` | enum | Status | open until the task is done or canceled | string | false | open | 40 | required | default | - | false | [{"label":"Open","value":"open"},{"label":"Done","value":"done"},{"label":"Canceled","value":"canceled"}] | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `priority` | enum | Priority | Orders a user's open tasks after the due date | string | false | normal | 50 | required | default | - | false | [{"label":"Low","value":"low"},{"label":"Normal","value":"normal"},{"label":"High","value":"high"}] | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `due_at` | date-time | Due At | When the task is due | string | false | - | 60 | default | default | - | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `snoozed_until` | date-time | Snoozed Until | The task is left out of the open tasks until then | string | false | - | 70 | default | default | - | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+| `assigned_user` | reference | Assigned User | Who does the task; empty while it waits in its role's queue | integer | false | - | 80 | default | default | - | false | - | 2 | users | clear | is assigned | - | - | false | auto | - | - | - |
+| `assigned_role` | reference | Assigned Role | The role whose members may claim the task while it has no assignee, and who see it | integer | false | - | 90 | default | default | - | false | - | 2 | roles | clear | queues | - | - | false | auto | - | - | - |
+| `created_by` (computed) | reference | Created By | Who created the task (set by the database) | integer | false | - | 100 | readonly | default | computed | false | - | 2 | users | clear | created | - | - | false | auto | - | - | - |
+| `completed_at` (computed) | date-time | Completed At | When the task became done (set by the database) | string | false | - | 110 | readonly | default | computed | false | - | 2 | - | restrict | has | - | - | false | auto | - | - | - |
+
+---
+
+## Entity: tasks_links
+
+Further target records of Tasks
+
+| field_name | label | value |
+|------------|-------|-------|
+| table_name | Table Name | `tasks_links` |
+| singular | Singular | tasks_link |
+| plural | Plural | tasks_links |
+| singular_label | Singular Label | Task Link |
+| plural_label | Plural Label | Task Links |
+| icon_name | Icon | link |
+| description | Description | Further target records of Tasks |
+| module_id | Module | 1 |
+| view_permission | View Permission | `public:read` |
+| edit_permission | Edit Permission | `public:write` |
+| id_column | Id Column | `id` |
+| id_type | Id Type | `auto_increment` |
+| id_prefix | Id Prefix | - |
+| id_refentity | Base Entity | - |
+| label_column | Label Column | `label` |
+| label_column_label | Label Column Label | Label |
+| label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
+| order_column | Order Column | - |
+| managed | Managed | true |
+| searchable | Searchable | false |
+| is_child | Is Child | true |
+| edit_mode | Edit Mode | auto |
+| cube_mode | Cube Mode | auto |
+| audit_log | Audit Log | false |
+| entity_type | Entity Type | junction |
+| name_sort | Name Sort | 900 |
+| computed_fields | Computed Fields | - |
+| validation_rules | Validation Rules | - |
+| select_rule | Select Rule | - |
+| catalog_entity_code | Catalog Entity Code | - |
+| catalog_owner_module | Catalog Owner Module | - |
+| catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | tasks |
+
+### Fields
+
+| field_name | format | title | description | type | is_pk | default_value | field_order | input_type | width | ctype | searchable | enum_values | precision | reference_table | reference_delete_mode | relationship_label | singular_label_parent | plural_label_parent | unique_value | cube_type | input_type_rule | catalog_field_code | rollup |
+|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|------------|
+| `id` 🔑 (id) | int64 | Id | - | integer | true | - | 10 | readonly | default | id | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `label` (label) | text | Label | - | string | false | - | 20 | default | default | label | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `tasks_id` | parent | Task | The Task record that is attached | string | false | - | 30 | required | default | - | false | - | 2 | tasks | cascade | is attached through | - | - | false | auto | - | - | - |
+| `attached_to` (attached_to) | text | Attached to | A further record the attachable record is attached to, as its record reference <table_name>:<key>. Set when the link is created and never changed. | string | false | - | 40 | required | default | attached_to | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 
 ---
 
@@ -928,6 +1422,10 @@ Manage and order your favorites for quick access to frequently used apps and rec
 | label_column | Label Column | `title` |
 | label_column_label | Label Column Label | Title |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | row_order |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -937,12 +1435,16 @@ Manage and order your favorites for quick access to frequently used apps and rec
 | audit_log | Audit Log | false |
 | entity_type | Entity Type | operational_record |
 | name_sort | Name Sort | 900 |
-| computed_fields | Computed Fields | [{"name":"user_id","jsonlogic":{"var":"$user_id"}}] |
+| computed_fields | Computed Fields | [{"name":"user_id","jsonlogic":{"if":[{"==":[{"var":"$mode"},"insert"]},{"var":"$user_id"},{"var":"$old.user_id"}]}}] |
 | validation_rules | Validation Rules | [{"code":"90207","message":"A bookmark can only be written by an authenticated user","jsonlogic":{"or":[{"==":[{"var":"$mode"},"delete"]},{"!=":[{"var":"$user_id"},null]}]},"source_module":"platform"}] |
 | select_rule | Select Rule | {"==":[{"var":"user_id"},{"var":"$user_id"}]} |
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -953,7 +1455,7 @@ Manage and order your favorites for quick access to frequently used apps and rec
 | `title` (label) | text | Title | - | string | false | - | 20 | required | default | label | true | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `url` | text | URL | - | string | false | - | 30 | default | w | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 | `entity_name` | text | Entity | - | string | false | - | 40 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
-| `entity_id` | int64 | Record | ID of the related record in the entity table (0 = no record) | integer | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
+| `entity_id` | text | Record | Key of the related record in the entity table, as text for every key type (empty = no record); with entity_name it forms the record reference <entity_name>:<entity_id> | string | false | - | 50 | default | default | - | false | - | 2 | - | - | has | - | - | false | auto | - | - | - |
 
 ---
 
@@ -980,6 +1482,10 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -995,6 +1501,10 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -1031,6 +1541,10 @@ Many-to-many mapping between users and roles
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -1046,6 +1560,10 @@ Many-to-many mapping between users and roles
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -1082,6 +1600,10 @@ Users and agents
 | label_column | Label Column | `display_name` |
 | label_column_label | Label Column Label | Display Name |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1097,6 +1619,10 @@ Users and agents
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -1138,6 +1664,10 @@ Log of webhook receiver events
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1153,6 +1683,10 @@ Log of webhook receiver events
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 
@@ -1193,6 +1727,10 @@ Configuration for webhook endpoints
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
+| label_format | Label Format | custom |
+| label_number_prefix | Label Number Prefix | - |
+| label_number_digits | Label Number Digits | 0 |
+| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1208,6 +1746,10 @@ Configuration for webhook endpoints
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
 | catalog_entity_aliases | Catalog Entity Aliases | - |
+| attach_mode | Attach Mode | none |
+| attach_permission | Attach Permission | - |
+| attach_on_target_delete | Attach On Target Delete | - |
+| link_of | Link Of | - |
 
 ### Fields
 

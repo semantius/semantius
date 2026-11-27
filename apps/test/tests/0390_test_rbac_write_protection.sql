@@ -256,8 +256,9 @@ SELECT is(pg_temp.changed_tables(), NULL,
 -- user1 (the User role) nor user2 (Northwind Sales) changes a row. entities is
 -- the case that matters most: its rows are readable by public:read, so the
 -- rows are visible to the caller and only the write policy keeps them safe.
--- The first six are also admin-only to read, which leaves a plain user an empty
--- table. The digest taken in part 3 covers all of them.
+-- Five of the first six are also admin-only to read, which leaves a plain user
+-- an empty table; roles is read with public:read, so that a task can name one.
+-- The digest taken in part 3 covers all of them.
 
 SELECT cmp_ok(
     (SELECT least(
@@ -273,10 +274,10 @@ SELECT authenticate_as('user1');
 SELECT is(
     (SELECT concat_ws('/',
         (SELECT count(*) FROM user_roles), (SELECT count(*) FROM role_permissions),
-        (SELECT count(*) FROM user_permissions), (SELECT count(*) FROM roles),
+        (SELECT count(*) FROM user_permissions), (SELECT count(*) > 0 FROM roles),
         (SELECT count(*) FROM permissions), (SELECT count(*) FROM permission_hierarchy))),
-    '0/0/0/0/0/0',
-    'user1 reads no row of user_roles, role_permissions, user_permissions, roles, permissions or permission_hierarchy');
+    '0/0/0/t/0/0',
+    'user1 reads no row of user_roles, role_permissions, user_permissions, permissions or permission_hierarchy, and reads roles');
 SELECT is(pg_temp.write_effect('user_roles', $$assigned_at = '2000-01-01'$$), 'update 0, delete 0',
     'user1 UPDATE and DELETE on user_roles change no row');
 SELECT is(pg_temp.write_effect('role_permissions', $$granted_at = '2000-01-01'$$), 'update 0, delete 0',
@@ -301,10 +302,10 @@ SELECT authenticate_as('user2');
 SELECT is(
     (SELECT concat_ws('/',
         (SELECT count(*) FROM user_roles), (SELECT count(*) FROM role_permissions),
-        (SELECT count(*) FROM user_permissions), (SELECT count(*) FROM roles),
+        (SELECT count(*) FROM user_permissions), (SELECT count(*) > 0 FROM roles),
         (SELECT count(*) FROM permissions), (SELECT count(*) FROM permission_hierarchy))),
-    '0/0/0/0/0/0',
-    'user2 reads no row of user_roles, role_permissions, user_permissions, roles, permissions or permission_hierarchy');
+    '0/0/0/t/0/0',
+    'user2 reads no row of user_roles, role_permissions, user_permissions, permissions or permission_hierarchy, and reads roles');
 SELECT is(pg_temp.write_effect('user_roles', $$assigned_at = '2000-01-01'$$), 'update 0, delete 0',
     'user2 UPDATE and DELETE on user_roles change no row');
 SELECT is(pg_temp.write_effect('role_permissions', $$granted_at = '2000-01-01'$$), 'update 0, delete 0',

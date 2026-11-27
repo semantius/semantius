@@ -187,13 +187,17 @@ jobs:
           echo "Resolved Postgres major: $M"
 
       - name: Generate extension
-        run: deno task extension "${{ steps.ver.outputs.version }}"
+        run: deno task extension "${{ steps.ver.outputs.version }}" --allow-edited-migrations
         # No --strict: the released-migration check is on by default now. A
         # migration a PREVIOUS version shipped may not be edited in place or
         # deleted - such a change is invisible to the upgrade script, so an
         # existing installation would never receive it. Only migrations ADDED
         # in this version are editable. To hot-patch an inherited one on
         # purpose, add --allow-edited-migrations for that one release.
+        # --allow-edited-migrations: the release of 0.5.0 edits .once. files
+        # that 0.5.0-beta1 shipped. The beta was an early-access build: the
+        # upgrade from it refuses a database whose run-once migrations differ
+        # and asks for a fresh install. Drop the flag after 0.5.0.
 
       # The step above REGENERATES extension/ on the runner. Without this guard
       # the release would publish whatever the runner produced, which is not

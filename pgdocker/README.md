@@ -472,6 +472,14 @@ add the same amount, and a lower value inserted while the maximum is deleted bec
 maximum. It runs on the database a migrate left on the plain CLI container, and removes
 what it creates.
 
+`pg-attach-race.sh` (no `.cmd` variant) proves that an attach and a delete of its target
+cannot leave an attachment without its target, which needs two sessions: a delete that
+waits for an attach cascades to it or, under restrict, is refused, and an attach or a link
+that waits for a delete is refused. It also proves that two deletes that each remove one of
+a record's last two links delete the record, and that a change of the attach mode and a
+switch-off of a target wait for an insert or an attach in progress and then refuse. It runs
+on the database a migrate left on the plain CLI container, and removes what it creates.
+
 ### Just deploy a module (no reset, no tests)
 
 To load one or more app modules onto an **already-running** container without

@@ -16,7 +16,13 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
     ('user:read', 'Read user information', 1),
     ('user:manage', 'Manage users (includes read, create, update, delete)', 1),
     ('public:read', 'Read public information', 1),
-    ('admin', 'Manage administrative functions', 1);
+    ('admin', 'Manage administrative functions', 1),
+    -- The edit permission of the records whose own rules decide who may
+    -- change them (tasks, files and comments, 0460_tasks_files_comments.jsonc),
+    -- held by every user through the User role.
+    ('public:write', 'Write records whose own rules decide who may change them (tasks, files, comments)', 1),
+    ('tasks:view_all', 'See every task', 1),
+    ('tasks:manage_all', 'Change, delegate and delete every task (includes tasks:view_all)', 1);
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
@@ -36,7 +42,9 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 
 INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
     ('user:manage', 'user:read', 'system'),
-    ('admin', 'public:read', 'system');
+    ('admin', 'public:read', 'system'),
+    -- Whoever may change every task has to see the tasks it changes.
+    ('tasks:manage_all', 'tasks:view_all', 'system');
 
 -- =====================================================
 -- SEED ROLES
@@ -50,16 +58,23 @@ INSERT INTO roles (id, role_name, description, origin, module_id) VALUES
 -- SEED ROLE-PERMISSION MAPPINGS
 -- =====================================================
 
--- User role gets user:read and public:read permissions
-INSERT INTO role_permissions (role_id, permission_name) VALUES 
+-- User role gets user:read, public:read and public:write permissions
+INSERT INTO role_permissions (role_id, permission_name) VALUES
     (1, 'user:read'),
-    (1, 'public:read');
+    (1, 'public:read'),
+    (1, 'public:write');
 
--- Administrator role gets user:manage, public:read, and admin permissions
+-- Administrator role gets every permission seeded here (role 2 does not exist
+-- yet when they are inserted, so rbac.grant_permission_to_administrator cannot
+-- grant them): user:manage, public:read, admin, public:write and the two task
+-- permissions
 INSERT INTO role_permissions (role_id, permission_name) VALUES 
     (2, 'user:manage'),
     (2, 'public:read'),
-    (2, 'admin');
+    (2, 'admin'),
+    (2, 'public:write'),
+    (2, 'tasks:view_all'),
+    (2, 'tasks:manage_all');
 
 -- =====================================================
 -- SET MODULE FK REFERENCES

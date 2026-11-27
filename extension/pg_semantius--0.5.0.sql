@@ -219,8 +219,8 @@ BEGIN
     -- a newer bundle migrated it, or it cannot reach this bundle's schema.
     -- The handler below releases the lock, and nothing has changed.
     DECLARE
-      v_core   jsonb := '{"0010_core.sql":{"value":"20261123164322.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false},"0020_settings.once.sql":{"value":"20261123164322.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true},"0030_session_authenticator.sql":{"value":"20261123164322.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false},"0040_cache.sql":{"value":"20261123164322.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false},"0045_typeid.sql":{"value":"20261123164322.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false},"0046_typeid.once.sql":{"value":"20261123164322.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true},"0050_jsonlogic.sql":{"value":"20261123164322.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","once":false},"0060_rbac_schema.once.sql":{"value":"20261123164322.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true},"0070_rbac_schema.sql":{"value":"20261123164322.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false},"0080_rbac_functions.sql":{"value":"20261123164322.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","once":false},"0090_rbac_seed.once.sql":{"value":"20261123164322.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true},"0100_rbac_rls.sql":{"value":"20261125184227.2cae43e947632694cc5feb6e152862fc6570a0cfa6b23f564120c1193289129b","once":false},"0110_rbac_grants.once.sql":{"value":"20261123164322.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true},"0120_dd_formats.sql":{"value":"20261123164322.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false},"0130_dd_schema.once.sql":{"value":"20261123164322.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","once":true},"0140_dd_schema.sql":{"value":"20261123164322.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false},"0150_dd_bootstrap.once.sql":{"value":"20261125184227.027b597b5bdc0f1d6d9a3c38a27f545f39be9f4c01e6a8c73c2fdd3dac08e1dd","once":true},"0160_dd_functions.sql":{"value":"20261123164322.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false},"0170_dd_rename.sql":{"value":"20261123164322.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false},"0180_managed_enable.sql":{"value":"20261123164322.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false},"0190_audit_log.once.sql":{"value":"20261123164322.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true},"0200_audit_log.sql":{"value":"20261123164322.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false},"0210_computed_validation.sql":{"value":"20261123164322.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","once":false},"0220_entity_insert_defaults.sql":{"value":"20261123164322.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false},"0230_entity_order_column.sql":{"value":"20261123164322.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false},"0240_dd_bootstrap_complete.once.sql":{"value":"20261123164322.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true},"0250_public_functions.sql":{"value":"20261123164322.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false},"0260_notify_triggers.sql":{"value":"20261123164322.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false},"0270_apikeys.once.sql":{"value":"20261123164322.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true},"0280_apikeys.sql":{"value":"20261123164322.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false},"0290_ensure_entities.sql":{"value":"20261123164322.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false},"0300_audit_log.jsonc":{"value":"20261123164322.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false},"0310_pgmq.once.sql":{"value":"20261123164322.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true},"0320_queue.jsonc":{"value":"20261123164322.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false},"0330_queue_setup.once.sql":{"value":"20261123164322.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true},"0340_queue.sql":{"value":"20261123164322.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false},"0350_raci.jsonc":{"value":"20261123164322.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false},"0360_raci_setup.once.sql":{"value":"20261123164322.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true},"0370_raci.sql":{"value":"20261123164322.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false},"0380_webhook_receiver.jsonc":{"value":"20261123164322.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false},"0390_webhook_receiver_setup.once.sql":{"value":"20261123164322.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true},"0400_dashboard.jsonc":{"value":"20261123164322.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false},"0410_user_bookmarks.jsonc":{"value":"20261123164322.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false},"0420_module_version.sql":{"value":"20261123164322.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false},"0430_required_field_description.once.sql":{"value":"20261123164322.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true},"0440_rollup.sql":{"value":"20261123164322.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false},"9900_owner_hardening.sql":{"value":"20261123164322.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false}}'::jsonb;
-      v_newest text := '20261125184227';
+      v_core   jsonb := '{"0010_core.sql":{"value":"20261123164322.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false},"0020_settings.once.sql":{"value":"20261123164322.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true},"0030_session_authenticator.sql":{"value":"20261123164322.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false},"0040_cache.sql":{"value":"20261123164322.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false},"0045_typeid.sql":{"value":"20261123164322.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false},"0046_typeid.once.sql":{"value":"20261123164322.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true},"0050_jsonlogic.sql":{"value":"99999999999999.b7c9c9ae492bf8f9b3ad1ed0479744d0c99014fb3ff74ec08a472925d7b8f7a4","once":false},"0060_rbac_schema.once.sql":{"value":"20261123164322.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true},"0070_rbac_schema.sql":{"value":"20261123164322.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false},"0080_rbac_functions.sql":{"value":"99999999999999.4aa70c15ee21b275ed2537fcf1e61beaee282fc9397afa3422d36dbf90194ac7","once":false},"0090_rbac_seed.once.sql":{"value":"99999999999999.e8fbb3ff75d8e7e8cb39a67af43fbbd13f47a8d07c734df5ae1522318ad5e007","once":true},"0100_rbac_rls.sql":{"value":"20261125184227.2cae43e947632694cc5feb6e152862fc6570a0cfa6b23f564120c1193289129b","once":false},"0110_rbac_grants.once.sql":{"value":"20261123164322.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true},"0120_dd_formats.sql":{"value":"20261123164322.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false},"0130_dd_schema.once.sql":{"value":"99999999999999.1a321a416e880c3f83a1be68f6503ac442bfee0d5c1ef598aa8b9c1a2d561ec1","once":true},"0140_dd_schema.sql":{"value":"99999999999999.ecebbb6574734e54fa5be860761b9647ca923290829eac63df466135f157cb70","once":false},"0150_dd_bootstrap.once.sql":{"value":"99999999999999.6daf25188381c05fbc0fc4cc315b7f52b36194394f80c40918bdd483803ae1de","once":true},"0160_dd_functions.sql":{"value":"99999999999999.8098d49ef82621df1f9049d61c3f762d650283fefd94616920f0bd755432a6d3","once":false},"0170_dd_rename.sql":{"value":"99999999999999.0e573f226a94958bdf7181f7bf74de0cb9a3e56fc715f464094eb28f5053cb4f","once":false},"0180_managed_enable.sql":{"value":"99999999999999.19689872970686f0090ce63d6590e94a6d37faddb078648239b538de0c311152","once":false},"0190_audit_log.once.sql":{"value":"20261123164322.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true},"0200_audit_log.sql":{"value":"20261123164322.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false},"0210_computed_validation.sql":{"value":"99999999999999.a055e22b595d8c605862fe4f1f090d7e2fcd2e1dd01eb5fbc6cd6051e41f5624","once":false},"0220_entity_insert_defaults.sql":{"value":"20261123164322.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false},"0230_entity_order_column.sql":{"value":"20261123164322.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false},"0240_dd_bootstrap_complete.once.sql":{"value":"99999999999999.795ea949c280d6f18d569dc28b3558f1ad08b8f9fd7d4e552b8a078b4197fd0c","once":true},"0250_public_functions.sql":{"value":"99999999999999.f4f6c0b18abf3e9214753bc7317f5023515dd04f9dd5ed3720ef04d16d932754","once":false},"0260_notify_triggers.sql":{"value":"20261123164322.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false},"0270_apikeys.once.sql":{"value":"20261123164322.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true},"0280_apikeys.sql":{"value":"20261123164322.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false},"0290_ensure_entities.sql":{"value":"99999999999999.f1f70a7daa0a641969cfa6f2c5d13c70df6dd17582e062be39db7ecbd944d338","once":false},"0300_audit_log.jsonc":{"value":"20261123164322.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false},"0310_pgmq.once.sql":{"value":"20261123164322.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true},"0320_queue.jsonc":{"value":"20261123164322.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false},"0330_queue_setup.once.sql":{"value":"20261123164322.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true},"0340_queue.sql":{"value":"20261123164322.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false},"0350_raci.jsonc":{"value":"20261123164322.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false},"0360_raci_setup.once.sql":{"value":"20261123164322.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true},"0370_raci.sql":{"value":"20261123164322.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false},"0380_webhook_receiver.jsonc":{"value":"20261123164322.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false},"0390_webhook_receiver_setup.once.sql":{"value":"20261123164322.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true},"0400_dashboard.jsonc":{"value":"20261123164322.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false},"0410_user_bookmarks.jsonc":{"value":"99999999999999.5b0db64f9ff6889ebf77f2d5b3e7d15eec2a112fbbedcd31d7b40fe3dacd6662","once":false},"0420_module_version.sql":{"value":"20261123164322.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false},"0430_required_field_description.once.sql":{"value":"20261123164322.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true},"0440_rollup.sql":{"value":"20261123164322.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false},"0450_attachables.sql":{"value":"99999999999999.d947369c3bf23e9bb004ea49365f5af59725fc32fededfd8ae45a0d435d37e50","once":false},"0460_tasks_files_comments.jsonc":{"value":"99999999999999.7c37e006664feeefa032629c16858619ead7a36e593fea037e124f217750e7c5","once":false},"0470_tasks_files_comments.sql":{"value":"99999999999999.fbbe27dbf02556f2b780142d744c42650bfd2dad258e7e450b2793171f9ec1fc","once":false},"9900_owner_hardening.sql":{"value":"20261123164322.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false}}'::jsonb;
+      v_newest text := '99999999999999';
       v_row    record;
       v_file   text;
       v_entry  jsonb;
@@ -1424,7 +1424,7 @@ $pgsem__core_0046_typeid_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0050_jsonlogic.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.b7c9c9ae492bf8f9b3ad1ed0479744d0c99014fb3ff74ec08a472925d7b8f7a4') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0050_jsonlogic.sql';
       EXECUTE $pgsem__core_0050_jsonlogic_sql$-- Helper: JsonLogic truthy semantics
@@ -2908,7 +2908,7 @@ $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 -- The $ names build_record_logic_trigger gives the rules of an entity. Any
 -- other $ name reads null.
 CREATE OR REPLACE FUNCTION jl_reserved_variables() RETURNS text[] AS $$
-    SELECT ARRAY['$today', '$now', '$user_id', '$old', '$mode'];
+    SELECT ARRAY['$today', '$now', '$user_id', '$role_ids', '$old', '$mode'];
 $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 -- The parameter names throw_error refuses (90912). The generated validation
@@ -3374,7 +3374,7 @@ COMMENT ON FUNCTION jl_unknown_operator(jsonb) IS
 COMMENT ON FUNCTION jl_operator_arity() IS
 'The number of arguments each JsonLogic operator takes, as {"op": [min, max]}, max null when there is no upper bound.';
 COMMENT ON FUNCTION jl_reserved_variables() IS
-'The $ variables the rules of an entity are given: $today, $now, $user_id, $old and $mode.';
+'The $ variables the rules of an entity are given: $today, $now, $user_id, $role_ids, $old and $mode.';
 COMMENT ON FUNCTION jl_reserved_error_parameters() IS
 'The parameter names throw_error refuses (90912), because the error hint reserves them.';
 COMMENT ON FUNCTION jl_raci_letters() IS
@@ -3500,7 +3500,7 @@ END $$;
 $pgsem__core_0050_jsonlogic_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0050_jsonlogic.sql', '20261123164322.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a')
+        VALUES ('_core.0050_jsonlogic.sql', '99999999999999.b7c9c9ae492bf8f9b3ad1ed0479744d0c99014fb3ff74ec08a472925d7b8f7a4')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -4020,7 +4020,7 @@ $pgsem__core_0070_rbac_schema_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0080_rbac_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.4aa70c15ee21b275ed2537fcf1e61beaee282fc9397afa3422d36dbf90194ac7') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0080_rbac_functions.sql';
       EXECUTE $pgsem__core_0080_rbac_functions_sql$-- =====================================================
@@ -5423,6 +5423,35 @@ GRANT EXECUTE ON FUNCTION rbac.user_id_or_null() TO semantius_user;
 COMMENT ON FUNCTION rbac.user_id_or_null IS
 'Internal user_id of the current user, or NULL when no authenticated user context exists. Never reads app.current_user_id directly.';
 
+-- The ids of the roles the current user holds, the one source of them: $role_ids
+-- in the rules that read it (public.jl_role_ids, 0210_computed_validation.sql),
+-- and the role queues of public.my_tasks(). Empty without a user, as
+-- rbac.user_id_or_null answers NULL for a session without valid claims: a
+-- rule written without a user (a migration, a seed) then sees no roles. A
+-- permission reader like rbac.user_id, which it reaches: STABLE, and it
+-- writes only the transaction-local context, through
+-- rbac.ensure_context_initialized. SECURITY DEFINER, because user_roles is the
+-- administrators' to read; it answers for the caller alone, after rbac.uid()
+-- has checked the claims of a session that has a user.
+CREATE OR REPLACE FUNCTION rbac.user_role_ids()
+RETURNS BIGINT[] AS $$
+DECLARE
+    v_user BIGINT := rbac.user_id_or_null();
+BEGIN
+    IF v_user IS NULL THEN
+        RETURN ARRAY[]::BIGINT[];
+    END IF;
+    PERFORM rbac.uid();
+    RETURN (SELECT coalesce(array_agg(ur.role_id ORDER BY ur.role_id), ARRAY[]::BIGINT[])
+              FROM user_roles ur
+             WHERE ur.user_id = v_user);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = rbac, public, pg_temp;
+GRANT EXECUTE ON FUNCTION rbac.user_role_ids() TO semantius_user;
+
+COMMENT ON FUNCTION rbac.user_role_ids IS
+'The ids of the roles the current user holds, ascending; empty for a user without roles and for a session without a user.';
+
 -- =====================================================
 -- DEBUGGING AND INTROSPECTION
 -- =====================================================
@@ -5577,7 +5606,7 @@ REVOKE EXECUTE ON FUNCTION rbac.scope_closure() FROM semantius_user;
 $pgsem__core_0080_rbac_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0080_rbac_functions.sql', '20261123164322.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1')
+        VALUES ('_core.0080_rbac_functions.sql', '99999999999999.4aa70c15ee21b275ed2537fcf1e61beaee282fc9397afa3422d36dbf90194ac7')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -5635,7 +5664,13 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
     ('user:read', 'Read user information', 1),
     ('user:manage', 'Manage users (includes read, create, update, delete)', 1),
     ('public:read', 'Read public information', 1),
-    ('admin', 'Manage administrative functions', 1);
+    ('admin', 'Manage administrative functions', 1),
+    -- The edit permission of the records whose own rules decide who may
+    -- change them (tasks, files and comments, 0460_tasks_files_comments.jsonc),
+    -- held by every user through the User role.
+    ('public:write', 'Write records whose own rules decide who may change them (tasks, files, comments)', 1),
+    ('tasks:view_all', 'See every task', 1),
+    ('tasks:manage_all', 'Change, delegate and delete every task (includes tasks:view_all)', 1);
 
 -- =====================================================
 -- SEED PERMISSION HIERARCHY
@@ -5655,7 +5690,9 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 
 INSERT INTO permission_hierarchy (including_permission_name, included_permission_name, origin) VALUES
     ('user:manage', 'user:read', 'system'),
-    ('admin', 'public:read', 'system');
+    ('admin', 'public:read', 'system'),
+    -- Whoever may change every task has to see the tasks it changes.
+    ('tasks:manage_all', 'tasks:view_all', 'system');
 
 -- =====================================================
 -- SEED ROLES
@@ -5669,16 +5706,23 @@ INSERT INTO roles (id, role_name, description, origin, module_id) VALUES
 -- SEED ROLE-PERMISSION MAPPINGS
 -- =====================================================
 
--- User role gets user:read and public:read permissions
-INSERT INTO role_permissions (role_id, permission_name) VALUES 
+-- User role gets user:read, public:read and public:write permissions
+INSERT INTO role_permissions (role_id, permission_name) VALUES
     (1, 'user:read'),
-    (1, 'public:read');
+    (1, 'public:read'),
+    (1, 'public:write');
 
--- Administrator role gets user:manage, public:read, and admin permissions
+-- Administrator role gets every permission seeded here (role 2 does not exist
+-- yet when they are inserted, so rbac.grant_permission_to_administrator cannot
+-- grant them): user:manage, public:read, admin, public:write and the two task
+-- permissions
 INSERT INTO role_permissions (role_id, permission_name) VALUES 
     (2, 'user:manage'),
     (2, 'public:read'),
-    (2, 'admin');
+    (2, 'admin'),
+    (2, 'public:write'),
+    (2, 'tasks:view_all'),
+    (2, 'tasks:manage_all');
 
 -- =====================================================
 -- SET MODULE FK REFERENCES
@@ -5731,7 +5775,7 @@ ALTER TABLE modules ADD CONSTRAINT modules_view_permission_fkey
 $pgsem__core_0090_rbac_seed_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0090_rbac_seed.once.sql', '20261123164322.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa')
+        VALUES ('_core.0090_rbac_seed.once.sql', '99999999999999.e8fbb3ff75d8e7e8cb39a67af43fbbd13f47a8d07c734df5ae1522318ad5e007')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -6798,6 +6842,23 @@ CREATE TABLE IF NOT EXISTS entities (
     -- 0160_dd_functions.sql keep this a copy of it.
     label_column_label TEXT NOT NULL DEFAULT '',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
+    -- How the label column is filled: custom, by the caller or a computed
+    -- rule, or number, by the database on insert (common.label_number_assign,
+    -- 0160_dd_functions.sql): label_number_prefix and a number padded with
+    -- zeros to label_number_digits. The prefix reaches generated DDL, the
+    -- partial unique index over the labels of the format, so its grammar is
+    -- held here and leaves nothing that a regular expression or a literal
+    -- reads specially: letters, digits, '-' and '_', at most 20 characters. At
+    -- most 18 digits, since a bigint has at most 19. label_number_start is 1,
+    -- not the convention's 0: it is the first number a counter gives.
+    label_format TEXT NOT NULL DEFAULT 'custom'
+        CONSTRAINT valid_label_format CHECK (label_format IN ('custom', 'number')),
+    label_number_prefix TEXT NOT NULL DEFAULT ''
+        CONSTRAINT valid_label_number_prefix CHECK (label_number_prefix ~ '^[A-Za-z0-9_-]{0,20}$'),
+    label_number_digits INTEGER NOT NULL DEFAULT 0
+        CONSTRAINT valid_label_number_digits CHECK (label_number_digits BETWEEN 0 AND 18),
+    label_number_start BIGINT NOT NULL DEFAULT 1
+        CONSTRAINT valid_label_number_start CHECK (label_number_start >= 0),
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
@@ -6815,6 +6876,25 @@ CREATE TABLE IF NOT EXISTS entities (
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- kind of data held; editable; the platform acts only on 'junction' (dd_is_junction in 0180_managed_enable.sql)
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
     order_column TEXT NOT NULL DEFAULT '',
+    -- Attachable entities (0450_attachables.sql): the records of an
+    -- attachable entity are attached to records of the target entities listed
+    -- in entity_attachables. attach_mode none means not attachable; single,
+    -- one target in the field attached_to; owned_shared, one owning target
+    -- there and further ones in the link entity <entity>_links; multiple, any
+    -- number of targets in <entity>_links. attach_permission is what attaching
+    -- needs on the target (view or edit), attach_on_target_delete what a delete
+    -- of the target in attached_to does to the record (cascade or restrict);
+    -- neither has a neutral default, so each is required where it applies.
+    -- link_of marks a link entity with its attachable entity; it is NULL, not
+    -- '', on every other entity, as id_refentity is, because it is a foreign
+    -- key. A table name ending in _links is kept for link entities.
+    attach_mode TEXT NOT NULL DEFAULT 'none'
+        CONSTRAINT valid_attach_mode CHECK (attach_mode IN ('none', 'single', 'owned_shared', 'multiple')),
+    attach_permission TEXT NOT NULL DEFAULT ''
+        CONSTRAINT valid_attach_permission CHECK (attach_permission IN ('', 'view', 'edit')),
+    attach_on_target_delete TEXT NOT NULL DEFAULT ''
+        CONSTRAINT valid_attach_on_target_delete CHECK (attach_on_target_delete IN ('', 'cascade', 'restrict')),
+    link_of TEXT REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -6869,7 +6949,10 @@ CREATE TABLE IF NOT EXISTS entities (
     -- An is_a or has_a entity is a view over tables the dictionary built and
     -- writes through routines it generated; without them there is nothing an
     -- unmanaged one could describe.
-    CONSTRAINT derived_entity_managed CHECK (id_type NOT IN ('is_a', 'has_a') OR managed)
+    CONSTRAINT derived_entity_managed CHECK (id_type NOT IN ('is_a', 'has_a') OR managed),
+    CONSTRAINT attach_permission_set CHECK (attach_mode = 'none' OR attach_permission <> ''),
+    CONSTRAINT attach_on_target_delete_set CHECK (attach_mode NOT IN ('single', 'owned_shared') OR attach_on_target_delete <> ''),
+    CONSTRAINT links_name_is_link CHECK (table_name !~ '_links$' OR link_of IS NOT NULL)
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -6890,6 +6973,9 @@ CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_pre
 -- indexes are too.
 CREATE INDEX idx_entities_view_permission ON entities(view_permission);
 CREATE INDEX idx_entities_edit_permission ON entities(edit_permission);
+-- A cascading foreign key into this same table, and the way the dictionary
+-- finds an attachable entity's link entity.
+CREATE INDEX idx_entities_link_of ON entities(link_of);
 
 -- =====================================================
 -- FIELDS TABLE
@@ -6979,15 +7065,36 @@ CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
 CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
 
 -- =====================================================
+-- ENTITY ATTACHABLES TABLE
+-- =====================================================
+-- The target entities of an attachable entity: a row switches the attachable
+-- entity on for the target, whose records its records may then be attached
+-- to (0450_attachables.sql). Keyed like the junction tables of
+-- 0060_rbac_schema.once.sql, by a generated id joining both names with '.'
+-- (a table name has none) and unique on the pair. Deleting either entity
+-- deletes the row, which a trigger refuses while records are attached; a
+-- rename carries along.
+
+CREATE TABLE IF NOT EXISTS entity_attachables (
+    id TEXT GENERATED ALWAYS AS (target || '.' || attachable) STORED PRIMARY KEY,
+    target TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    attachable TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    UNIQUE (target, attachable)
+);
+
+CREATE INDEX idx_entity_attachables_attachable ON entity_attachables(attachable);
+
+-- =====================================================
 -- ENABLE RLS ON METADATA TABLES
 -- =====================================================
 
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_attachables ENABLE ROW LEVEL SECURITY;
 $pgsem__core_0130_dd_schema_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0130_dd_schema.once.sql', '20261123164322.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc')
+        VALUES ('_core.0130_dd_schema.once.sql', '99999999999999.1a321a416e880c3f83a1be68f6503ac442bfee0d5c1ef598aa8b9c1a2d561ec1')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7024,7 +7131,7 @@ $pgsem__core_0130_dd_schema_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0140_dd_schema.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.ecebbb6574734e54fa5be860761b9647ca923290829eac63df466135f157cb70') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0140_dd_schema.sql';
       EXECUTE $pgsem__core_0140_dd_schema_sql$-- =====================================================
@@ -7085,16 +7192,16 @@ CREATE OR REPLACE TRIGGER validate_reference_table_trigger
 -- =====================================================
 -- GRANT THE REQUEST ROLE ACCESS TO THE METADATA TABLES
 -- =====================================================
--- These two are created after the one-time GRANT ... ON ALL TABLES in
+-- These three are created after the one-time GRANT ... ON ALL TABLES in
 -- 0110_rbac_grants.once.sql and there is no default privilege in this schema to
 -- pick them up, so the request role reaches them only through this grant. It
 -- comes after the RLS enable (0130_dd_schema.once.sql): a grant is what
 -- publishes a table through the Data API, and with RLS on and no policy yet the
 -- table stays closed to the request role until
--- 0240_dd_bootstrap_complete.once.sql generates its policies. Neither table has
--- a sequence - entities is keyed by table_name and fields.id is a generated
--- text column.
-GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields TO semantius_user;
+-- 0240_dd_bootstrap_complete.once.sql generates its policies. None of them has
+-- a sequence - entities is keyed by table_name, and fields.id and
+-- entity_attachables.id are generated text columns.
+GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields, entity_attachables TO semantius_user;
 
 -- =====================================================
 -- AUTO-SET PLURAL TRIGGER
@@ -7179,7 +7286,7 @@ REVOKE EXECUTE ON FUNCTION auto_set_plural() FROM PUBLIC;
 $pgsem__core_0140_dd_schema_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0140_dd_schema.sql', '20261123164322.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6')
+        VALUES ('_core.0140_dd_schema.sql', '99999999999999.ecebbb6574734e54fa5be860761b9647ca923290829eac63df466135f157cb70')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7222,7 +7329,7 @@ $pgsem__core_0140_dd_schema_sql$;
       EXECUTE $pgsem__core_0150_dd_bootstrap_once_sql$-- =====================================================
 -- DICTIONARY BOOTSTRAP
 -- =====================================================
--- Runs once: the entities rows of the ten core tables, the CHECK constraints
+-- Runs once: the entities rows of the eleven core tables, the CHECK constraints
 -- of entities and fields, and the fields rows of the core tables. The
 -- dictionary's own triggers do not exist yet, so the steps they would have
 -- taken for these tables run in 0240_dd_bootstrap_complete.once.sql.
@@ -7246,6 +7353,11 @@ $pgsem__core_0140_dd_schema_sql$;
 -- labels for all entities. The other core tables are catalog (definitions admins maintain and other
 -- rows point to), except users, which is operational_record: the actors themselves, provisioned at
 -- sign-in and edited under user:manage rather than admin.
+--
+-- roles is seen with public:read, so that a user can give a task a role, whose
+-- members it then waits for, and see which role a task has
+-- (0460_tasks_files_comments.jsonc). Who holds a role stays admin-only, in
+-- user_roles.
 --
 -- Rule 90702 accepts an empty module_slug: auto_set_module_slug (0070_rbac_schema.sql) derives one
 -- from module_name, and a
@@ -7289,14 +7401,19 @@ VALUES
     ('users', 'user', 'users', 'User', 'Users', 'Users and agents', (SELECT id FROM modules WHERE module_name = '_core'), 'user:read', 'user:manage', 'id', 'display_name', '[]'::jsonb, 'operational_record', TRUE, '', '{}'::jsonb, 'auto_increment', 'users', '100'),
     ('modules', 'module', 'modules', 'Module', 'Modules', 'Groups of related tables and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'module_name',
      '[{"code":"90701","message":"catalog_module_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_module_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_module_code"},""]}]},true]}},{"code":"90702","message":"module_slug must be lowercase, start with a letter or digit, and contain only a-z, 0-9, ''-'' and ''_''","source_module":"platform","jsonlogic":{"or":[{"==":[{"var":"module_slug"},""]},{"is_match":[{"var":"module_slug"},"^[a-z0-9][a-z0-9_-]*$"]}]}}]'::jsonb, 'catalog', TRUE, '', '{"or": [{"has_permission": "admin"}, {"has_permission": {"var": "view_permission"}}]}'::jsonb, 'auto_increment', 'blocks', '200'),
-    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'role_name',
+    ('roles', 'role', 'roles', 'Role', 'Roles', 'Groups of permissions that can be assigned to users', (SELECT id FROM modules WHERE module_name = '_core'), 'public:read', 'admin', 'id', 'role_name',
      '[{"code":"90203","message":"roles.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}},{"code":"90204","message":"system role slugs cannot be changed after creation","source_module":"platform","jsonlogic":{"if":[{"and":[{"value_changed":"slug"},{"==":[{"var":"origin"},"system"]}]},{"==":[{"var":"$old"},null]},true]}},{"code":"90206","message":"catalog_role_code is write-once: it cannot be changed once set","source_module":"platform","jsonlogic":{"if":[{"value_changed":"catalog_role_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_role_code"},""]}]},true]}}]'::jsonb, 'catalog', TRUE, '', '{}'::jsonb, 'auto_increment', 'shield-user', '120'),
     ('permissions', 'permission', 'permissions', 'Permission', 'Permissions', 'System permissions that can be assigned to roles and organized via hierarchy', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'permission_name', 'permission_name', '[]'::jsonb, 'catalog', TRUE, '', '{}'::jsonb, 'text', 'key-round', '130'),
     ('user_roles', 'user_role', 'user_roles', 'User Role', 'User Roles', 'Many-to-many mapping between users and roles', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed', 'user-check', '900'),
     ('role_permissions', 'role_permission', 'role_permissions', 'Role Permission', 'Role Permissions', 'Many-to-many mapping between roles and permissions', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed', 'shield-check', '900'),
     ('user_permissions', 'user_permission', 'user_permissions', 'User Permission', 'User Permissions', 'Many-to-many mapping between users and permissions for direct per-user permission grants', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed', 'user-lock', '900'),
     ('permission_hierarchy', 'permission_hierarchy', 'permission_hierarchy', 'Permission Hierarchy', 'Permission Hierarchy', 'Defines permission inclusion (including permission implies included permissions)', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id',
-     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed', 'list-tree', '900');
+     '[{"code":"90205","message":"permission_hierarchy.origin is set on INSERT and cannot be changed","source_module":"platform","jsonlogic":{"if":[{"value_changed":"origin"},{"==":[{"var":"$old"},null]},true]}}]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed', 'list-tree', '900'),
+    -- The target entities of the attachable entities (0450_attachables.sql),
+    -- which the administrator switches on. Like the rows of entities they are
+    -- catalog facts, so only admin reads them; a caller learns the targets of
+    -- an entity it sees from get_schema.
+    ('entity_attachables', 'entity_attachable', 'entity_attachables', 'Entity Attachable', 'Entity Attachables', 'The target entities whose records the records of an attachable entity can be attached to', (SELECT id FROM modules WHERE module_name = '_core'), 'admin', 'admin', 'id', 'id', '[]'::jsonb, 'junction', TRUE, '', '{}'::jsonb, 'computed', 'paperclip', '900');
 
 -- =====================================================
 -- ADD ENUM CONSTRAINTS AND INSERT FIELD METADATA USING DRY PRINCIPLE
@@ -7322,13 +7439,17 @@ DECLARE
   -- derived from a rollup definition and from the entity's computed_fields; they
   -- are the two managed markers that do not make a core column (dd_ctype_is_core).
   -- computed_label is derived the same way for the label column, and stays core
-  -- like label.
+  -- like label; so is number_label, from the entity's label_format.
+  -- attached_to marks the field of an attachable entity that holds its target
+  -- (0450_attachables.sql), which the dictionary creates, and is core.
   ctype_entries JSONB := '[{"value": "", "label": "Regular field"}, {"value": "id", "label": "Primary key"},
                            {"value": "label", "label": "Display label"}, {"value": "audit", "label": "Audit column"},
                            {"value": "core", "label": "System column"},
                            {"value": "rollup", "label": "Rollup (aggregated by the database)"},
                            {"value": "computed", "label": "Computed (by a rule of the entity)"},
-                           {"value": "computed_label", "label": "Computed display label (by a rule of the entity)"}]';
+                           {"value": "computed_label", "label": "Computed display label (by a rule of the entity)"},
+                           {"value": "number_label", "label": "Numbered display label (assigned by the database)"},
+                           {"value": "attached_to", "label": "Attached to (the target record)"}]';
   ctype_values TEXT[] := ARRAY(
     SELECT e ->> 'value' FROM jsonb_array_elements(ctype_entries) WITH ORDINALITY AS t(e, n) ORDER BY n
   );
@@ -7402,7 +7523,7 @@ BEGIN
       ('fields', 'field_order',          'Field Order',          '',                                                                       '',         'int32',     FALSE, 100,    'default',  'default', 'core',  FALSE, NULL,                            '',          '',        '', '{}'::jsonb),
       ('fields', 'input_type',           'Input Type',           'How the UI presents the field for input; input_type_rule can override it per record',                                                                       'default',  'enum',      FALSE, 110,    'required', 'default', 'core',  FALSE, to_jsonb(input_type_values),     '',          '',        '', '{}'::jsonb),
       ('fields', 'width',                'Width',                'default (automatic), s (small), m (medium), w (wide)',                                                                       'default',  'enum',      FALSE, 120,    'required', 'default', 'core',  FALSE, width_entries,                  '',          '',        '', '{}'::jsonb),
-      ('fields', 'ctype',                'Column Type',          'Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity''s computed_fields rules writes, and computed_label the label column when such a rule writes it. A form shows rollup, computed and computed_label fields disabled. Derived, never set by hand.', '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, ctype_entries,                  '',          '',        '', '{}'::jsonb),
+      ('fields', 'ctype',                'Column Type',          'Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity''s computed_fields rules writes, computed_label the label column when such a rule writes it, number_label the label column of an entity whose label_format is number, which the database fills on insert, and attached_to the field holding the record reference of an attachable record''s target, set on insert and never changed. A form shows rollup, computed, computed_label and number_label fields disabled. Derived, never set by hand.', '',         'enum',      FALSE, 130,    'default',  'default', 'core',  FALSE, ctype_entries,                  '',          '',        '', '{}'::jsonb),
       ('fields', 'searchable',           'Searchable',           '',                          '',         'boolean',   FALSE, 150,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]}'::jsonb),
       ('fields', 'enum_values',          'Enum Values',          'JSON array in display order. Each entry is a value or a {"value", "label"} object with an optional "description", "color" and "icon", e.g. ["active", {"value": "on_hold", "label": "On hold", "color": "amber"}]',                                      '',         'json',      FALSE, 160,    'hidden',   'w',       'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]}'::jsonb),
       ('fields', 'precision',            'Precision',            'Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats',  '2',        'int32',     FALSE, 170,    'hidden',   'default', 'core',  FALSE, NULL,                            '',          '',        '', '{"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]}'::jsonb),
@@ -7475,6 +7596,37 @@ VALUES
     ('entities', 'id_type', 'Id Type', 'Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. is_a: a subtype of the typeid or is_a entity named in id_refentity; each record is exactly one type, shares the key of its base record and carries the subtype''s own prefix. has_a: an optional extension of the typeid entity named in id_refentity; a base record has at most one, and it takes the base record''s key. computed: system tables whose key is generated from other columns; not available for new entities.', 'auto_increment', 'enum', FALSE, 120, 'required', 'default', 'core', FALSE, '', '', '', '[{"value": "auto_increment", "label": "Auto-increment number"}, {"value": "bigint", "label": "Number (supplied by the caller)"}, {"value": "text", "label": "Text (supplied by the caller)"}, {"value": "uuid", "label": "UUIDv7"}, {"value": "typeid", "label": "TypeID"}, {"value": "is_a", "label": "Subtype of another entity (is_a)"}, {"value": "has_a", "label": "Extension of another entity (has_a)"}, {"value": "computed", "label": "Computed (system tables only)"}]'::jsonb, '{"if":[{"var":"created_at"},"readonly","required"]}'::jsonb),
     ('entities', 'id_prefix', 'Id Prefix', 'TypeID prefix of a typeid or is_a entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. A typeid entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a prefix the entity gave up is refused on insert. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is.', '', 'text', FALSE, 130, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"in":[{"var":"id_type"},["typeid","is_a"]]},"required","hidden"]}'::jsonb),
     ('entities', 'id_refentity', 'Base Entity', 'The entity an is_a or has_a entity is based on, whose key its records share. An is_a entity is based on a typeid or is_a entity, a has_a entity on a typeid entity. Set when the entity is created and never changed; empty for every other key type.', '', 'reference', FALSE, 140, 'hidden', 'default', 'core', FALSE, 'entities', 'restrict', 'is the base of', NULL, '{"if":[{"in":[{"var":"id_type"},["is_a","has_a"]]},{"if":[{"var":"created_at"},"readonly","required"]},"hidden"]}'::jsonb);
+
+-- The numbered label settings, in their own INSERT for the input_type_rule:
+-- the prefix, the digits and the start are asked for only when the label
+-- format is number. The inline CHECKs in 0130_dd_schema.once.sql hold their
+-- values, for the reason given at valid_entity_type.
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values, input_type_rule)
+VALUES
+    ('entities', 'label_format', 'Label Format', 'How the label column is filled. custom (the default): by the caller or a computed rule. number: by the database when a record is inserted, as label_number_prefix and a number - the record''s id for an auto_increment or bigint key, the next value of a counter of the entity for every other key type. A numbered label never changes on update, and only a seed or import running as a privileged session may supply one for a counter. Numbers have gaps: an insert that is rolled back has used its number up. They are assigned when a record is inserted, not when it commits, so the order of the numbers is not the order in which records were committed. Switching an entity with records to number keeps their labels; only new records get numbers. An is_a family takes it from its root.', 'custom', 'enum', FALSE, 161, 'required', 'default', 'core', FALSE, '', '', '', '[{"value": "custom", "label": "Custom (by the caller or a rule)"}, {"value": "number", "label": "Number (assigned by the database)"}]'::jsonb, '{}'::jsonb),
+    ('entities', 'label_number_prefix', 'Label Number Prefix', 'Text before the number of a numbered label, e.g. INC gives INC0000001: letters, digits, - and _, at most 20 characters. A change applies to new numbers only; existing labels keep theirs. An is_a subtype with a prefix of its own has its own counter, digits and start (INC0001, CHG0001); one without numbers with its root''s.', '', 'text', FALSE, 162, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]}'::jsonb),
+    ('entities', 'label_number_digits', 'Label Number Digits', 'Minimum number of digits of a numbered label, filled with leading zeros (0 to 18; 0 = no padding). A longer number is never cut. A change applies to new numbers only.', '0', 'int32', FALSE, 163, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]}'::jsonb),
+    ('entities', 'label_number_start', 'Label Number Start', 'First number of the counter of a numbered label whose key is not a number (uuid, typeid, is_a, text). The counter always starts above the highest existing label of the format. An auto_increment or bigint key numbers by its id and has no counter.', '1', 'int64', FALSE, 164, 'hidden', 'default', 'core', FALSE, '', '', '', NULL, '{"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]}'::jsonb);
+
+-- The attachable settings (0450_attachables.sql), in their own INSERT for
+-- the input_type_rule: the attach permission is asked for only on an
+-- attachable entity, the target delete mode only where attached_to holds the
+-- target. link_of is the dictionary's. The inline CHECKs in
+-- 0130_dd_schema.once.sql hold their values, for the reason given at
+-- valid_entity_type.
+INSERT INTO fields (table_name, field_name, title, description, default_value, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, enum_values, input_type_rule)
+VALUES
+    ('entities', 'attach_mode', 'Attach Mode', 'Whether and how the records of this entity are attached to records of other entities, its target entities (entity_attachables). none (the default): not attachable. single: each record is attached to exactly one target record, held in attached_to, and whoever may see and change that record may see and change it (a comment). owned_shared: one target record owns it, held in attached_to, and decides who sees and changes it; further target records in the link entity <entity>_links only show it (a file). multiple: any number of equal target records in <entity>_links, or none, under the entity''s own permissions (a task). Only a managed entity that is not is_a or has_a and has a name of at most 22 bytes can be attachable; an is_a family is attachable through its root. Cannot change while the entity has records.', 'none', 'enum', FALSE, 320, 'required', 'default', 'core', FALSE, '', '', '', '[{"value": "none", "label": "Not attachable"}, {"value": "single", "label": "Single (one target, which decides access)"}, {"value": "owned_shared", "label": "Owned and shared (one owner, further targets)"}, {"value": "multiple", "label": "Multiple (any number of targets)"}]'::jsonb, '{}'::jsonb),
+    ('entities', 'attach_permission', 'Attach Permission', 'What attaching a record needs on the target record: view, to see it; edit, to see it and to hold the edit permission of its entity. Adding or removing a link also needs edit rights on the attachable record. Required on an attachable entity.', '', 'enum', FALSE, 330, 'hidden', 'default', 'core', FALSE, '', '', '', '[{"value": "view", "label": "View the target"}, {"value": "edit", "label": "Edit the target"}]'::jsonb, '{"if":[{"!=":[{"var":"attach_mode"},"none"]},"required","hidden"]}'::jsonb),
+    ('entities', 'attach_on_target_delete', 'Attach On Target Delete', 'What deleting the target record held in attached_to does to the records attached to it: cascade deletes them too, as a foreign key cascade does, past their own row-level security; restrict refuses the delete while records are attached. Required for single and owned_shared. A target held in the link entity loses only the link, and a multiple record that loses its last target is deleted.', '', 'enum', FALSE, 340, 'hidden', 'default', 'core', FALSE, '', '', '', '[{"value": "cascade", "label": "Cascade (delete the attached records)"}, {"value": "restrict", "label": "Restrict (block the delete)"}]'::jsonb, '{"if":[{"in":[{"var":"attach_mode"},["single","owned_shared"]]},"required","hidden"]}'::jsonb),
+    ('entities', 'link_of', 'Link Of', 'The attachable entity whose link entity <entity>_links this is, empty for every other entity. The dictionary creates, renames and drops a link entity with its attachable entity, and nobody else may change it.', '', 'reference', FALSE, 350, 'readonly', 'default', 'core', FALSE, 'entities', 'cascade', 'has the link entity', NULL, '{}'::jsonb);
+
+-- Insert fields metadata for entity_attachables table
+INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, relationship_label, singular_label_parent, plural_label_parent)
+VALUES
+    ('entity_attachables', 'id',         'Id',         'Generated identifier (target.attachable)', 'text', TRUE, 1, 'readonly', 'default', 'id', FALSE, '', '', '', '', ''),
+    ('entity_attachables', 'target',     'Target',     'The target entity, whose records the records of the attachable entity can be attached to. An is_a base admits the records of its subtypes. Removing it is refused while records are attached there.', 'parent', FALSE, 10, 'required', 'default', 'core', FALSE, 'entities', 'cascade', 'accepts attachments of', 'Attachable', 'Attachables'),
+    ('entity_attachables', 'attachable', 'Attachable', 'The attachable entity switched on for the target entity', 'parent', FALSE, 20, 'required', 'default', 'core', FALSE, 'entities', 'cascade', 'can be attached to', 'Target', 'Targets');
 
 -- Insert fields metadata for users table
 INSERT INTO fields (table_name, field_name, title, description, format, is_pk, field_order, input_type, width, ctype, searchable, reference_table, reference_delete_mode, default_value, unique_value)
@@ -7585,7 +7737,7 @@ VALUES
 $pgsem__core_0150_dd_bootstrap_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0150_dd_bootstrap.once.sql', '20261125184227.027b597b5bdc0f1d6d9a3c38a27f545f39be9f4c01e6a8c73c2fdd3dac08e1dd')
+        VALUES ('_core.0150_dd_bootstrap.once.sql', '99999999999999.6daf25188381c05fbc0fc4cc315b7f52b36194394f80c40918bdd483803ae1de')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -7622,7 +7774,7 @@ $pgsem__core_0150_dd_bootstrap_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0160_dd_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.8098d49ef82621df1f9049d61c3f762d650283fefd94616920f0bd755432a6d3') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0160_dd_functions.sql';
       EXECUTE $pgsem__core_0160_dd_functions_sql$-- =====================================================
@@ -7801,6 +7953,18 @@ $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_descendants(TEXT) IS
 'Every is_a and has_a entity based on the given entity, directly or through other is_a entities, with its distance (1 = direct).';
+
+-- The family line of an entity: its chain up to the root (dd_ancestors, the
+-- entity itself included) and every entity based on it below (dd_descendants).
+CREATE OR REPLACE FUNCTION dd_family(p_table_name TEXT)
+RETURNS TABLE (table_name TEXT) AS $$
+    SELECT a.table_name FROM dd_ancestors(p_table_name) a
+    UNION
+    SELECT d.table_name FROM dd_descendants(p_table_name) d;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_family(TEXT) IS
+'The entity, its bases up to the root and every entity based on it: dd_ancestors and dd_descendants together. Empty for an unknown entity.';
 
 -- The fields that make up a record of the entity: the root's fields first,
 -- then each level's, then the entity's own. The bases' key and audit fields are
@@ -8419,6 +8583,20 @@ $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_drop_own_index(TEXT, TEXT) IS
 'Drops a generated index when it is an index of the given table, and leaves a relation of that name on any other table alone. Returns whether it dropped one.';
+
+-- Whether a sequence of the name exists in public, such as the label counter
+-- <entity>_label_seq (dd_build_label_number). A relation of another kind under
+-- the name does not count.
+CREATE OR REPLACE FUNCTION dd_sequence_exists(p_name TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+                    WHERE c.relname = p_name::name
+                      AND c.relnamespace = 'public'::regnamespace
+                      AND c.relkind = 'S');
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_sequence_exists(TEXT) IS
+'TRUE when a sequence of the given name exists in public.';
 
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
@@ -9477,8 +9655,12 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
 -- a rollup definition or from the entity's computed_fields and maintains the
 -- column's values, but the field itself stays the administrator's to rename,
 -- retype within its column type and delete, so they answer FALSE here.
--- 'computed_label' is the label column that a computed_fields rule names: it is
--- the label column first, so it keeps the label's protection and answers TRUE.
+-- 'computed_label' is the label column that a computed_fields rule names, and
+-- 'number_label' the label column of an entity whose labels the database
+-- numbers (label_format): either is the label column first, so it keeps the
+-- label's protection and answers TRUE. 'attached_to' is the target of an
+-- attachable record, which the dictionary creates and the attach step keeps:
+-- core as well.
 -- One predicate rather than a condition repeated at every site, so the two
 -- directions cannot drift apart: a site that forgot a derived marker would lock
 -- that field, a site that forgot the core markers would unlock a key column.
@@ -9489,25 +9671,27 @@ SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
-'TRUE when a ctype marks a core column (id, label, computed_label, audit, core) that the dictionary protects from deletion, rename, and changes of format, default, reference table and delete mode. Empty, rollup and computed are not core.';
+'TRUE when a ctype marks a core column (id, label, computed_label, number_label, attached_to, audit, core) that the dictionary protects from deletion, rename, and changes of format, default, reference table and delete mode. Empty, rollup and computed are not core.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
 
--- The label column carries one of two markers: 'label', or 'computed_label'
--- when one of its entity's computed_fields names it (zz_derive_computed_ctype,
+-- The label column carries one of three markers: 'label', 'computed_label'
+-- when one of its entity's computed_fields names it, or 'number_label' when
+-- its entity's label_format is number (zz_derive_computed_ctype,
 -- 0210_computed_validation.sql). Every site that treats the label column
 -- specially (the rename and default exemptions, search weight A, the _label
 -- ordering in get_schema, the ensure_entities comparison) asks this predicate,
--- so a computed label is never mistaken for an ordinary core column.
+-- so a computed or numbered label is never mistaken for an ordinary core
+-- column.
 CREATE OR REPLACE FUNCTION dd_ctype_is_label(p_ctype TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
 SET search_path = public, pg_temp
-AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label') $$;
+AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label', 'number_label') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_label(TEXT) IS
-'TRUE when a ctype marks the label column: label, or computed_label when one of the entity''s computed_fields names it.';
+'TRUE when a ctype marks the label column: label, computed_label when one of the entity''s computed_fields names it, or number_label when the entity''s label_format is number.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) TO semantius_user;
@@ -9807,6 +9991,20 @@ BEGIN
         END;
     END IF;
     
+    -- A field that holds record references (ctype attached_to,
+    -- 0450_attachables.sql) is looked up by the prefix of one table's
+    -- references - on a rename, a delete, a truncate and when a target is
+    -- switched off - which a btree serves with text_pattern_ops only.
+    -- A link table has no index of its own for it: its unique index of record
+    -- and target leads with attached_to under text_pattern_ops
+    -- (0450_attachables.sql).
+    IF NEW.ctype = 'attached_to'
+       AND NOT EXISTS (SELECT 1 FROM entities e WHERE e.table_name = NEW.table_name AND e.link_of IS NOT NULL) THEN
+        v_idx_name := format('idx_%s_%s', v_rel, NEW.field_name);
+        PERFORM dd_index_name_free(NEW.table_name, v_rel, NEW.field_name, v_idx_name);
+        EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON %I (%I text_pattern_ops)', v_idx_name, v_rel, NEW.field_name);
+    END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -10191,6 +10389,11 @@ BEGIN
                     v_unique_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END;
+        -- A numbered label field with unique_value needs no index of the
+        -- format next to its own (dd_build_label_number).
+        IF dd_ctype_is_label(NEW.ctype) THEN
+            PERFORM dd_build_label_number(NEW.table_name);
+        END IF;
     END IF;
 
     RETURN NEW;
@@ -10340,13 +10543,16 @@ BEGIN
     -- backs this up, because reference_table uses '' for "no reference", so a
     -- field being written concurrently is held off by the row lock
     -- validate_reference_table takes.
+    -- The link entity of an attachable entity goes with it, through the
+    -- cascade of entities.link_of.
     SELECT string_agg(f.table_name || '.' || f.field_name, ', ' ORDER BY f.table_name, f.field_name)
       INTO v_references
       FROM fields f
       JOIN entities d ON d.table_name = f.table_name
       JOIN modules m ON m.id = d.module_id
      WHERE f.reference_table = OLD.table_name
-       AND f.table_name <> OLD.table_name;
+       AND f.table_name <> OLD.table_name
+       AND d.link_of IS DISTINCT FROM OLD.table_name;
     IF v_references IS NOT NULL THEN
         RAISE EXCEPTION 'Entity ${table} cannot be deleted while ${fields} reference it'
             USING ERRCODE = '90260',
@@ -10379,6 +10585,12 @@ BEGIN
     IF NOT OLD.managed THEN
         RAISE NOTICE 'Skipping table deletion for "%" (managed=false)', OLD.table_name;
         RETURN OLD;
+    END IF;
+
+    -- The label counter belongs to no table (dd_build_label_number), so the
+    -- DROP TABLE below does not take it along.
+    IF dd_sequence_exists(OLD.table_name || '_label_seq') THEN
+        EXECUTE format('DROP SEQUENCE public.%I', OLD.table_name || '_label_seq');
     END IF;
 
     -- Dropping a family entity drops its view, and a root's DROP TABLE (only
@@ -10964,12 +11176,13 @@ CREATE OR REPLACE TRIGGER label_title_from_field_trigger
 -- =====================================================
 -- LABEL MARKER: the label ctype follows entities.label_column
 -- =====================================================
--- The label column's ctype (label, or computed_label) is what gives it the
--- label's protection and search weight A, so it moves with label_column: the
--- field label_column leaves becomes an ordinary field again (computed if a rule
--- still names it) and loses that protection, and the field it names becomes
--- the label (computed_label if a rule names it; zz_derive_computed_ctype
--- derives both from the plain marker written here). Two cases write nothing:
+-- The label column's ctype (label, computed_label or number_label) is what
+-- gives it the label's protection and search weight A, so it moves with
+-- label_column: the field label_column leaves becomes an ordinary field again
+-- (computed if a rule still names it) and loses that protection, and the field
+-- it names becomes the label (computed_label if a rule names it, number_label
+-- for a numbered entity; zz_derive_computed_ctype derives them from the plain
+-- marker written here). Two cases write nothing:
 --   * an is_a or has_a entity: its label field is its root's (90242), and the
 --     root's own update moves the marker.
 --   * no field carries the new name. That is how a rename of the label field
@@ -11001,7 +11214,7 @@ BEGIN
     IF NOT FOUND THEN
         RETURN NULL;
     END IF;
-    IF coalesce(v_new.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
+    IF coalesce(v_new.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label', 'number_label') THEN
         RAISE EXCEPTION 'label_column of ${table} cannot name ${field_name}, which is already a ${ctype} field'
             USING ERRCODE = '90270',
                   HINT = jsonb_build_object('table', NEW.table_name, 'field_name', v_new.field_name,
@@ -11028,7 +11241,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_marker_follow() IS
-'AFTER UPDATE trigger on entities: moves the label marker (ctype label or computed_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
+'AFTER UPDATE trigger on entities: moves the label marker (ctype label, computed_label or number_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
 
 REVOKE EXECUTE ON FUNCTION dd_label_marker_follow() FROM PUBLIC;
 
@@ -11197,6 +11410,7 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 --          the views)
 --   90252  a base stays managed while entities are based on it
 --   90254  a new is_a entity's prefix is carried by no row of its root
+--   90289  label_format is the root's
 -- The key column and the label column with its title are set from the base on
 -- insert; the label field is the root's, which every level of a chain shares.
 -- So is is_child, which a parent field on any level above sets.
@@ -11316,12 +11530,20 @@ BEGIN
                   HINT = jsonb_build_object('feature', 'order_column', 'id_type', NEW.id_type, 'table', NEW.table_name)::text;
     END IF;
 
+    -- The label is the root's, and so is how it is filled (common.label_number_assign).
+    IF v_derived AND NEW.label_format <> 'custom' THEN
+        RAISE EXCEPTION 'label_format of ${table} comes from the root of its family'
+            USING ERRCODE = '90289',
+                  HINT = jsonb_build_object('table', NEW.table_name,
+                                            'hint', 'Set label_format on the root; a subtype may set a label_number_prefix of its own.')::text;
+    END IF;
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_family() IS
-'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252) and refuses a new is_a entity a prefix rows of its root carry (90254). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252), refuses a new is_a entity a prefix rows of its root carry (90254) and refuses a label_format of its own on one (90289). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
 
 CREATE OR REPLACE TRIGGER check_entity_family_trigger
     BEFORE INSERT OR UPDATE ON entities
@@ -12053,12 +12275,10 @@ BEGIN
       FROM dd_family_columns(p_table_name) c;
 
     FOR r IN
-        SELECT e.table_name, e.id_prefix
-          FROM dd_descendants(p_table_name) d
-          JOIN entities e ON e.table_name = d.table_name
-         WHERE e.id_type = 'is_a'
-           AND pg_catalog.to_regclass(format('public.%I', e.table_name)) IS NOT NULL
-         ORDER BY d.depth, e.table_name
+        SELECT s.table_name, s.id_prefix
+          FROM dd_is_a_subtypes(p_table_name) s
+         WHERE pg_catalog.to_regclass(format('public.%I', s.table_name)) IS NOT NULL
+         ORDER BY s.depth, s.table_name
     LOOP
         v_i := v_i + 1;
         decls := decls || format(E'\n    v_old_%1$s public.%2$I;\n    v_new_%1$s public.%2$I;\n    v_res_%1$s public.%2$I;',
@@ -12620,37 +12840,30 @@ CREATE OR REPLACE TRIGGER zz_family_refresh_delete_trigger
 --
 -- get_record_by_id(TEXT, BIGINT) below keeps numeric callers working.
 
-CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id TEXT)
-RETURNS JSONB AS $$
-DECLARE
-    v_id_column       TEXT;
-    v_result          JSONB;
-    v_allowed         BOOLEAN;
-    v_key_type        TEXT;
-    v_valid           BOOLEAN;
-    v_level           RECORD;
-    v_privileged      BOOLEAN;
-BEGIN
-    -- A privileged direct session reads without the checks: a connection that
-    -- logged in as a superuser or BYPASSRLS role, has no SET ROLE in effect and
-    -- carries no claims. That is a migration seeding records, whose computed
-    -- fields reach this through set_record, and such a session can read the
-    -- table directly anyway, so the checks would protect nothing. Each part of
-    -- the test closes a way around that premise:
-    --   * session_user is the login role; current_user is useless here, since
-    --     inside a SECURITY DEFINER function it is always the owner.
-    --   * role = 'none': a privileged login that switched to the request role
-    --     (SET ROLE semantius_user, as the test harness and an app server do)
-    --     is under RLS for its own queries, so it is checked here as well.
-    --   * the claim settings are empty or unset ('' is what a SET LOCAL leaves
-    --     behind after its transaction). Present but invalid claims fall
-    --     through to rbac.uid() and fail there.
-    --   * not a bearer session, whose identity rbac.uid() takes from
-    --     system_user even when no claim setting is set. system_user is NULL
-    --     under trust authentication, which is not a bearer session either.
-    -- A client cannot fake the login role: changing it takes a new login, or
-    -- SET SESSION AUTHORIZATION, which only a superuser login may run.
-    v_privileged := current_setting('role') = 'none'
+-- A privileged direct session: a connection that logged in as a superuser or
+-- BYPASSRLS role, has no SET ROLE in effect and carries no claims. That is a
+-- migration seeding records, and such a session can read and write the tables
+-- directly anyway, so a check that holds it to a user's rights would protect
+-- nothing. get_record_by_id reads for it without the checks; the label step
+-- (common.label_number_assign) lets it supply labels, and the attach step
+-- (common.attach_check) lets it attach without the attach permission. Each
+-- part of the test closes a way around that premise:
+--   * session_user is the login role; current_user is useless here, since
+--     inside a SECURITY DEFINER function it is always the owner.
+--   * role = 'none': a privileged login that switched to the request role
+--     (SET ROLE semantius_user, as the test harness and an app server do)
+--     is under RLS for its own queries, so it is checked as well.
+--   * the claim settings are empty or unset ('' is what a SET LOCAL leaves
+--     behind after its transaction). Present but invalid claims fall
+--     through to rbac.uid() and fail there.
+--   * not a bearer session, whose identity rbac.uid() takes from
+--     system_user even when no claim setting is set. system_user is NULL
+--     under trust authentication, which is not a bearer session either.
+-- A client cannot fake the login role: changing it takes a new login, or
+-- SET SESSION AUTHORIZATION, which only a superuser login may run.
+CREATE OR REPLACE FUNCTION dd_privileged_session()
+RETURNS BOOLEAN AS $$
+    SELECT current_setting('role') = 'none'
         AND COALESCE(system_user, '') NOT LIKE 'oauth:%'
         AND COALESCE(current_setting('request.jwt.claims', true), '') = ''
         AND COALESCE(current_setting('request.jwt.claim.role', true), '') = ''
@@ -12659,6 +12872,74 @@ BEGIN
         AND COALESCE((SELECT r.rolsuper OR r.rolbypassrls
                         FROM pg_catalog.pg_roles r
                        WHERE r.rolname = session_user), FALSE);
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_privileged_session() IS
+'TRUE in a privileged direct session: a superuser or BYPASSRLS login, no SET ROLE in effect, no claims, not a bearer session. Such a session (a migration) reads records without the access checks of get_record_by_id, may supply labels a numbered label would otherwise assign, and attaches without the attach permission.';
+
+-- The declared type of an entity's key, as a regtype, so it can be
+-- interpolated as a type name (%s prints it schema-qualified where `common`
+-- is not on the search_path) and cannot be anything but a type. Read from the
+-- relation named after the entity: its table, or the view of an is_a or has_a
+-- entity, whose key column has the key's type. NULL for an entity without a
+-- table, such as an unmanaged entity registered without one.
+CREATE OR REPLACE FUNCTION dd_key_type(p_table_name TEXT)
+RETURNS REGTYPE AS $$
+    SELECT a.atttypid::regtype
+      FROM entities e
+      JOIN pg_catalog.pg_attribute a
+        ON a.attrelid = pg_catalog.to_regclass(format('public.%I', e.table_name))
+       AND a.attname = e.id_column
+       AND a.attnum > 0
+       AND NOT a.attisdropped
+     WHERE e.table_name = p_table_name;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_key_type(TEXT) IS
+'The declared type of an entity''s key column, NULL for an entity without a table.';
+
+-- A key spelled as its type spells it: cast to the type and back to text, or
+-- NULL when the text is no value of the type. pg_input_is_valid answers that
+-- without raising, which a caught cast error would do at the cost of a
+-- subtransaction on every call. Through EXECUTE, not as a PL/pgSQL expression:
+-- pg_input_is_valid parses its type-name argument once and keeps it for later
+-- calls whenever that argument looks constant to the executor, which a
+-- PL/pgSQL variable does, and PL/pgSQL keeps the expression's state for the
+-- whole transaction, so the second call of a transaction would check the key
+-- against the first call's type. The key is read from a sub-select behind
+-- OFFSET 0: given as a constant, the planner would fold the cast before the
+-- CASE could skip it, and raise for every key that is no value of the type.
+-- The type is a regtype, so nothing but a type name reaches the statement.
+CREATE OR REPLACE FUNCTION dd_key_cast(p_key TEXT, p_key_type REGTYPE)
+RETURNS TEXT AS $$
+DECLARE
+    v_key TEXT;
+BEGIN
+    EXECUTE format('SELECT CASE WHEN pg_catalog.pg_input_is_valid(s.k, %L) THEN (s.k::%s)::text END
+                      FROM (SELECT $1 AS k OFFSET 0) s', p_key_type, p_key_type)
+       INTO v_key
+      USING p_key;
+    RETURN v_key;
+END;
+$$ LANGUAGE plpgsql STABLE STRICT SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_key_cast(TEXT, REGTYPE) IS
+'A key as its key type spells it (cast to the type and back to text), or NULL when the text is no value of the type.';
+
+CREATE OR REPLACE FUNCTION get_record_by_id(p_entity_name TEXT, p_id TEXT)
+RETURNS JSONB AS $$
+DECLARE
+    v_id_column       TEXT;
+    v_result          JSONB;
+    v_allowed         BOOLEAN;
+    v_key_type        REGTYPE;
+    v_level           RECORD;
+    v_privileged      BOOLEAN;
+BEGIN
+    -- A privileged direct session reads without the checks (dd_privileged_session):
+    -- a migration seeding records, whose computed fields reach this through
+    -- set_record, and which can read the table directly anyway.
+    v_privileged := dd_privileged_session();
 
     -- Authenticate the caller. This function is SECURITY DEFINER and therefore
     -- bypasses RLS, so it MUST enforce the same access control that RLS would.
@@ -12679,35 +12960,16 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- The key's declared type, as format_type spells it (a domain comes back
-    -- schema-qualified, since `common` is not on this function's search_path),
-    -- so it can be interpolated as a type name. No column means no table: an
-    -- unmanaged entity registered without one. An is_a or has_a entity is read
-    -- through its view, whose key column has the key's type.
-    SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
-      INTO v_key_type
-      FROM pg_catalog.pg_attribute a
-     WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', p_entity_name))::oid
-       AND a.attname = v_id_column
-       AND a.attnum > 0
-       AND NOT a.attisdropped;
+    -- No key type means no table (dd_key_type).
+    v_key_type := dd_key_type(p_entity_name);
     IF v_key_type IS NULL THEN
         RETURN NULL;
     END IF;
 
-    -- Through EXECUTE, not as a PL/pgSQL expression: pg_input_is_valid parses
-    -- its type-name argument once and keeps it for later calls whenever that
-    -- argument looks constant to the executor, which a PL/pgSQL variable does,
-    -- and PL/pgSQL keeps the expression's state for the whole transaction. The
-    -- second get_record_by_id of a transaction would then check the id against
-    -- the first call's key type. A dynamic statement starts from scratch.
-    EXECUTE format('SELECT pg_catalog.pg_input_is_valid($1, %L)', v_key_type)
-       INTO v_valid USING p_id;
-
     -- Only a caller who sees the entity in the catalog learns that the id was
     -- malformed; anybody else gets the NULL that also answers "no such entity",
     -- so the refusal does not reveal that the entity exists or what its key is.
-    IF NOT v_valid THEN
+    IF dd_key_cast(p_id, v_key_type) IS NULL THEN
         IF v_privileged OR dd_entity_viewable(p_entity_name) THEN
             RAISE EXCEPTION 'Invalid record id ${id} for entity ${table}'
                 USING ERRCODE = '90238',
@@ -12765,12 +13027,36 @@ BEGIN
         p_entity_name, v_id_column, v_key_type
     ) INTO v_result USING p_id;
 
+    -- An attachable record that follows its target (attach_mode single or
+    -- owned_shared, declared on the root of its family) is visible only with
+    -- its target, and a link row only with both its ends, as their policies
+    -- have it (dd_attach_policy_terms, 0210_computed_validation.sql). Each end
+    -- is asked of this function, so every level of it is checked the same
+    -- way. An attachment is made to a record that exists already and never
+    -- changes, so the chain of targets cannot loop.
+    IF v_result IS NOT NULL AND NOT v_privileged THEN
+        SELECT e.attach_mode, e.link_of INTO v_level
+          FROM dd_ancestors(p_entity_name) a
+          JOIN entities e ON e.table_name = a.table_name
+         WHERE a.depth = 0;
+        IF v_level.link_of IS NOT NULL
+           AND public.get_record_by_id(v_level.link_of, v_result ->> (v_level.link_of || '_id')) IS NULL THEN
+            RETURN NULL;
+        END IF;
+        IF (v_level.attach_mode IN ('single', 'owned_shared') OR v_level.link_of IS NOT NULL)
+           AND coalesce(v_result ->> 'attached_to', '') <> ''
+           AND public.get_record_by_id((dd_record_ref_split(v_result ->> 'attached_to')).table_name,
+                                       (dd_record_ref_split(v_result ->> 'attached_to')).key) IS NULL THEN
+            RETURN NULL;
+        END IF;
+    END IF;
+
     RETURN v_result;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION get_record_by_id(TEXT, TEXT) IS
-'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who sees the entity in the catalog (dd_entity_viewable).';
+'Returns a single entity record as JSONB by looking up the entity id_column and querying the physical table (the view of an is_a/has_a entity); the id is cast to the key''s type, so every key type works. SECURITY DEFINER: authenticates via rbac.uid() and enforces the canonical read predicate of every level the record is stored in (the same access boundary as RLS / get_schema), except in a privileged direct session (superuser or BYPASSRLS login, no SET ROLE, no claims, not bearer), which reads the row unchecked, as it could the table. An attachable record that follows its target, and a link row, are returned only when their target, and a link row''s attachable record, are as well. Returns NULL when the entity or record does not exist, or when the caller may not read it (indistinguishable, to avoid leaking record existence). Raises 90238 for an id that is not a valid value of the key type, to a caller who sees the entity in the catalog (dd_entity_viewable).';
 
 -- Numeric callers: a bigint or integer argument resolves here rather than to
 -- the TEXT version, since PostgreSQL casts neither to text implicitly. The
@@ -12802,6 +13088,549 @@ $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 'TRUE when the current user sees the entity''s row in entities, as get_record_by_id(''entities'', ...) answers it: a holder of admin, or of the view_permission or edit_permission of the entity and of every base it is stored in. FALSE for an unknown entity.';
 
+-- =====================================================
+-- RECORD REFERENCES
+-- =====================================================
+-- A record reference names one record of any entity, whatever its key type:
+-- <table_name>:<key>, such as users:42, products:A-100 or
+-- contracts:cntr_01k3x... A table name cannot contain ':', so a reference is
+-- split at its first ':', and the key may contain ':' and '-' itself.
+--
+-- A record has one canonical spelling: the current table name of the
+-- record's most specific entity, ':', and the key as its native type's ::text
+-- cast gives it. Code that stores references compares them as text (the delete
+-- step of an attachable target builds the canonical string of each deleted
+-- row and looks for it), so a reference written users:042 would never be
+-- found; everything that accepts a reference rewrites it to the canonical
+-- spelling first (dd_record_ref_canonical).
+--   * is_a: a record is named by its most specific subtype, read from the
+--     prefix of its key, so it has the same reference whichever level it was
+--     reached through.
+--   * has_a: an extension record has no key of its own; it is named by its
+--     base record.
+-- A rename of an entity rewrites the stored references that name it
+-- (rename_dd_record_refs, 0170_dd_rename.sql).
+
+-- The is_a entities below an entity with their prefixes, nearest first: the
+-- one mapping from a TypeID prefix to the subtype a record belongs to. The
+-- dispatch of a write (dd_dispatch_case), the record references, the label
+-- counters of an is_a family and the delete step of an attachable target all
+-- read it.
+CREATE OR REPLACE FUNCTION dd_is_a_subtypes(p_table_name TEXT)
+RETURNS TABLE (table_name TEXT, id_prefix TEXT, depth INTEGER) AS $$
+    SELECT e.table_name, e.id_prefix, d.depth
+      FROM dd_descendants(p_table_name) d
+      JOIN entities e ON e.table_name = d.table_name
+     WHERE e.id_type = 'is_a'
+     ORDER BY d.depth, e.table_name;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_is_a_subtypes(TEXT) IS
+'The is_a entities based on an entity, directly or further down, with their TypeID prefix and distance, nearest first: the prefix-to-subtype mapping of a family.';
+
+CREATE OR REPLACE FUNCTION dd_record_ref(p_table_name TEXT, p_key TEXT)
+RETURNS TEXT AS $$
+    SELECT coalesce(
+               (SELECT s.table_name
+                  FROM dd_ancestors(p_table_name) a
+                 CROSS JOIN LATERAL dd_is_a_subtypes(a.table_name) s
+                 WHERE a.depth = 0
+                   AND s.id_prefix = common.typeid_prefix(p_key)
+                 ORDER BY s.depth
+                 LIMIT 1),
+               (SELECT a.table_name FROM dd_ancestors(p_table_name) a WHERE a.depth = 0),
+               p_table_name)
+           || ':' || p_key;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_record_ref(TEXT, TEXT) IS
+'The reference <table_name>:<key> of the record of an entity with the given key text: for a family member the table name of the record''s most specific entity (the is_a subtype its key prefix names, else the root), so an is_a record has one reference at every level and a has_a record has its base record''s. The key is taken as given; dd_record_ref_canonical spells it as its type does.';
+
+CREATE OR REPLACE FUNCTION dd_record_ref_split(p_ref TEXT, OUT table_name TEXT, OUT key TEXT) AS $$
+    SELECT CASE WHEN strpos(p_ref, ':') > 0 THEN left(p_ref, strpos(p_ref, ':') - 1) END,
+           CASE WHEN strpos(p_ref, ':') > 0 THEN substr(p_ref, strpos(p_ref, ':') + 1) END;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_record_ref_split(TEXT) IS
+'Splits a record reference at its first '':'' into the table name and the key, which may contain '':'' itself. Both NULL for text without a '':''.';
+
+-- The key is checked and spelled as get_record_by_id checks it (dd_key_cast).
+CREATE OR REPLACE FUNCTION dd_record_ref_canonical(p_ref TEXT)
+RETURNS TEXT AS $$
+    SELECT dd_record_ref(s.table_name, dd_key_cast(s.key, dd_key_type(s.table_name)))
+      FROM dd_record_ref_split(p_ref) s;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_record_ref_canonical(TEXT) IS
+'The canonical spelling of a record reference: the key cast to the key type and back to text (users:042 becomes users:42), under the table name of the record''s most specific entity (dd_record_ref). NULL when the table is no entity with a table, or the key is no value of its key type. Does not say whether the record exists.';
+
+-- The LIKE pattern that matches the references into one table: its name,
+-- whose underscores LIKE would read as wildcards, escaped, then ':'. A
+-- constant pattern with a fixed prefix can use a text_pattern_ops index.
+CREATE OR REPLACE FUNCTION dd_ref_like(p_table_name TEXT)
+RETURNS TEXT AS $$
+    SELECT replace(p_table_name, '_', '\_') || ':%';
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_ref_like(TEXT) IS
+'The LIKE pattern (default escape) matching every record reference into the given table.';
+
+-- The tables whose records the records of an attachable entity can be
+-- attached to (0450_attachables.sql): every target entity listed in
+-- entity_attachables and every is_a subtype below one, since a listed base
+-- admits its subtypes, each with what a reference into it needs - its key
+-- column and key type - and the physical relations of its levels, root first,
+-- whose own policies decide whether the caller sees a record, with their edit
+-- permissions.
+CREATE OR REPLACE FUNCTION dd_attach_targets(p_attachable TEXT)
+RETURNS TABLE (table_name TEXT, id_column TEXT, key_type TEXT, rels TEXT[], edit_permissions TEXT[]) AS $$
+    WITH concrete AS (
+        SELECT ea.target AS table_name FROM entity_attachables ea WHERE ea.attachable = p_attachable
+        UNION
+        SELECT s.table_name
+          FROM entity_attachables ea
+         CROSS JOIN LATERAL dd_is_a_subtypes(ea.target) s
+         WHERE ea.attachable = p_attachable
+    )
+    SELECT c.table_name, e.id_column, dd_key_type(c.table_name)::text,
+           (SELECT array_agg(dd_relation(x.table_name, x.id_type) ORDER BY an.depth)
+              FROM dd_ancestors(c.table_name) an JOIN entities x ON x.table_name = an.table_name),
+           (SELECT array_agg(DISTINCT x.edit_permission)
+              FROM dd_ancestors(c.table_name) an JOIN entities x ON x.table_name = an.table_name)
+      FROM concrete c
+      JOIN entities e ON e.table_name = c.table_name
+     WHERE e.managed
+       AND e.id_type <> 'has_a'
+       AND pg_catalog.to_regclass(format('public.%I', c.table_name)) IS NOT NULL
+     ORDER BY c.table_name;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_targets(TEXT) IS
+'The tables an attachable entity''s records can be attached to (its listed targets and their is_a subtypes), each with its key column, key type, the physical relations of its levels (root first) and their edit permissions.';
+
+-- A SQL expression over the record reference p_ref (an expression of the
+-- caller, such as a qualified column) that dispatches on its table name to
+-- the target tables of the attachable entity. For each, what p_kind asks:
+--   visible  the target record is visible to the caller: an EXISTS on the
+--            relation of every level, run as the caller, so each level's own
+--            row-level security decides, as the view of a subtype would
+--   edit     visible, and the caller holds the edit permission of every level,
+--            each in a sub-select the planner runs once per statement
+--   label    the composed label of the target record (_label of its root
+--            row), for a caller who sees it
+-- Every other table name gives false, or no label. The key is cast to the
+-- target's key type inside a CASE on the table name: PostgreSQL does not
+-- promise to evaluate the conditions of a qual in order, and a cast of
+-- another table's key would raise. The CASE compares a column with literals
+-- and calls no STABLE function next to a column, so a policy that holds it
+-- is safe from plan-time folding (the volatility contract,
+-- 0950_test_volatility_contract.sql). Names are quoted with %I and %L, key
+-- types come from the catalog.
+CREATE OR REPLACE FUNCTION dd_attach_case_sql(p_attachable TEXT, p_ref TEXT, p_kind TEXT)
+RETURNS TEXT AS $$
+DECLARE
+    v_case   TEXT := '';
+    v_key    TEXT;
+    v_levels TEXT;
+    v_perms  TEXT;
+    v_none   TEXT := CASE WHEN p_kind = 'label' THEN 'NULL::text' ELSE 'false' END;
+    r        RECORD;
+BEGIN
+    FOR r IN SELECT * FROM dd_attach_targets(p_attachable) LOOP
+        -- Cast only inside the branch of its table (the CASE below).
+        v_key := format('substr(%s, %s)::%s', p_ref, length(r.table_name) + 2, r.key_type);
+        SELECT string_agg(format('EXISTS (SELECT 1 FROM public.%I x WHERE x.%I = %s)', u.rel, r.id_column, v_key),
+                          ' AND ' ORDER BY u.n)
+          INTO v_levels
+          FROM unnest(r.rels) WITH ORDINALITY AS u(rel, n)
+         WHERE p_kind <> 'label' OR u.n > 1;
+        SELECT string_agg(format('(SELECT rbac.has_permission(%L))', p), ' AND ' ORDER BY p)
+          INTO v_perms
+          FROM unnest(r.edit_permissions) AS p;
+        v_case := v_case || format(' WHEN %L THEN %s', r.table_name,
+            CASE p_kind
+                WHEN 'label' THEN format('(SELECT public._label(x) FROM public.%I x WHERE x.%I = %s%s)',
+                                         r.rels[1], r.id_column, v_key, coalesce(' AND ' || v_levels, ''))
+                WHEN 'edit' THEN '(' || v_perms || ' AND ' || v_levels || ')'
+                ELSE '(' || v_levels || ')'
+            END);
+    END LOOP;
+    IF v_case = '' THEN
+        RETURN v_none;
+    END IF;
+    RETURN format('(CASE split_part(%s, '':'', 1)%s ELSE %s END)', p_ref, v_case, v_none);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_case_sql(TEXT, TEXT, TEXT) IS
+'A SQL expression over a record reference that dispatches on its table name to the target tables of an attachable entity: whether the caller sees the target record (visible), sees it and holds the edit permission of every level (edit), or its composed label (label). Used by the attachable policies and attached_to_label.';
+
+-- =====================================================
+-- NUMBERED LABELS (entities.label_format = 'number')
+-- =====================================================
+-- The label of a numbered entity is written by the database on insert:
+-- label_number_prefix and a number, padded with zeros to label_number_digits.
+-- greatest() keeps lpad from cutting a number longer than the digits. The
+-- number is
+--   * the record's id, for an auto_increment or bigint key. There is no
+--     counter, and the label is written from the id also when a seed or an
+--     import brings one: a label of its own could be the label of the row
+--     whose id it carries.
+--   * the next value of a counter, the sequence <entity>_label_seq, for every
+--     other key type. A privileged session (dd_privileged_session: a seed or an
+--     import run by a migration) may bring a label, which is kept; one of the
+--     counter's format moves the counter past it, never back, as
+--     fix_id_sequence moves an id sequence, so the next number is not one a
+--     record already has. A record created through the API always gets the
+--     next number.
+-- On update the label stays as it is stored, for every key type. Labels
+-- written before an entity switched to number are kept; only new records get
+-- numbers. The counter starts above the highest label of its format there is.
+--
+-- An is_a family numbers on its root, whose table holds the label, and the
+-- root's label_format is the family's. A subtype with a label_number_prefix of
+-- its own counts with its own counter <subtype>_label_seq, digits and start,
+-- and so do the subtypes below it that have none; the others share the root's.
+-- The record's subtype is read from the prefix of its id (dd_is_a_subtypes).
+--
+-- A counter's labels cannot repeat a number already given: the partial unique
+-- index <table>_label_number_unique covers the labels of every prefix the
+-- entity numbers with, so a kept old label of the same shape is not issued a
+-- second time. A label field with unique_value has an index of its own and gets
+-- no second one. A numeric key needs none: its labels follow from the id and
+-- never change.
+
+-- The labels of the format of the given prefixes: a prefix, then up to 18
+-- digits, the most a number cast to bigint can always take. The prefixes come
+-- from label_number_prefix, whose CHECK leaves nothing in them that the
+-- pattern would read as an operator.
+CREATE OR REPLACE FUNCTION dd_label_number_pattern(p_prefixes TEXT[])
+RETURNS TEXT AS $$
+    SELECT '^(' || array_to_string(p_prefixes, '|') || ')[0-9]{1,18}$';
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_label_number_pattern(TEXT[]) IS
+'The regular expression the numbered labels of the given prefixes match: one of the prefixes, then 1 to 18 digits.';
+
+CREATE OR REPLACE FUNCTION dd_label_number_text(p_prefix TEXT, p_digits INTEGER, p_number BIGINT)
+RETURNS TEXT AS $$
+    SELECT p_prefix || lpad(p_number::text, greatest(p_digits, length(p_number::text)), '0');
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_label_number_text(TEXT, INTEGER, BIGINT) IS
+'A numbered label: the prefix and the number, padded with zeros to the digits and never cut.';
+
+-- The label step, b_label_number. SECURITY DEFINER: it takes numbers from a
+-- counter the request role is not granted. The settings are read from the
+-- catalog on every insert, so a change of them needs no rebuild of the
+-- trigger. The label is written through jsonb_populate_record in an EXECUTE,
+-- as common.typeid_assign writes the key: a planned assignment would keep the
+-- row type the table had when it first ran.
+CREATE OR REPLACE FUNCTION common.label_number_assign()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_entity entities%ROWTYPE;
+    v_label  TEXT;
+    v_id     TEXT;
+    v_prefix TEXT;
+    v_digits INTEGER;
+    v_seq    TEXT;
+    v_n      BIGINT;
+    v_last   BIGINT;
+    v_called BOOLEAN;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = TG_TABLE_NAME;
+    IF NOT FOUND OR v_entity.label_format <> 'number' THEN
+        RETURN NEW;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        v_label := to_jsonb(OLD) ->> v_entity.label_column;
+    ELSE
+        v_label := to_jsonb(NEW) ->> v_entity.label_column;
+        v_id := to_jsonb(NEW) ->> v_entity.id_column;
+        v_prefix := v_entity.label_number_prefix;
+        v_digits := v_entity.label_number_digits;
+        v_seq := TG_TABLE_NAME || '_label_seq';
+
+        IF v_entity.id_type IN ('auto_increment', 'bigint') THEN
+            v_label := dd_label_number_text(v_prefix, v_digits, v_id::bigint);
+        ELSE
+            IF v_entity.id_type = 'typeid' THEN
+                SELECT e.label_number_prefix, e.label_number_digits, e.table_name || '_label_seq'
+                  INTO v_prefix, v_digits, v_seq
+                  FROM dd_is_a_subtypes(TG_TABLE_NAME) s
+                 CROSS JOIN LATERAL dd_ancestors(s.table_name) a
+                  JOIN entities e ON e.table_name = a.table_name
+                 WHERE s.id_prefix = common.typeid_prefix(v_id)
+                   AND a.depth > 0
+                   AND e.label_number_prefix <> ''
+                 ORDER BY s.depth, a.depth DESC
+                 LIMIT 1;
+                IF NOT FOUND THEN
+                    v_prefix := v_entity.label_number_prefix;
+                    v_digits := v_entity.label_number_digits;
+                    v_seq := TG_TABLE_NAME || '_label_seq';
+                END IF;
+            END IF;
+
+            IF coalesce(v_label, '') <> '' AND dd_privileged_session() THEN
+                IF v_label ~ dd_label_number_pattern(ARRAY[v_prefix]) THEN
+                    v_n := substr(v_label, length(v_prefix) + 1)::bigint;
+                    EXECUTE format('SELECT last_value, is_called FROM public.%I', v_seq) INTO v_last, v_called;
+                    IF v_n >= (CASE WHEN v_called THEN v_last + 1 ELSE v_last END) THEN
+                        PERFORM setval(format('public.%I', v_seq), v_n, true);
+                    END IF;
+                END IF;
+            ELSE
+                v_label := dd_label_number_text(v_prefix, v_digits, nextval(format('public.%I', v_seq)));
+            END IF;
+        END IF;
+    END IF;
+
+    EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
+       INTO NEW
+      USING NEW, jsonb_build_object(v_entity.label_column, v_label);
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION common.label_number_assign() IS
+'BEFORE INSERT OR UPDATE trigger b_label_number of an entity whose label_format is number, on its own table or, for an is_a family, on the root table: on insert writes the label as the prefix and the record''s id (numeric keys) or the next number of the counter <entity>_label_seq (other keys, by the prefix of the id the counter of its subtype), keeping a label a privileged session supplies and moving the counter past it; on update keeps the stored label.';
+
+-- Brings the numbering objects of a plain entity or a family root in line
+-- with the catalog: the counters, the trigger and the unique index. Called
+-- when the entity is created, when its label settings, its label column or its
+-- managed flag change, when an is_a subtype comes or goes, and when the label
+-- field's unique_value changes. A counter is created starting above the
+-- highest label of its format and its start, and an existing one is moved up
+-- to that, never down. The index is built again only when what it covers
+-- changed: building it scans the table.
+CREATE OR REPLACE FUNCTION dd_build_label_number(p_table_name TEXT)
+RETURNS VOID AS $$
+DECLARE
+    v_entity   entities%ROWTYPE;
+    v_number   BOOLEAN;
+    v_counted  BOOLEAN;
+    v_unique   BOOLEAN;
+    v_index    TEXT := p_table_name || '_label_number_unique';
+    v_prefixes TEXT[] := ARRAY[]::TEXT[];
+    v_pattern  TEXT;
+    v_current  TEXT;
+    v_seq      TEXT;
+    v_max      BIGINT;
+    v_next     BIGINT;
+    v_last     BIGINT;
+    v_called   BOOLEAN;
+    r          RECORD;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    IF NOT FOUND OR v_entity.id_type IN ('is_a', 'has_a', 'computed')
+       OR to_regclass(format('public.%I', p_table_name)) IS NULL THEN
+        RETURN;
+    END IF;
+
+    v_number := v_entity.managed AND v_entity.label_format = 'number'
+        AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                     WHERE a.attrelid = to_regclass(format('public.%I', p_table_name))
+                       AND a.attname = v_entity.label_column AND a.attnum > 0 AND NOT a.attisdropped);
+    v_counted := v_number AND v_entity.id_type NOT IN ('auto_increment', 'bigint');
+
+    -- The counters of a family share one table and one unique index, so the
+    -- labels of two of them must never have the same shape: a prefix may not
+    -- be another one, or another one followed by digits (INC and INC2 both
+    -- number INC20001). Either way one counter would hand out the other's
+    -- labels, and each would start above the other's highest (90290).
+    IF v_counted THEN
+        WITH counters AS (
+            SELECT p_table_name AS table_name, v_entity.label_number_prefix AS prefix
+            UNION ALL
+            SELECT e.table_name, e.label_number_prefix
+              FROM dd_is_a_subtypes(p_table_name) s
+              JOIN entities e ON e.table_name = s.table_name
+             WHERE e.label_number_prefix <> '')
+        SELECT x.table_name AS t1, x.prefix AS p1, y.table_name AS t2, y.prefix AS p2 INTO r
+          FROM counters x
+          JOIN counters y ON x.table_name < y.table_name
+           AND (y.prefix ~ ('^' || x.prefix || '[0-9]*$') OR x.prefix ~ ('^' || y.prefix || '[0-9]*$'))
+         ORDER BY x.table_name, y.table_name
+         LIMIT 1;
+        IF FOUND THEN
+            RAISE EXCEPTION 'The label prefix ${prefix} of ${table} and ${other_prefix} of ${other} would number labels of the same shape'
+                USING ERRCODE = '90290',
+                      HINT = jsonb_build_object('table', r.t1, 'prefix', r.p1,
+                                                'other', r.t2, 'other_prefix', r.p2,
+                                                'hint', 'Give each entity of the family a prefix that is neither another one nor another one followed by digits.')::text;
+        END IF;
+    END IF;
+
+    -- The counters: the entity's own, and one for each is_a subtype with a
+    -- prefix of its own. One that is no longer wanted is dropped.
+    FOR r IN
+        SELECT p_table_name AS table_name, v_entity.label_number_prefix AS prefix,
+               v_entity.label_number_start AS start, v_counted AS wanted
+        UNION ALL
+        SELECT s.table_name, e.label_number_prefix, e.label_number_start,
+               v_counted AND e.label_number_prefix <> ''
+          FROM dd_is_a_subtypes(p_table_name) s
+          JOIN entities e ON e.table_name = s.table_name
+    LOOP
+        v_seq := r.table_name || '_label_seq';
+        IF NOT r.wanted THEN
+            IF dd_sequence_exists(v_seq) THEN
+                EXECUTE format('DROP SEQUENCE public.%I', v_seq);
+            END IF;
+            CONTINUE;
+        END IF;
+
+        v_prefixes := v_prefixes || r.prefix;
+        EXECUTE format('SELECT max(substr(t.%1$I, %2$s)::bigint) FROM public.%3$I t WHERE t.%1$I ~ %4$L',
+                       v_entity.label_column, length(r.prefix) + 1, p_table_name,
+                       dd_label_number_pattern(ARRAY[r.prefix]))
+           INTO v_max;
+        v_next := greatest(r.start, coalesce(v_max + 1, r.start));
+        IF NOT dd_sequence_exists(v_seq) THEN
+            -- A relation of another kind under the name makes this fail
+            -- (42P07) rather than number from something that is no counter.
+            EXECUTE format('CREATE SEQUENCE public.%I AS bigint MINVALUE %s START WITH %s',
+                           v_seq, least(v_next, 1), v_next);
+        ELSE
+            EXECUTE format('SELECT last_value, is_called FROM public.%I', v_seq) INTO v_last, v_called;
+            v_next := greatest(v_next, CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
+            PERFORM setval(format('public.%I', v_seq), v_next, false);
+        END IF;
+    END LOOP;
+
+    IF v_number THEN
+        EXECUTE format(
+            'CREATE OR REPLACE TRIGGER b_label_number BEFORE INSERT OR UPDATE ON public.%I
+                FOR EACH ROW EXECUTE FUNCTION common.label_number_assign()',
+            p_table_name);
+    ELSE
+        EXECUTE format('DROP TRIGGER IF EXISTS b_label_number ON public.%I', p_table_name);
+    END IF;
+
+    v_unique := EXISTS (SELECT 1 FROM fields f
+                         WHERE f.table_name = p_table_name AND f.field_name = v_entity.label_column
+                           AND f.unique_value);
+    IF v_counted AND NOT v_unique THEN
+        v_pattern := dd_label_number_pattern(ARRAY(SELECT DISTINCT p FROM unnest(v_prefixes) AS p ORDER BY p));
+    END IF;
+    -- The index carries the pattern it covers as its comment, which tells it
+    -- apart from an index of a field that happens to bear the name (the
+    -- unique_value index of a field label_number), and says whether it can
+    -- stay as it is.
+    SELECT pg_catalog.obj_description(c.oid, 'pg_class') INTO v_current
+      FROM pg_catalog.pg_index i
+      JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
+     WHERE c.relname = v_index
+       AND c.relnamespace = 'public'::regnamespace
+       AND i.indrelid = to_regclass(format('public.%I', p_table_name));
+    IF v_current IS NOT DISTINCT FROM v_pattern THEN
+        RETURN;
+    END IF;
+    IF v_current IS NOT NULL THEN
+        EXECUTE format('DROP INDEX public.%I', v_index);
+    END IF;
+    IF v_pattern IS NOT NULL THEN
+        PERFORM dd_index_name_free(p_table_name, p_table_name, v_entity.label_column, v_index);
+        EXECUTE format('CREATE UNIQUE INDEX %I ON public.%I (%I) WHERE %I ~ %L',
+                       v_index, p_table_name, v_entity.label_column, v_entity.label_column, v_pattern);
+        EXECUTE format('COMMENT ON INDEX public.%I IS %L', v_index, v_pattern);
+    END IF;
+END;
+-- SECURITY INVOKER: its callers are SECURITY DEFINER and already run as the
+-- owner.
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_build_label_number(TEXT) IS
+'Brings the numbered-label objects of a plain entity or a family root in line with its label settings and those of its is_a subtypes: the counters <entity>_label_seq (created above the highest label of their format, moved up and never down), the trigger b_label_number, and the partial unique index <table>_label_number_unique over the labels of the format, which a numeric key and a unique_value label field do without. Drops what is no longer wanted. Refuses two counters of a family whose prefixes would number labels of the same shape (90290).';
+
+-- The label settings of an entity changed, or an is_a subtype came or went.
+-- A numeric key switching to number is refused while a label of the format is
+-- not its own row's number (90287): it would be the label the row whose id it
+-- carries gets. The label field's marker follows the format, written as a
+-- no-op so that zz_derive_computed_ctype (0210_computed_validation.sql)
+-- derives it, and the objects are built for the family's root.
+CREATE OR REPLACE FUNCTION dd_label_number_changed()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_root  TEXT;
+    v_id    TEXT;
+    v_label TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        SELECT a.table_name INTO v_root FROM dd_ancestors(OLD.id_refentity) a WHERE a.depth = 0;
+        IF v_root IS NOT NULL THEN
+            PERFORM dd_build_label_number(v_root);
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    SELECT a.table_name INTO v_root FROM dd_ancestors(NEW.table_name) a WHERE a.depth = 0;
+    IF NEW.id_type NOT IN ('is_a', 'has_a') THEN
+        IF TG_OP = 'UPDATE'
+           AND NEW.managed AND NEW.label_format = 'number' AND NEW.id_type IN ('auto_increment', 'bigint')
+           AND NOT (OLD.managed AND OLD.label_format = 'number')
+           AND to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL THEN
+            EXECUTE format(
+                'SELECT t.%2$I::text, t.%1$I FROM public.%3$I t
+                  WHERE t.%1$I ~ %4$L AND t.%1$I <> dd_label_number_text(%5$L, %6$s, t.%2$I)
+                  ORDER BY t.%2$I LIMIT 1',
+                NEW.label_column, NEW.id_column, NEW.table_name,
+                dd_label_number_pattern(ARRAY[NEW.label_number_prefix]), NEW.label_number_prefix,
+                NEW.label_number_digits)
+               INTO v_id, v_label;
+            IF v_id IS NOT NULL THEN
+                RAISE EXCEPTION 'Entity ${table} cannot number its labels: the label ${label} of record ${id} would be the number of another record'
+                    USING ERRCODE = '90287',
+                          HINT = jsonb_build_object('table', NEW.table_name, 'id', v_id, 'label', v_label,
+                                                    'hint', 'Change that label, or choose a prefix no label of a record starts with.')::text;
+            END IF;
+        END IF;
+
+        UPDATE fields
+           SET ctype = ctype
+         WHERE table_name = NEW.table_name
+           AND field_name = NEW.label_column
+           AND dd_ctype_is_label(ctype)
+           AND (ctype = 'number_label') IS DISTINCT FROM (NEW.label_format = 'number');
+    END IF;
+
+    PERFORM dd_build_label_number(coalesce(v_root, NEW.table_name));
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_label_number_changed() IS
+'AFTER INSERT, UPDATE (of the label settings, the label column or managed) and DELETE (of an is_a entity) trigger on entities: refuses switching a numeric key to numbered labels while a label of the format is not its row''s own number (90287), lets the label field''s ctype follow the format, and rebuilds the numbering objects of the family root (dd_build_label_number).';
+
+CREATE OR REPLACE TRIGGER zz_label_number_insert_trigger
+    AFTER INSERT ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_label_number_changed();
+
+CREATE OR REPLACE TRIGGER zz_label_number_update_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.label_format IS DISTINCT FROM NEW.label_format
+       OR OLD.label_number_prefix IS DISTINCT FROM NEW.label_number_prefix
+       OR OLD.label_number_digits IS DISTINCT FROM NEW.label_number_digits
+       OR OLD.label_number_start IS DISTINCT FROM NEW.label_number_start
+       OR OLD.label_column IS DISTINCT FROM NEW.label_column
+       OR OLD.managed IS DISTINCT FROM NEW.managed)
+    EXECUTE FUNCTION dd_label_number_changed();
+
+CREATE OR REPLACE TRIGGER zz_label_number_delete_trigger
+    AFTER DELETE ON entities
+    FOR EACH ROW
+    WHEN (OLD.id_type = 'is_a')
+    EXECUTE FUNCTION dd_label_number_changed();
+
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) TO semantius_user;
@@ -12815,6 +13644,7 @@ REVOKE EXECUTE ON FUNCTION dd_relation(TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_relation(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_ancestors(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_descendants(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_family(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_family_fields(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_entity_viewable(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_entity_searchable(TEXT) FROM PUBLIC;
@@ -12827,6 +13657,31 @@ GRANT EXECUTE ON FUNCTION dd_entity_viewable(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_entity_searchable(TEXT) TO semantius_user;
 REVOKE EXECUTE ON FUNCTION dd_entity_is_child(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_entity_is_child(TEXT) TO semantius_user;
+-- The record reference helpers read only what the caller can read itself.
+REVOKE EXECUTE ON FUNCTION dd_is_a_subtypes(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_record_ref(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_record_ref_split(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_record_ref_canonical(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_ref_like(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_is_a_subtypes(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_record_ref(TEXT, TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_record_ref_split(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_record_ref_canonical(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_ref_like(TEXT) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_attach_targets(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_attach_case_sql(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_privileged_session() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_key_type(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_key_cast(TEXT, REGTYPE) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_sequence_exists(TEXT) FROM PUBLIC;
+-- dd_record_ref_canonical runs as the caller and reaches both.
+GRANT EXECUTE ON FUNCTION dd_key_type(TEXT) TO semantius_user;
+GRANT EXECUTE ON FUNCTION dd_key_cast(TEXT, REGTYPE) TO semantius_user;
+REVOKE EXECUTE ON FUNCTION dd_label_number_pattern(TEXT[]) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_number_text(TEXT, INTEGER, BIGINT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.label_number_assign() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_build_label_number(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_label_number_changed() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_family_columns(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_family_view(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_record_write(TEXT) FROM PUBLIC;
@@ -12926,7 +13781,22 @@ BEGIN
             dd_required_skip_reason(fields, TEXT),
             dd_check_enum_values_cover_rows(fields, TEXT),
             dd_replace_enum_check(fields, TEXT),
-            common.dd_raise_required(OID, TEXT)
+            common.dd_raise_required(OID, TEXT),
+            dd_privileged_session(),
+            dd_is_a_subtypes(TEXT),
+            dd_record_ref(TEXT, TEXT),
+            dd_record_ref_split(TEXT),
+            dd_record_ref_canonical(TEXT),
+            dd_ref_like(TEXT),
+            dd_label_number_pattern(TEXT[]),
+            dd_label_number_text(TEXT, INTEGER, BIGINT),
+            dd_build_label_number(TEXT),
+            dd_attach_targets(TEXT),
+            dd_attach_case_sql(TEXT, TEXT, TEXT),
+            dd_key_type(TEXT),
+            dd_key_cast(TEXT, REGTYPE),
+            dd_family(TEXT),
+            dd_sequence_exists(TEXT)
         TO semantius_owner;
     END IF;
 END $$;
@@ -12955,7 +13825,7 @@ REVOKE EXECUTE ON FUNCTION update_entity_policies() FROM PUBLIC;
 $pgsem__core_0160_dd_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0160_dd_functions.sql', '20261123164322.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130')
+        VALUES ('_core.0160_dd_functions.sql', '99999999999999.8098d49ef82621df1f9049d61c3f762d650283fefd94616920f0bd755432a6d3')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -12992,7 +13862,7 @@ $pgsem__core_0160_dd_functions_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0170_dd_rename.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.0e573f226a94958bdf7181f7bf74de0cb9a3e56fc715f464094eb28f5053cb4f') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0170_dd_rename.sql';
       EXECUTE $pgsem__core_0170_dd_rename_sql$-- =====================================================
@@ -13126,6 +13996,13 @@ BEGIN
                     v_old_rel || '_' || OLD.id_column || '_seq',
                     v_new_rel || '_' || NEW.id_column || '_seq'
                 );
+            END IF;
+
+            -- Rename the label counter (<table>_label_seq), which carries the
+            -- entity's name and belongs to no table (dd_build_label_number).
+            IF dd_sequence_exists(OLD.table_name || '_label_seq') THEN
+                EXECUTE format('ALTER SEQUENCE public.%I RENAME TO %I',
+                    OLD.table_name || '_label_seq', NEW.table_name || '_label_seq');
             END IF;
 
             -- Rename primary key constraint (<table>_pkey)
@@ -13314,7 +14191,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
 objects when table_name changes: updated_at trigger, order column trigger, RLS policies, GIN search_vector
-index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
+index, id sequence, label counter, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
 unique indexes, compute_validate and rule functions, select_rule and row move functions, and queue event triggers.
 For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;
@@ -13513,6 +14390,75 @@ CREATE OR REPLACE TRIGGER rename_jsonlogic_refs_trigger
 
 COMMENT ON TRIGGER rename_jsonlogic_refs_trigger ON entities IS
 'Updates set_record entity name references in JsonLogic rules when entities.table_name is renamed';
+
+-- =====================================================
+-- STEP 1d: TRIGGER FUNCTION: REWRITE stored record references ON entities.table_name UPDATE
+-- =====================================================
+-- A record reference (<table_name>:<key>, 0160_dd_functions.sql) carries the
+-- name of the record's entity, so a rename rewrites every stored reference
+-- into the renamed entity: the attached_to columns (ctype attached_to) of the
+-- attachable entities and their link tables, matched by prefix, and
+-- user_bookmarks.entity_name, which holds the table part on its own. Copies
+-- outside the database - webhook payloads, integrations - keep the old name.
+--
+-- The rewrite is no edit of those records, so it runs past their triggers:
+-- the rules of the entity (a bookmark's owner rule would run as the one
+-- renaming), the attach step (which keeps attached_to as it is on every
+-- update), updated_at, the audit log and the queues. dd_backfill_mute
+-- (0210_computed_validation.sql) switches every plainly enabled one of the
+-- rewritten relation off with ALTER TABLE rather than through a setting a
+-- client could write; the lock it takes holds that table's writers back until
+-- the rename commits. A table with no reference to rewrite is not locked at
+-- all.
+CREATE OR REPLACE FUNCTION rename_dd_record_refs()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_undo  TEXT[];
+    v_stmt  TEXT;
+    v_found BOOLEAN;
+    r       RECORD;
+BEGIN
+    FOR r IN
+        SELECT e.table_name AS entity, dd_relation(e.table_name, e.id_type) AS rel,
+               format('%1$I = %2$L || substr(%1$I, %3$s)', f.field_name, NEW.table_name,
+                      length(OLD.table_name) + 1) AS set_clause,
+               format('%I LIKE %L', f.field_name, dd_ref_like(OLD.table_name)) AS match
+          FROM fields f
+          JOIN entities e ON e.table_name = f.table_name
+         WHERE f.ctype = 'attached_to'
+           AND e.managed
+        UNION ALL
+        SELECT 'user_bookmarks', 'user_bookmarks', format('entity_name = %L', NEW.table_name),
+               format('entity_name = %L', OLD.table_name)
+         WHERE to_regclass('public.user_bookmarks') IS NOT NULL
+    LOOP
+        CONTINUE WHEN to_regclass(format('public.%I', r.rel)) IS NULL;
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE %s)', r.rel, r.match) INTO v_found;
+        CONTINUE WHEN NOT v_found;
+
+        v_undo := dd_backfill_mute(r.entity, TRUE);
+        EXECUTE format('UPDATE public.%I SET %s WHERE %s', r.rel, r.set_clause, r.match);
+        FOREACH v_stmt IN ARRAY v_undo LOOP
+            EXECUTE v_stmt;
+        END LOOP;
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION rename_dd_record_refs() IS
+'AFTER UPDATE trigger on entities: when table_name changes, rewrites the stored record references into the entity - the attached_to columns of attachable entities and link tables, and user_bookmarks.entity_name - past the triggers of those tables, which it disables for the rewrite (dd_backfill_mute).';
+
+REVOKE EXECUTE ON FUNCTION rename_dd_record_refs() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER rename_record_refs_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION rename_dd_record_refs();
+
+COMMENT ON TRIGGER rename_record_refs_trigger ON entities IS
+'Rewrites the stored record references into an entity when entities.table_name is renamed';
 
 -- =====================================================
 -- STEP 2: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE
@@ -13804,7 +14750,7 @@ REVOKE EXECUTE ON FUNCTION validate_field_rename_and_format() FROM PUBLIC;
 $pgsem__core_0170_dd_rename_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0170_dd_rename.sql', '20261123164322.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c')
+        VALUES ('_core.0170_dd_rename.sql', '99999999999999.0e573f226a94958bdf7181f7bf74de0cb9a3e56fc715f464094eb28f5053cb4f')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -13841,7 +14787,7 @@ $pgsem__core_0170_dd_rename_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0180_managed_enable.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.19689872970686f0090ce63d6590e94a6d37faddb078648239b538de0c311152') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0180_managed_enable.sql';
       EXECUTE $pgsem__core_0180_managed_enable_sql$-- =====================================================
@@ -14536,6 +15482,7 @@ DECLARE
     v_sql         TEXT;
     v_base        TEXT;
     v_id_col      TEXT;
+    v_attachable  TEXT;
     r             RECORD;
 BEGIN
     -- Skip when the entity metadata or the physical table is absent, which is
@@ -14704,6 +15651,31 @@ BEGIN
             r.field_name || '_label', v_rowtype,
             format('Composed label of the "%s" record referenced by %s.%s (PostgREST computed column). Generated by rebuild_entity_label_functions.', r.reference_table, p_table_name, r.field_name));
     END LOOP;
+
+    -- attached_to_label for the target of an attachable record or a link
+    -- row: the composed label of the record its reference names, dispatched
+    -- on the table name to the targets the attachable entity lists
+    -- (dd_attach_case_sql, 0160_dd_functions.sql). As the caller, so a target
+    -- the caller cannot see shows no label. A real column of that name wins,
+    -- as for <fk>_label.
+    SELECT coalesce(e.link_of, e.table_name) INTO v_attachable FROM entities e WHERE e.table_name = p_table_name;
+    IF EXISTS (SELECT 1 FROM fields f
+                WHERE f.table_name = p_table_name AND f.field_name = 'attached_to' AND f.ctype = 'attached_to')
+       AND EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = p_table_name AND column_name = 'attached_to')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'public' AND table_name = p_table_name AND column_name = 'attached_to_label') THEN
+        EXECUTE format(
+            'CREATE OR REPLACE FUNCTION public.attached_to_label(rec %s) RETURNS text '
+            'LANGUAGE sql STABLE SET search_path = public, pg_temp AS %s',
+            v_rowtype, dd_dollar_quote(' SELECT ' || dd_attach_case_sql(v_attachable, 'rec.attached_to', 'label') || ' '));
+        EXECUTE format('REVOKE EXECUTE ON FUNCTION public.attached_to_label(%s) FROM PUBLIC', v_rowtype);
+        EXECUTE format('GRANT EXECUTE ON FUNCTION public.attached_to_label(%s) TO semantius_user', v_rowtype);
+        EXECUTE format(
+            'COMMENT ON FUNCTION public.attached_to_label(%s) IS %L',
+            v_rowtype,
+            format('Composed label of the record %s.attached_to names (PostgREST computed column), for a caller who sees it. Generated by rebuild_entity_label_functions.', p_table_name));
+    END IF;
 
     PERFORM set_config('check_function_bodies', v_saved, true);
 END;
@@ -15148,7 +16120,7 @@ GRANT EXECUTE ON FUNCTION dd_spine_parent(TEXT) TO semantius_user;
 $pgsem__core_0180_managed_enable_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0180_managed_enable.sql', '20261123164322.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb')
+        VALUES ('_core.0180_managed_enable.sql', '99999999999999.19689872970686f0090ce63d6590e94a6d37faddb078648239b538de0c311152')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -16397,7 +17369,7 @@ $pgsem__core_0200_audit_log_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0210_computed_validation.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.a055e22b595d8c605862fe4f1f090d7e2fcd2e1dd01eb5fbc6cd6051e41f5624') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0210_computed_validation.sql';
       EXECUTE $pgsem__core_0210_computed_validation_sql$-- =====================================================
@@ -16418,6 +17390,8 @@ $pgsem__core_0200_audit_log_sql$;
 --   $today    -> current date in UTC
 --   $now      -> current timestamp in UTC
 --   $user_id  -> internal user_id from JWT context, null when no context
+--   $role_ids -> the ids of the user's roles (public.jl_role_ids), empty when
+--                no context
 --   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
 --   $mode     -> the operation: 'insert' | 'update' | 'delete'
 --
@@ -16717,6 +17691,18 @@ BEGIN
         END LOOP;
     END IF;
 
+    -- A numbered label is the database's to write (common.label_number_assign,
+    -- 0160_dd_functions.sql), and a rule writing it would overwrite the number
+    -- after the label step ran.
+    IF NEW.label_format = 'number' AND jsonb_typeof(NEW.computed_fields) = 'array'
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c
+                    WHERE split_part(c ->> 'name', '.', 1) = NEW.label_column) THEN
+        RAISE EXCEPTION 'computed_fields on ${table} cannot write the label column ${field_name}, which is numbered'
+            USING ERRCODE = '90288',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.label_column,
+                                            'hint', 'Set label_format to custom, or remove the rule.')::text;
+    END IF;
+
     IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
             v_item := NEW.computed_fields -> v_idx;
@@ -16739,7 +17725,7 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
-'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909) and a select_rule or validation rule that is not one JsonLogic operation (90919). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
+'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909), a select_rule or validation rule that is not one JsonLogic operation (90919), and a computed field that writes a numbered label column (90288). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
 
 -- The check runs as whoever saves the entity, so the request role needs the
 -- helpers; the trigger function itself is called by the trigger alone.
@@ -16817,6 +17803,71 @@ COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
 -- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
+
+-- Whether a rule reads a $ variable, found by walking it, as the evaluator
+-- would, for the keys it reads (jl_row_keys): the variable itself, a path
+-- below it, or a key that is not written out. The interpreter evaluates the
+-- key of a var, of missing and of missing_some as JsonLogic, so
+-- {"var":{"cat":["$ol","d.label"]}} resolves to $old.label with the name
+-- nowhere in the rule; what such a key will be cannot be known here, so it
+-- counts as reading every variable.
+CREATE OR REPLACE FUNCTION dd_rule_reads(p_logic JSONB, p_variable TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1 FROM jl_row_keys(p_logic) AS k(key)
+                    WHERE k.key IS NULL OR k.key = p_variable OR starts_with(k.key, p_variable || '.'));
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_reads(JSONB, TEXT) IS
+'TRUE when a JsonLogic rule reads the given $ variable, a path below it, or a key it computes (jl_row_keys).';
+
+REVOKE EXECUTE ON FUNCTION dd_rule_reads(JSONB, TEXT) FROM PUBLIC;
+
+-- Whether a record rule of an entity - a computed field or a validation rule -
+-- reads a $ variable (dd_rule_reads). The rule functions
+-- (build_record_logic_trigger) and the computed-field pass (computed_backfill)
+-- build the costly variables, $old and $role_ids, only for an entity whose
+-- record rules read them; a select_rule predicate asks dd_rule_reads of the
+-- select_rule itself.
+CREATE OR REPLACE FUNCTION dd_entity_reads(p_entity entities, p_variable TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1
+                     FROM jsonb_array_elements(coalesce(p_entity.computed_fields, '[]'::jsonb)
+                                               || coalesce(p_entity.validation_rules, '[]'::jsonb)) AS r(item)
+                    WHERE dd_rule_reads(r.item -> 'jsonlogic', p_variable));
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_entity_reads(entities, TEXT) IS
+'TRUE when a computed field or a validation rule of the entity reads the given $ variable (dd_rule_reads).';
+
+REVOKE EXECUTE ON FUNCTION dd_entity_reads(entities, TEXT) FROM PUBLIC;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION dd_rule_reads(JSONB, TEXT), dd_entity_reads(entities, TEXT) TO semantius_owner;
+    END IF;
+END $$;
+
+-- $role_ids, the ids of the caller's roles (rbac.user_role_ids, empty without a
+-- user) as a JSON array. It reads user_roles, so a rule gets it only when it
+-- reads it (dd_entity_reads, dd_rule_reads).
+CREATE OR REPLACE FUNCTION public.jl_role_ids()
+RETURNS JSONB AS $$
+    SELECT to_jsonb(rbac.user_role_ids());
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION public.jl_role_ids() IS
+'The JsonLogic variable $role_ids: the ids of the caller''s roles as a JSON array, empty without a user.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_role_ids() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jl_role_ids() TO semantius_user;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION public.jl_role_ids() TO semantius_owner;
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION build_record_logic_trigger(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -16899,28 +17950,22 @@ BEGIN
     -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
     -- blocking the delete.
     --
-    -- Whether a rule reads $old is found by walking it, as the evaluator would,
-    -- for the keys it reads (jl_row_keys). Three kinds count:
-    --   * a key that is $old or a path below it, {"var":"$old.label"};
-    --   * value_changed, which never names $old but reads the key itself and
-    --     returns true whenever it is absent, so an entity using it would
-    --     silently start reporting every field as changed;
-    --   * a key that is not written out. The interpreter evaluates the key of a
-    --     var, of missing and of missing_some as JsonLogic, so {"var":{"cat":
-    --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
-    --     the rule. What such a key will be cannot be known here, so any entity
-    --     using one gets the full context.
-    SELECT EXISTS (
-        SELECT 1
-          FROM jsonb_array_elements(COALESCE(v_entity.computed_fields, '[]'::jsonb)
-                                    || COALESCE(v_entity.validation_rules, '[]'::jsonb)) AS r(item)
-         CROSS JOIN LATERAL jl_row_keys(r.item -> 'jsonlogic') AS k(key)
-         WHERE k.key IS NULL OR k.key = '$old' OR starts_with(k.key, '$old.'))
-      INTO v_needs_old;
+    -- Whether a rule reads $old is found by walking it (dd_entity_reads), which
+    -- counts value_changed too: it never names $old but reads the key itself
+    -- and returns true whenever it is absent, so an entity using it would
+    -- silently start reporting every field as changed.
+    v_needs_old := dd_entity_reads(v_entity, '$old');
 
     IF v_needs_old THEN
         v_extra_ctx := v_extra_ctx || $CTX$,
         '$old',     COALESCE(p_old, 'null'::jsonb)$CTX$;
+    END IF;
+
+    -- $role_ids reads user_roles on every write, so it is built only for the
+    -- entities whose rules read it, found the same way (public.jl_role_ids).
+    IF dd_entity_reads(v_entity, '$role_ids') THEN
+        v_extra_ctx := v_extra_ctx || $CTX$,
+        '$role_ids', public.jl_role_ids()$CTX$;
     END IF;
 
     v_extra_ctx := v_extra_ctx || $CTX$,
@@ -17075,6 +18120,12 @@ DECLARE
     v_err_detail text;
     v_err_hint text;
 BEGIN
+    -- The delete step of a target deletes a multiple record that lost its last
+    -- target past its rules, as a foreign-key cascade would
+    -- (common.attached_step_marked).
+    IF p_mode = 'delete' AND common.attached_step_marked(%s) THEN
+        RETURN p_data;
+    END IF;
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.
     v_uid_text := rbac.user_id_or_null()::text;
@@ -17087,9 +18138,9 @@ BEGIN
                    END%s
     );
 %s
-    RETURN v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+    RETURN v_data - '$today' - '$now' - '$user_id' - '$role_ids' - '$old' - '$mode';
 END;
-$RULES$, v_extra_ctx, v_rules_block)));
+$RULES$, quote_literal(p_table_name), v_extra_ctx, v_rules_block)));
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
@@ -17171,7 +18222,16 @@ $TRIG$, v_rules_name,
     --   INSERT  a_auto_order_<table>   the order column, so the rules see it
     --           a_rollup_guard         the rollup columns, so the rules see them
     --           a_typeid_assign        a typeid key, so the rules see it
+    --           b_file_size            the size of a file's contents
+    --                                  (0470_tasks_files_comments.sql), so the
+    --                                  rules see it
+    --           b_label_number         a numbered label, from the id or a
+    --                                  counter picked by its prefix, so the key
+    --                                  is settled and the rules see the label
     --           compute_validate_trigger
+    --           d_attach_check         the target of an attachable record or a
+    --                                  link row (0450_attachables.sql), after
+    --                                  the rules, so one a rule wrote is checked
     --           zz_key_check_insert    the prefix of a key a rule wrote
     --   UPDATE  a_is_a_dispatch        on an is_a root: a subtype record goes
     --                                  to its write routine, whose own rules
@@ -17179,7 +18239,10 @@ $TRIG$, v_rules_name,
     --           a_raci_gate_on_<table> a held state, so the rules judge the
     --                                  state that will be stored
     --           a_rollup_guard         as on INSERT
+    --           b_file_size            as on INSERT
+    --           b_label_number         a numbered label keeps its stored value
     --           compute_validate_trigger
+    --           d_attach_check         a target keeps its stored value
     --           pk_immutable           UPDATE OF <key>: only a key the
     --                                  statement names
     --           raci_gate_on_<table>   a state a rule moved
@@ -17247,7 +18310,7 @@ BEGIN
             UPDATE fields f
                SET ctype = f.ctype
              WHERE f.table_name = NEW.table_name
-               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label')
+               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label', 'number_label')
                AND (coalesce(f.ctype, '') IN ('computed', 'computed_label')) IS DISTINCT FROM
                    EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name);
         END IF;
@@ -17290,7 +18353,9 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- =====================================================
 -- A field that one of its entity's computed_fields names carries ctype
 -- 'computed', as a rollup field carries 'rollup', and the label column carries
--- 'computed_label' instead of 'label'. ctype is the one signal a client reads
+-- 'computed_label' instead of 'label'; the label column of an entity whose
+-- label_format is number carries 'number_label', which no rule may write
+-- (90288). ctype is the one signal a client reads
 -- to know the database writes the value: derived from the rule, never sent by
 -- a client (fields_ctype_lock runs first and refuses a ctype a caller sends, so
 -- the marker never passes through it). 'computed' is not a core marker
@@ -17317,7 +18382,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_named BOOLEAN;
 BEGIN
-    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label', 'number_label') THEN
         RETURN NEW;
     END IF;
     SELECT EXISTS (
@@ -17327,7 +18392,11 @@ BEGIN
            AND c ->> 'name' = NEW.field_name)
       INTO v_named;
     IF dd_ctype_is_label(NEW.ctype) THEN
-        NEW.ctype := CASE WHEN v_named THEN 'computed_label' ELSE 'label' END;
+        NEW.ctype := CASE WHEN EXISTS (SELECT 1 FROM entities e
+                                        WHERE e.table_name = NEW.table_name AND e.label_format = 'number')
+                          THEN 'number_label'
+                          WHEN v_named THEN 'computed_label'
+                          ELSE 'label' END;
     ELSE
         NEW.ctype := CASE WHEN v_named THEN 'computed' ELSE '' END;
     END IF;
@@ -17336,7 +18405,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names, computed_label on such a label column and number_label on the label column of an entity whose label_format is number, and returns the marker to empty or label otherwise. input_type is left as set.';
 
 REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
 
@@ -17366,7 +18435,12 @@ CREATE OR REPLACE TRIGGER zz_derive_computed_ctype
 --
 -- Returns the statements that switch the triggers back on. Only triggers that are
 -- plainly enabled are touched, so one an operator disabled stays disabled.
-CREATE OR REPLACE FUNCTION dd_backfill_mute(p_table TEXT)
+-- p_rewrite is for a write that is no edit of the records at all
+-- (rename_dd_record_refs, 0170_dd_rename.sql): it switches off every plainly
+-- enabled trigger, on the entity's own relation only, which is all such a
+-- write touches.
+DROP FUNCTION IF EXISTS dd_backfill_mute(TEXT);
+CREATE OR REPLACE FUNCTION dd_backfill_mute(p_table TEXT, p_rewrite BOOLEAN DEFAULT FALSE)
 RETURNS TEXT[] AS $fn$
 DECLARE
     v_undo TEXT[] := ARRAY[]::TEXT[];
@@ -17388,6 +18462,7 @@ BEGIN
                   SELECT e.id_refentity FROM entities e
                    WHERE e.table_name = reach.t AND e.id_type IN ('is_a', 'has_a')
               ) x
+             WHERE NOT p_rewrite
         )
         SELECT c.relname, t.tgname
           FROM reach
@@ -17396,10 +18471,11 @@ BEGIN
           JOIN pg_trigger t ON t.tgrelid = c.oid
          WHERE NOT t.tgisinternal
            AND t.tgenabled = 'O'
-           AND t.tgfoid = ANY (ARRAY[to_regproc('common.update_updated_at_column'),
-                                     to_regproc('audit.insert_update_delete_trigger'),
-                                     to_regproc('public.queue_build_record_json'),
-                                     to_regproc('public.raci_emit_trigger_fn')]::oid[])
+           AND (p_rewrite
+                OR t.tgfoid = ANY (ARRAY[to_regproc('common.update_updated_at_column'),
+                                         to_regproc('audit.insert_update_delete_trigger'),
+                                         to_regproc('public.queue_build_record_json'),
+                                         to_regproc('public.raci_emit_trigger_fn')]::oid[]))
     LOOP
         EXECUTE format('ALTER TABLE public.%I DISABLE TRIGGER %I', r.relname, r.tgname);
         v_undo := v_undo || format('ALTER TABLE public.%I ENABLE TRIGGER %I', r.relname, r.tgname);
@@ -17408,10 +18484,10 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION dd_backfill_mute(TEXT) IS
-'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write, and returns the statements that enable them again.';
+COMMENT ON FUNCTION dd_backfill_mute(TEXT, BOOLEAN) IS
+'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write - with p_rewrite every plainly enabled trigger of the entity''s own relation - and returns the statements that enable them again.';
 
-REVOKE EXECUTE ON FUNCTION dd_backfill_mute(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_backfill_mute(TEXT, BOOLEAN) FROM PUBLIC;
 
 -- The computed rules in order over a record that already carries its context, as
 -- the block build_record_logic_trigger generates for each rule does.
@@ -17494,7 +18570,9 @@ BEGIN
         '$today',   to_jsonb(CURRENT_DATE),
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE WHEN v_uid IS NULL OR v_uid = '' THEN 'null'::jsonb ELSE to_jsonb(v_uid::bigint) END,
-        '$mode',    'update');
+        '$mode',    'update')
+        || CASE WHEN dd_entity_reads(v_e, '$role_ids')
+                THEN jsonb_build_object('$role_ids', public.jl_role_ids()) ELSE '{}'::jsonb END;
 
     v_differs := format(
         'SELECT ROW(%1$s) IS DISTINCT FROM ROW(%2$s) FROM jsonb_populate_record(NULL::public.%3$I, $1) o, jsonb_populate_record(NULL::public.%3$I, $2) n',
@@ -17587,7 +18665,8 @@ CREATE OR REPLACE TRIGGER zz_computed_field_added
 -- DELETE policies so each row is filtered by the rule. The two-argument helper
 -- merges the row with a statement context handed to it; the one-argument helper
 -- resolves that context itself. Reserved variables are
--- ($today, $now, $user_id — there is no $old/$mode for a read),
+-- ($today, $now, $user_id, and $role_ids for a rule that reads it — there is
+-- no $old/$mode for a read),
 -- evaluates the JsonLogic rule, and returns true only when the result is truthy.
 
 -- The reserved JsonLogic variables that do not vary within a statement. RLS
@@ -17629,7 +18708,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION public.jl_request_context() IS
-'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
+'Statement-constant JsonLogic context: $today, $now and $user_id ($role_ids is added by the predicates whose rule reads it). Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
 
 REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
@@ -17743,10 +18822,59 @@ $$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 'Whether app.row_move holds the token of the given row for the current transaction, that is, whether this row is the one the running statement is writing. Called by the generated select_rule predicates.';
 
+-- The delete step of a target (common.attached_step, 0450_attachables.sql)
+-- removes link rows and deletes the multiple records that lost their last
+-- target without asking the attachable entity's rules, as a foreign-key cascade
+-- would: whoever deletes the target need not be allowed to change those
+-- records, nor learn that they exist. While it runs those deletes it leaves
+-- the transaction-local setting app.attached_step, which
+-- common.attach_record_rules and the generated rule functions honor for that
+-- attachable entity's family alone. A client can write the setting, so its
+-- value is a token as the row move's: of the secret, the transaction id and
+-- the family's root, which a client cannot make (see above). NULL clears it.
+-- The check takes any entity of the family and finds the root itself, so a
+-- generated rule function names no other entity than its own.
+CREATE OR REPLACE FUNCTION common.attached_step_mark(p_root TEXT)
+RETURNS VOID AS $$
+BEGIN
+    PERFORM set_config('app.attached_step',
+                       coalesce(common.row_move_token(common.row_move_secret(), pg_current_xact_id()::text,
+                                                      'attached_step', p_root), ''),
+                       true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION common.attached_step_mark(TEXT) IS
+'Marks, for the rest of the delete step, that the deletes of the attachable family p_root are a cascade of a target''s delete and pass its rules (app.attached_step); NULL clears the mark.';
+
+-- Not SECURITY DEFINER and not granted to the request role, as
+-- common.row_move_matches: its callers run as the owner.
+CREATE OR REPLACE FUNCTION common.attached_step_marked(p_entity TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_token  TEXT := current_setting('app.attached_step', true);
+    v_xid    xid8 := pg_current_xact_id_if_assigned();
+    v_secret TEXT;
+BEGIN
+    IF COALESCE(v_token, '') = '' OR v_xid IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
+    RETURN COALESCE(v_token = common.row_move_token(v_secret, v_xid::text, 'attached_step',
+                                                    (SELECT a.table_name FROM dd_ancestors(p_entity) a WHERE a.depth = 0)),
+                    FALSE);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION common.attached_step_marked(TEXT) IS
+'Whether the running delete step of a target has marked the deletes of the attachable family of p_entity (common.attached_step_mark), so they pass its rules.';
+
 REVOKE EXECUTE ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_secret() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_clear() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_matches(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.attached_step_mark(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.attached_step_marked(TEXT) FROM PUBLIC;
 
 -- On an upgrade the generated predicates and the dictionary's definer code
 -- already run as semantius_owner, while a function new in this file stays owned
@@ -17757,10 +18885,77 @@ BEGIN
         GRANT EXECUTE ON FUNCTION
             common.row_move_token(TEXT, TEXT, TEXT, TEXT),
             common.row_move_secret(),
-            common.row_move_matches(TEXT, TEXT)
+            common.row_move_matches(TEXT, TEXT),
+            common.attached_step_mark(TEXT),
+            common.attached_step_marked(TEXT)
         TO semantius_owner;
     END IF;
 END $$;
+
+-- The terms an attachable entity (0450_attachables.sql) adds to its own
+-- policies, built from its targets by dd_attach_case_sql
+-- (0160_dd_functions.sql); both NULL for any other entity.
+--   single, owned_shared   a record follows its target, held in attached_to:
+--                          sel, the target is visible to the caller; edit, it
+--                          is and the caller holds the edit permission of
+--                          every level of it
+--   a link entity          a row needs both ends: sel, its attachable record
+--                          and its target are visible; edit, the attachable
+--                          record is visible (for an owned_shared one, its
+--                          owner editable as well) and the target meets the
+--                          attach permission
+-- A multiple entity's records keep their own permissions and get none. The
+-- targets are read as the caller through their own policies, so a target's
+-- row-level security applies to every record attached to it.
+CREATE OR REPLACE FUNCTION dd_attach_policy_terms(p_table_name TEXT, OUT sel TEXT, OUT edit TEXT) AS $$
+DECLARE
+    v_entity     entities%ROWTYPE;
+    v_attachable entities%ROWTYPE;
+    v_rel        TEXT;
+    v_ref        TEXT;
+    v_record     TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    v_rel := dd_relation(p_table_name, v_entity.id_type);
+    v_ref := format('%I.attached_to', v_rel);
+
+    -- The columns come after the table (0450_attachables.sql adds them to an
+    -- entity it has just created); until then there is no record to follow.
+    IF EXISTS (SELECT 1
+                 FROM unnest(ARRAY['attached_to', v_entity.link_of || '_id']) AS c(name)
+                WHERE c.name IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                                   WHERE a.attrelid = to_regclass(format('public.%I', v_rel))
+                                     AND a.attname = c.name AND a.attnum > 0 AND NOT a.attisdropped)) THEN
+        RETURN;
+    END IF;
+
+    IF v_entity.link_of IS NOT NULL THEN
+        SELECT * INTO v_attachable FROM entities WHERE table_name = v_entity.link_of;
+        IF NOT FOUND THEN
+            RETURN;
+        END IF;
+        v_record := format('EXISTS (SELECT 1 FROM public.%I a WHERE a.%I = %I.%I',
+                           dd_relation(v_attachable.table_name, v_attachable.id_type), v_attachable.id_column,
+                           v_rel, v_attachable.table_name || '_id');
+        sel := v_record || ') AND ' || dd_attach_case_sql(v_attachable.table_name, v_ref, 'visible');
+        edit := v_record
+                || CASE WHEN v_attachable.attach_mode = 'owned_shared'
+                        THEN ' AND ' || dd_attach_case_sql(v_attachable.table_name, 'a.attached_to', 'edit')
+                        ELSE '' END
+                || ') AND ' || dd_attach_case_sql(v_attachable.table_name, v_ref,
+                                   CASE WHEN v_attachable.attach_permission = 'edit' THEN 'edit' ELSE 'visible' END);
+    ELSIF v_entity.attach_mode IN ('single', 'owned_shared') THEN
+        sel := dd_attach_case_sql(p_table_name, v_ref, 'visible');
+        edit := dd_attach_case_sql(p_table_name, v_ref, 'edit');
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_policy_terms(TEXT) IS
+'The terms the policies of an attachable entity (single, owned_shared) or of a link entity add to its own: sel for SELECT, edit for UPDATE and DELETE. NULL for every other entity. Used by build_select_rule_policy.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_policy_terms(TEXT) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -17779,6 +18974,9 @@ DECLARE
     v_arg JSONB;
     v_lead TEXT;
     v_rule_pred TEXT;
+    v_attach RECORD;
+    v_sel TEXT;
+    v_ctx TEXT := 'public.jl_request_context()';
     v_mark_name TEXT := 'row_move_mark_' || p_table_name;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
@@ -17825,6 +19023,10 @@ BEGIN
         v_parent_pred := '(fields.table_name IN (SELECT p.table_name FROM public.entities p))';
     END IF;
 
+    -- An attachable record that follows its target, and a link row, add the
+    -- terms of their targets to every policy below (dd_attach_policy_terms).
+    v_attach := dd_attach_policy_terms(p_table_name);
+
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select: PostgreSQL then
     -- evaluates it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on
     -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
@@ -17838,10 +19040,13 @@ BEGIN
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
         EXECUTE format('DROP FUNCTION IF EXISTS common.%I()', v_mark_name);
+        v_sel := COALESCE(v_parent_pred, format('(SELECT rbac.has_permission(%L))', v_entity.view_permission));
+        IF v_attach.sel IS NOT NULL THEN
+            v_sel := v_sel || ' AND ' || v_attach.sel;
+        END IF;
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
-            v_policy_name, v_rel,
-            COALESCE(v_parent_pred, format('(SELECT rbac.has_permission(%L))', v_entity.view_permission)));
+            v_policy_name, v_rel, v_sel);
         -- The view permission has to be in the USING of UPDATE and DELETE itself.
         -- PostgreSQL holds the rows an UPDATE or DELETE touches to the SELECT policy only
         -- when the statement reads a column of the table, so with the edit permission
@@ -17859,6 +19064,9 @@ BEGIN
             v_write_using := v_write_using
                 || format(' AND (SELECT rbac.has_permission(%L))', v_entity.view_permission);
         END IF;
+        IF v_attach.edit IS NOT NULL THEN
+            v_write_using := v_write_using || ' AND ' || v_attach.edit;
+        END IF;
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
         EXECUTE format(
@@ -17871,6 +19079,13 @@ BEGIN
     END IF;
 
     v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- $role_ids (public.jl_role_ids) only for a rule that reads it, merged
+    -- into the request context of both overloads below; once per statement,
+    -- as the rest of the context.
+    IF dd_rule_reads(v_entity.select_rule, '$role_ids') THEN
+        v_ctx := '(public.jl_request_context() || jsonb_build_object(''$role_ids'', public.jl_role_ids()))';
+    END IF;
 
     -- The data the rule sees. A policy on <entity>_ext hands the function
     -- that table's row, which holds the entity's own fields only, so the rule
@@ -17976,8 +19191,8 @@ $FUNC$, v_fn_name, v_rel,
         dd_dollar_quote(v_predicate),
         v_fn_name, v_rel,
         dd_dollar_quote(format($SEL$
-    SELECT public.%I(p_row, public.jl_request_context());
-$SEL$, v_fn_name)));
+    SELECT public.%I(p_row, %s);
+$SEL$, v_fn_name, v_ctx)));
 
     EXECUTE v_body;
 
@@ -18004,7 +19219,7 @@ $SEL$, v_fn_name)));
     -- scanned row. It has to appear in all three policies: a USING clause is
     -- evaluated per row for every UPDATE and DELETE as well, so a policy left
     -- with a bare call keeps paying per row on the write path.
-    v_rule_pred := format('public.%I(%I.*, (SELECT public.jl_request_context()))', v_fn_name, v_rel);
+    v_rule_pred := format('public.%I(%I.*, (SELECT %s))', v_fn_name, v_rel, v_ctx);
 
     -- The leading terms of a rule's top-level "or" that are has_permission of a
     -- name written into the rule, such as {"has_permission": "admin"} in the rules
@@ -18050,9 +19265,13 @@ $SEL$, v_fn_name)));
         END IF;
     END IF;
 
+    v_sel := v_rule_pred;
+    IF v_attach.sel IS NOT NULL THEN
+        v_sel := v_sel || ' AND ' || v_attach.sel;
+    END IF;
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
-        v_policy_name, v_rel, v_rule_pred);
+        v_policy_name, v_rel, v_sel);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
@@ -18119,6 +19338,9 @@ $MARK$, v_entity.id_column, v_rel)));
         v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
+    IF v_attach.edit IS NOT NULL THEN
+        v_rule_pred := v_rule_pred || ' AND ' || v_attach.edit;
+    END IF;
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND %s) WITH CHECK ((SELECT rbac.has_permission(%L)))',
         v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_rule_pred, v_entity.edit_permission);
@@ -18129,7 +19351,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule and the function common.row_move_mark_<entity> the first of them runs. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers and that function are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule and the function common.row_move_mark_<entity> the first of them runs. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers and that function are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The policies of an attachable entity that follows its target and of a link entity carry the terms of dd_attach_policy_terms as well. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 
@@ -18180,7 +19402,7 @@ REVOKE EXECUTE ON FUNCTION manage_select_rule_policy() FROM PUBLIC;
 $pgsem__core_0210_computed_validation_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0210_computed_validation.sql', '20261123164322.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11')
+        VALUES ('_core.0210_computed_validation.sql', '99999999999999.a055e22b595d8c605862fe4f1f090d7e2fcd2e1dd01eb5fbc6cd6051e41f5624')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18809,18 +20031,18 @@ $$;
 -- =====================================================
 -- POLICIES OF THE CORE TABLES
 -- =====================================================
--- The ten core tables were registered as entities in 0150_dd_bootstrap.once.sql
+-- The eleven core tables were registered as entities in 0150_dd_bootstrap.once.sql
 -- before create_dd_table existed, so nothing generated their policies. Generate them
 -- now, the same way the dictionary does for every other entity, so that a
 -- later change to one of their permissions rebuilds them like any other.
 SELECT create_entity_policies(t)
   FROM unnest(ARRAY['entities', 'fields', 'users', 'modules', 'roles', 'permissions',
                     'user_roles', 'role_permissions', 'user_permissions',
-                    'permission_hierarchy']) AS t;
+                    'permission_hierarchy', 'entity_attachables']) AS t;
 $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '20261123164322.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668')
+        VALUES ('_core.0240_dd_bootstrap_complete.once.sql', '99999999999999.795ea949c280d6f18d569dc28b3558f1ad08b8f9fd7d4e552b8a078b4197fd0c')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -18857,7 +20079,7 @@ $pgsem__core_0240_dd_bootstrap_complete_once_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0250_public_functions.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.f4f6c0b18abf3e9214753bc7317f5023515dd04f9dd5ed3720ef04d16d932754') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0250_public_functions.sql';
       EXECUTE $pgsem__core_0250_public_functions_sql$-- =====================================================
@@ -19342,6 +20564,8 @@ DECLARE
     v_properties    JSON;
     v_required      JSON;
     v_extensions    JSON;
+    v_attach_targets JSON;
+    v_attachables   JSON;
 BEGIN
     PERFORM rbac.uid();
 
@@ -19451,6 +20675,23 @@ BEGIN
        AND x.id_type = 'has_a'
        AND dd_entity_viewable(x.table_name);
 
+    -- An attachable entity (0450_attachables.sql) names its target entities,
+    -- and a target entity the attachable entities whose records can be
+    -- attached to its records, a base's included; each only as far as the
+    -- caller sees it.
+    IF v_table_record.attach_mode <> 'none' THEN
+        SELECT COALESCE(json_agg(ea.target ORDER BY ea.target), '[]'::json)
+          INTO v_attach_targets
+          FROM entity_attachables ea
+         WHERE ea.attachable = p_table_name
+           AND dd_entity_viewable(ea.target);
+    END IF;
+    SELECT json_agg(DISTINCT ea.attachable ORDER BY ea.attachable)
+      INTO v_attachables
+      FROM entity_attachables ea
+     WHERE ea.target IN (SELECT a.table_name FROM dd_ancestors(p_table_name) a)
+       AND dd_entity_viewable(ea.attachable);
+
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are ordinary
     -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
     -- children: fields in other tables that reference this one with format='parent'.
@@ -19463,40 +20704,32 @@ BEGIN
     -- three permission columns and the default_*_role_ids are readable only with 'admin' or
     -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
     -- an entity's view_permission is often public:read. They stay in get_user_modules().
-    -- "extensions" is present only on a has_a base: json_build_object keeps the key order a
-    -- client sees, which a jsonb concatenation would not.
-    IF v_extensions IS NULL THEN
-        v_result := json_build_object(
-            '$schema', 'https://semantius.com/meta/sem-schema/v1',
-            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-            'title', v_table_record.singular_label,
-            'description', v_table_record.description,
-            'table', to_jsonb(v_table_record) || jsonb_build_object(
-                'module_slug',
-                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-            'type', 'object',
-            'properties', v_properties,
-            'required', v_required,
-            'children', public.get_schema_children(p_table_name),
-            'additionalProperties', false
-        );
-    ELSE
-        v_result := json_build_object(
-            '$schema', 'https://semantius.com/meta/sem-schema/v1',
-            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-            'title', v_table_record.singular_label,
-            'description', v_table_record.description,
-            'table', to_jsonb(v_table_record) || jsonb_build_object(
-                'module_slug',
-                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-            'type', 'object',
-            'properties', v_properties,
-            'required', v_required,
-            'children', public.get_schema_children(p_table_name),
-            'additionalProperties', false,
-            'extensions', v_extensions
-        );
-    END IF;
+    -- "extensions" is present only on a has_a base, "attach_mode" and "attach_targets" only
+    -- on an attachable entity, "attachables" only on a target entity. json_object_agg over
+    -- the ordered pairs keeps the key order a client sees, which a jsonb concatenation would
+    -- not; the keys after additionalProperties are left out when they have no value.
+    SELECT json_object_agg(k.key, k.value ORDER BY k.n)
+      INTO v_result
+      FROM (VALUES
+          (1, '$schema', to_json('https://semantius.com/meta/sem-schema/v1'::text)),
+          (2, '$id', to_json('https://example.com/schemas/' || p_table_name || '.schema.json')),
+          (3, 'title', to_json(v_table_record.singular_label)),
+          (4, 'description', to_json(v_table_record.description)),
+          (5, 'table', to_json(to_jsonb(v_table_record) || jsonb_build_object(
+                  'module_slug',
+                  (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)))),
+          (6, 'type', to_json('object'::text)),
+          (7, 'properties', v_properties),
+          (8, 'required', v_required),
+          (9, 'children', public.get_schema_children(p_table_name)),
+          (10, 'additionalProperties', to_json(false)),
+          (11, 'extensions', v_extensions),
+          (12, 'attach_mode', CASE WHEN v_table_record.attach_mode <> 'none'
+                                   THEN to_json(v_table_record.attach_mode) END),
+          (13, 'attach_targets', v_attach_targets),
+          (14, 'attachables', v_attachables)
+      ) AS k(n, key, value)
+     WHERE k.n <= 10 OR k.value IS NOT NULL;
 
     RETURN v_result;
 END;
@@ -19506,7 +20739,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: returns it only to a caller who sees the entity in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level an is_a/has_a entity is stored in) and raises for anybody else exactly the error of a missing table, matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a reference to an entity the caller does not see carries its name and nothing taken from its row. A has_a base lists the extensions the caller sees. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+'Builds a schema JSON for a single table. Self-gating: returns it only to a caller who sees the entity in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level an is_a/has_a entity is stored in) and raises for anybody else exactly the error of a missing table, matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a reference to an entity the caller does not see carries its name and nothing taken from its row. A has_a base lists the extensions the caller sees; an attachable entity its attach_mode and the target entities the caller sees (attach_targets), a target entity the attachable entities the caller sees (attachables). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;
@@ -19856,7 +21089,7 @@ GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;
 $pgsem__core_0250_public_functions_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0250_public_functions.sql', '20261123164322.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636')
+        VALUES ('_core.0250_public_functions.sql', '99999999999999.f4f6c0b18abf3e9214753bc7317f5023515dd04f9dd5ed3720ef04d16d932754')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -20565,7 +21798,7 @@ $pgsem__core_0280_apikeys_sql$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0290_ensure_entities.sql';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.f1f70a7daa0a641969cfa6f2c5d13c70df6dd17582e062be39db7ecbd944d338') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0290_ensure_entities.sql';
       EXECUTE $pgsem__core_0290_ensure_entities_sql$-- =====================================================
@@ -20827,9 +22060,13 @@ DECLARE
     -- difference, and refused for an is_a entity (90245).
     c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'id_refentity',
         'catalog_entity_code', 'catalog_entity_aliases'];
-    -- Written once the fields exist, because they name fields.
+    -- Written once the fields exist, because they name fields. The label
+    -- number settings go with computed_fields: a rule writing the label and the
+    -- number format exclude each other (90288), so a label that changes from
+    -- one to the other changes in one write.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
-        'validation_rules', 'select_rule'];
+        'validation_rules', 'select_rule', 'label_format', 'label_number_prefix',
+        'label_number_digits', 'label_number_start'];
     c_field_ignored CONSTANT TEXT[] := ARRAY['id', 'table_name', 'created_at', 'updated_at',
         'search_vector'];
     c_field_create_only CONSTANT TEXT[] := ARRAY['ctype', 'catalog_field_code'];
@@ -20917,7 +22154,7 @@ BEGIN
     END IF;
     SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(definition) AS k
      WHERE k <> ALL (ARRAY['version', 'module', 'permissions', 'permission_hierarchy',
-                           'roles', 'role_permissions', 'entities']);
+                           'roles', 'role_permissions', 'entities', 'entity_attachables']);
     IF v_bad IS NOT NULL THEN
         RAISE EXCEPTION 'ensure_entities: unknown top-level key(s): %', v_bad
             USING ERRCODE = '22023';
@@ -20928,7 +22165,7 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
     FOREACH v_key IN ARRAY ARRAY['permissions', 'permission_hierarchy', 'roles',
-                                 'role_permissions', 'entities'] LOOP
+                                 'role_permissions', 'entities', 'entity_attachables'] LOOP
         IF definition ? v_key AND jsonb_typeof(definition -> v_key) <> 'array' THEN
             RAISE EXCEPTION 'ensure_entities: "%" must be an array', v_key
                 USING ERRCODE = '22023';
@@ -20984,6 +22221,21 @@ BEGIN
          WHERE k <> ALL (ARRAY['including_permission_name', 'included_permission_name', 'origin']);
         IF v_bad IS NOT NULL THEN
             RAISE EXCEPTION 'ensure_entities: permission_hierarchy: unknown key(s): %', v_bad
+                USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'entity_attachables', '[]')) e LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR jsonb_typeof(v_item -> 'target') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(v_item -> 'attachable') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'ensure_entities: every entity_attachables row needs target and attachable'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_item) AS k
+         WHERE k <> ALL (ARRAY['target', 'attachable']);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: entity_attachables: unknown key(s): %', v_bad
                 USING ERRCODE = '22023';
         END IF;
     END LOOP;
@@ -21403,6 +22655,25 @@ BEGIN
     END LOOP;
 
     -- ---------------------------------------------------------------
+    -- 5b. The target entities of attachable entities, now that the entities
+    --     and their attach settings exist and before records may attach.
+    --     Added, never removed: a target an administrator switched on in this
+    --     database stays when a module's file does not list it.
+    -- ---------------------------------------------------------------
+    v_summary := v_summary || jsonb_build_object('entity_attachables',
+        jsonb_build_object('created', '[]'::jsonb));
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'entity_attachables', '[]')) e LOOP
+        IF NOT EXISTS (SELECT 1 FROM entity_attachables ea
+                        WHERE ea.target = v_item ->> 'target'
+                          AND ea.attachable = v_item ->> 'attachable') THEN
+            PERFORM ensure_entities_row('entity_attachables', v_item, v_item, NULL,
+                format('attachable %s on %s', v_item ->> 'attachable', v_item ->> 'target'));
+            v_summary := jsonb_insert(v_summary, ARRAY['entity_attachables', 'created', '-1'],
+                to_jsonb((v_item ->> 'attachable') || ' on ' || (v_item ->> 'target')), true);
+        END IF;
+    END LOOP;
+
+    -- ---------------------------------------------------------------
     -- 6. Records, table by table in foreign-key and family order.
     -- ---------------------------------------------------------------
     DECLARE
@@ -21589,7 +22860,7 @@ REVOKE EXECUTE ON FUNCTION public.ensure_entities(JSONB) FROM PUBLIC;
 $pgsem__core_0290_ensure_entities_sql$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0290_ensure_entities.sql', '20261123164322.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c')
+        VALUES ('_core.0290_ensure_entities.sql', '99999999999999.f1f70a7daa0a641969cfa6f2c5d13c70df6dd17582e062be39db7ecbd944d338')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -26186,12 +27457,13 @@ $pgsem__core_0400_dashboard_jsonc$;
   BEGIN
     SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0410_user_bookmarks.jsonc';
     v_found := FOUND;
-    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '20261123164322.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804') THEN
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.5b0db64f9ff6889ebf77f2d5b3e7d15eec2a112fbbedcd31d7b40fe3dacd6662') THEN
       v_ran := true;
       RAISE NOTICE 'pg_semantius: applying _core.0410_user_bookmarks.jsonc';
       EXECUTE $pgsem__core_0410_user_bookmarks_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
-// belongs to one user and can reference an entity and a record; users see and
-// edit only their own.
+// belongs to one user and can reference an entity and a record, whose record
+// reference (0160_dd_functions.sql) is entity_name, ':' and entity_id; users
+// see and edit only their own.
 //
 // Everything is metadata, with no hand-written trigger or policy: the
 // dictionary regenerates its own objects (compute_validate_*, the four
@@ -26220,11 +27492,15 @@ $pgsem__core_0400_dashboard_jsonc$;
         "select_rule": {"==": [{"var": "user_id"}, {"var": "$user_id"}]},
         // Enables drag-and-drop reordering.
         "order_column": "row_order",
-        // The compute trigger forces user_id to the current user on every
-        // insert and update, so a bookmark can be neither created for nor handed
-        // to another user, whatever the edit_permission is. The default INSERT
-        // policy suffices: its WITH CHECK runs after the trigger.
-        "computed_fields": [{"name": "user_id", "jsonlogic": {"var": "$user_id"}}],
+        // The compute trigger sets user_id to the current user on insert and
+        // keeps it on update, so a bookmark can be neither created for nor
+        // handed to another user, whatever the edit_permission is. Kept rather
+        // than set again on update, so a write that runs the rule for somebody
+        // else - the backfill after a rule change runs it over every stored
+        // bookmark as whoever changed the rule - leaves each bookmark with its
+        // owner. The default INSERT policy suffices: its WITH CHECK runs after
+        // the trigger.
+        "computed_fields": [{"name": "user_id", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.user_id"}]}}],
         // The compute trigger reads $user_id through rbac.user_id_or_null(),
         // which is NULL for a session without claims (migrations, maintenance
         // scripts). This rule refuses such an insert or update rather than
@@ -26246,8 +27522,8 @@ $pgsem__core_0400_dashboard_jsonc$;
           {"field_name": "entity_name", "title": "Entity", "description": "",
            "format": "text", "field_order": 40, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""},
-          {"field_name": "entity_id", "title": "Record", "description": "ID of the related record in the entity table (0 = no record)",
-           "format": "int64", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
+          {"field_name": "entity_id", "title": "Record", "description": "Key of the related record in the entity table, as text for every key type (empty = no record); with entity_name it forms the record reference <entity_name>:<entity_id>",
+           "format": "text", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""}
         ]
       }
@@ -26258,7 +27534,7 @@ $pgsem_jsonc$));
 $pgsem__core_0410_user_bookmarks_jsonc$;
       SET CONSTRAINTS ALL IMMEDIATE;
       INSERT INTO public._versions (name, checksum)
-        VALUES ('_core.0410_user_bookmarks.jsonc', '20261123164322.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804')
+        VALUES ('_core.0410_user_bookmarks.jsonc', '99999999999999.5b0db64f9ff6889ebf77f2d5b3e7d15eec2a112fbbedcd31d7b40fe3dacd6662')
         ON CONFLICT (name) DO UPDATE
         SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
       v_applied := v_applied + 1;
@@ -28489,6 +29765,1584 @@ $pgsem__core_0440_rollup_sql$;
   END;
   COMMIT;
 
+  -- _core.0450_attachables.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0450_attachables.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.d947369c3bf23e9bb004ea49365f5af59725fc32fededfd8ae45a0d435d37e50') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0450_attachables.sql';
+      EXECUTE $pgsem__core_0450_attachables_sql$-- =====================================================
+-- ATTACHABLE ENTITIES
+-- =====================================================
+-- An attachable entity's records are attached to records of other entities,
+-- its targets: comments, files and tasks on an order or a customer. Whether
+-- and how an entity is attachable is a property of the entity
+-- (entities.attach_mode); the target entities it may be attached to are the
+-- rows of entity_attachables. A target record is named by its record
+-- reference (<table_name>:<key>, 0160_dd_functions.sql), so a target can be a
+-- record of any entity and any key type.
+--
+--   attach_mode   target(s)                               view and edit
+--   single        exactly one, in attached_to             follow the target
+--   owned_shared  one owner in attached_to, further       follow the owner
+--                 targets in <entity>_links that only
+--                 show it
+--   multiple      any number of equal targets in          the entity's own
+--                 <entity>_links, or none                 permissions
+--
+-- What the dictionary keeps for it, all generated from the catalog:
+--   attached_to               the field of a single or owned_shared entity, and
+--                             of its link entity: text, required, ctype
+--                             attached_to (a core marker), set on insert and
+--                             never changed, indexed with text_pattern_ops so a
+--                             lookup by a table's references can use it
+--   <entity>_links            the link entity of an owned_shared or multiple
+--                             entity, entities.link_of = the entity: its
+--                             <entity>_id (a parent, cascading) and attached_to,
+--                             unique together (<link>_attached_to_unique);
+--                             maintained by the dictionary alone
+--   d_attach_check            the attach step (common.attach_check) on the
+--                             attachable table and its link table
+--   attached_del/_trc         the delete and truncate triggers of every target
+--                             (common.attached_step), and common.attached_<t>,
+--                             its delete step (dd_build_attached_triggers)
+--   the policies              built by build_select_rule_policy
+--                             (0210_computed_validation.sql) from
+--                             dd_attach_policy_terms
+--   attached_to_label         the target's composed label
+--                             (rebuild_entity_label_functions,
+--                             0180_managed_enable.sql)
+-- dd_attach_refresh rebuilds what depends on the targets and modes whenever
+-- they change.
+--
+-- An is_a family is attachable through its root: the root declares the mode,
+-- attached_to lives on the root table, whose triggers fire for every subtype
+-- record, and the link entity references the root. A target listed as a base
+-- admits the records of its is_a subtypes.
+--
+-- An attach and the changes that would leave it without a target or a mode
+-- are kept apart by locks, at READ COMMITTED, the default and PostgREST's
+-- level: the attach step locks the target row and the row of
+-- entity_attachables that admits it FOR KEY SHARE, so a delete of the target
+-- and a switch-off wait for the attach to commit and then find the attachment;
+-- a change of the attach mode locks the entity's table and its link table
+-- against inserts before it looks for records. pgdocker/pg-attach-race.sh
+-- runs these races. A delete or a switch-off at REPEATABLE READ may still miss
+-- an attachment committed just before it.
+
+-- =====================================================
+-- The settings of an attachable entity
+-- =====================================================
+-- What an entity may be, checked before anything is built. An attachable
+-- entity is a managed entity whose table the dictionary builds (91001), not
+-- is_a or has_a, which keep their records in a base: the root declares the
+-- mode for its family (91002), and without a computed key (91003). Its name
+-- has at most 22 bytes, so its link field <entity>_id on <entity>_links stays
+-- within the field-name limit (reserve_field_name_length, 91004). A link
+-- entity is refused by protect_link_entity below. The attach mode changes
+-- only while the entity has no records: its records keep their targets in
+-- attached_to or in the link entity, and a change would leave them without
+-- (91005). A listed target stays managed: its delete step lives on its table
+-- (91006). A single or owned_shared entity gets the field attached_to from
+-- the dictionary, so a field of that name it already has is refused (91022).
+-- An entity that becomes single or owned_shared starts to follow its targets,
+-- none of which may follow it in turn (dd_attach_cycle_check, 91024). A change
+-- of the mode first locks the entity's table and its link table against
+-- inserts (SHARE ROW EXCLUSIVE), so a record being inserted concurrently is
+-- either committed and counted, or waits for the new mode.
+-- A rename of an owned_shared or multiple entity to a longer name reaches
+-- 91004 here: the rename of its link entity (dd_attach_link_rename, which
+-- runs first) waits for a name that fits.
+-- As the definer, the record check sees rows the caller cannot read.
+
+-- The longest name of an attachable entity, 22 bytes: its link field
+-- <entity>_id on <entity>_links must fit the field-name limit
+-- (reserve_field_name_length, 0180_managed_enable.sql).
+CREATE OR REPLACE FUNCTION dd_attach_name_max()
+RETURNS INTEGER AS $$
+    SELECT 22;
+$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_name_max() IS
+'The longest name of an attachable entity in bytes, 22: its link field <entity>_id has to fit the field-name limit of <entity>_links.';
+
+-- The WHEN of b_attach_link_rename_trigger reads it as the writer of entities.
+REVOKE EXECUTE ON FUNCTION dd_attach_name_max() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION dd_attach_name_max() TO semantius_user;
+
+-- Refuses p_attachable following p_target when reading the records of
+-- p_target follows, through the targets of single and owned_shared entities,
+-- to the records of p_attachable's family (91024). The policy of a single or
+-- owned_shared record reads its target, and the target's own policy reads the
+-- target's target in turn (the policy of a link row reads its record as well,
+-- which reads nothing further unless it is single or owned_shared too), so
+-- the policies of both would read each other without end. A family counts by
+-- its root, which holds the attach mode and the records.
+CREATE OR REPLACE FUNCTION dd_attach_cycle_check(p_target TEXT, p_attachable TEXT)
+RETURNS VOID AS $$
+BEGIN
+    IF EXISTS (WITH RECURSIVE reach(root) AS (
+                   SELECT a.table_name FROM dd_ancestors(p_target) a WHERE a.depth = 0
+                   UNION
+                   SELECT t.table_name
+                     FROM reach r
+                     JOIN entities e ON e.table_name = r.root AND e.attach_mode IN ('single', 'owned_shared')
+                     JOIN entity_attachables ea ON ea.attachable = e.table_name
+                    CROSS JOIN LATERAL dd_ancestors(ea.target) t
+                    WHERE t.depth = 0)
+               SELECT 1 FROM reach r
+                 JOIN dd_ancestors(p_attachable) a ON a.depth = 0 AND a.table_name = r.root) THEN
+        RAISE EXCEPTION 'The records of ${target} follow those of ${attachable}, so ${attachable} cannot follow ${target}'
+            USING ERRCODE = '91024',
+                  HINT = jsonb_build_object('target', p_target, 'attachable', p_attachable,
+                                            'hint', 'Reading either would read the other without end.')::text;
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_cycle_check(TEXT, TEXT) IS
+'Refuses (91024) an attachable entity following a target whose records follow, through the targets of single and owned_shared entities, the records of the attachable entity''s family.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_cycle_check(TEXT, TEXT) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION check_entity_attach()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_rows   BOOLEAN := FALSE;
+    v_listed TEXT;
+    v_tables TEXT;
+BEGIN
+    IF NEW.attach_mode <> 'none' THEN
+        IF NOT NEW.managed THEN
+            RAISE EXCEPTION 'Entity ${table} is not managed and cannot be attachable'
+                USING ERRCODE = '91001',
+                      HINT = jsonb_build_object('table', NEW.table_name)::text;
+        END IF;
+        IF NEW.id_type IN ('is_a', 'has_a') THEN
+            RAISE EXCEPTION 'Entity ${table} keeps its records in a base and cannot be attachable'
+                USING ERRCODE = '91002',
+                      HINT = jsonb_build_object('table', NEW.table_name,
+                                                'hint', 'An is_a family is attachable through its root.')::text;
+        END IF;
+        IF NEW.id_type = 'computed' THEN
+            RAISE EXCEPTION 'Entity ${table} has a computed key and cannot be attachable'
+                USING ERRCODE = '91003',
+                      HINT = jsonb_build_object('table', NEW.table_name)::text;
+        END IF;
+        IF octet_length(NEW.table_name) > dd_attach_name_max() THEN
+            RAISE EXCEPTION 'Entity name ${table} is ${length} bytes long: the name of an attachable entity fits only up to ${max} bytes'
+                USING ERRCODE = '91004',
+                      HINT = jsonb_build_object('table', NEW.table_name, 'length', octet_length(NEW.table_name),
+                                                'max', dd_attach_name_max())::text;
+        END IF;
+        IF NEW.attach_mode IN ('single', 'owned_shared')
+           AND EXISTS (SELECT 1 FROM fields f
+                        WHERE f.table_name = NEW.table_name AND f.field_name = 'attached_to'
+                          AND f.ctype <> 'attached_to') THEN
+            RAISE EXCEPTION 'Entity ${table} has a field attached_to of its own, which a single or owned_shared entity keeps for its target'
+                USING ERRCODE = '91022',
+                      HINT = jsonb_build_object('table', NEW.table_name,
+                                                'hint', 'Rename the field, or use the attach mode multiple.')::text;
+        END IF;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        IF NEW.attach_mode IN ('single', 'owned_shared') AND OLD.attach_mode NOT IN ('single', 'owned_shared') THEN
+            PERFORM dd_attach_cycle_check(ea.target, OLD.table_name)
+               FROM entity_attachables ea
+              WHERE ea.attachable = OLD.table_name
+              ORDER BY ea.target;
+        END IF;
+
+        IF OLD.attach_mode IS DISTINCT FROM NEW.attach_mode AND OLD.managed
+           AND to_regclass(format('public.%I', dd_relation(OLD.table_name, OLD.id_type))) IS NOT NULL THEN
+            SELECT string_agg(format('public.%I', t), ', ') INTO v_tables
+              FROM unnest(ARRAY[dd_relation(OLD.table_name, OLD.id_type),
+                                (SELECT l.table_name FROM entities l WHERE l.link_of = OLD.table_name)]) AS t
+             WHERE t IS NOT NULL;
+            EXECUTE format('LOCK TABLE %s IN SHARE ROW EXCLUSIVE MODE', v_tables);
+            EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)', dd_relation(OLD.table_name, OLD.id_type))
+               INTO v_rows;
+            IF v_rows THEN
+                RAISE EXCEPTION 'The attach_mode of ${table} cannot change while it has records'
+                    USING ERRCODE = '91005',
+                          HINT = jsonb_build_object('table', NEW.table_name)::text;
+            END IF;
+        END IF;
+
+        IF OLD.managed AND NOT NEW.managed THEN
+            SELECT min(ea.attachable) INTO v_listed
+              FROM entity_attachables ea
+             WHERE ea.target = NEW.table_name;
+            IF v_listed IS NOT NULL THEN
+                RAISE EXCEPTION 'Entity ${target} stays managed while ${attachable} lists it as a target'
+                    USING ERRCODE = '91006',
+                          HINT = jsonb_build_object('target', NEW.table_name, 'attachable', v_listed)::text;
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION check_entity_attach() IS
+'BEFORE INSERT OR UPDATE trigger on entities: refuses an attach_mode on an entity that is not managed (91001), is_a or has_a (91002), has a computed key (91003) or a name longer than 22 bytes (91004), a single or owned_shared mode on an entity with a field attached_to of its own (91022) or a target that follows it (91024), a change of attach_mode while the entity has records (91005), and unmanaging an entity that is a listed target (91006).';
+
+REVOKE EXECUTE ON FUNCTION check_entity_attach() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER check_entity_attach_trigger
+    BEFORE INSERT OR UPDATE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION check_entity_attach();
+
+-- A link entity is the dictionary's: its row, its fields and its table follow
+-- the attachable entity. A write by anybody but the dictionary's own code
+-- (BYPASSRLS, as fields_ctype_lock tells it apart) is refused (91007); the
+-- definer triggers below and the cascades of entities.link_of run as the
+-- owner and pass.
+CREATE OR REPLACE FUNCTION protect_link_entity()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_privileged BOOLEAN;
+    v_table      TEXT;
+BEGIN
+    SELECT rolbypassrls INTO v_privileged FROM pg_roles WHERE rolname = current_user;
+    IF COALESCE(v_privileged, FALSE) THEN
+        RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END IF;
+
+    IF TG_TABLE_NAME = 'entities' THEN
+        IF (TG_OP <> 'INSERT' AND OLD.link_of IS NOT NULL) OR (TG_OP <> 'DELETE' AND NEW.link_of IS NOT NULL) THEN
+            v_table := CASE WHEN TG_OP = 'DELETE' THEN OLD.table_name ELSE NEW.table_name END;
+        END IF;
+    ELSE
+        SELECT e.table_name INTO v_table
+          FROM entities e
+         WHERE e.link_of IS NOT NULL
+           AND e.table_name IN (CASE WHEN TG_OP = 'DELETE' THEN OLD.table_name ELSE NEW.table_name END,
+                                CASE WHEN TG_OP = 'INSERT' THEN NEW.table_name ELSE OLD.table_name END);
+    END IF;
+    IF v_table IS NOT NULL THEN
+        RAISE EXCEPTION '${table} is a link entity the dictionary maintains'
+            USING ERRCODE = '91007',
+                  HINT = jsonb_build_object('table', v_table,
+                                            'hint', 'Change the attachable entity it belongs to instead.')::text;
+    END IF;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION protect_link_entity() IS
+'BEFORE INSERT OR UPDATE OR DELETE trigger on entities and fields: refuses a write of a link entity''s row or of its fields by anybody but the dictionary (91007).';
+
+REVOKE EXECUTE ON FUNCTION protect_link_entity() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER protect_link_entity_trigger
+    BEFORE INSERT OR UPDATE OR DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION protect_link_entity();
+
+CREATE OR REPLACE TRIGGER protect_link_entity_trigger
+    BEFORE INSERT OR UPDATE OR DELETE ON fields
+    FOR EACH ROW
+    EXECUTE FUNCTION protect_link_entity();
+
+-- =====================================================
+-- The target entities: entity_attachables
+-- =====================================================
+-- A row switches an attachable entity on for a target entity. A row changes
+-- only with a rename of one of its entities, which the foreign keys carry; any
+-- other change is a delete and an insert, so that each is checked (91008).
+-- The attachable entity has an attach mode (91009). A target carries the
+-- delete step on its table and has a key that never changes, so it is a
+-- managed entity (91010) with a table of its own - not has_a, whose base is
+-- the target (91011), nor a link entity (91012) - outside the attachable
+-- entity's family, itself included (91013), one whose records do not follow
+-- the attachable entity's in turn when that is single or owned_shared
+-- (dd_attach_cycle_check, 91024), with an immutable key
+-- (pk_immutable): neither a computed system table nor permissions or
+-- entities, whose keys are renamed with ON UPDATE CASCADE (91014). An entity
+-- that does not exist is left to the foreign keys.
+CREATE OR REPLACE FUNCTION check_entity_attachable_row()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_attachable entities%ROWTYPE;
+    v_target     entities%ROWTYPE;
+    v_hint       TEXT := jsonb_build_object('target', NEW.target, 'attachable', NEW.attachable)::text;
+BEGIN
+    IF TG_OP = 'UPDATE' THEN
+        IF EXISTS (SELECT 1 FROM entities e WHERE e.table_name = OLD.target)
+           AND EXISTS (SELECT 1 FROM entities e WHERE e.table_name = OLD.attachable) THEN
+            RAISE EXCEPTION 'The target ${target} of ${attachable} is not changed in place'
+                USING ERRCODE = '91008',
+                      HINT = jsonb_build_object('target', NEW.target, 'attachable', NEW.attachable,
+                                                'hint', 'Delete the row of entity_attachables and insert the new one.')::text;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    SELECT * INTO v_attachable FROM entities WHERE table_name = NEW.attachable;
+    SELECT * INTO v_target FROM entities WHERE table_name = NEW.target;
+    IF v_attachable.table_name IS NULL OR v_target.table_name IS NULL THEN
+        RETURN NEW;
+    END IF;
+    IF v_attachable.attach_mode = 'none' THEN
+        RAISE EXCEPTION 'Entity ${attachable} has no attach_mode and cannot be switched on for ${target}'
+            USING ERRCODE = '91009', HINT = v_hint;
+    END IF;
+    IF NOT v_target.managed THEN
+        RAISE EXCEPTION 'Entity ${target} is not managed and cannot be a target of ${attachable}'
+            USING ERRCODE = '91010', HINT = v_hint;
+    END IF;
+    IF v_target.id_type = 'has_a' THEN
+        RAISE EXCEPTION 'Entity ${target} keeps its records in its base and cannot be a target of ${attachable}'
+            USING ERRCODE = '91011',
+                  HINT = jsonb_build_object('target', NEW.target, 'attachable', NEW.attachable,
+                                            'hint', 'List its base as the target.')::text;
+    END IF;
+    IF v_target.link_of IS NOT NULL THEN
+        RAISE EXCEPTION 'Entity ${target} is a link entity and cannot be a target of ${attachable}'
+            USING ERRCODE = '91012', HINT = v_hint;
+    END IF;
+    IF NEW.target IN (SELECT f.table_name FROM dd_family(NEW.attachable) f) THEN
+        RAISE EXCEPTION 'Entity ${target} is of the family of ${attachable} and cannot be its target'
+            USING ERRCODE = '91013', HINT = v_hint;
+    END IF;
+    IF v_attachable.attach_mode IN ('single', 'owned_shared') THEN
+        PERFORM dd_attach_cycle_check(NEW.target, NEW.attachable);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
+                    WHERE t.tgrelid = to_regclass(format('public.%I', dd_relation(v_target.table_name, v_target.id_type)))
+                      AND t.tgname = 'pk_immutable') THEN
+        RAISE EXCEPTION 'The key of ${target} can change, so it cannot be a target of ${attachable}'
+            USING ERRCODE = '91014', HINT = v_hint;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION check_entity_attachable_row() IS
+'BEFORE INSERT OR UPDATE trigger on entity_attachables: refuses any change of a row but the rename its foreign keys carry (91008), an entity without an attach_mode (91009), and a target that is not managed (91010), has_a (91011), a link entity (91012), of the attachable entity''s family (91013), whose records follow the attachable entity''s (91024) or whose key can change (91014).';
+
+REVOKE EXECUTE ON FUNCTION check_entity_attachable_row() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER check_entity_attachable_row_trigger
+    BEFORE INSERT OR UPDATE ON entity_attachables
+    FOR EACH ROW
+    EXECUTE FUNCTION check_entity_attachable_row();
+
+-- Whether records of an attachable entity are attached to records of one of
+-- the given tables, in attached_to or in its link entity. The patterns are
+-- constant prefixes, so the text_pattern_ops index of attached_to serves them.
+-- SECURITY INVOKER: its callers are definer triggers and run as the owner, so
+-- an attachment the caller cannot see still counts.
+CREATE OR REPLACE FUNCTION dd_attachments_exist(p_attachable TEXT, p_tables TEXT[])
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_found BOOLEAN;
+    v_match TEXT;
+    r       RECORD;
+BEGIN
+    SELECT string_agg(format('x.attached_to LIKE %L', dd_ref_like(t)), ' OR ')
+      INTO v_match
+      FROM unnest(p_tables) AS t;
+    IF v_match IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    FOR r IN
+        SELECT dd_relation(e.table_name, e.id_type) AS rel
+          FROM fields f
+          JOIN entities e ON e.table_name = f.table_name
+         WHERE f.ctype = 'attached_to'
+           AND (e.table_name = p_attachable OR e.link_of = p_attachable)
+    LOOP
+        CONTINUE WHEN to_regclass(format('public.%I', r.rel)) IS NULL;
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I x WHERE %s)', r.rel, v_match) INTO v_found;
+        IF v_found THEN
+            RETURN TRUE;
+        END IF;
+    END LOOP;
+    RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attachments_exist(TEXT, TEXT[]) IS
+'TRUE when records of the attachable entity are attached to a record of one of the tables, in attached_to or in its link entity, whether or not the caller can see them.';
+
+REVOKE EXECUTE ON FUNCTION dd_attachments_exist(TEXT, TEXT[]) FROM PUBLIC;
+
+-- Switching an attachable entity off for a target, by a delete of the row or
+-- by the cascade of deleting the target entity, is refused while its records
+-- are attached there (91015): they would keep a target nothing admits any
+-- more, and whose delete step is gone. The records of the target's is_a
+-- subtypes count, since a base admits them. An attachable entity or module
+-- deleted in the same statement takes its records along, and does not count.
+CREATE OR REPLACE FUNCTION check_entity_attachable_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM entities e JOIN modules m ON m.id = e.module_id
+                    WHERE e.table_name = OLD.attachable) THEN
+        RETURN OLD;
+    END IF;
+    IF dd_attachments_exist(OLD.attachable,
+                            ARRAY[OLD.target] || ARRAY(SELECT s.table_name FROM dd_is_a_subtypes(OLD.target) s)) THEN
+        RAISE EXCEPTION 'Records of ${attachable} are attached to ${target}'
+            USING ERRCODE = '91015',
+                  HINT = jsonb_build_object('attachable', OLD.attachable, 'target', OLD.target,
+                                            'hint', 'Delete those records or their links first.')::text;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION check_entity_attachable_delete() IS
+'BEFORE DELETE trigger on entity_attachables: refuses switching an attachable entity off for a target entity, or deleting the target, while its records are attached to records of the target or of its is_a subtypes (91015).';
+
+REVOKE EXECUTE ON FUNCTION check_entity_attachable_delete() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER check_entity_attachable_delete_trigger
+    BEFORE DELETE ON entity_attachables
+    FOR EACH ROW
+    EXECUTE FUNCTION check_entity_attachable_delete();
+
+CREATE OR REPLACE FUNCTION dd_entity_attachables_changed()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        PERFORM dd_attach_refresh(ARRAY[OLD.attachable, OLD.target]);
+    ELSE
+        PERFORM dd_attach_refresh(ARRAY[NEW.attachable, NEW.target]);
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_entity_attachables_changed() IS
+'AFTER INSERT OR UPDATE OR DELETE trigger on entity_attachables: rebuilds what depends on the targets of the attachable entity (dd_attach_refresh).';
+
+REVOKE EXECUTE ON FUNCTION dd_entity_attachables_changed() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER zz_entity_attachables_changed_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON entity_attachables
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_entity_attachables_changed();
+
+-- =====================================================
+-- The attach step: d_attach_check
+-- =====================================================
+-- On insert of an attachable record (single, owned_shared) or of a link row,
+-- common.attach_target checks the target. The reference is spelled
+-- canonically first (dd_record_ref_canonical): text that is no reference, a
+-- table that is no entity and a key that is no value of its type give none.
+-- get_record_by_id then checks the caller's read rights on every level of the
+-- record and answers NULL alike for a record that does not exist and one the
+-- caller cannot see, so the one refusal for all of them (91018) tells nothing
+-- about records the caller cannot see. The target's table must be one the
+-- attachable entity admits (dd_attach_targets: a listed target or an is_a
+-- subtype of one, 91019); the row of entity_attachables that admits it is
+-- locked FOR KEY SHARE first, so a switch-off waits for this attach to commit
+-- and then finds its record (91015), and one that committed while this waited
+-- admits nothing any more. With the attach permission edit the caller must
+-- hold the edit permission of every level of it (91020). Last, the target row
+-- is locked FOR KEY SHARE, so a concurrent delete of it waits until the
+-- attachment is committed and its delete step then finds it; a delete that
+-- committed while the attach waited leaves no row to lock, and the attach is
+-- refused as for a record that does not exist. The reference is written in its
+-- canonical spelling.
+--
+-- A link row is written on behalf of its attachable record, so adding or
+-- removing one needs the rights to change that record. The policies of the
+-- link entity hold the record's edit permission, and on delete its visibility
+-- and an owned_shared owner's edit rights (dd_attach_policy_terms). On insert
+-- the record must be visible to the caller (91021) and an owned_shared
+-- record's owner editable by the caller (91023). Then, on insert and on
+-- delete, the record's own rules are asked, as for an update of it that
+-- changes nothing (common.attach_record_rules): a task's rule 90279 refuses a
+-- link to whoever may see the task but not change it. The delete step of a
+-- target removes links past them (common.attached_step_marked), as a
+-- foreign-key cascade would; a record that is gone (its delete cascades to its
+-- links) has nothing to ask.
+--
+-- On update, attached_to and a link row's record keep what they hold: a
+-- target is set on insert and never changed.
+--
+-- SECURITY DEFINER, owned by the owner: they read entity_attachables and the
+-- attachable records and lock the target, and get_record_by_id, which
+-- authenticates through rbac.uid(), answers for the caller's own rights. A
+-- privileged direct session (dd_privileged_session, a migration's seed) is not
+-- held to the edit permissions nor to the rules; get_record_by_id reads for it
+-- unchecked.
+
+-- Whether the caller holds every edit permission of a target's levels
+-- (dd_attach_targets), as attaching with the attach permission edit and
+-- linking an owned_shared record need.
+CREATE OR REPLACE FUNCTION dd_attach_may_edit(p_permissions TEXT[])
+RETURNS BOOLEAN AS $$
+    SELECT dd_privileged_session()
+        OR NOT EXISTS (SELECT 1 FROM unnest(p_permissions) AS p WHERE NOT rbac.has_permission(p));
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_may_edit(TEXT[]) IS
+'TRUE when the caller holds every one of the edit permissions of a target''s levels, or runs a privileged direct session.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_may_edit(TEXT[]) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION common.attach_target(p_attachable TEXT, p_ref TEXT, p_edit BOOLEAN)
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_ref    TEXT := dd_record_ref_canonical(p_ref);
+    v_split  RECORD;
+    v_target RECORD;
+    v_locked INTEGER;
+BEGIN
+    SELECT * INTO v_split FROM dd_record_ref_split(v_ref);
+    IF v_ref IS NOT NULL AND get_record_by_id(v_split.table_name, v_split.key) IS NOT NULL THEN
+        PERFORM 1
+           FROM entity_attachables ea
+          WHERE ea.attachable = p_attachable
+            AND ea.target IN (SELECT a.table_name FROM dd_ancestors(v_split.table_name) a)
+            FOR KEY SHARE;
+        SELECT * INTO v_target FROM dd_attach_targets(p_attachable) t WHERE t.table_name = v_split.table_name;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Records of ${attachable} cannot be attached to ${target}'
+                USING ERRCODE = '91019',
+                      HINT = jsonb_build_object('attachable', p_attachable, 'target', v_split.table_name)::text;
+        END IF;
+        IF p_edit AND NOT dd_attach_may_edit(v_target.edit_permissions) THEN
+            RAISE EXCEPTION 'Attaching ${attachable} records to ${reference} needs the edit permission of ${target}'
+                USING ERRCODE = '91020',
+                      HINT = jsonb_build_object('attachable', p_attachable, 'reference', v_ref,
+                                                'target', v_split.table_name)::text;
+        END IF;
+        -- rels[1] is the root's table, which holds a row for every record.
+        EXECUTE format('SELECT 1 FROM public.%I t WHERE t.%I = $1::%s FOR KEY SHARE',
+                       v_target.rels[1], v_target.id_column, v_target.key_type)
+           INTO v_locked
+          USING v_split.key;
+    END IF;
+
+    -- No reference, not found, not visible, or deleted while the lock waited.
+    IF v_locked IS NULL THEN
+        RAISE EXCEPTION 'No record ${reference} to attach ${attachable} records to'
+            USING ERRCODE = '91018',
+                  HINT = jsonb_build_object('reference', p_ref, 'attachable', p_attachable)::text;
+    END IF;
+    RETURN v_ref;
+END;
+$$;
+
+COMMENT ON FUNCTION common.attach_target(TEXT, TEXT, BOOLEAN) IS
+'The attach step for one target: refuses a target table the attachable entity does not admit (91019) and, with p_edit, a target whose levels'' edit permission the caller lacks (91020); locks the target row FOR KEY SHARE and refuses text that is no reference, a record that does not exist, that the caller cannot see or that a delete removed meanwhile, alike (91018). Returns the canonical reference.';
+
+REVOKE EXECUTE ON FUNCTION common.attach_target(TEXT, TEXT, BOOLEAN) FROM PUBLIC;
+
+-- The rules of an attachable record asked as for an update that changes
+-- nothing (mode update, the record as $old and as the new record), the record
+-- read as the owner. A record that is gone, an entity without rules, a
+-- privileged direct session and the delete step of a target pass.
+CREATE OR REPLACE FUNCTION common.attach_record_rules(p_attachable TEXT, p_key TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_rules TEXT := 'record_rules_' || p_attachable;
+    v_row   JSONB;
+BEGIN
+    IF dd_privileged_session()
+       OR common.attached_step_marked(p_attachable)
+       OR to_regprocedure(format('common.%I(text, jsonb, jsonb)', v_rules)) IS NULL THEN
+        RETURN;
+    END IF;
+    EXECUTE format('SELECT to_jsonb(t) FROM public.%I t WHERE t.%I = $1::%s',
+                   p_attachable, (SELECT e.id_column FROM entities e WHERE e.table_name = p_attachable),
+                   dd_key_type(p_attachable))
+       INTO v_row
+      USING p_key;
+    IF v_row IS NOT NULL THEN
+        EXECUTE format('SELECT common.%I(''update'', $1, $1)', v_rules) USING v_row;
+    END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION common.attach_record_rules(TEXT, TEXT) IS
+'Evaluates the rules of an attachable record as for an update that changes nothing, so a failing validation rule refuses; a record that is gone, an entity without rules, a privileged direct session and the delete step of a target pass.';
+
+REVOKE EXECUTE ON FUNCTION common.attach_record_rules(TEXT, TEXT) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION common.attach_check()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_entity     entities%ROWTYPE;
+    v_attachable entities%ROWTYPE;
+    v_link_field TEXT;
+    v_patch      JSONB;
+    v_ref        TEXT;
+    v_record     TEXT;
+    v_row        JSONB;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = TG_TABLE_NAME;
+    IF v_entity.link_of IS NOT NULL THEN
+        SELECT * INTO v_attachable FROM entities WHERE table_name = v_entity.link_of;
+        v_link_field := v_attachable.table_name || '_id';
+    ELSE
+        v_attachable := v_entity;
+    END IF;
+
+    -- Only a link table has the trigger on delete.
+    IF TG_OP = 'DELETE' THEN
+        PERFORM common.attach_record_rules(v_attachable.table_name, to_jsonb(OLD) ->> v_link_field);
+        RETURN OLD;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        v_patch := jsonb_build_object('attached_to', to_jsonb(OLD) -> 'attached_to');
+        IF v_link_field IS NOT NULL THEN
+            v_patch := v_patch || jsonb_build_object(v_link_field, to_jsonb(OLD) -> v_link_field);
+        END IF;
+    ELSE
+        -- An empty target is left to the required check of attached_to.
+        v_ref := to_jsonb(NEW) ->> 'attached_to';
+        IF coalesce(v_ref, '') = '' THEN
+            RETURN NEW;
+        END IF;
+        v_ref := common.attach_target(v_attachable.table_name, v_ref, v_attachable.attach_permission = 'edit');
+
+        IF v_link_field IS NOT NULL THEN
+            v_record := to_jsonb(NEW) ->> v_link_field;
+            v_row := get_record_by_id(v_attachable.table_name, v_record);
+            IF v_row IS NULL THEN
+                RAISE EXCEPTION 'No record ${reference} to link to ${target}'
+                    USING ERRCODE = '91021',
+                          HINT = jsonb_build_object('reference', dd_record_ref(v_attachable.table_name, v_record),
+                                                    'target', v_ref)::text;
+            END IF;
+            IF v_attachable.attach_mode = 'owned_shared'
+               AND NOT dd_attach_may_edit((SELECT t.edit_permissions
+                                             FROM dd_attach_targets(v_attachable.table_name) t
+                                            WHERE t.table_name = (dd_record_ref_split(v_row ->> 'attached_to')).table_name)) THEN
+                RAISE EXCEPTION 'Linking ${reference} needs the edit permission of its owner ${owner}'
+                    USING ERRCODE = '91023',
+                          HINT = jsonb_build_object('reference', dd_record_ref(v_attachable.table_name, v_record),
+                                                    'owner', v_row ->> 'attached_to')::text;
+            END IF;
+            PERFORM common.attach_record_rules(v_attachable.table_name, v_record);
+        END IF;
+        v_patch := jsonb_build_object('attached_to', v_ref);
+    END IF;
+
+    -- The row is rebuilt through EXECUTE, which plans against the table as it
+    -- is now, as common.typeid_assign explains.
+    EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r' INTO NEW USING NEW, v_patch;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION common.attach_check() IS
+'BEFORE trigger d_attach_check of an attachable entity''s table (single, owned_shared: INSERT OR UPDATE) and of its link table (INSERT OR UPDATE OR DELETE): on insert checks the target through common.attach_target and writes its canonical reference; a link row''s record must be visible (91021), an owned_shared one''s owner editable (91023), and the record''s rules pass, on insert and on delete (common.attach_record_rules). On update keeps attached_to and a link row''s record.';
+
+REVOKE EXECUTE ON FUNCTION common.attach_check() FROM PUBLIC;
+
+-- =====================================================
+-- The delete step on every target: attached_del and attached_trc
+-- =====================================================
+-- Every target table carries two statement-level triggers of
+-- common.attached_step: after a delete it hands the keys of the deleted rows
+-- to the table's delete step common.attached_<t>, and before a TRUNCATE, which
+-- fires no delete triggers, it refuses while anything is attached to the table
+-- (91017). They sit on the table that stores the target's records: for an is_a
+-- target the root's, whose rows every subtype record has. The trigger names
+-- carry no table name, so a rename leaves them as they are.
+--
+-- common.attached_<t>(keys) is generated per target table and rebuilt like the
+-- rollup functions (rollup_build_link, 0440_rollup.sql). The reference of a
+-- key names the subtype its prefix belongs to. For those references it
+--   * refuses, for a single or owned_shared entity whose
+--     attach_on_target_delete is restrict, while a record is attached in
+--     attached_to (91016), and otherwise deletes those records;
+--   * removes the link rows that name them;
+--   * deletes a multiple record that lost its last link here. One created
+--     without any target is not touched.
+-- The last two run past the attachable entity's rules, as a foreign-key
+-- cascade does (common.attached_step_mark); the records in attached_to are
+-- held to them.
+-- The deletes run as the definer, past the row-level security of the
+-- attachable entity, as a foreign-key cascade does; its row triggers, its
+-- rules among them, run as they do for one. A record of an is_a attachable
+-- entity is deleted through the view of its subtype, whose write routine
+-- removes every part: a delete of the root row alone would be refused by the
+-- parts that reference it.
+CREATE OR REPLACE FUNCTION common.attached_step()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_names      TEXT[] := ARRAY[TG_TABLE_NAME::text] || ARRAY(SELECT s.table_name FROM dd_is_a_subtypes(TG_TABLE_NAME) s);
+    v_keys       TEXT[];
+    v_attachable TEXT;
+BEGIN
+    IF TG_OP = 'TRUNCATE' THEN
+        SELECT ea.attachable INTO v_attachable
+          FROM entity_attachables ea
+         WHERE ea.target = ANY (v_names)
+           AND dd_attachments_exist(ea.attachable, v_names)
+         ORDER BY ea.attachable
+         LIMIT 1;
+        IF FOUND THEN
+            RAISE EXCEPTION '${table} cannot be truncated while ${attachable} records are attached to its records'
+                USING ERRCODE = '91017',
+                      HINT = jsonb_build_object('table', TG_TABLE_NAME, 'attachable', v_attachable)::text;
+        END IF;
+        RETURN NULL;
+    END IF;
+    -- TG_ARGV[0] is the key column (dd_build_attached_triggers).
+    EXECUTE format('SELECT array_agg(o.%I::text) FROM old_rows o', TG_ARGV[0]) INTO v_keys;
+    IF v_keys IS NOT NULL THEN
+        EXECUTE format('SELECT common.%I($1)', 'attached_' || TG_TABLE_NAME) USING v_keys;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION common.attached_step() IS
+'Statement-level trigger function of a target table (attached_del, attached_trc): after a delete, runs the table''s delete step common.attached_<table> for the deleted keys; refuses a TRUNCATE while records are attached to the table or its is_a subtypes (91017).';
+
+REVOKE EXECUTE ON FUNCTION common.attached_step() FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION dd_build_attached_triggers(p_root TEXT)
+RETURNS VOID AS $fn$
+DECLARE
+    v_fn      TEXT := 'attached_' || p_root;
+    v_root    entities%ROWTYPE;
+    v_ref     TEXT;
+    v_del     TEXT := '';
+    v_link    TEXT;
+    v_keytype REGTYPE;
+    v_rels    TEXT[];
+    v_names   TEXT[];
+    v_hit     BOOLEAN := FALSE;
+    v_ids     BOOLEAN := FALSE;
+    r         RECORD;
+BEGIN
+    EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text[])', v_fn);
+
+    SELECT * INTO v_root FROM entities WHERE table_name = p_root;
+    IF NOT FOUND OR to_regclass(format('public.%I', p_root)) IS NULL THEN
+        RETURN;
+    END IF;
+    v_names := ARRAY[p_root] || ARRAY(SELECT s.table_name FROM dd_is_a_subtypes(p_root) s);
+
+    -- The reference of a key (dd_record_ref).
+    SELECT format('(CASE common.typeid_prefix(o.k)%s ELSE %L END || o.k)',
+                  string_agg(format(' WHEN %L THEN %L', s.id_prefix, s.table_name || ':'), '' ORDER BY s.depth, s.table_name),
+                  p_root || ':')
+      INTO v_ref
+      FROM dd_is_a_subtypes(p_root) s
+    HAVING count(*) > 0;
+    v_ref := coalesce(v_ref, format('(%L || o.k)', p_root || ':'));
+
+    FOR r IN
+        SELECT a.*
+          FROM entities a
+         WHERE a.attach_mode <> 'none' AND a.managed
+           AND v_root.managed AND v_root.id_type NOT IN ('is_a', 'has_a', 'computed')
+           AND to_regclass(format('public.%I', a.table_name)) IS NOT NULL
+           -- One whose module a module delete is taking takes its records along.
+           AND EXISTS (SELECT 1 FROM modules m WHERE m.id = a.module_id)
+           AND EXISTS (SELECT 1 FROM entity_attachables ea
+                        WHERE ea.attachable = a.table_name AND ea.target = ANY (v_names))
+         ORDER BY a.table_name
+    LOOP
+        SELECT l.table_name INTO v_link FROM entities l WHERE l.link_of = r.table_name;
+        v_keytype := dd_key_type(r.table_name);
+        -- Where its records are deleted: the view of each direct is_a subtype
+        -- first, then the table.
+        v_rels := ARRAY(SELECT s.table_name FROM dd_is_a_subtypes(r.table_name) s WHERE s.depth = 1
+                         ORDER BY s.table_name) || r.table_name;
+
+        IF r.attach_mode IN ('single', 'owned_shared') THEN
+            IF r.attach_on_target_delete = 'restrict' THEN
+                v_hit := TRUE;
+                v_del := v_del || format($S$
+    SELECT x.attached_to INTO v_hit FROM public.%1$I x WHERE x.attached_to = ANY (v_refs) LIMIT 1;
+    IF FOUND THEN
+        RAISE EXCEPTION 'Record ${reference} cannot be deleted while ${attachable} records are attached to it'
+            USING ERRCODE = '91016',
+                  HINT = jsonb_build_object('reference', v_hit, 'attachable', %2$L)::text;
+    END IF;$S$, r.table_name, r.table_name);
+            ELSE
+                v_del := v_del || (SELECT string_agg(format(E'\n    DELETE FROM public.%I x WHERE x.attached_to = ANY (v_refs);', rel), '' ORDER BY n)
+                                     FROM unnest(v_rels) WITH ORDINALITY AS u(rel, n));
+            END IF;
+        END IF;
+
+        IF v_link IS NOT NULL THEN
+            v_del := v_del || format(E'\n    PERFORM common.attached_step_mark(%L);', r.table_name);
+            IF r.attach_mode = 'multiple' THEN
+                v_ids := TRUE;
+                -- The records that lost a link here are locked first, in a
+                -- statement of their own: two deletes that each remove one of
+                -- a record's last two links would otherwise each still see
+                -- the other's link and both keep the record. Locked, the
+                -- second waits for the first, and its delete then sees that
+                -- link gone.
+                v_del := v_del || format($S$
+    WITH gone AS (DELETE FROM public.%1$I l WHERE l.attached_to = ANY (v_refs) RETURNING l.%2$I AS id)
+    SELECT array_agg(DISTINCT g.id::text) INTO v_ids FROM gone g;
+    IF v_ids IS NOT NULL THEN
+        PERFORM 1 FROM public.%3$I x WHERE x.%4$I = ANY (v_ids::%5$s[]) ORDER BY x.%4$I FOR UPDATE;%6$s
+    END IF;$S$, v_link, r.table_name || '_id', r.table_name, r.id_column, v_keytype,
+                    (SELECT string_agg(format(E'\n        DELETE FROM public.%1$I x WHERE x.%2$I = ANY (v_ids::%3$s[])'
+                                              '\n           AND NOT EXISTS (SELECT 1 FROM public.%4$I l WHERE l.%5$I = x.%2$I);',
+                                              rel, r.id_column, v_keytype, v_link, r.table_name || '_id'), '' ORDER BY n)
+                       FROM unnest(v_rels) WITH ORDINALITY AS u(rel, n)));
+            ELSE
+                v_del := v_del || format(E'\n    DELETE FROM public.%I l WHERE l.attached_to = ANY (v_refs);', v_link);
+            END IF;
+            v_del := v_del || E'\n    PERFORM common.attached_step_mark(NULL);';
+        END IF;
+    END LOOP;
+
+    IF v_del = '' THEN
+        EXECUTE format('DROP TRIGGER IF EXISTS attached_del ON public.%I', p_root);
+        EXECUTE format('DROP TRIGGER IF EXISTS attached_trc ON public.%I', p_root);
+        RETURN;
+    END IF;
+
+    EXECUTE format('CREATE FUNCTION common.%I(p_keys text[]) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS %s',
+                   v_fn, dd_dollar_quote(format($B$
+DECLARE
+    v_refs TEXT[];%3$s
+BEGIN
+    SELECT array_agg(%1$s) INTO v_refs FROM unnest(p_keys) AS o(k);
+    IF v_refs IS NULL THEN
+        RETURN;
+    END IF;%2$s
+END;
+$B$, v_ref, v_del,
+         -- The variables the steps above use, and only those.
+         concat(CASE WHEN v_hit THEN E'\n    v_hit  TEXT;' END,
+                CASE WHEN v_ids THEN E'\n    v_ids  TEXT[];' END))));
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text[]) FROM PUBLIC', v_fn);
+    EXECUTE format('COMMENT ON FUNCTION common.%I(text[]) IS %L', v_fn,
+        format('The delete step of %s for the given keys: refuses or cascades the records attached to them, removes their link rows and deletes a multiple record that lost its last target. Run by common.attached_step after a delete, and by dd_attach_target_purge when a module delete drops the table. Generated by dd_build_attached_triggers.', p_root));
+    EXECUTE format('CREATE OR REPLACE TRIGGER attached_del AFTER DELETE ON public.%I REFERENCING OLD TABLE AS old_rows
+                        FOR EACH STATEMENT EXECUTE FUNCTION common.attached_step(%L)', p_root, v_root.id_column);
+    EXECUTE format('CREATE OR REPLACE TRIGGER attached_trc BEFORE TRUNCATE ON public.%I
+                        FOR EACH STATEMENT EXECUTE FUNCTION common.attached_step()', p_root);
+END;
+$fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_build_attached_triggers(TEXT) IS
+'Drops and, when attachable entities list the table or one of its is_a subtypes as a target, regenerates the delete step common.attached_<table>(text[]) and the triggers attached_del (AFTER DELETE, statement level) and attached_trc (BEFORE TRUNCATE) of common.attached_step on the table.';
+
+REVOKE EXECUTE ON FUNCTION dd_build_attached_triggers(TEXT) FROM PUBLIC;
+
+-- A target entity deleted by a module delete takes the attachments to its
+-- records along, as deleting each record would (its delete step): the rows
+-- are dropped with the table, which fires no delete trigger, and the
+-- attachments would keep a target that is gone. The module's row is gone
+-- already when the cascade reaches its entities, as delete_dd_table relies
+-- on. The delete step is built again first: an attachable entity of the same
+-- module may be gone already, or be going with the module and take its records
+-- along, and the cascade that would rebuild it runs only at the end of the
+-- statement. A target entity deleted on its own is refused while records are
+-- attached (91015). Runs before delete_table_trigger drops the table.
+CREATE OR REPLACE FUNCTION dd_attach_target_purge()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM modules m WHERE m.id = OLD.module_id)
+       AND to_regprocedure(format('common.%I(text[])', 'attached_' || OLD.table_name)) IS NOT NULL THEN
+        PERFORM dd_build_attached_triggers(OLD.table_name);
+        IF to_regprocedure(format('common.%I(text[])', 'attached_' || OLD.table_name)) IS NOT NULL THEN
+            EXECUTE format('SELECT common.%I(ARRAY(SELECT t.%I::text FROM public.%I t))',
+                           'attached_' || OLD.table_name, OLD.id_column, OLD.table_name);
+        END IF;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_target_purge() IS
+'BEFORE DELETE trigger on entities: when a module delete deletes a target entity, runs its delete step over all its records, so what is attached to them goes as it would with each record.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_target_purge() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER b_attach_target_purge_trigger
+    BEFORE DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_attach_target_purge();
+
+-- =====================================================
+-- Keeping it all up to date
+-- =====================================================
+-- What depends on an attachable entity's targets and mode, rebuilt for the
+-- attachable entities concerned by a change of the given entities: those
+-- named, and those that list one of their families as a target. For each, its
+-- policies and those of its link entity (build_select_rule_policy, which
+-- reads dd_attach_policy_terms), their label functions (attached_to_label),
+-- and the attach step on both tables; then the delete step of every target
+-- table concerned.
+CREATE OR REPLACE FUNCTION dd_attach_refresh(p_tables TEXT[])
+RETURNS VOID AS $$
+DECLARE
+    v_family TEXT[];
+    v_roots  TEXT[];
+    v_link   TEXT;
+    v_rel    TEXT;
+    r        RECORD;
+BEGIN
+    SELECT array_agg(DISTINCT f.table_name)
+      INTO v_family
+      FROM unnest(p_tables) AS t(name)
+     CROSS JOIN LATERAL (SELECT t.name AS table_name
+                         UNION SELECT x.table_name FROM dd_family(t.name) x) f;
+
+    -- The attachable entities concerned, and a named entity that has left
+    -- attachable: its attached_to went with the policies and the label
+    -- function that read it, and its attach step stays behind.
+    FOR r IN
+        SELECT a.*
+          FROM entities a
+         WHERE a.managed
+           AND ((a.attach_mode <> 'none'
+                 AND (a.table_name = ANY (p_tables)
+                      OR EXISTS (SELECT 1 FROM entity_attachables ea
+                                  WHERE ea.attachable = a.table_name AND ea.target = ANY (v_family))))
+                OR (a.table_name = ANY (p_tables)
+                    AND EXISTS (SELECT 1 FROM pg_trigger t
+                                 WHERE t.tgrelid = to_regclass(format('public.%I', dd_relation(a.table_name, a.id_type)))
+                                   AND t.tgname = 'd_attach_check')))
+         ORDER BY a.table_name
+    LOOP
+        PERFORM build_select_rule_policy(r.table_name);
+        PERFORM rebuild_entity_label_functions(r.table_name);
+        v_rel := dd_relation(r.table_name, r.id_type);
+        IF r.attach_mode IN ('single', 'owned_shared') THEN
+            EXECUTE format('CREATE OR REPLACE TRIGGER d_attach_check BEFORE INSERT OR UPDATE ON public.%I
+                                FOR EACH ROW EXECUTE FUNCTION common.attach_check()', v_rel);
+        ELSE
+            EXECUTE format('DROP TRIGGER IF EXISTS d_attach_check ON public.%I', v_rel);
+        END IF;
+
+        SELECT l.table_name INTO v_link FROM entities l WHERE l.link_of = r.table_name;
+        IF v_link IS NOT NULL AND to_regclass(format('public.%I', v_link)) IS NOT NULL THEN
+            PERFORM build_select_rule_policy(v_link);
+            PERFORM rebuild_entity_label_functions(v_link);
+            EXECUTE format('CREATE OR REPLACE TRIGGER d_attach_check BEFORE INSERT OR UPDATE OR DELETE ON public.%I
+                                FOR EACH ROW EXECUTE FUNCTION common.attach_check()', v_link);
+        END IF;
+
+        v_family := v_family || ARRAY(SELECT ea.target FROM entity_attachables ea WHERE ea.attachable = r.table_name);
+    END LOOP;
+
+    SELECT array_agg(DISTINCT a.table_name)
+      INTO v_roots
+      FROM unnest(v_family) AS t(name)
+     CROSS JOIN LATERAL dd_ancestors(t.name) a
+     WHERE a.depth = 0;
+    FOR r IN SELECT unnest(coalesce(v_roots, ARRAY[]::TEXT[])) AS table_name LOOP
+        PERFORM dd_build_attached_triggers(r.table_name);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_refresh(TEXT[]) IS
+'Rebuilds, for the attachable entities concerned by the given entities (named, or listing one of their families as a target), their policies and those of their link entities, their label functions and their attach step, and the delete step of every target table concerned. Called whenever targets, attach settings, permissions, names, members of a target family or managed flags change.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_refresh(TEXT[]) FROM PUBLIC;
+
+-- An entity's attach settings, name, permissions, rule or family changed.
+--   * A new attach mode: single and owned_shared get the field attached_to,
+--     inserted by the dictionary as create_dd_table inserts the label field;
+--     owned_shared and multiple get the link entity <entity>_links. Leaving a
+--     mode removes what it no longer has - the field by clearing its ctype
+--     first, as dd_label_marker_follow does, since a core field cannot be
+--     deleted - and leaving attachable altogether removes its targets. 91005
+--     has made sure there are no records.
+--   * A rename drops the delete step generated under the old name
+--     (dd_attach_link_rename has carried the link entity along).
+--   * The link entity keeps the permissions and the module of its attachable
+--     entity.
+-- Then dd_attach_refresh rebuilds what depends on it.
+CREATE OR REPLACE FUNCTION dd_attach_entity_changed()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_link       TEXT;
+    v_needs_attr BOOLEAN;
+    v_needs_link BOOLEAN;
+BEGIN
+    -- Only a target has a delete step to drop, and only an is_a subtype a
+    -- family whose targets change.
+    IF TG_OP = 'DELETE' THEN
+        IF to_regprocedure(format('common.%I(text[])', 'attached_' || OLD.table_name)) IS NOT NULL THEN
+            EXECUTE format('DROP FUNCTION common.%I(text[])', 'attached_' || OLD.table_name);
+        END IF;
+        IF OLD.id_type = 'is_a' THEN
+            PERFORM dd_attach_refresh(ARRAY[OLD.id_refentity]);
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    -- Only an attachable entity, a target and the members of their families
+    -- have anything here to keep up to date.
+    IF TG_OP = 'UPDATE' AND OLD.attach_mode = 'none' AND NEW.attach_mode = 'none'
+       AND NOT EXISTS (SELECT 1
+                         FROM dd_family(NEW.table_name) f
+                         JOIN entities e ON e.table_name = f.table_name
+                        WHERE e.attach_mode <> 'none'
+                           OR EXISTS (SELECT 1 FROM entity_attachables ea WHERE ea.target = f.table_name)) THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT l.table_name INTO v_link FROM entities l WHERE l.link_of = NEW.table_name;
+
+    IF TG_OP = 'INSERT' OR OLD.attach_mode IS DISTINCT FROM NEW.attach_mode THEN
+        v_needs_attr := NEW.attach_mode IN ('single', 'owned_shared');
+        v_needs_link := NEW.attach_mode IN ('owned_shared', 'multiple');
+
+        IF v_needs_attr AND NOT EXISTS (SELECT 1 FROM fields f
+                                         WHERE f.table_name = NEW.table_name AND f.field_name = 'attached_to') THEN
+            INSERT INTO fields (table_name, field_name, title, description, format, field_order, input_type, ctype)
+            VALUES (NEW.table_name, 'attached_to', 'Attached to',
+                    'The record this one is attached to, as its record reference <table_name>:<key>. Set when the record is created and never changed.',
+                    'text', 25, 'required', 'attached_to');
+        ELSIF NOT v_needs_attr AND EXISTS (SELECT 1 FROM fields f
+                                            WHERE f.table_name = NEW.table_name AND f.ctype = 'attached_to') THEN
+            UPDATE fields SET ctype = '' WHERE table_name = NEW.table_name AND ctype = 'attached_to';
+            DELETE FROM fields WHERE table_name = NEW.table_name AND field_name = 'attached_to';
+        END IF;
+
+        IF v_needs_link AND v_link IS NULL THEN
+            v_link := NEW.table_name || '_links';
+            INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id,
+                                  view_permission, edit_permission, id_type, entity_type, link_of, icon_name, name_sort)
+            VALUES (v_link, NEW.table_name || '_link', NEW.singular_label || ' Link', NEW.singular_label || ' Links',
+                    format('Further target records of %s', NEW.plural_label), NEW.module_id,
+                    NEW.view_permission, NEW.edit_permission, 'auto_increment', 'junction', NEW.table_name,
+                    'link', '900');
+            -- A link row needs no label of its own, its record and its target
+            -- say what it is: the label stays empty, so it is neither
+            -- required nor searched.
+            UPDATE fields SET input_type = 'default', searchable = FALSE WHERE table_name = v_link AND field_name = 'label';
+            INSERT INTO fields (table_name, field_name, title, description, format, field_order, input_type,
+                                reference_table, reference_delete_mode, relationship_label, ctype)
+            VALUES (v_link, NEW.table_name || '_id', NEW.singular_label,
+                    format('The %s record that is attached', NEW.singular_label), 'parent', 30, 'required',
+                    NEW.table_name, 'cascade', 'is attached through', ''),
+                   (v_link, 'attached_to', 'Attached to',
+                    'A further record the attachable record is attached to, as its record reference <table_name>:<key>. Set when the link is created and never changed.',
+                    'text', 40, 'required', '', '', 'has', 'attached_to');
+            -- One link per record and target, and the one index of
+            -- attached_to (add_dd_field builds none for a link table): led by
+            -- it under text_pattern_ops, it also serves the lookups by the
+            -- prefix of a table's references. attached_to comes first because
+            -- the dictionary builds idx_<link>_<entity>_id for the parent
+            -- field whenever its foreign key is rebuilt, and an index led by
+            -- that column would only repeat it. Named as a unique_value index
+            -- of its first column, so a rename of the table carries the name
+            -- along (0170_dd_rename.sql).
+            PERFORM dd_index_name_free(v_link, v_link, 'attached_to', v_link || '_attached_to_unique');
+            EXECUTE format('CREATE UNIQUE INDEX %I ON public.%I (attached_to text_pattern_ops, %I)',
+                           v_link || '_attached_to_unique', v_link, NEW.table_name || '_id');
+        ELSIF NOT v_needs_link AND v_link IS NOT NULL THEN
+            DELETE FROM entities WHERE table_name = v_link;
+            v_link := NULL;
+        END IF;
+
+        IF NEW.attach_mode = 'none' THEN
+            DELETE FROM entity_attachables WHERE attachable = NEW.table_name;
+        END IF;
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND OLD.table_name IS DISTINCT FROM NEW.table_name THEN
+        EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text[])', 'attached_' || OLD.table_name);
+    END IF;
+
+    -- The link entity follows its attachable entity's permissions and module,
+    -- so a module delete does not take it from an entity that moved away.
+    UPDATE entities
+       SET view_permission = NEW.view_permission, edit_permission = NEW.edit_permission, module_id = NEW.module_id
+     WHERE table_name = v_link
+       AND (view_permission, edit_permission, module_id)
+           IS DISTINCT FROM (NEW.view_permission, NEW.edit_permission, NEW.module_id);
+
+    PERFORM dd_attach_refresh(ARRAY[NEW.table_name]);
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_entity_changed() IS
+'AFTER INSERT, UPDATE and DELETE trigger on entities: gives an entity the attached_to field and the link entity its attach mode needs and removes those it no longer needs, gives the link entity the attachable entity''s permissions and module, drops the delete step of a deleted or renamed target, and rebuilds what depends on targets and modes (dd_attach_refresh).';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_entity_changed() FROM PUBLIC;
+
+-- A rename of an attachable entity renames its link entity <entity>_links
+-- and the link field <entity>_id with it. Before the entity's own rename
+-- (rename_table_trigger sorts after this one), because the rename of the link
+-- entity is a rename of its own: it sets the marker dd.table_rename that the
+-- triggers of its fields rows check, and the fields rows of the entity
+-- renamed here are moved by a cascade whose triggers fire only after every
+-- AFTER trigger of this statement, so they must find this entity's marker
+-- there. Run here, the rename of the link entity is complete before the
+-- entity's begins. a_reserve_table_namespace_trigger has checked the new name
+-- before; a name longer than an attachable entity's (dd_attach_name_max) is
+-- left to check_entity_attach (91004), which runs after this trigger.
+CREATE OR REPLACE FUNCTION dd_attach_link_rename()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE entities SET table_name = NEW.table_name || '_links' WHERE link_of = OLD.table_name;
+    UPDATE fields SET field_name = NEW.table_name || '_id'
+     WHERE table_name = NEW.table_name || '_links' AND field_name = OLD.table_name || '_id';
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_link_rename() IS
+'BEFORE UPDATE trigger on entities: when an owned_shared or multiple entity is renamed, renames its link entity to <new name>_links and the link field to <new name>_id first.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_link_rename() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER b_attach_link_rename_trigger
+    BEFORE UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name AND OLD.attach_mode IN ('owned_shared', 'multiple')
+          AND octet_length(NEW.table_name) <= dd_attach_name_max())
+    EXECUTE FUNCTION dd_attach_link_rename();
+
+CREATE OR REPLACE TRIGGER zz_attach_entity_insert_trigger
+    AFTER INSERT ON entities
+    FOR EACH ROW
+    WHEN (NEW.attach_mode <> 'none' OR NEW.id_type = 'is_a')
+    EXECUTE FUNCTION dd_attach_entity_changed();
+
+CREATE OR REPLACE TRIGGER zz_attach_entity_update_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.attach_mode IS DISTINCT FROM NEW.attach_mode
+       OR OLD.attach_permission IS DISTINCT FROM NEW.attach_permission
+       OR OLD.attach_on_target_delete IS DISTINCT FROM NEW.attach_on_target_delete
+       OR OLD.table_name IS DISTINCT FROM NEW.table_name
+       OR OLD.view_permission IS DISTINCT FROM NEW.view_permission
+       OR OLD.edit_permission IS DISTINCT FROM NEW.edit_permission
+       OR OLD.select_rule IS DISTINCT FROM NEW.select_rule
+       OR OLD.managed IS DISTINCT FROM NEW.managed
+       OR OLD.module_id IS DISTINCT FROM NEW.module_id)
+    EXECUTE FUNCTION dd_attach_entity_changed();
+
+CREATE OR REPLACE TRIGGER zz_attach_entity_delete_trigger
+    AFTER DELETE ON entities
+    FOR EACH ROW
+    EXECUTE FUNCTION dd_attach_entity_changed();
+
+-- On an upgrade the dictionary's definer code already runs as
+-- semantius_owner, while a function new in this file stays owned by the
+-- installer until 9900_owner_hardening.sql runs last.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            dd_attachments_exist(TEXT, TEXT[]),
+            common.attach_record_rules(TEXT, TEXT),
+            common.attach_target(TEXT, TEXT, BOOLEAN),
+            common.attached_step(),
+            dd_attach_may_edit(TEXT[]),
+            dd_attach_cycle_check(TEXT, TEXT),
+            dd_attach_name_max(),
+            dd_build_attached_triggers(TEXT),
+            dd_attach_refresh(TEXT[])
+        TO semantius_owner;
+    END IF;
+END $$;
+$pgsem__core_0450_attachables_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0450_attachables.sql', '99999999999999.d947369c3bf23e9bb004ea49365f5af59725fc32fededfd8ae45a0d435d37e50')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0450_attachables.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0450_attachables.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0460_tasks_files_comments.jsonc
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0460_tasks_files_comments.jsonc';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.7c37e006664feeefa032629c16858619ead7a36e593fea037e124f217750e7c5') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0460_tasks_files_comments.jsonc';
+      EXECUTE $pgsem__core_0460_tasks_files_comments_jsonc$SELECT public.ensure_entities(public.jsonc_to_jsonb($pgsem_jsonc$// Tasks, files and comments: three attachable entities (0450_attachables.sql)
+// that any module switches on for its own entities by listing them in
+// entity_attachables. All three are typeid roots, so a module can add an is_a
+// subtype later (a contract document with a signed date and its signer); their
+// key type cannot change afterwards.
+//
+// They are seen with public:read and written with public:write, which the
+// User role holds, so the records' own rules decide: the select_rule of a task,
+// the target a file or a comment follows. created_by is set to the current
+// user on insert and kept on update.
+//
+// The size of a file (b_file_size) and the caller's open tasks (my_tasks())
+// are in 0470_tasks_files_comments.sql.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "tasks",
+        "icon_name": "list-checks",
+        "name_sort": "300",
+        "module_name": "_core",
+        "singular": "task",
+        "singular_label": "Task",
+        "plural_label": "Tasks",
+        "description": "Work to do, for a user or for the members of a role, attached to any number of records. A user's open tasks are their inbox (my_tasks()).",
+        "view_permission": "public:read",
+        "edit_permission": "public:write",
+        "id_type": "typeid",
+        "id_prefix": "task",
+        "id_column": "id",
+        "label_column": "title",
+        "label_column_label": "Title",
+        "entity_type": "operational_workflow",
+        // Any number of equal targets in tasks_links, or none: a to-do is a
+        // plain task. Linking a task to a record needs to see the record.
+        "attach_mode": "multiple",
+        "attach_permission": "view",
+        // A task is seen by its assignee, the members of its role (whose queue
+        // it waits in while it has no assignee), its creator and the holders
+        // of tasks:view_all. The permission comes first, so the policy checks
+        // it once per statement.
+        "select_rule": {"or": [
+          {"has_permission": "tasks:view_all"},
+          {"==": [{"var": "assigned_user"}, {"var": "$user_id"}]},
+          {"==": [{"var": "created_by"}, {"var": "$user_id"}]},
+          {"in": [{"var": "assigned_role"}, {"var": "$role_ids"}]}
+        ]},
+        "computed_fields": [
+          {"name": "created_by", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.created_by"}]}},
+          // Set when the task becomes done, kept while it stays done, cleared
+          // when it leaves done.
+          {"name": "completed_at", "jsonlogic": {"if": [{"==": [{"var": "status"}, "done"]},
+                                                         {"if": [{"==": [{"var": "$old.status"}, "done"]}, {"var": "$old.completed_at"}, {"var": "$now"}]},
+                                                         null]}}
+        ],
+        // Changing, delegating and deleting a task is for its assignee, its
+        // creator and the holders of tasks:manage_all. A member of its role may
+        // claim a task that has no assignee: set assigned_user to themselves
+        // and change nothing else. A session without a user passes: that is
+        // the installer's, a seed's, an import's or a module delete's (a
+        // privileged direct session), since every request carries a user. It
+        // comes first, so has_permission is not asked without one.
+        "validation_rules": [
+          {"code": "90279", "message": "A task is changed or deleted by its assignee, its creator or a holder of tasks:manage_all; a member of its role may only claim it", "source_module": "platform",
+           "jsonlogic": {"or": [
+             {"==": [{"var": "$user_id"}, null]},
+             {"==": [{"var": "$mode"}, "insert"]},
+             {"has_permission": "tasks:manage_all"},
+             {"==": [{"var": "$old.assigned_user"}, {"var": "$user_id"}]},
+             {"==": [{"var": "$old.created_by"}, {"var": "$user_id"}]},
+             {"and": [
+               {"==": [{"var": "$mode"}, "update"]},
+               {"==": [{"var": "$old.assigned_user"}, null]},
+               {"==": [{"var": "assigned_user"}, {"var": "$user_id"}]},
+               {"in": [{"var": "$old.assigned_role"}, {"var": "$role_ids"}]},
+               {"!": {"value_changed": "title"}},
+               {"!": {"value_changed": "description"}},
+               {"!": {"value_changed": "status"}},
+               {"!": {"value_changed": "priority"}},
+               {"!": {"value_changed": "due_at"}},
+               {"!": {"value_changed": "snoozed_until"}},
+               {"!": {"value_changed": "assigned_role"}}
+             ]}
+           ]}}
+        ],
+        // id, title (the label column), created_at and updated_at are created
+        // by the dictionary.
+        "fields": [
+          {"field_name": "description", "title": "Description", "description": "What the task is about",
+           "format": "multiline", "field_order": 30, "input_type": "default", "width": "w", "searchable": true},
+          {"field_name": "status", "title": "Status", "description": "open until the task is done or canceled",
+           "format": "enum", "field_order": 40, "input_type": "required", "width": "default", "default_value": "open",
+           "enum_values": [{"value": "open", "label": "Open"}, {"value": "done", "label": "Done"}, {"value": "canceled", "label": "Canceled"}]},
+          {"field_name": "priority", "title": "Priority", "description": "Orders a user's open tasks after the due date",
+           "format": "enum", "field_order": 50, "input_type": "required", "width": "default", "default_value": "normal",
+           "enum_values": [{"value": "low", "label": "Low"}, {"value": "normal", "label": "Normal"}, {"value": "high", "label": "High"}]},
+          {"field_name": "due_at", "title": "Due At", "description": "When the task is due",
+           "format": "date-time", "field_order": 60, "input_type": "default", "width": "default"},
+          {"field_name": "snoozed_until", "title": "Snoozed Until", "description": "The task is left out of the open tasks until then",
+           "format": "date-time", "field_order": 70, "input_type": "default", "width": "default"},
+          {"field_name": "assigned_user", "title": "Assigned User", "description": "Who does the task; empty while it waits in its role's queue",
+           "format": "reference", "field_order": 80, "input_type": "default", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "is assigned"},
+          {"field_name": "assigned_role", "title": "Assigned Role", "description": "The role whose members may claim the task while it has no assignee, and who see it",
+           "format": "reference", "field_order": 90, "input_type": "default", "width": "default",
+           "reference_table": "roles", "reference_delete_mode": "clear", "relationship_label": "queues"},
+          {"field_name": "created_by", "title": "Created By", "description": "Who created the task (set by the database)",
+           "format": "reference", "field_order": 100, "input_type": "readonly", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "created"},
+          {"field_name": "completed_at", "title": "Completed At", "description": "When the task became done (set by the database)",
+           "format": "date-time", "field_order": 110, "input_type": "readonly", "width": "default"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "files",
+        "icon_name": "paperclip",
+        "name_sort": "310",
+        "module_name": "_core",
+        "singular": "file",
+        "singular_label": "File",
+        "plural_label": "Files",
+        "description": "Files owned by one record and shown on further ones; the contents are stored with the file.",
+        "view_permission": "public:read",
+        "edit_permission": "public:write",
+        "id_type": "typeid",
+        "id_prefix": "file",
+        "id_column": "id",
+        "label_column": "name",
+        "label_column_label": "Name",
+        "entity_type": "operational_record",
+        // The owning record, in attached_to, decides who sees and changes a
+        // file; further records in files_links only show it. Attaching needs
+        // edit rights on the record, and a file goes with its owner.
+        "attach_mode": "owned_shared",
+        "attach_permission": "edit",
+        "attach_on_target_delete": "cascade",
+        "computed_fields": [
+          {"name": "created_by", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.created_by"}]}}
+        ],
+        // id, name (the label column), attached_to, created_at and updated_at
+        // are created by the dictionary.
+        "fields": [
+          {"field_name": "content_type", "title": "Content Type", "description": "The MIME type of the contents",
+           "format": "text", "field_order": 30, "input_type": "default", "width": "default"},
+          {"field_name": "size", "title": "Size", "description": "The size of the contents in bytes (set by the database)",
+           "format": "int64", "field_order": 40, "input_type": "readonly", "width": "default"},
+          {"field_name": "content", "title": "Content", "description": "The contents of the file",
+           "format": "binary", "field_order": 50, "input_type": "default", "width": "w"},
+          {"field_name": "created_by", "title": "Created By", "description": "Who uploaded the file (set by the database)",
+           "format": "reference", "field_order": 60, "input_type": "readonly", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "uploaded"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "comments",
+        "icon_name": "message-square",
+        "name_sort": "320",
+        "module_name": "_core",
+        "singular": "comment",
+        "singular_label": "Comment",
+        "plural_label": "Comments",
+        "description": "Comments on a record, seen and changed by whoever may see and change the record.",
+        "view_permission": "public:read",
+        "edit_permission": "public:write",
+        "id_type": "typeid",
+        "id_prefix": "comment",
+        "id_column": "id",
+        "label_column": "label",
+        "label_column_label": "Label",
+        "entity_type": "operational_record",
+        // One target, in attached_to, which decides who sees and changes the
+        // comment: anyone who sees a record may comment on it, and anyone who
+        // may edit it may edit its comments. A comment goes with its target.
+        "attach_mode": "single",
+        "attach_permission": "view",
+        "attach_on_target_delete": "cascade",
+        "computed_fields": [
+          {"name": "label", "jsonlogic": {"substr": [{"var": "body"}, 0, 80]}},
+          {"name": "created_by", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.created_by"}]}}
+        ],
+        // id, label (the label column, the first 80 characters of the body),
+        // attached_to, created_at and updated_at are created by the dictionary.
+        "fields": [
+          {"field_name": "body", "title": "Body", "description": "The comment",
+           "format": "multiline", "field_order": 30, "input_type": "required", "width": "w", "searchable": true},
+          {"field_name": "created_by", "title": "Created By", "description": "Who wrote the comment (set by the database)",
+           "format": "reference", "field_order": 40, "input_type": "readonly", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "wrote"}
+        ]
+      }
+    }
+  ]
+}
+$pgsem_jsonc$));
+$pgsem__core_0460_tasks_files_comments_jsonc$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0460_tasks_files_comments.jsonc', '99999999999999.7c37e006664feeefa032629c16858619ead7a36e593fea037e124f217750e7c5')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0460_tasks_files_comments.jsonc';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0460_tasks_files_comments.jsonc', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
+  -- _core.0470_tasks_files_comments.sql
+  PERFORM pg_catalog.set_config('search_path', 'public', true);
+  PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
+  PERFORM pg_catalog.set_config('check_function_bodies', 'on', true);
+  PERFORM pg_catalog.set_config('session_replication_role', 'origin', true);
+  BEGIN
+    SELECT v.checksum INTO v_sum FROM public._versions v WHERE v.name = '_core.0470_tasks_files_comments.sql';
+    v_found := FOUND;
+    IF v_failed_file IS NULL AND (NOT v_found OR v_sum IS DISTINCT FROM '99999999999999.fbbe27dbf02556f2b780142d744c42650bfd2dad258e7e450b2793171f9ec1fc') THEN
+      v_ran := true;
+      RAISE NOTICE 'pg_semantius: applying _core.0470_tasks_files_comments.sql';
+      EXECUTE $pgsem__core_0470_tasks_files_comments_sql$-- =====================================================
+-- TASKS, FILES AND COMMENTS: what metadata does not say
+-- =====================================================
+-- The entities are 0460_tasks_files_comments.jsonc. Here: the size of a
+-- file, which the database keeps, and a user's open tasks.
+
+-- The size of a file's contents, in bytes. A BEFORE trigger rather than a
+-- computed field: JsonLogic sees the bytea column as text and cannot measure
+-- it. The name b_file_size places it after the key is assigned and before the
+-- rules (the firing order in build_record_logic_trigger,
+-- 0210_computed_validation.sql), so the rules see the size. On the root
+-- table, so a file of an is_a subtype gets its size as well.
+CREATE OR REPLACE FUNCTION common.file_size()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    NEW.size := octet_length(NEW.content)::bigint;
+    RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION common.file_size() IS
+'BEFORE INSERT OR UPDATE trigger b_file_size of files: sets size to the length of content in bytes.';
+
+REVOKE EXECUTE ON FUNCTION common.file_size() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER b_file_size
+    BEFORE INSERT OR UPDATE ON public.files
+    FOR EACH ROW
+    EXECUTE FUNCTION common.file_size();
+
+-- The caller's open tasks, the universal inbox: the tasks assigned to the
+-- caller, and those without an assignee that wait in the queue of one of the
+-- caller's roles, unless snoozed until a time still to come. By due date, the
+-- earliest first and the undated last, then by priority, the highest first.
+-- SECURITY INVOKER, so the tasks' own row-level security applies and the
+-- answer is never wider than a read of tasks. The two readers are sub-selects
+-- the planner runs once per statement.
+CREATE OR REPLACE FUNCTION public.my_tasks()
+RETURNS SETOF public.tasks AS $$
+    SELECT t.*
+      FROM public.tasks t
+     WHERE t.status = 'open'
+       AND (t.assigned_user = (SELECT rbac.user_id())
+            OR (t.assigned_user IS NULL AND t.assigned_role IN (SELECT unnest(rbac.user_role_ids()))))
+       AND (t.snoozed_until IS NULL OR t.snoozed_until <= CURRENT_TIMESTAMP)
+     ORDER BY t.due_at NULLS LAST, array_position(ARRAY['high', 'normal', 'low'], t.priority), t.id;
+$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION public.my_tasks() IS
+'The caller''s open tasks: assigned to the caller, or without an assignee in the queue of one of the caller''s roles, and not snoozed until a time to come; by due date, then by priority. SECURITY INVOKER, so the tasks'' row-level security applies.';
+
+REVOKE EXECUTE ON FUNCTION public.my_tasks() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.my_tasks() TO semantius_user;
+$pgsem__core_0470_tasks_files_comments_sql$;
+      SET CONSTRAINTS ALL IMMEDIATE;
+      INSERT INTO public._versions (name, checksum)
+        VALUES ('_core.0470_tasks_files_comments.sql', '99999999999999.fbbe27dbf02556f2b780142d744c42650bfd2dad258e7e450b2793171f9ec1fc')
+        ON CONFLICT (name) DO UPDATE
+        SET checksum = EXCLUDED.checksum, created_at = CURRENT_TIMESTAMP;
+      v_applied := v_applied + 1;
+    ELSE
+      v_skipped := v_skipped + 1;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    -- Without this the whole embedded migration is reported as CONTEXT.
+    GET STACKED DIAGNOSTICS
+      v_state  = RETURNED_SQLSTATE,
+      v_msg    = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL,
+      v_hint   = PG_EXCEPTION_HINT,
+      v_ctx    = PG_EXCEPTION_CONTEXT;
+    IF v_failed_file IS NULL THEN
+      v_failed_file := '_core.0470_tasks_files_comments.sql';
+      v_fail_state := v_state;
+      v_fail_msg := v_msg;
+      v_fail_detail := coalesce(v_detail, '');
+      v_fail_hint := coalesce(nullif(v_hint, ''), 'at: ' ||
+                     split_part(coalesce(v_ctx, ''), E'\n', 1));
+    ELSE
+      v_also := v_also || format(E'\n%s also failed afterwards: %s (SQLSTATE %s)',
+                                 '_core.0470_tasks_files_comments.sql', v_msg, v_state);
+    END IF;
+  END;
+  COMMIT;
+
   -- _core.9900_owner_hardening.sql
   PERFORM pg_catalog.set_config('search_path', 'public', true);
   PERFORM pg_catalog.set_config('standard_conforming_strings', 'on', true);
@@ -28840,7 +31694,7 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_pending$
 DECLARE
-  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"20261123164322.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"20261123164322.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"20261123164322.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"20261123164322.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"20261123164322.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"20261123164322.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"20261123164322.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"20261123164322.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"20261123164322.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"20261123164322.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"20261123164322.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"20261125184227.2cae43e947632694cc5feb6e152862fc6570a0cfa6b23f564120c1193289129b","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"20261123164322.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"20261123164322.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"20261123164322.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"20261123164322.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"20261125184227.027b597b5bdc0f1d6d9a3c38a27f545f39be9f4c01e6a8c73c2fdd3dac08e1dd","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"20261123164322.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"20261123164322.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"20261123164322.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"20261123164322.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"20261123164322.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"20261123164322.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"20261123164322.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"20261123164322.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"20261123164322.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"20261123164322.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"20261123164322.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"20261123164322.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"20261123164322.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"20261123164322.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"20261123164322.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"20261123164322.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"20261123164322.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"20261123164322.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"20261123164322.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"20261123164322.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"20261123164322.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"20261123164322.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"20261123164322.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"20261123164322.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"20261123164322.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"20261123164322.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"20261123164322.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"20261123164322.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"20261123164322.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"20261123164322.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false,"final":true}]'::jsonb;
+  v_files jsonb := '[{"app":"_core","name":"_core.0010_core.sql","checksum":"20261123164322.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","once":false,"final":false},{"app":"_core","name":"_core.0020_settings.once.sql","checksum":"20261123164322.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","once":true,"final":false},{"app":"_core","name":"_core.0030_session_authenticator.sql","checksum":"20261123164322.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","once":false,"final":false},{"app":"_core","name":"_core.0040_cache.sql","checksum":"20261123164322.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","once":false,"final":false},{"app":"_core","name":"_core.0045_typeid.sql","checksum":"20261123164322.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","once":false,"final":false},{"app":"_core","name":"_core.0046_typeid.once.sql","checksum":"20261123164322.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","once":true,"final":false},{"app":"_core","name":"_core.0050_jsonlogic.sql","checksum":"99999999999999.b7c9c9ae492bf8f9b3ad1ed0479744d0c99014fb3ff74ec08a472925d7b8f7a4","once":false,"final":false},{"app":"_core","name":"_core.0060_rbac_schema.once.sql","checksum":"20261123164322.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","once":true,"final":false},{"app":"_core","name":"_core.0070_rbac_schema.sql","checksum":"20261123164322.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","once":false,"final":false},{"app":"_core","name":"_core.0080_rbac_functions.sql","checksum":"99999999999999.4aa70c15ee21b275ed2537fcf1e61beaee282fc9397afa3422d36dbf90194ac7","once":false,"final":false},{"app":"_core","name":"_core.0090_rbac_seed.once.sql","checksum":"99999999999999.e8fbb3ff75d8e7e8cb39a67af43fbbd13f47a8d07c734df5ae1522318ad5e007","once":true,"final":false},{"app":"_core","name":"_core.0100_rbac_rls.sql","checksum":"20261125184227.2cae43e947632694cc5feb6e152862fc6570a0cfa6b23f564120c1193289129b","once":false,"final":false},{"app":"_core","name":"_core.0110_rbac_grants.once.sql","checksum":"20261123164322.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","once":true,"final":false},{"app":"_core","name":"_core.0120_dd_formats.sql","checksum":"20261123164322.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","once":false,"final":false},{"app":"_core","name":"_core.0130_dd_schema.once.sql","checksum":"99999999999999.1a321a416e880c3f83a1be68f6503ac442bfee0d5c1ef598aa8b9c1a2d561ec1","once":true,"final":false},{"app":"_core","name":"_core.0140_dd_schema.sql","checksum":"99999999999999.ecebbb6574734e54fa5be860761b9647ca923290829eac63df466135f157cb70","once":false,"final":false},{"app":"_core","name":"_core.0150_dd_bootstrap.once.sql","checksum":"99999999999999.6daf25188381c05fbc0fc4cc315b7f52b36194394f80c40918bdd483803ae1de","once":true,"final":false},{"app":"_core","name":"_core.0160_dd_functions.sql","checksum":"99999999999999.8098d49ef82621df1f9049d61c3f762d650283fefd94616920f0bd755432a6d3","once":false,"final":false},{"app":"_core","name":"_core.0170_dd_rename.sql","checksum":"99999999999999.0e573f226a94958bdf7181f7bf74de0cb9a3e56fc715f464094eb28f5053cb4f","once":false,"final":false},{"app":"_core","name":"_core.0180_managed_enable.sql","checksum":"99999999999999.19689872970686f0090ce63d6590e94a6d37faddb078648239b538de0c311152","once":false,"final":false},{"app":"_core","name":"_core.0190_audit_log.once.sql","checksum":"20261123164322.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","once":true,"final":false},{"app":"_core","name":"_core.0200_audit_log.sql","checksum":"20261123164322.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","once":false,"final":false},{"app":"_core","name":"_core.0210_computed_validation.sql","checksum":"99999999999999.a055e22b595d8c605862fe4f1f090d7e2fcd2e1dd01eb5fbc6cd6051e41f5624","once":false,"final":false},{"app":"_core","name":"_core.0220_entity_insert_defaults.sql","checksum":"20261123164322.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","once":false,"final":false},{"app":"_core","name":"_core.0230_entity_order_column.sql","checksum":"20261123164322.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","once":false,"final":false},{"app":"_core","name":"_core.0240_dd_bootstrap_complete.once.sql","checksum":"99999999999999.795ea949c280d6f18d569dc28b3558f1ad08b8f9fd7d4e552b8a078b4197fd0c","once":true,"final":false},{"app":"_core","name":"_core.0250_public_functions.sql","checksum":"99999999999999.f4f6c0b18abf3e9214753bc7317f5023515dd04f9dd5ed3720ef04d16d932754","once":false,"final":false},{"app":"_core","name":"_core.0260_notify_triggers.sql","checksum":"20261123164322.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","once":false,"final":false},{"app":"_core","name":"_core.0270_apikeys.once.sql","checksum":"20261123164322.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","once":true,"final":false},{"app":"_core","name":"_core.0280_apikeys.sql","checksum":"20261123164322.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","once":false,"final":false},{"app":"_core","name":"_core.0290_ensure_entities.sql","checksum":"99999999999999.f1f70a7daa0a641969cfa6f2c5d13c70df6dd17582e062be39db7ecbd944d338","once":false,"final":false},{"app":"_core","name":"_core.0300_audit_log.jsonc","checksum":"20261123164322.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","once":false,"final":false},{"app":"_core","name":"_core.0310_pgmq.once.sql","checksum":"20261123164322.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","once":true,"final":false},{"app":"_core","name":"_core.0320_queue.jsonc","checksum":"20261123164322.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","once":false,"final":false},{"app":"_core","name":"_core.0330_queue_setup.once.sql","checksum":"20261123164322.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","once":true,"final":false},{"app":"_core","name":"_core.0340_queue.sql","checksum":"20261123164322.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","once":false,"final":false},{"app":"_core","name":"_core.0350_raci.jsonc","checksum":"20261123164322.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","once":false,"final":false},{"app":"_core","name":"_core.0360_raci_setup.once.sql","checksum":"20261123164322.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","once":true,"final":false},{"app":"_core","name":"_core.0370_raci.sql","checksum":"20261123164322.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","once":false,"final":false},{"app":"_core","name":"_core.0380_webhook_receiver.jsonc","checksum":"20261123164322.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","once":false,"final":false},{"app":"_core","name":"_core.0390_webhook_receiver_setup.once.sql","checksum":"20261123164322.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","once":true,"final":false},{"app":"_core","name":"_core.0400_dashboard.jsonc","checksum":"20261123164322.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","once":false,"final":false},{"app":"_core","name":"_core.0410_user_bookmarks.jsonc","checksum":"99999999999999.5b0db64f9ff6889ebf77f2d5b3e7d15eec2a112fbbedcd31d7b40fe3dacd6662","once":false,"final":false},{"app":"_core","name":"_core.0420_module_version.sql","checksum":"20261123164322.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","once":false,"final":false},{"app":"_core","name":"_core.0430_required_field_description.once.sql","checksum":"20261123164322.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","once":true,"final":false},{"app":"_core","name":"_core.0440_rollup.sql","checksum":"20261123164322.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","once":false,"final":false},{"app":"_core","name":"_core.0450_attachables.sql","checksum":"99999999999999.d947369c3bf23e9bb004ea49365f5af59725fc32fededfd8ae45a0d435d37e50","once":false,"final":false},{"app":"_core","name":"_core.0460_tasks_files_comments.jsonc","checksum":"99999999999999.7c37e006664feeefa032629c16858619ead7a36e593fea037e124f217750e7c5","once":false,"final":false},{"app":"_core","name":"_core.0470_tasks_files_comments.sql","checksum":"99999999999999.fbbe27dbf02556f2b780142d744c42650bfd2dad258e7e450b2793171f9ec1fc","once":false,"final":false},{"app":"_core","name":"_core.9900_owner_hardening.sql","checksum":"20261123164322.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff","once":false,"final":true}]'::jsonb;
   f       jsonb;
   v_app   text;
   v_ran   boolean := false;
@@ -28904,9 +31758,9 @@ LANGUAGE plpgsql STABLE
 SET search_path = public
 AS $pgsem_status$
 DECLARE
-  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.9900_owner_hardening.sql'];
+  v_all text[] := ARRAY['_core.0010_core.sql', '_core.0020_settings.once.sql', '_core.0030_session_authenticator.sql', '_core.0040_cache.sql', '_core.0045_typeid.sql', '_core.0046_typeid.once.sql', '_core.0050_jsonlogic.sql', '_core.0060_rbac_schema.once.sql', '_core.0070_rbac_schema.sql', '_core.0080_rbac_functions.sql', '_core.0090_rbac_seed.once.sql', '_core.0100_rbac_rls.sql', '_core.0110_rbac_grants.once.sql', '_core.0120_dd_formats.sql', '_core.0130_dd_schema.once.sql', '_core.0140_dd_schema.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0160_dd_functions.sql', '_core.0170_dd_rename.sql', '_core.0180_managed_enable.sql', '_core.0190_audit_log.once.sql', '_core.0200_audit_log.sql', '_core.0210_computed_validation.sql', '_core.0220_entity_insert_defaults.sql', '_core.0230_entity_order_column.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0250_public_functions.sql', '_core.0260_notify_triggers.sql', '_core.0270_apikeys.once.sql', '_core.0280_apikeys.sql', '_core.0290_ensure_entities.sql', '_core.0300_audit_log.jsonc', '_core.0310_pgmq.once.sql', '_core.0320_queue.jsonc', '_core.0330_queue_setup.once.sql', '_core.0340_queue.sql', '_core.0350_raci.jsonc', '_core.0360_raci_setup.once.sql', '_core.0370_raci.sql', '_core.0380_webhook_receiver.jsonc', '_core.0390_webhook_receiver_setup.once.sql', '_core.0400_dashboard.jsonc', '_core.0410_user_bookmarks.jsonc', '_core.0420_module_version.sql', '_core.0430_required_field_description.once.sql', '_core.0440_rollup.sql', '_core.0450_attachables.sql', '_core.0460_tasks_files_comments.jsonc', '_core.0470_tasks_files_comments.sql', '_core.9900_owner_hardening.sql'];
   v_once text[] := ARRAY['_core.0020_settings.once.sql', '_core.0046_typeid.once.sql', '_core.0060_rbac_schema.once.sql', '_core.0090_rbac_seed.once.sql', '_core.0110_rbac_grants.once.sql', '_core.0130_dd_schema.once.sql', '_core.0150_dd_bootstrap.once.sql', '_core.0190_audit_log.once.sql', '_core.0240_dd_bootstrap_complete.once.sql', '_core.0270_apikeys.once.sql', '_core.0310_pgmq.once.sql', '_core.0330_queue_setup.once.sql', '_core.0360_raci_setup.once.sql', '_core.0390_webhook_receiver_setup.once.sql', '_core.0430_required_field_description.once.sql']::text[];
-  v_sums jsonb := '{"_core.0010_core.sql":"20261123164322.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"20261123164322.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"20261123164322.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"20261123164322.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","_core.0045_typeid.sql":"20261123164322.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"20261123164322.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"20261123164322.4d94c265d6e79c15664a61ba8b5c11ca49627cea09f6bf1872692be948efcf4a","_core.0060_rbac_schema.once.sql":"20261123164322.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"20261123164322.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"20261123164322.3ed00783ae5fa27bf334af010caa934ff8eeab2288a8864b3b88c4c9c4beb4a1","_core.0090_rbac_seed.once.sql":"20261123164322.90d24694cbb84c11de49442c9cb841575dd49063dc483e79f4eca85294a0feaa","_core.0100_rbac_rls.sql":"20261125184227.2cae43e947632694cc5feb6e152862fc6570a0cfa6b23f564120c1193289129b","_core.0110_rbac_grants.once.sql":"20261123164322.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"20261123164322.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","_core.0130_dd_schema.once.sql":"20261123164322.a5a2af41d520ad0e70a6341d9aa164cfa3a1a476f51b29ce9165b648cba888fc","_core.0140_dd_schema.sql":"20261123164322.7ebefa9d931a832f82c6df5a4bb104250ea7a50a819872c25605a58973800ee6","_core.0150_dd_bootstrap.once.sql":"20261125184227.027b597b5bdc0f1d6d9a3c38a27f545f39be9f4c01e6a8c73c2fdd3dac08e1dd","_core.0160_dd_functions.sql":"20261123164322.bf7fc723648069016ec159e7194c91043640be1a832eaa7c3272956f8d53c130","_core.0170_dd_rename.sql":"20261123164322.cf42a862b6f390c0c4710c55b55932bbb60a918f7a95481d20f8ed6cd110167c","_core.0180_managed_enable.sql":"20261123164322.038e129a456f835fafc569bd3b84266ca63908b88a04af471a320bb88767f3cb","_core.0190_audit_log.once.sql":"20261123164322.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"20261123164322.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"20261123164322.f602849de8fd125c96833d8cd76727064306f75207c7e1f41ad3acb03c71aa11","_core.0220_entity_insert_defaults.sql":"20261123164322.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"20261123164322.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"20261123164322.88755df28c9e910c635b7b6996e11695afb6acca02e461eba26a0bced567a668","_core.0250_public_functions.sql":"20261123164322.8b081522daab5427b4d9e55d5caa47d07c748b04366d1cfd228082b43c36d636","_core.0260_notify_triggers.sql":"20261123164322.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"20261123164322.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","_core.0280_apikeys.sql":"20261123164322.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"20261123164322.999013aa626b734f35651714938934263792a4298be2013fca57aeff24b7627c","_core.0300_audit_log.jsonc":"20261123164322.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"20261123164322.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","_core.0320_queue.jsonc":"20261123164322.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"20261123164322.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"20261123164322.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","_core.0350_raci.jsonc":"20261123164322.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"20261123164322.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","_core.0370_raci.sql":"20261123164322.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"20261123164322.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"20261123164322.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"20261123164322.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"20261123164322.e2b097a284de9a6afd067c965051403552c6c8cc8e74198b39ce796388554804","_core.0420_module_version.sql":"20261123164322.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"20261123164322.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"20261123164322.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","_core.9900_owner_hardening.sql":"20261123164322.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"}'::jsonb;
+  v_sums jsonb := '{"_core.0010_core.sql":"20261123164322.6531b5c35df651ca6b3c83f3706339621fe5e911f72b2c74aa3f3967b4b87aad","_core.0020_settings.once.sql":"20261123164322.546c25957d62627135adbda5220735a239886404f2743146b107338ac4ad231d","_core.0030_session_authenticator.sql":"20261123164322.60a64b0031673f9036110ca3db6cdee97d980e08fa4d4604edb4be264e2a17ee","_core.0040_cache.sql":"20261123164322.5fc8c3562677dfd654d57fcac7da1b98f358db20a70e84b32c8aaf8f0333856f","_core.0045_typeid.sql":"20261123164322.cf4e971d7ca11596903e7c2ef854c929d4a37c56c40dc206417560242a01be98","_core.0046_typeid.once.sql":"20261123164322.b79997a830290292834a9070509b896ab1111e7ad24eb8b6b5ca0664f8b45f2d","_core.0050_jsonlogic.sql":"99999999999999.b7c9c9ae492bf8f9b3ad1ed0479744d0c99014fb3ff74ec08a472925d7b8f7a4","_core.0060_rbac_schema.once.sql":"20261123164322.b261f1a13174b965c67227e5d9b9071f7461817979e7b7c05dabcbddb816aae2","_core.0070_rbac_schema.sql":"20261123164322.c65e9329aa224d46366b8f36a427133d6d0965192152dabb1957beb6319bd01c","_core.0080_rbac_functions.sql":"99999999999999.4aa70c15ee21b275ed2537fcf1e61beaee282fc9397afa3422d36dbf90194ac7","_core.0090_rbac_seed.once.sql":"99999999999999.e8fbb3ff75d8e7e8cb39a67af43fbbd13f47a8d07c734df5ae1522318ad5e007","_core.0100_rbac_rls.sql":"20261125184227.2cae43e947632694cc5feb6e152862fc6570a0cfa6b23f564120c1193289129b","_core.0110_rbac_grants.once.sql":"20261123164322.fc8b0f0ad8ff28168f9cd2fd5a7fad84f806c9d3cc8ec248e4f0bc7f97a15ff5","_core.0120_dd_formats.sql":"20261123164322.af408aa8db3a3f1e013b1607c67baf8406923e7e1841bb4f8750d6a45ca67a92","_core.0130_dd_schema.once.sql":"99999999999999.1a321a416e880c3f83a1be68f6503ac442bfee0d5c1ef598aa8b9c1a2d561ec1","_core.0140_dd_schema.sql":"99999999999999.ecebbb6574734e54fa5be860761b9647ca923290829eac63df466135f157cb70","_core.0150_dd_bootstrap.once.sql":"99999999999999.6daf25188381c05fbc0fc4cc315b7f52b36194394f80c40918bdd483803ae1de","_core.0160_dd_functions.sql":"99999999999999.8098d49ef82621df1f9049d61c3f762d650283fefd94616920f0bd755432a6d3","_core.0170_dd_rename.sql":"99999999999999.0e573f226a94958bdf7181f7bf74de0cb9a3e56fc715f464094eb28f5053cb4f","_core.0180_managed_enable.sql":"99999999999999.19689872970686f0090ce63d6590e94a6d37faddb078648239b538de0c311152","_core.0190_audit_log.once.sql":"20261123164322.c3ee7e86aa901ec42c28213105eb9f9fad017a5f06065a1222a421fd4f08ad79","_core.0200_audit_log.sql":"20261123164322.0a48abee0b6bb880709b35e31f758ce02d24bce1a0f2d87134aad00854f71587","_core.0210_computed_validation.sql":"99999999999999.a055e22b595d8c605862fe4f1f090d7e2fcd2e1dd01eb5fbc6cd6051e41f5624","_core.0220_entity_insert_defaults.sql":"20261123164322.bd169fb2dff659178a48614b88744e497033e2706f21b8bfa55bdb7e07a43a53","_core.0230_entity_order_column.sql":"20261123164322.875d86b6c72adfb47721b83ac6b789e5e667920b913c8b0adf55cef0a271c594","_core.0240_dd_bootstrap_complete.once.sql":"99999999999999.795ea949c280d6f18d569dc28b3558f1ad08b8f9fd7d4e552b8a078b4197fd0c","_core.0250_public_functions.sql":"99999999999999.f4f6c0b18abf3e9214753bc7317f5023515dd04f9dd5ed3720ef04d16d932754","_core.0260_notify_triggers.sql":"20261123164322.8a1ef21bb081bfd6a6afc2912cadf63007a3f0e63afd3809e827758cbe1ec96c","_core.0270_apikeys.once.sql":"20261123164322.42ec60697371732e7b05f2e8f4611517b856870562aa3ce5f0256324afd33f79","_core.0280_apikeys.sql":"20261123164322.fdff58721e7abf5293d945e0656bb4c57b27e7fc18be05418a46e1a0e630b26b","_core.0290_ensure_entities.sql":"99999999999999.f1f70a7daa0a641969cfa6f2c5d13c70df6dd17582e062be39db7ecbd944d338","_core.0300_audit_log.jsonc":"20261123164322.f3243a3bd7f8105db16688c65455f2bc89d72061e415522486625103544ec1c7","_core.0310_pgmq.once.sql":"20261123164322.77fa3536e62e5bc67be39268c3e541609e4927e642b38ed044c1a441baf03c85","_core.0320_queue.jsonc":"20261123164322.8d285a4d2e773b658404b23964ab6cd0fd45d3860034516f10bb5795289f1fdf","_core.0330_queue_setup.once.sql":"20261123164322.9206c845e2e8c81678cf530435be5ea514fa6d70aec4addff01a2dd7b127dc11","_core.0340_queue.sql":"20261123164322.ca6b5dd197a148ab6859eadc17c6bce1a813e08f96cb903062178099ad896005","_core.0350_raci.jsonc":"20261123164322.5c8321045d5cfb35638df1fb7697bebfa10954d59c1db254bd6c8e5ef5ba102d","_core.0360_raci_setup.once.sql":"20261123164322.0e70b7c90ae2c8e0dd6004261be8538c21f5ee4d52c0886f1af19908e4a02243","_core.0370_raci.sql":"20261123164322.99317aaa8ac44a9cd6d00b1e299bdf01229cc559108a6ba2692e26957817af9d","_core.0380_webhook_receiver.jsonc":"20261123164322.33674450ccb64f7c0c0649fc74af9c867ef3e9da6abe6fa36c6b3b97d2290a95","_core.0390_webhook_receiver_setup.once.sql":"20261123164322.a4649a95481f477853d02de064390cd668f839549b268aa72c9fcd49aeaa00ec","_core.0400_dashboard.jsonc":"20261123164322.8fc549d148433584c5187278a65e04cd894de3095ac1087b677290e95cdeb91e","_core.0410_user_bookmarks.jsonc":"99999999999999.5b0db64f9ff6889ebf77f2d5b3e7d15eec2a112fbbedcd31d7b40fe3dacd6662","_core.0420_module_version.sql":"20261123164322.c43f8b8b2774cbf40fe60ed6b120c9109f07afbc4a1bdbac578e41d26022476e","_core.0430_required_field_description.once.sql":"20261123164322.464b28b3d636b54e25c5fe8caf72227510444900a83d7e8e099a69a80b654936","_core.0440_rollup.sql":"20261123164322.f75df82ca1152a8bbcd8fe3e592006328886019d8bc790bc63d167854f4e6972","_core.0450_attachables.sql":"99999999999999.d947369c3bf23e9bb004ea49365f5af59725fc32fededfd8ae45a0d435d37e50","_core.0460_tasks_files_comments.jsonc":"99999999999999.7c37e006664feeefa032629c16858619ead7a36e593fea037e124f217750e7c5","_core.0470_tasks_files_comments.sql":"99999999999999.fbbe27dbf02556f2b780142d744c42650bfd2dad258e7e450b2793171f9ec1fc","_core.9900_owner_hardening.sql":"20261123164322.ed8ec64d2d95530670e33417a238e614768e0bae6f837dbd2f10c07fc45359ff"}'::jsonb;
 BEGIN
   extversion := semantius.version();
   db_version := NULL;

@@ -257,9 +257,13 @@ DECLARE
     -- difference, and refused for an is_a entity (90245).
     c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'id_refentity',
         'catalog_entity_code', 'catalog_entity_aliases'];
-    -- Written once the fields exist, because they name fields.
+    -- Written once the fields exist, because they name fields. The label
+    -- number settings go with computed_fields: a rule writing the label and the
+    -- number format exclude each other (90288), so a label that changes from
+    -- one to the other changes in one write.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
-        'validation_rules', 'select_rule'];
+        'validation_rules', 'select_rule', 'label_format', 'label_number_prefix',
+        'label_number_digits', 'label_number_start'];
     c_field_ignored CONSTANT TEXT[] := ARRAY['id', 'table_name', 'created_at', 'updated_at',
         'search_vector'];
     c_field_create_only CONSTANT TEXT[] := ARRAY['ctype', 'catalog_field_code'];
@@ -347,7 +351,7 @@ BEGIN
     END IF;
     SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(definition) AS k
      WHERE k <> ALL (ARRAY['version', 'module', 'permissions', 'permission_hierarchy',
-                           'roles', 'role_permissions', 'entities']);
+                           'roles', 'role_permissions', 'entities', 'entity_attachables']);
     IF v_bad IS NOT NULL THEN
         RAISE EXCEPTION 'ensure_entities: unknown top-level key(s): %', v_bad
             USING ERRCODE = '22023';
@@ -358,7 +362,7 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
     FOREACH v_key IN ARRAY ARRAY['permissions', 'permission_hierarchy', 'roles',
-                                 'role_permissions', 'entities'] LOOP
+                                 'role_permissions', 'entities', 'entity_attachables'] LOOP
         IF definition ? v_key AND jsonb_typeof(definition -> v_key) <> 'array' THEN
             RAISE EXCEPTION 'ensure_entities: "%" must be an array', v_key
                 USING ERRCODE = '22023';
@@ -414,6 +418,21 @@ BEGIN
          WHERE k <> ALL (ARRAY['including_permission_name', 'included_permission_name', 'origin']);
         IF v_bad IS NOT NULL THEN
             RAISE EXCEPTION 'ensure_entities: permission_hierarchy: unknown key(s): %', v_bad
+                USING ERRCODE = '22023';
+        END IF;
+    END LOOP;
+
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'entity_attachables', '[]')) e LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR jsonb_typeof(v_item -> 'target') IS DISTINCT FROM 'string'
+           OR jsonb_typeof(v_item -> 'attachable') IS DISTINCT FROM 'string' THEN
+            RAISE EXCEPTION 'ensure_entities: every entity_attachables row needs target and attachable'
+                USING ERRCODE = '22023';
+        END IF;
+        SELECT string_agg(k, ', ') INTO v_bad FROM jsonb_object_keys(v_item) AS k
+         WHERE k <> ALL (ARRAY['target', 'attachable']);
+        IF v_bad IS NOT NULL THEN
+            RAISE EXCEPTION 'ensure_entities: entity_attachables: unknown key(s): %', v_bad
                 USING ERRCODE = '22023';
         END IF;
     END LOOP;
@@ -829,6 +848,25 @@ BEGIN
            AND NOT (v_summary #> ARRAY['entities', 'created']) @> to_jsonb(ARRAY[v_table])
            AND NOT (v_summary #> ARRAY['entities', 'updated']) @> to_jsonb(ARRAY[v_table]) THEN
             v_summary := jsonb_insert(v_summary, ARRAY['entities', 'updated', '-1'], to_jsonb(v_table), true);
+        END IF;
+    END LOOP;
+
+    -- ---------------------------------------------------------------
+    -- 5b. The target entities of attachable entities, now that the entities
+    --     and their attach settings exist and before records may attach.
+    --     Added, never removed: a target an administrator switched on in this
+    --     database stays when a module's file does not list it.
+    -- ---------------------------------------------------------------
+    v_summary := v_summary || jsonb_build_object('entity_attachables',
+        jsonb_build_object('created', '[]'::jsonb));
+    FOR v_item IN SELECT e FROM jsonb_array_elements(coalesce(definition -> 'entity_attachables', '[]')) e LOOP
+        IF NOT EXISTS (SELECT 1 FROM entity_attachables ea
+                        WHERE ea.target = v_item ->> 'target'
+                          AND ea.attachable = v_item ->> 'attachable') THEN
+            PERFORM ensure_entities_row('entity_attachables', v_item, v_item, NULL,
+                format('attachable %s on %s', v_item ->> 'attachable', v_item ->> 'target'));
+            v_summary := jsonb_insert(v_summary, ARRAY['entity_attachables', 'created', '-1'],
+                to_jsonb((v_item ->> 'attachable') || ' on ' || (v_item ->> 'target')), true);
         END IF;
     END LOOP;
 

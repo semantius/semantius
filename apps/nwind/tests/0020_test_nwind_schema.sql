@@ -494,14 +494,14 @@ SELECT is(
     'orders.total should be a computed number and a cube measure'
 );
 
--- Test 66: both computed labels say so in their ctype and keep the input type
--- the label column is created with
+-- Test 66: the computed and the numbered label say so in their ctype and keep
+-- the input type the label column is created with
 SELECT is(
     (SELECT string_agg(table_name || '.' || field_name || ':' || ctype || ':' || input_type, ', ' ORDER BY table_name)
        FROM fields
       WHERE (table_name, field_name) IN (('orders', 'label'), ('order_details', 'label'))),
-    'order_details.label:computed_label:required, orders.label:computed_label:required',
-    'the orders and order_details labels should carry ctype computed_label'
+    'order_details.label:computed_label:required, orders.label:number_label:required',
+    'the order_details label should carry ctype computed_label and the orders label number_label'
 );
 
 -- Test 67: product_count counts every product of the supplier. The definition

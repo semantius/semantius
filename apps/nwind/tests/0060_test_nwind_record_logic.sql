@@ -2,8 +2,8 @@
 -- NORTHWIND RECORD LOGIC TESTS (0060)
 -- =====================================================
 -- The rules the Northwind metadata ships on orders and order_details, through
--- the functions the dictionary generates from them: the computed label and
--- total of an order, the computed label and amount of a line, and the
+-- the functions the dictionary generates from them: the numbered label and the
+-- computed total of an order, the computed label and amount of a line, and the
 -- subtotal rollup from the lines to their order (common.rollup_order_details_order_id
 -- with its insert, update, delete and truncate triggers and the guard on orders).
 -- Each trigger arm is fired and the parent total is asserted every time:
@@ -36,7 +36,7 @@ $fn$;
 SELECT authenticate_as('user2');
 
 -- =====================================================
--- orders: the computed label and total
+-- orders: the numbered label and the computed total
 -- =====================================================
 
 INSERT INTO orders (ship_name, customer_id, freight)
@@ -62,7 +62,7 @@ UPDATE orders SET label = 'typed', total = 1 WHERE ship_name = 'RL Order A';
 SELECT is(
     (SELECT label || ' ' || total FROM orders WHERE ship_name = 'RL Order A'),
     'SO-' || pg_temp.ord('RL Order A') || ' 7.50',
-    'orders: an update that writes label and total gets the derived values back');
+    'orders: an update that writes label and total gets the kept label and the derived total back');
 
 SELECT lives_ok(
     $$DELETE FROM orders WHERE ship_name = 'RL Order C'$$,

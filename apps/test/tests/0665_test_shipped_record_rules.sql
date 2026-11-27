@@ -4,7 +4,7 @@
 -- Eight platform entities ship with rules in their metadata: entities,
 -- fields, modules, roles and permission_hierarchy carry validation rules;
 -- raci_assignments and process_gates derive their label from a computed
--- name; user_bookmarks derives user_id, refuses an unauthenticated write and
+-- name; user_bookmarks sets user_id on insert, refuses an unauthenticated write and
 -- reads through a select rule. modules carries a select rule of its own.
 -- The dictionary turns each into generated functions
 -- (common.record_rules_<t>, compute_validate_<t>, select_rule_<t>) that no
@@ -342,7 +342,7 @@ UPDATE user_bookmarks SET title = 'sr user2 renamed', user_id = (SELECT id FROM 
 SELECT is(
     (SELECT u.external_id FROM user_bookmarks b JOIN users u ON u.id = b.user_id WHERE b.title = 'sr user2 renamed'),
     'user2',
-    'user_bookmarks: an update derives user_id from the caller as well');
+    'user_bookmarks: an update keeps the owner, whatever the caller wrote');
 
 -- A write without claims is refused by rule 90207. The claims are dropped
 -- after the role is reset, so the statements run as the connecting role with

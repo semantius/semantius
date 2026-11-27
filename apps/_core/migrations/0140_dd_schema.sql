@@ -56,16 +56,16 @@ CREATE OR REPLACE TRIGGER validate_reference_table_trigger
 -- =====================================================
 -- GRANT THE REQUEST ROLE ACCESS TO THE METADATA TABLES
 -- =====================================================
--- These two are created after the one-time GRANT ... ON ALL TABLES in
+-- These three are created after the one-time GRANT ... ON ALL TABLES in
 -- 0110_rbac_grants.once.sql and there is no default privilege in this schema to
 -- pick them up, so the request role reaches them only through this grant. It
 -- comes after the RLS enable (0130_dd_schema.once.sql): a grant is what
 -- publishes a table through the Data API, and with RLS on and no policy yet the
 -- table stays closed to the request role until
--- 0240_dd_bootstrap_complete.once.sql generates its policies. Neither table has
--- a sequence - entities is keyed by table_name and fields.id is a generated
--- text column.
-GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields TO semantius_user;
+-- 0240_dd_bootstrap_complete.once.sql generates its policies. None of them has
+-- a sequence - entities is keyed by table_name, and fields.id and
+-- entity_attachables.id are generated text columns.
+GRANT SELECT, INSERT, UPDATE, DELETE ON entities, fields, entity_attachables TO semantius_user;
 
 -- =====================================================
 -- AUTO-SET PLURAL TRIGGER

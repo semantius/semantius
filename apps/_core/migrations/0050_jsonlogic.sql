@@ -1479,7 +1479,7 @@ $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 -- The $ names build_record_logic_trigger gives the rules of an entity. Any
 -- other $ name reads null.
 CREATE OR REPLACE FUNCTION jl_reserved_variables() RETURNS text[] AS $$
-    SELECT ARRAY['$today', '$now', '$user_id', '$old', '$mode'];
+    SELECT ARRAY['$today', '$now', '$user_id', '$role_ids', '$old', '$mode'];
 $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 -- The parameter names throw_error refuses (90912). The generated validation
@@ -1945,7 +1945,7 @@ COMMENT ON FUNCTION jl_unknown_operator(jsonb) IS
 COMMENT ON FUNCTION jl_operator_arity() IS
 'The number of arguments each JsonLogic operator takes, as {"op": [min, max]}, max null when there is no upper bound.';
 COMMENT ON FUNCTION jl_reserved_variables() IS
-'The $ variables the rules of an entity are given: $today, $now, $user_id, $old and $mode.';
+'The $ variables the rules of an entity are given: $today, $now, $user_id, $role_ids, $old and $mode.';
 COMMENT ON FUNCTION jl_reserved_error_parameters() IS
 'The parameter names throw_error refuses (90912), because the error hint reserves them.';
 COMMENT ON FUNCTION jl_raci_letters() IS

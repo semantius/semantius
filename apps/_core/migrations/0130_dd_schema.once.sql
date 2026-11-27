@@ -57,6 +57,23 @@ CREATE TABLE IF NOT EXISTS entities (
     -- 0160_dd_functions.sql keep this a copy of it.
     label_column_label TEXT NOT NULL DEFAULT '',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
+    -- How the label column is filled: custom, by the caller or a computed
+    -- rule, or number, by the database on insert (common.label_number_assign,
+    -- 0160_dd_functions.sql): label_number_prefix and a number padded with
+    -- zeros to label_number_digits. The prefix reaches generated DDL, the
+    -- partial unique index over the labels of the format, so its grammar is
+    -- held here and leaves nothing that a regular expression or a literal
+    -- reads specially: letters, digits, '-' and '_', at most 20 characters. At
+    -- most 18 digits, since a bigint has at most 19. label_number_start is 1,
+    -- not the convention's 0: it is the first number a counter gives.
+    label_format TEXT NOT NULL DEFAULT 'custom'
+        CONSTRAINT valid_label_format CHECK (label_format IN ('custom', 'number')),
+    label_number_prefix TEXT NOT NULL DEFAULT ''
+        CONSTRAINT valid_label_number_prefix CHECK (label_number_prefix ~ '^[A-Za-z0-9_-]{0,20}$'),
+    label_number_digits INTEGER NOT NULL DEFAULT 0
+        CONSTRAINT valid_label_number_digits CHECK (label_number_digits BETWEEN 0 AND 18),
+    label_number_start BIGINT NOT NULL DEFAULT 1
+        CONSTRAINT valid_label_number_start CHECK (label_number_start >= 0),
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
@@ -74,6 +91,25 @@ CREATE TABLE IF NOT EXISTS entities (
     entity_type TEXT NOT NULL DEFAULT 'unclassified',    -- kind of data held; editable; the platform acts only on 'junction' (dd_is_junction in 0180_managed_enable.sql)
     catalog_entity_aliases JSONB NOT NULL DEFAULT '[]'::jsonb, -- append-only [{alias_code, source_domain, ...}] merge ledger
     order_column TEXT NOT NULL DEFAULT '',
+    -- Attachable entities (0450_attachables.sql): the records of an
+    -- attachable entity are attached to records of the target entities listed
+    -- in entity_attachables. attach_mode none means not attachable; single,
+    -- one target in the field attached_to; owned_shared, one owning target
+    -- there and further ones in the link entity <entity>_links; multiple, any
+    -- number of targets in <entity>_links. attach_permission is what attaching
+    -- needs on the target (view or edit), attach_on_target_delete what a delete
+    -- of the target in attached_to does to the record (cascade or restrict);
+    -- neither has a neutral default, so each is required where it applies.
+    -- link_of marks a link entity with its attachable entity; it is NULL, not
+    -- '', on every other entity, as id_refentity is, because it is a foreign
+    -- key. A table name ending in _links is kept for link entities.
+    attach_mode TEXT NOT NULL DEFAULT 'none'
+        CONSTRAINT valid_attach_mode CHECK (attach_mode IN ('none', 'single', 'owned_shared', 'multiple')),
+    attach_permission TEXT NOT NULL DEFAULT ''
+        CONSTRAINT valid_attach_permission CHECK (attach_permission IN ('', 'view', 'edit')),
+    attach_on_target_delete TEXT NOT NULL DEFAULT ''
+        CONSTRAINT valid_attach_on_target_delete CHECK (attach_on_target_delete IN ('', 'cascade', 'restrict')),
+    link_of TEXT REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -128,7 +164,10 @@ CREATE TABLE IF NOT EXISTS entities (
     -- An is_a or has_a entity is a view over tables the dictionary built and
     -- writes through routines it generated; without them there is nothing an
     -- unmanaged one could describe.
-    CONSTRAINT derived_entity_managed CHECK (id_type NOT IN ('is_a', 'has_a') OR managed)
+    CONSTRAINT derived_entity_managed CHECK (id_type NOT IN ('is_a', 'has_a') OR managed),
+    CONSTRAINT attach_permission_set CHECK (attach_mode = 'none' OR attach_permission <> ''),
+    CONSTRAINT attach_on_target_delete_set CHECK (attach_mode NOT IN ('single', 'owned_shared') OR attach_on_target_delete <> ''),
+    CONSTRAINT links_name_is_link CHECK (table_name !~ '_links$' OR link_of IS NOT NULL)
 );
 
 CREATE INDEX idx_entities_module ON entities(module_id);
@@ -149,6 +188,9 @@ CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_pre
 -- indexes are too.
 CREATE INDEX idx_entities_view_permission ON entities(view_permission);
 CREATE INDEX idx_entities_edit_permission ON entities(edit_permission);
+-- A cascading foreign key into this same table, and the way the dictionary
+-- finds an attachable entity's link entity.
+CREATE INDEX idx_entities_link_of ON entities(link_of);
 
 -- =====================================================
 -- FIELDS TABLE
@@ -238,8 +280,29 @@ CREATE INDEX idx_fields_is_pk ON fields(is_pk) WHERE is_pk = TRUE;
 CREATE INDEX idx_fields_reference_table ON fields(reference_table) WHERE reference_table != '';
 
 -- =====================================================
+-- ENTITY ATTACHABLES TABLE
+-- =====================================================
+-- The target entities of an attachable entity: a row switches the attachable
+-- entity on for the target, whose records its records may then be attached
+-- to (0450_attachables.sql). Keyed like the junction tables of
+-- 0060_rbac_schema.once.sql, by a generated id joining both names with '.'
+-- (a table name has none) and unique on the pair. Deleting either entity
+-- deletes the row, which a trigger refuses while records are attached; a
+-- rename carries along.
+
+CREATE TABLE IF NOT EXISTS entity_attachables (
+    id TEXT GENERATED ALWAYS AS (target || '.' || attachable) STORED PRIMARY KEY,
+    target TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    attachable TEXT NOT NULL REFERENCES entities(table_name) ON DELETE CASCADE ON UPDATE CASCADE,
+    UNIQUE (target, attachable)
+);
+
+CREATE INDEX idx_entity_attachables_attachable ON entity_attachables(attachable);
+
+-- =====================================================
 -- ENABLE RLS ON METADATA TABLES
 -- =====================================================
 
 ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fields ENABLE ROW LEVEL SECURITY;
+ALTER TABLE entity_attachables ENABLE ROW LEVEL SECURITY;

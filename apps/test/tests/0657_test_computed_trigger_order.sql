@@ -1,7 +1,8 @@
 -- Computed fields and validation rules against the other BEFORE triggers of a
 -- table, whose firing order is listed in build_record_logic_trigger
 -- (0210_computed_validation.sql); each part pins what one position buys.
---   PART 1  the whole order, on one table carrying every such trigger
+--   PART 1  the whole order, on one table carrying every such trigger, and
+--           the size of a file
 --   PART 2  the typeid key: the rules see the generated id
 --   PART 3  the order column: the rules see the assigned position
 --   PART 4  the rollup guard before the rules, updated_at after them
@@ -12,7 +13,7 @@
 -- Fixture entities use the 'ct' prefix; everything is rolled back.
 BEGIN;
 
-SELECT plan(32);
+SELECT plan(34);
 
 SELECT authenticate_as('user3');
 
@@ -37,7 +38,8 @@ SELECT p.id, 'consulted', r.id, 'block'
 -- PART 1: the whole order
 -- =====================================================
 -- ctall: a typeid family root (an is_a subtype, a has_a extension) with an
--- order column, a rollup, a rule naming the key and a gated state column.
+-- order column, a rollup, a rule naming the key, a gated state column and,
+-- while the order is read, a numbered label and an attach mode.
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id,
     view_permission, edit_permission, id_type, id_prefix, order_column)
@@ -72,18 +74,38 @@ UPDATE entities
 INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
 SELECT id, 'ctall', 'approval', 'approved', 'status', TRUE FROM processes WHERE process_key = 'ct_review';
 
+-- Numbered labels add the label step and an attach mode the attach step; the
+-- parts below find their records by a label of their own and write no
+-- target, so both go back after the order is read.
+UPDATE entities
+   SET label_format = 'number', attach_mode = 'single', attach_permission = 'view', attach_on_target_delete = 'cascade'
+ WHERE table_name = 'ctall';
+
 SELECT is(pg_temp.before_triggers('public.ctall', 4),
-    'a_auto_order_ctall, a_rollup_guard, a_typeid_assign, compute_validate_trigger, zz_key_check_insert',
+    'a_auto_order_ctall, a_rollup_guard, a_typeid_assign, b_label_number, compute_validate_trigger, d_attach_check, zz_key_check_insert',
     'order: BEFORE INSERT as listed in build_record_logic_trigger');
 
 SELECT is(pg_temp.before_triggers('public.ctall', 16),
-    'a_is_a_dispatch, a_raci_gate_on_ctall, a_rollup_guard, compute_validate_trigger, pk_immutable, '
+    'a_is_a_dispatch, a_raci_gate_on_ctall, a_rollup_guard, b_label_number, compute_validate_trigger, d_attach_check, pk_immutable, '
     || 'raci_gate_on_ctall, update_ctall_updated_at, zz_key_check_update',
     'order: BEFORE UPDATE as listed in build_record_logic_trigger');
 
 SELECT is(pg_temp.before_triggers('public.ctall', 8),
     'a_has_a_guard, a_is_a_dispatch, compute_validate_trigger',
     'order: BEFORE DELETE as listed in build_record_logic_trigger');
+
+UPDATE entities
+   SET label_format = 'custom', attach_mode = 'none', attach_permission = '', attach_on_target_delete = ''
+ WHERE table_name = 'ctall';
+
+-- The size of a file is set before its rules run (0470_tasks_files_comments.sql).
+SELECT is(pg_temp.before_triggers('public.files', 4),
+    'a_typeid_assign, b_file_size, compute_validate_trigger, d_attach_check',
+    'order: BEFORE INSERT of files, the size after the key and before the rules');
+
+-- A link row's delete asks its record's rules in the attach step.
+SELECT is(pg_temp.before_triggers('public.tasks_links', 8), 'd_attach_check',
+    'order: BEFORE DELETE of a link table, the attach step');
 
 -- =====================================================
 -- PART 2: the typeid key

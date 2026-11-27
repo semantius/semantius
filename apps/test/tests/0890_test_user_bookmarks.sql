@@ -4,16 +4,17 @@
 -- Covers:
 --   • Table and field metadata are registered correctly.
 --   • user_id is auto-assigned to the current user on INSERT.
---   • user_id is always forced back to the current user on INSERT and UPDATE,
+--   • user_id is set to the current user on INSERT and kept on UPDATE,
 --     whatever the caller supplies, also after edit_permission changes (the
---     computed field user_id = $user_id).
+--     computed field user_id = $user_id on insert, $old.user_id on update).
 --   • A write without claims is refused (platform rule 90207); a delete is not.
 --   • SELECT is restricted to own rows (select_rule / RLS).
 --   • UPDATE and DELETE are restricted to own rows (select_rule / RLS).
 --   • row_order is auto-assigned and the order_column is registered.
+--   • entity_id holds the key of a record of any key type, as text.
 BEGIN;
 
-SELECT plan(30);
+SELECT plan(36);
 
 -- =====================================================
 -- GROUP 1: Schema — entity and field metadata
@@ -140,7 +141,8 @@ SELECT is(
     'user_id should always be forced to the current user, ignoring any caller value'
 );
 
--- An UPDATE cannot hand the bookmark to another user either.
+-- An UPDATE cannot hand the bookmark to another user either: the rule keeps
+-- the owner it has.
 UPDATE user_bookmarks SET user_id = 1002 WHERE title = 'Override Attempt';
 SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'Override Attempt'),
@@ -266,11 +268,11 @@ SELECT ok(
     'user_bookmarks entity should have a non-empty select_rule'
 );
 
--- Test 24: user_id is a computed field fed from $user_id
+-- Test 24: user_id is a computed field fed from $user_id on insert and kept on update
 SELECT is(
     (SELECT computed_fields FROM entities WHERE table_name = 'user_bookmarks'),
-    '[{"name": "user_id", "jsonlogic": {"var": "$user_id"}}]'::jsonb,
-    'user_bookmarks derives user_id from $user_id (computed field)'
+    '[{"name": "user_id", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.user_id"}]}}]'::jsonb,
+    'user_bookmarks derives user_id from $user_id on insert and keeps it on update (computed field)'
 );
 
 -- Test 25: the dictionary's compute trigger is installed on user_bookmarks
@@ -304,6 +306,70 @@ SELECT is(
     (SELECT user_id FROM user_bookmarks WHERE title = 'After Permission Change'),
     1001::bigint,
     'after an edit_permission change, user_id is still forced to the current user'
+);
+
+-- =====================================================
+-- GROUP 9: bookmarks on every key type
+-- =====================================================
+-- entity_id is the key part of a record reference, so it holds a key of any
+-- type as text, and with entity_name forms the record's canonical reference.
+SELECT is(
+    (SELECT format || ':' || default_value FROM fields
+      WHERE table_name = 'user_bookmarks' AND field_name = 'entity_id'),
+    'text:',
+    'entity_id is a text field with the empty default (no record)'
+);
+
+SELECT authenticate_as('user3');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+VALUES ('bmk_big', 'Big', 'Bigs', 1, 'public:read', 'admin', 'bigint', ''),
+       ('bmk_txt', 'Txt', 'Txts', 1, 'public:read', 'admin', 'text', ''),
+       ('bmk_uid', 'Uid', 'Uids', 1, 'public:read', 'admin', 'uuid', ''),
+       ('bmk_tid', 'Tid', 'Tids', 1, 'public:read', 'admin', 'typeid', 'bmktid');
+INSERT INTO bmk_big (id, label) VALUES (9001, 'big');
+INSERT INTO bmk_txt (id, label) VALUES ('A:1-2', 'txt');
+INSERT INTO bmk_uid (label) VALUES ('uid');
+INSERT INTO bmk_tid (label) VALUES ('tid');
+
+SELECT authenticate_as('user1');
+INSERT INTO user_bookmarks (title, entity_name, entity_id)
+VALUES ('BM auto', 'users', '1001'),
+       ('BM big', 'bmk_big', '9001'),
+       ('BM txt', 'bmk_txt', 'A:1-2'),
+       ('BM uid', 'bmk_uid', (SELECT id::text FROM bmk_uid)),
+       ('BM tid', 'bmk_tid', (SELECT id::text FROM bmk_tid));
+
+SELECT is(
+    (SELECT string_agg(entity_name || ':' || entity_id, ', ' ORDER BY title)
+       FROM user_bookmarks WHERE title IN ('BM auto', 'BM big', 'BM txt')),
+    'users:1001, bmk_big:9001, bmk_txt:A:1-2',
+    'bookmarks hold numeric and text keys, a key with : and - included'
+);
+
+SELECT is(
+    (SELECT count(*)::int FROM user_bookmarks
+      WHERE title LIKE 'BM %'
+        AND dd_record_ref_canonical(entity_name || ':' || entity_id) = entity_name || ':' || entity_id),
+    5,
+    'every bookmark forms the canonical reference of its record'
+);
+
+SELECT is(
+    (SELECT entity_id FROM user_bookmarks WHERE title = 'BM uid'),
+    (SELECT id::text FROM bmk_uid),
+    'a uuid key is held as its text'
+);
+
+SELECT is(
+    (SELECT entity_id FROM user_bookmarks WHERE title = 'BM tid'),
+    (SELECT id::text FROM bmk_tid),
+    'a typeid key is held as its text'
+);
+
+SELECT is(
+    (SELECT count(*)::int FROM user_bookmarks WHERE title = 'My Bookmark' AND entity_id = ''),
+    1,
+    'a bookmark without a record has the empty entity_id'
 );
 
 SELECT * FROM finish();

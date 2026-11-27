@@ -240,10 +240,10 @@ SELECT is((SELECT summary #> '{records,ee_items}' FROM ee_result), '{"inserted":
 
 -- ------------------------------------------------ references across files
 SELECT lives_ok($$SELECT ensure_entities(jsonc_to_jsonb('{"version": 1, "entities": [{"entity": {
-    "table_name": "ee_links", "module_name": "EE Test", "singular_label": "Link", "plural_label": "Links",
+    "table_name": "ee_linkers", "module_name": "EE Test", "singular_label": "Link", "plural_label": "Links",
     "fields": [{"field_name": "item_id", "title": "Item", "format": "reference", "reference_table": "ee_items", "field_order": 10}]}}]}'))$$,
     'a definition may reference an entity created by an earlier one');
-SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ee_links_item_id_fkey'),
+SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ee_linkers_item_id_fkey'),
     '  and the foreign key is created');
 
 -- ------------------------------------------------------ the label title

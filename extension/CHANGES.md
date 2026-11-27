@@ -39,8 +39,9 @@ installs the core schema as ordinary objects.
   dictionary (`public.create_entity_policies()`), like those of every other
   entity. `modules` rows are visible through the `select_rule`
   "admin, or the row's own `view_permission`", so `get_record_by_id()` returns
-  what RLS returns. `user_bookmarks.user_id` is a computed field forced to the
-  current user; a bookmark written without claims is refused (`90207`).
+  what RLS returns. `user_bookmarks.user_id` is a computed field set to the
+  current user on insert and kept afterwards; a bookmark written without claims
+  is refused (`90207`).
 - **Rollup fields.** A field of an ordinary format whose value the database
   computes over the records of a child entity: `sum`, `min`, `max`, `avg` or
   `count` of a child field, over the records whose `reference` or `parent`
@@ -327,9 +328,8 @@ installs the core schema as ordinary objects.
   (anybody else still gets `NULL`), so JsonLogic `set_record` now fails on a
   malformed id instead of loading nothing. `set_record` passes the id as text,
   with a whole JSON number normalized first (`5.0` becomes `5`).
-- `user_bookmarks.entity_id` is `int64`; `0` still means "no record".
-  Bookmarks can therefore point only at records of entities with numeric keys
-  (`auto_increment`, `bigint`).
+- `user_bookmarks.entity_id` is text, the key of the bookmarked record of any
+  key type; `''` means "no record".
 - Generated client types: `deno task kyselygen` types 64-bit integers as
   `number`, like PostgREST (the `Int8` string alias is gone), and the generated
   file's header asks for `pg.types.setTypeParser(20, Number)` - process-wide,
@@ -358,7 +358,7 @@ installs the core schema as ordinary objects.
   `>=` with three (`90921`); a literal argument of the wrong kind, such as a
   misspelled date unit, a RACI letter or a `throw_error` code outside class 99
   (`90922`); and a variable with no value where it is read, a `$` name other
-  than the five the rules are given or one read inside the logic of `map`,
+  than the six the rules are given or one read inside the logic of `map`,
   `filter`, `reduce`, `all`, `none` or `some` (`90924`). The hint carries the
   JSON pointer to the mistake. A computed field's name and a validation
   rule's message must be text (`90900`, `90903`), on every entity. These
@@ -604,6 +604,51 @@ installs the core schema as ordinary objects.
   before, which told the caller that the key id is in use.
 - No generator wraps a generated function body in a fixed dollar tag; a
   column default containing such a tag used to end the body early.
+- **Record references.** A record of any entity and key type is named
+  `<table>:<key>`. The canonical spelling (`dd_record_ref_canonical()`) casts
+  the key to its type and back and names an is_a record by the subtype its
+  key's prefix belongs to. A rename of an entity rewrites the references to it.
+- **Numbered labels.** With `entities.label_format` `number` the database
+  fills the label on insert: `label_number_prefix` and a number padded to
+  `label_number_digits`, the id for an `auto_increment` or `bigint` key and the
+  counter `<entity>_label_seq` (from `label_number_start`) for every other one.
+  A numbered label never changes, and only a privileged seed may supply one;
+  the label field's `ctype` is `number_label`. An is_a subtype with a prefix
+  of its own counts on its own. Refused: switching while a label of the format
+  is not its row's own number (`90287`), a computed rule that writes the label
+  (`90288`), a format of its own on an is_a entity (`90289`), and two prefixes
+  of a family that would number labels of the same shape (`90290`). The nwind
+  orders are numbered `SO-<id>`.
+- **Attachable entities.** `entities.attach_mode` `single`, `owned_shared` or
+  `multiple` makes an entity's records attachable to records of the target
+  entities listed in the new table `entity_attachables`: one target in the
+  field `attached_to`, further ones in the link entity `<entity>_links` the
+  dictionary keeps. Reading and editing a `single` or `owned_shared` record
+  follow its target; `attach_permission` says whether attaching needs to see or
+  to edit the target, `attach_on_target_delete` whether the delete of a target
+  cascades to its records or is refused. The delete of a target removes its
+  links and the `multiple` records that lose their last one past the attachable
+  entity's rules, as a foreign-key cascade; the records it cascades to in
+  `attached_to` are held to them. A TRUNCATE is refused while records
+  are attached. Adding or removing a link needs the rights to change its
+  record. A module delete takes what is attached to the module's records
+  along. `get_schema()` reports `attach_mode`, `attach_targets` and
+  `attachables`. Errors `91001`-`91024`, a block of their own.
+- **Tasks, files and comments** ship as attachable entities. `tasks`
+  (`multiple`) are seen by their assignee, their creator, the members of their
+  role and holders of `tasks:view_all`, and changed by the assignee, the
+  creator and holders of `tasks:manage_all`; a member of the role may claim an
+  unassigned task (`90279`). A session without a user, such as the
+  installer's, passes. `public.my_tasks()` lists the caller's open tasks.
+  `files` (`owned_shared`) keep their content in the row, with a size the
+  database sets; `comments` are `single`. nwind switches the three on for
+  orders and customers and seeds open sample tasks on six orders.
+- **New permissions** `public:write` (the edit permission of the three, held
+  by the User role), `tasks:view_all` and `tasks:manage_all` (which includes
+  it); the Administrator role holds all three. A rule may read `$role_ids`,
+  the ids of the caller's roles.
+- **Roles are readable by every user** (`view_permission` `public:read`), so a
+  task can name its role.
 - Removed: the `pg_extension_config_dump` registry, the three-pass restore
   procedure and the `pg_semantius.skip_audit` workaround, none of which are
   needed once no table is an extension member.

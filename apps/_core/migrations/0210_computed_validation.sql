@@ -16,6 +16,8 @@
 --   $today    -> current date in UTC
 --   $now      -> current timestamp in UTC
 --   $user_id  -> internal user_id from JWT context, null when no context
+--   $role_ids -> the ids of the user's roles (public.jl_role_ids), empty when
+--                no context
 --   $old      -> previous row as JSON on UPDATE and DELETE, null on INSERT
 --   $mode     -> the operation: 'insert' | 'update' | 'delete'
 --
@@ -315,6 +317,18 @@ BEGIN
         END LOOP;
     END IF;
 
+    -- A numbered label is the database's to write (common.label_number_assign,
+    -- 0160_dd_functions.sql), and a rule writing it would overwrite the number
+    -- after the label step ran.
+    IF NEW.label_format = 'number' AND jsonb_typeof(NEW.computed_fields) = 'array'
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c
+                    WHERE split_part(c ->> 'name', '.', 1) = NEW.label_column) THEN
+        RAISE EXCEPTION 'computed_fields on ${table} cannot write the label column ${field_name}, which is numbered'
+            USING ERRCODE = '90288',
+                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.label_column,
+                                            'hint', 'Set label_format to custom, or remove the rule.')::text;
+    END IF;
+
     IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
             v_item := NEW.computed_fields -> v_idx;
@@ -337,7 +351,7 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
-'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909) and a select_rule or validation rule that is not one JsonLogic operation (90919). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
+'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909), a select_rule or validation rule that is not one JsonLogic operation (90919), and a computed field that writes a numbered label column (90288). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
 
 -- The check runs as whoever saves the entity, so the request role needs the
 -- helpers; the trigger function itself is called by the trigger alone.
@@ -415,6 +429,71 @@ COMMENT ON TRIGGER check_field_rules_trigger ON fields IS
 -- =====================================================
 -- STEP 1: Per-row trigger generator
 -- =====================================================
+
+-- Whether a rule reads a $ variable, found by walking it, as the evaluator
+-- would, for the keys it reads (jl_row_keys): the variable itself, a path
+-- below it, or a key that is not written out. The interpreter evaluates the
+-- key of a var, of missing and of missing_some as JsonLogic, so
+-- {"var":{"cat":["$ol","d.label"]}} resolves to $old.label with the name
+-- nowhere in the rule; what such a key will be cannot be known here, so it
+-- counts as reading every variable.
+CREATE OR REPLACE FUNCTION dd_rule_reads(p_logic JSONB, p_variable TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1 FROM jl_row_keys(p_logic) AS k(key)
+                    WHERE k.key IS NULL OR k.key = p_variable OR starts_with(k.key, p_variable || '.'));
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_rule_reads(JSONB, TEXT) IS
+'TRUE when a JsonLogic rule reads the given $ variable, a path below it, or a key it computes (jl_row_keys).';
+
+REVOKE EXECUTE ON FUNCTION dd_rule_reads(JSONB, TEXT) FROM PUBLIC;
+
+-- Whether a record rule of an entity - a computed field or a validation rule -
+-- reads a $ variable (dd_rule_reads). The rule functions
+-- (build_record_logic_trigger) and the computed-field pass (computed_backfill)
+-- build the costly variables, $old and $role_ids, only for an entity whose
+-- record rules read them; a select_rule predicate asks dd_rule_reads of the
+-- select_rule itself.
+CREATE OR REPLACE FUNCTION dd_entity_reads(p_entity entities, p_variable TEXT)
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (SELECT 1
+                     FROM jsonb_array_elements(coalesce(p_entity.computed_fields, '[]'::jsonb)
+                                               || coalesce(p_entity.validation_rules, '[]'::jsonb)) AS r(item)
+                    WHERE dd_rule_reads(r.item -> 'jsonlogic', p_variable));
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_entity_reads(entities, TEXT) IS
+'TRUE when a computed field or a validation rule of the entity reads the given $ variable (dd_rule_reads).';
+
+REVOKE EXECUTE ON FUNCTION dd_entity_reads(entities, TEXT) FROM PUBLIC;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION dd_rule_reads(JSONB, TEXT), dd_entity_reads(entities, TEXT) TO semantius_owner;
+    END IF;
+END $$;
+
+-- $role_ids, the ids of the caller's roles (rbac.user_role_ids, empty without a
+-- user) as a JSON array. It reads user_roles, so a rule gets it only when it
+-- reads it (dd_entity_reads, dd_rule_reads).
+CREATE OR REPLACE FUNCTION public.jl_role_ids()
+RETURNS JSONB AS $$
+    SELECT to_jsonb(rbac.user_role_ids());
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION public.jl_role_ids() IS
+'The JsonLogic variable $role_ids: the ids of the caller''s roles as a JSON array, empty without a user.';
+
+REVOKE EXECUTE ON FUNCTION public.jl_role_ids() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.jl_role_ids() TO semantius_user;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION public.jl_role_ids() TO semantius_owner;
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION build_record_logic_trigger(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -497,28 +576,22 @@ BEGIN
     -- makes a rule such as {"!=":[{"var":"$mode"},"delete"]} pass instead of
     -- blocking the delete.
     --
-    -- Whether a rule reads $old is found by walking it, as the evaluator would,
-    -- for the keys it reads (jl_row_keys). Three kinds count:
-    --   * a key that is $old or a path below it, {"var":"$old.label"};
-    --   * value_changed, which never names $old but reads the key itself and
-    --     returns true whenever it is absent, so an entity using it would
-    --     silently start reporting every field as changed;
-    --   * a key that is not written out. The interpreter evaluates the key of a
-    --     var, of missing and of missing_some as JsonLogic, so {"var":{"cat":
-    --     ["$ol","d.label"]}} resolves to $old.label with the name nowhere in
-    --     the rule. What such a key will be cannot be known here, so any entity
-    --     using one gets the full context.
-    SELECT EXISTS (
-        SELECT 1
-          FROM jsonb_array_elements(COALESCE(v_entity.computed_fields, '[]'::jsonb)
-                                    || COALESCE(v_entity.validation_rules, '[]'::jsonb)) AS r(item)
-         CROSS JOIN LATERAL jl_row_keys(r.item -> 'jsonlogic') AS k(key)
-         WHERE k.key IS NULL OR k.key = '$old' OR starts_with(k.key, '$old.'))
-      INTO v_needs_old;
+    -- Whether a rule reads $old is found by walking it (dd_entity_reads), which
+    -- counts value_changed too: it never names $old but reads the key itself
+    -- and returns true whenever it is absent, so an entity using it would
+    -- silently start reporting every field as changed.
+    v_needs_old := dd_entity_reads(v_entity, '$old');
 
     IF v_needs_old THEN
         v_extra_ctx := v_extra_ctx || $CTX$,
         '$old',     COALESCE(p_old, 'null'::jsonb)$CTX$;
+    END IF;
+
+    -- $role_ids reads user_roles on every write, so it is built only for the
+    -- entities whose rules read it, found the same way (public.jl_role_ids).
+    IF dd_entity_reads(v_entity, '$role_ids') THEN
+        v_extra_ctx := v_extra_ctx || $CTX$,
+        '$role_ids', public.jl_role_ids()$CTX$;
     END IF;
 
     v_extra_ctx := v_extra_ctx || $CTX$,
@@ -673,6 +746,12 @@ DECLARE
     v_err_detail text;
     v_err_hint text;
 BEGIN
+    -- The delete step of a target deletes a multiple record that lost its last
+    -- target past its rules, as a foreign-key cascade would
+    -- (common.attached_step_marked).
+    IF p_mode = 'delete' AND common.attached_step_marked(%s) THEN
+        RETURN p_data;
+    END IF;
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.
     v_uid_text := rbac.user_id_or_null()::text;
@@ -685,9 +764,9 @@ BEGIN
                    END%s
     );
 %s
-    RETURN v_data - '$today' - '$now' - '$user_id' - '$old' - '$mode';
+    RETURN v_data - '$today' - '$now' - '$user_id' - '$role_ids' - '$old' - '$mode';
 END;
-$RULES$, v_extra_ctx, v_rules_block)));
+$RULES$, quote_literal(p_table_name), v_extra_ctx, v_rules_block)));
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
@@ -769,7 +848,16 @@ $TRIG$, v_rules_name,
     --   INSERT  a_auto_order_<table>   the order column, so the rules see it
     --           a_rollup_guard         the rollup columns, so the rules see them
     --           a_typeid_assign        a typeid key, so the rules see it
+    --           b_file_size            the size of a file's contents
+    --                                  (0470_tasks_files_comments.sql), so the
+    --                                  rules see it
+    --           b_label_number         a numbered label, from the id or a
+    --                                  counter picked by its prefix, so the key
+    --                                  is settled and the rules see the label
     --           compute_validate_trigger
+    --           d_attach_check         the target of an attachable record or a
+    --                                  link row (0450_attachables.sql), after
+    --                                  the rules, so one a rule wrote is checked
     --           zz_key_check_insert    the prefix of a key a rule wrote
     --   UPDATE  a_is_a_dispatch        on an is_a root: a subtype record goes
     --                                  to its write routine, whose own rules
@@ -777,7 +865,10 @@ $TRIG$, v_rules_name,
     --           a_raci_gate_on_<table> a held state, so the rules judge the
     --                                  state that will be stored
     --           a_rollup_guard         as on INSERT
+    --           b_file_size            as on INSERT
+    --           b_label_number         a numbered label keeps its stored value
     --           compute_validate_trigger
+    --           d_attach_check         a target keeps its stored value
     --           pk_immutable           UPDATE OF <key>: only a key the
     --                                  statement names
     --           raci_gate_on_<table>   a state a rule moved
@@ -845,7 +936,7 @@ BEGIN
             UPDATE fields f
                SET ctype = f.ctype
              WHERE f.table_name = NEW.table_name
-               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label')
+               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label', 'number_label')
                AND (coalesce(f.ctype, '') IN ('computed', 'computed_label')) IS DISTINCT FROM
                    EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name);
         END IF;
@@ -888,7 +979,9 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- =====================================================
 -- A field that one of its entity's computed_fields names carries ctype
 -- 'computed', as a rollup field carries 'rollup', and the label column carries
--- 'computed_label' instead of 'label'. ctype is the one signal a client reads
+-- 'computed_label' instead of 'label'; the label column of an entity whose
+-- label_format is number carries 'number_label', which no rule may write
+-- (90288). ctype is the one signal a client reads
 -- to know the database writes the value: derived from the rule, never sent by
 -- a client (fields_ctype_lock runs first and refuses a ctype a caller sends, so
 -- the marker never passes through it). 'computed' is not a core marker
@@ -915,7 +1008,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_named BOOLEAN;
 BEGIN
-    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label', 'number_label') THEN
         RETURN NEW;
     END IF;
     SELECT EXISTS (
@@ -925,7 +1018,11 @@ BEGIN
            AND c ->> 'name' = NEW.field_name)
       INTO v_named;
     IF dd_ctype_is_label(NEW.ctype) THEN
-        NEW.ctype := CASE WHEN v_named THEN 'computed_label' ELSE 'label' END;
+        NEW.ctype := CASE WHEN EXISTS (SELECT 1 FROM entities e
+                                        WHERE e.table_name = NEW.table_name AND e.label_format = 'number')
+                          THEN 'number_label'
+                          WHEN v_named THEN 'computed_label'
+                          ELSE 'label' END;
     ELSE
         NEW.ctype := CASE WHEN v_named THEN 'computed' ELSE '' END;
     END IF;
@@ -934,7 +1031,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names, computed_label on such a label column and number_label on the label column of an entity whose label_format is number, and returns the marker to empty or label otherwise. input_type is left as set.';
 
 REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
 
@@ -964,7 +1061,12 @@ CREATE OR REPLACE TRIGGER zz_derive_computed_ctype
 --
 -- Returns the statements that switch the triggers back on. Only triggers that are
 -- plainly enabled are touched, so one an operator disabled stays disabled.
-CREATE OR REPLACE FUNCTION dd_backfill_mute(p_table TEXT)
+-- p_rewrite is for a write that is no edit of the records at all
+-- (rename_dd_record_refs, 0170_dd_rename.sql): it switches off every plainly
+-- enabled trigger, on the entity's own relation only, which is all such a
+-- write touches.
+DROP FUNCTION IF EXISTS dd_backfill_mute(TEXT);
+CREATE OR REPLACE FUNCTION dd_backfill_mute(p_table TEXT, p_rewrite BOOLEAN DEFAULT FALSE)
 RETURNS TEXT[] AS $fn$
 DECLARE
     v_undo TEXT[] := ARRAY[]::TEXT[];
@@ -986,6 +1088,7 @@ BEGIN
                   SELECT e.id_refentity FROM entities e
                    WHERE e.table_name = reach.t AND e.id_type IN ('is_a', 'has_a')
               ) x
+             WHERE NOT p_rewrite
         )
         SELECT c.relname, t.tgname
           FROM reach
@@ -994,10 +1097,11 @@ BEGIN
           JOIN pg_trigger t ON t.tgrelid = c.oid
          WHERE NOT t.tgisinternal
            AND t.tgenabled = 'O'
-           AND t.tgfoid = ANY (ARRAY[to_regproc('common.update_updated_at_column'),
-                                     to_regproc('audit.insert_update_delete_trigger'),
-                                     to_regproc('public.queue_build_record_json'),
-                                     to_regproc('public.raci_emit_trigger_fn')]::oid[])
+           AND (p_rewrite
+                OR t.tgfoid = ANY (ARRAY[to_regproc('common.update_updated_at_column'),
+                                         to_regproc('audit.insert_update_delete_trigger'),
+                                         to_regproc('public.queue_build_record_json'),
+                                         to_regproc('public.raci_emit_trigger_fn')]::oid[]))
     LOOP
         EXECUTE format('ALTER TABLE public.%I DISABLE TRIGGER %I', r.relname, r.tgname);
         v_undo := v_undo || format('ALTER TABLE public.%I ENABLE TRIGGER %I', r.relname, r.tgname);
@@ -1006,10 +1110,10 @@ BEGIN
 END;
 $fn$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
-COMMENT ON FUNCTION dd_backfill_mute(TEXT) IS
-'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write, and returns the statements that enable them again.';
+COMMENT ON FUNCTION dd_backfill_mute(TEXT, BOOLEAN) IS
+'Disables the updated_at, audit UPDATE, queue and RACI event triggers on the tables a backfill of the entity can write - with p_rewrite every plainly enabled trigger of the entity''s own relation - and returns the statements that enable them again.';
 
-REVOKE EXECUTE ON FUNCTION dd_backfill_mute(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_backfill_mute(TEXT, BOOLEAN) FROM PUBLIC;
 
 -- The computed rules in order over a record that already carries its context, as
 -- the block build_record_logic_trigger generates for each rule does.
@@ -1092,7 +1196,9 @@ BEGIN
         '$today',   to_jsonb(CURRENT_DATE),
         '$now',     to_jsonb(CURRENT_TIMESTAMP),
         '$user_id', CASE WHEN v_uid IS NULL OR v_uid = '' THEN 'null'::jsonb ELSE to_jsonb(v_uid::bigint) END,
-        '$mode',    'update');
+        '$mode',    'update')
+        || CASE WHEN dd_entity_reads(v_e, '$role_ids')
+                THEN jsonb_build_object('$role_ids', public.jl_role_ids()) ELSE '{}'::jsonb END;
 
     v_differs := format(
         'SELECT ROW(%1$s) IS DISTINCT FROM ROW(%2$s) FROM jsonb_populate_record(NULL::public.%3$I, $1) o, jsonb_populate_record(NULL::public.%3$I, $2) n',
@@ -1185,7 +1291,8 @@ CREATE OR REPLACE TRIGGER zz_computed_field_added
 -- DELETE policies so each row is filtered by the rule. The two-argument helper
 -- merges the row with a statement context handed to it; the one-argument helper
 -- resolves that context itself. Reserved variables are
--- ($today, $now, $user_id — there is no $old/$mode for a read),
+-- ($today, $now, $user_id, and $role_ids for a rule that reads it — there is
+-- no $old/$mode for a read),
 -- evaluates the JsonLogic rule, and returns true only when the result is truthy.
 
 -- The reserved JsonLogic variables that do not vary within a statement. RLS
@@ -1227,7 +1334,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp SET timezone = 'UTC' SET intervalstyle = 'iso_8601';
 
 COMMENT ON FUNCTION public.jl_request_context() IS
-'Statement-constant JsonLogic context: $today, $now and $user_id. Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
+'Statement-constant JsonLogic context: $today, $now and $user_id ($role_ids is added by the predicates whose rule reads it). Raises insufficient_privilege when the session carries no valid claims. Called from RLS quals through an uncorrelated sub-select so it runs once per statement.';
 
 REVOKE EXECUTE ON FUNCTION public.jl_request_context() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.jl_request_context() TO semantius_user;
@@ -1341,10 +1448,59 @@ $$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 'Whether app.row_move holds the token of the given row for the current transaction, that is, whether this row is the one the running statement is writing. Called by the generated select_rule predicates.';
 
+-- The delete step of a target (common.attached_step, 0450_attachables.sql)
+-- removes link rows and deletes the multiple records that lost their last
+-- target without asking the attachable entity's rules, as a foreign-key cascade
+-- would: whoever deletes the target need not be allowed to change those
+-- records, nor learn that they exist. While it runs those deletes it leaves
+-- the transaction-local setting app.attached_step, which
+-- common.attach_record_rules and the generated rule functions honor for that
+-- attachable entity's family alone. A client can write the setting, so its
+-- value is a token as the row move's: of the secret, the transaction id and
+-- the family's root, which a client cannot make (see above). NULL clears it.
+-- The check takes any entity of the family and finds the root itself, so a
+-- generated rule function names no other entity than its own.
+CREATE OR REPLACE FUNCTION common.attached_step_mark(p_root TEXT)
+RETURNS VOID AS $$
+BEGIN
+    PERFORM set_config('app.attached_step',
+                       coalesce(common.row_move_token(common.row_move_secret(), pg_current_xact_id()::text,
+                                                      'attached_step', p_root), ''),
+                       true);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION common.attached_step_mark(TEXT) IS
+'Marks, for the rest of the delete step, that the deletes of the attachable family p_root are a cascade of a target''s delete and pass its rules (app.attached_step); NULL clears the mark.';
+
+-- Not SECURITY DEFINER and not granted to the request role, as
+-- common.row_move_matches: its callers run as the owner.
+CREATE OR REPLACE FUNCTION common.attached_step_marked(p_entity TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_token  TEXT := current_setting('app.attached_step', true);
+    v_xid    xid8 := pg_current_xact_id_if_assigned();
+    v_secret TEXT;
+BEGIN
+    IF COALESCE(v_token, '') = '' OR v_xid IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
+    RETURN COALESCE(v_token = common.row_move_token(v_secret, v_xid::text, 'attached_step',
+                                                    (SELECT a.table_name FROM dd_ancestors(p_entity) a WHERE a.depth = 0)),
+                    FALSE);
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION common.attached_step_marked(TEXT) IS
+'Whether the running delete step of a target has marked the deletes of the attachable family of p_entity (common.attached_step_mark), so they pass its rules.';
+
 REVOKE EXECUTE ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_secret() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_clear() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_matches(TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.attached_step_mark(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.attached_step_marked(TEXT) FROM PUBLIC;
 
 -- On an upgrade the generated predicates and the dictionary's definer code
 -- already run as semantius_owner, while a function new in this file stays owned
@@ -1355,10 +1511,77 @@ BEGIN
         GRANT EXECUTE ON FUNCTION
             common.row_move_token(TEXT, TEXT, TEXT, TEXT),
             common.row_move_secret(),
-            common.row_move_matches(TEXT, TEXT)
+            common.row_move_matches(TEXT, TEXT),
+            common.attached_step_mark(TEXT),
+            common.attached_step_marked(TEXT)
         TO semantius_owner;
     END IF;
 END $$;
+
+-- The terms an attachable entity (0450_attachables.sql) adds to its own
+-- policies, built from its targets by dd_attach_case_sql
+-- (0160_dd_functions.sql); both NULL for any other entity.
+--   single, owned_shared   a record follows its target, held in attached_to:
+--                          sel, the target is visible to the caller; edit, it
+--                          is and the caller holds the edit permission of
+--                          every level of it
+--   a link entity          a row needs both ends: sel, its attachable record
+--                          and its target are visible; edit, the attachable
+--                          record is visible (for an owned_shared one, its
+--                          owner editable as well) and the target meets the
+--                          attach permission
+-- A multiple entity's records keep their own permissions and get none. The
+-- targets are read as the caller through their own policies, so a target's
+-- row-level security applies to every record attached to it.
+CREATE OR REPLACE FUNCTION dd_attach_policy_terms(p_table_name TEXT, OUT sel TEXT, OUT edit TEXT) AS $$
+DECLARE
+    v_entity     entities%ROWTYPE;
+    v_attachable entities%ROWTYPE;
+    v_rel        TEXT;
+    v_ref        TEXT;
+    v_record     TEXT;
+BEGIN
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    v_rel := dd_relation(p_table_name, v_entity.id_type);
+    v_ref := format('%I.attached_to', v_rel);
+
+    -- The columns come after the table (0450_attachables.sql adds them to an
+    -- entity it has just created); until then there is no record to follow.
+    IF EXISTS (SELECT 1
+                 FROM unnest(ARRAY['attached_to', v_entity.link_of || '_id']) AS c(name)
+                WHERE c.name IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                                   WHERE a.attrelid = to_regclass(format('public.%I', v_rel))
+                                     AND a.attname = c.name AND a.attnum > 0 AND NOT a.attisdropped)) THEN
+        RETURN;
+    END IF;
+
+    IF v_entity.link_of IS NOT NULL THEN
+        SELECT * INTO v_attachable FROM entities WHERE table_name = v_entity.link_of;
+        IF NOT FOUND THEN
+            RETURN;
+        END IF;
+        v_record := format('EXISTS (SELECT 1 FROM public.%I a WHERE a.%I = %I.%I',
+                           dd_relation(v_attachable.table_name, v_attachable.id_type), v_attachable.id_column,
+                           v_rel, v_attachable.table_name || '_id');
+        sel := v_record || ') AND ' || dd_attach_case_sql(v_attachable.table_name, v_ref, 'visible');
+        edit := v_record
+                || CASE WHEN v_attachable.attach_mode = 'owned_shared'
+                        THEN ' AND ' || dd_attach_case_sql(v_attachable.table_name, 'a.attached_to', 'edit')
+                        ELSE '' END
+                || ') AND ' || dd_attach_case_sql(v_attachable.table_name, v_ref,
+                                   CASE WHEN v_attachable.attach_permission = 'edit' THEN 'edit' ELSE 'visible' END);
+    ELSIF v_entity.attach_mode IN ('single', 'owned_shared') THEN
+        sel := dd_attach_case_sql(p_table_name, v_ref, 'visible');
+        edit := dd_attach_case_sql(p_table_name, v_ref, 'edit');
+    END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_policy_terms(TEXT) IS
+'The terms the policies of an attachable entity (single, owned_shared) or of a link entity add to its own: sel for SELECT, edit for UPDATE and DELETE. NULL for every other entity. Used by build_select_rule_policy.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_policy_terms(TEXT) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION build_select_rule_policy(p_table_name TEXT)
 RETURNS VOID AS $$
@@ -1377,6 +1600,9 @@ DECLARE
     v_arg JSONB;
     v_lead TEXT;
     v_rule_pred TEXT;
+    v_attach RECORD;
+    v_sel TEXT;
+    v_ctx TEXT := 'public.jl_request_context()';
     v_mark_name TEXT := 'row_move_mark_' || p_table_name;
 BEGIN
     SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
@@ -1423,6 +1649,10 @@ BEGIN
         v_parent_pred := '(fields.table_name IN (SELECT p.table_name FROM public.entities p))';
     END IF;
 
+    -- An attachable record that follows its target, and a link row, add the
+    -- terms of their targets to every policy below (dd_attach_policy_terms).
+    v_attach := dd_attach_policy_terms(p_table_name);
+
     -- Every rbac.has_permission() below is wrapped in a scalar sub-select: PostgreSQL then
     -- evaluates it once per statement (InitPlan) instead of once per row (1.7 s vs 10 ms on
     -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
@@ -1436,10 +1666,13 @@ BEGIN
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move ON %I', v_rel);
         EXECUTE format('DROP TRIGGER IF EXISTS zz_row_move_clear ON %I', v_rel);
         EXECUTE format('DROP FUNCTION IF EXISTS common.%I()', v_mark_name);
+        v_sel := COALESCE(v_parent_pred, format('(SELECT rbac.has_permission(%L))', v_entity.view_permission));
+        IF v_attach.sel IS NOT NULL THEN
+            v_sel := v_sel || ' AND ' || v_attach.sel;
+        END IF;
         EXECUTE format(
             'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
-            v_policy_name, v_rel,
-            COALESCE(v_parent_pred, format('(SELECT rbac.has_permission(%L))', v_entity.view_permission)));
+            v_policy_name, v_rel, v_sel);
         -- The view permission has to be in the USING of UPDATE and DELETE itself.
         -- PostgreSQL holds the rows an UPDATE or DELETE touches to the SELECT policy only
         -- when the statement reads a column of the table, so with the edit permission
@@ -1457,6 +1690,9 @@ BEGIN
             v_write_using := v_write_using
                 || format(' AND (SELECT rbac.has_permission(%L))', v_entity.view_permission);
         END IF;
+        IF v_attach.edit IS NOT NULL THEN
+            v_write_using := v_write_using || ' AND ' || v_attach.edit;
+        END IF;
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
         EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
         EXECUTE format(
@@ -1469,6 +1705,13 @@ BEGIN
     END IF;
 
     v_logic_lit := quote_literal(v_entity.select_rule::text);
+
+    -- $role_ids (public.jl_role_ids) only for a rule that reads it, merged
+    -- into the request context of both overloads below; once per statement,
+    -- as the rest of the context.
+    IF dd_rule_reads(v_entity.select_rule, '$role_ids') THEN
+        v_ctx := '(public.jl_request_context() || jsonb_build_object(''$role_ids'', public.jl_role_ids()))';
+    END IF;
 
     -- The data the rule sees. A policy on <entity>_ext hands the function
     -- that table's row, which holds the entity's own fields only, so the rule
@@ -1574,8 +1817,8 @@ $FUNC$, v_fn_name, v_rel,
         dd_dollar_quote(v_predicate),
         v_fn_name, v_rel,
         dd_dollar_quote(format($SEL$
-    SELECT public.%I(p_row, public.jl_request_context());
-$SEL$, v_fn_name)));
+    SELECT public.%I(p_row, %s);
+$SEL$, v_fn_name, v_ctx)));
 
     EXECUTE v_body;
 
@@ -1602,7 +1845,7 @@ $SEL$, v_fn_name)));
     -- scanned row. It has to appear in all three policies: a USING clause is
     -- evaluated per row for every UPDATE and DELETE as well, so a policy left
     -- with a bare call keeps paying per row on the write path.
-    v_rule_pred := format('public.%I(%I.*, (SELECT public.jl_request_context()))', v_fn_name, v_rel);
+    v_rule_pred := format('public.%I(%I.*, (SELECT %s))', v_fn_name, v_rel, v_ctx);
 
     -- The leading terms of a rule's top-level "or" that are has_permission of a
     -- name written into the rule, such as {"has_permission": "admin"} in the rules
@@ -1648,9 +1891,13 @@ $SEL$, v_fn_name)));
         END IF;
     END IF;
 
+    v_sel := v_rule_pred;
+    IF v_attach.sel IS NOT NULL THEN
+        v_sel := v_sel || ' AND ' || v_attach.sel;
+    END IF;
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR SELECT TO semantius_user USING (%s)',
-        v_policy_name, v_rel, v_rule_pred);
+        v_policy_name, v_rel, v_sel);
 
     -- The canonical predicate ALSO gates writes: edit_permission AND the row rule. Because a
     -- policy USING clause is evaluated per-row by PostgreSQL for every UPDATE/DELETE regardless
@@ -1717,6 +1964,9 @@ $MARK$, v_entity.id_column, v_rel)));
         v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_update_policy', v_rel);
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', v_rel || '_delete_policy', v_rel);
+    IF v_attach.edit IS NOT NULL THEN
+        v_rule_pred := v_rule_pred || ' AND ' || v_attach.edit;
+    END IF;
     EXECUTE format(
         'CREATE POLICY %I ON %I FOR UPDATE TO semantius_user USING ((SELECT rbac.has_permission(%L)) AND %s) WITH CHECK ((SELECT rbac.has_permission(%L)))',
         v_rel || '_update_policy', v_rel, v_entity.edit_permission, v_rule_pred, v_entity.edit_permission);
@@ -1727,7 +1977,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION build_select_rule_policy IS
-'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule and the function common.row_move_mark_<entity> the first of them runs. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers and that function are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The generated functions have EXECUTE revoked from PUBLIC.';
+'The one generator of an entity''s SELECT, UPDATE and DELETE policies, called when the entity is created or made managed and whenever its view_permission, edit_permission or select_rule changes. Generates (or drops) the per-row policy function that evaluates the select_rule JsonLogic against a row, in two overloads - one taking the request context, one without - and builds the three policies on top of it, UPDATE and DELETE as the edit permission and the rule, with the zz_row_move triggers that let a write move a row out of the writer''s own rule and the function common.row_move_mark_<entity> the first of them runs. With no select_rule set, SELECT is the view permission, UPDATE and DELETE are the edit permission and the view permission, and the triggers and that function are dropped. On fields, one semi-join on entities takes the place of the view permission: a row of fields is visible exactly when the row of its entity in entities is. The policies of an attachable entity that follows its target and of a link entity carry the terms of dd_attach_policy_terms as well. The generated functions have EXECUTE revoked from PUBLIC.';
 
 REVOKE EXECUTE ON FUNCTION build_select_rule_policy(TEXT) FROM PUBLIC;
 

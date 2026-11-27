@@ -1,8 +1,10 @@
 -- The volatility contract: which functions may write, and what STABLE costs.
 --
--- The permission readers (rbac.uid, user_id, has_permission, has_any_permission,
--- get_current_user_permissions, whoami, public.jl_request_context,
--- is_raci_actor, has_consultation, the generated select_rule_*) are declared
+-- The permission readers (rbac.uid, user_id, user_role_ids, has_permission,
+-- has_any_permission, get_current_user_permissions, whoami,
+-- public.jl_request_context, public.jl_role_ids, is_raci_actor, has_consultation, the generated
+-- select_rule_*, and the checks of a target in the policies of an attachable
+-- entity, 0450_attachables.sql) are declared
 -- STABLE and they write, through rbac.ensure_context_initialized. That is
 -- deliberate: STABLE lets the planner run a permission check once per
 -- statement, and the alternative, building the context once per request in a
@@ -103,10 +105,10 @@ SELECT is(
      JOIN pg_namespace n ON n.oid = p.pronamespace
      WHERE p.provolatile = 'i'
        AND ((n.nspname = 'rbac' AND p.proname IN
-                ('uid', 'user_id', 'user_id_or_null', 'has_permission', 'has_any_permission',
+                ('uid', 'user_id', 'user_id_or_null', 'user_role_ids', 'has_permission', 'has_any_permission',
                  'user_has_permission', 'get_current_user_permissions', 'whoami'))
          OR (n.nspname = 'public' AND p.proname IN
-                ('jl_request_context', 'is_raci_actor', 'has_consultation', 'has_permission')))),
+                ('jl_request_context', 'jl_role_ids', 'is_raci_actor', 'has_consultation', 'has_permission')))),
     NULL::text,
     'no permission reader is IMMUTABLE'
 );

@@ -480,6 +480,8 @@ DECLARE
     v_properties    JSON;
     v_required      JSON;
     v_extensions    JSON;
+    v_attach_targets JSON;
+    v_attachables   JSON;
 BEGIN
     PERFORM rbac.uid();
 
@@ -589,6 +591,23 @@ BEGIN
        AND x.id_type = 'has_a'
        AND dd_entity_viewable(x.table_name);
 
+    -- An attachable entity (0450_attachables.sql) names its target entities,
+    -- and a target entity the attachable entities whose records can be
+    -- attached to its records, a base's included; each only as far as the
+    -- caller sees it.
+    IF v_table_record.attach_mode <> 'none' THEN
+        SELECT COALESCE(json_agg(ea.target ORDER BY ea.target), '[]'::json)
+          INTO v_attach_targets
+          FROM entity_attachables ea
+         WHERE ea.attachable = p_table_name
+           AND dd_entity_viewable(ea.target);
+    END IF;
+    SELECT json_agg(DISTINCT ea.attachable ORDER BY ea.attachable)
+      INTO v_attachables
+      FROM entity_attachables ea
+     WHERE ea.target IN (SELECT a.table_name FROM dd_ancestors(p_table_name) a)
+       AND dd_entity_viewable(ea.attachable);
+
     -- Build the final JSON Schema result. The derived _label / <fk>_label columns are ordinary
     -- entries inside `properties` (marked by ctype _label / fk_label) — there is no separate list.
     -- children: fields in other tables that reference this one with format='parent'.
@@ -601,40 +620,32 @@ BEGIN
     -- three permission columns and the default_*_role_ids are readable only with 'admin' or
     -- the module's own view_permission, which this SECURITY DEFINER function bypasses, and
     -- an entity's view_permission is often public:read. They stay in get_user_modules().
-    -- "extensions" is present only on a has_a base: json_build_object keeps the key order a
-    -- client sees, which a jsonb concatenation would not.
-    IF v_extensions IS NULL THEN
-        v_result := json_build_object(
-            '$schema', 'https://semantius.com/meta/sem-schema/v1',
-            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-            'title', v_table_record.singular_label,
-            'description', v_table_record.description,
-            'table', to_jsonb(v_table_record) || jsonb_build_object(
-                'module_slug',
-                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-            'type', 'object',
-            'properties', v_properties,
-            'required', v_required,
-            'children', public.get_schema_children(p_table_name),
-            'additionalProperties', false
-        );
-    ELSE
-        v_result := json_build_object(
-            '$schema', 'https://semantius.com/meta/sem-schema/v1',
-            '$id', 'https://example.com/schemas/' || p_table_name || '.schema.json',
-            'title', v_table_record.singular_label,
-            'description', v_table_record.description,
-            'table', to_jsonb(v_table_record) || jsonb_build_object(
-                'module_slug',
-                (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)),
-            'type', 'object',
-            'properties', v_properties,
-            'required', v_required,
-            'children', public.get_schema_children(p_table_name),
-            'additionalProperties', false,
-            'extensions', v_extensions
-        );
-    END IF;
+    -- "extensions" is present only on a has_a base, "attach_mode" and "attach_targets" only
+    -- on an attachable entity, "attachables" only on a target entity. json_object_agg over
+    -- the ordered pairs keeps the key order a client sees, which a jsonb concatenation would
+    -- not; the keys after additionalProperties are left out when they have no value.
+    SELECT json_object_agg(k.key, k.value ORDER BY k.n)
+      INTO v_result
+      FROM (VALUES
+          (1, '$schema', to_json('https://semantius.com/meta/sem-schema/v1'::text)),
+          (2, '$id', to_json('https://example.com/schemas/' || p_table_name || '.schema.json')),
+          (3, 'title', to_json(v_table_record.singular_label)),
+          (4, 'description', to_json(v_table_record.description)),
+          (5, 'table', to_json(to_jsonb(v_table_record) || jsonb_build_object(
+                  'module_slug',
+                  (SELECT m.module_slug FROM modules m WHERE m.id = v_table_record.module_id)))),
+          (6, 'type', to_json('object'::text)),
+          (7, 'properties', v_properties),
+          (8, 'required', v_required),
+          (9, 'children', public.get_schema_children(p_table_name)),
+          (10, 'additionalProperties', to_json(false)),
+          (11, 'extensions', v_extensions),
+          (12, 'attach_mode', CASE WHEN v_table_record.attach_mode <> 'none'
+                                   THEN to_json(v_table_record.attach_mode) END),
+          (13, 'attach_targets', v_attach_targets),
+          (14, 'attachables', v_attachables)
+      ) AS k(n, key, value)
+     WHERE k.n <= 10 OR k.value IS NOT NULL;
 
     RETURN v_result;
 END;
@@ -644,7 +655,7 @@ END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION public.build_schema_for_table IS
-'Builds a schema JSON for a single table. Self-gating: returns it only to a caller who sees the entity in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level an is_a/has_a entity is stored in) and raises for anybody else exactly the error of a missing table, matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a reference to an entity the caller does not see carries its name and nothing taken from its row. A has_a base lists the extensions the caller sees. Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
+'Builds a schema JSON for a single table. Self-gating: returns it only to a caller who sees the entity in the catalog (dd_entity_viewable: admin, or the view_permission or edit_permission of every level an is_a/has_a entity is stored in) and raises for anybody else exactly the error of a missing table, matching get_schema(). The properties are those of the whole record, inherited ones marked inherited_from; a reference to an entity the caller does not see carries its name and nothing taken from its row. A has_a base lists the extensions the caller sees; an attachable entity its attach_mode and the target entities the caller sees (attach_targets), a target entity the attachable entities the caller sees (attachables). Used by get_schema()/get_schemas()/get_module_cubes()/get_user_cubes() for consistent output from a single implementation.';
 
 -- Revoke default PUBLIC execute, then grant only to semantius_user
 REVOKE EXECUTE ON FUNCTION public.build_schema_for_table(TEXT) FROM PUBLIC;

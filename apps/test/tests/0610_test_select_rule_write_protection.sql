@@ -782,9 +782,9 @@ SELECT is(
 SELECT is(
     (SELECT string_agg(cmd || ': ' || qual, '; ' ORDER BY cmd) FROM pg_policies
       WHERE schemaname = 'public' AND tablename = 'roles' AND cmd IN ('UPDATE', 'DELETE')),
-    'DELETE: ( SELECT rbac.has_permission(''admin''::text) AS has_permission); '
-    'UPDATE: ( SELECT rbac.has_permission(''admin''::text) AS has_permission)',
-    'core tables: roles, whose view and edit permission are both admin, checks it once');
+    'DELETE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND ( SELECT rbac.has_permission(''public:read''::text) AS has_permission)); '
+    'UPDATE: (( SELECT rbac.has_permission(''admin''::text) AS has_permission) AND ( SELECT rbac.has_permission(''public:read''::text) AS has_permission))',
+    'core tables: roles, seen with public:read and edited with admin, checks both');
 
 UPDATE entities SET view_permission = 'nrw:edit' WHERE table_name = 'test_norule_write';
 SELECT is(

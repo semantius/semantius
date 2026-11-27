@@ -291,13 +291,14 @@ SELECT is(
 -- field_data_type and field_json_type read different sources - the catalog for
 -- one, the referenced key field's declared format for the other - and nothing
 -- would notice if they drifted apart. They have to agree about which references
--- are text-shaped, because one types the column and the other describes it.
+-- are string-shaped, because one types the column and the other describes it:
+-- a text key, and a uuid or TypeID key, which JSON carries as a string too.
 SELECT is(
     (SELECT COALESCE(string_agg(f.table_name || '.' || f.field_name, ', ' ORDER BY f.table_name, f.field_name), '')
        FROM fields f
       WHERE f.format IN ('reference', 'parent')
         AND COALESCE(f.reference_table, '') <> ''
-        AND (field_data_type(f.format, f."precision", f.reference_table) = 'TEXT')
+        AND (field_data_type(f.format, f."precision", f.reference_table) IN ('TEXT', 'UUID', 'COMMON.TYPEID'))
             IS DISTINCT FROM
             (field_json_type(f.format, f.reference_table)::text = '"string"')),
     '',

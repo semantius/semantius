@@ -2,7 +2,8 @@
 --
 -- jl_request_context() supplies the statement-constant half of the JsonLogic
 -- data ($today, $now, $user_id) so the policies can resolve it once per
--- statement instead of once per scanned row. Moving that resolution out of the
+-- statement instead of once per scanned row; a predicate whose rule reads
+-- $role_ids adds the caller's roles to it, once per statement as well. Moving that resolution out of the
 -- per-row predicate moved the authentication gate with it: the select_rule
 -- branch of a SELECT policy carries no permission conjunct, and the generated
 -- predicate swallows every error raised while evaluating a rule, so this
@@ -26,7 +27,7 @@
 -- Fixtures: user3 = Administrator.
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(19);
 
 -- =====================================================
 -- Fixture: a rule-bearing entity holding one row
@@ -38,6 +39,23 @@ VALUES ('ctx_gate', 'ctx_gate_item', 'Ctx Gate', 'Ctx Gates',
     '{"!=":[{"var":"label"},""]}'::jsonb);
 
 INSERT INTO ctx_gate (label) VALUES ('gate row');
+
+-- A rule that reads $role_ids: a row is seen by the members of its role.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('ctx_roles', 'Ctx Role Row', 'Ctx Role Rows', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format) VALUES ('ctx_roles', 'role_id', 'Role', 'int64');
+UPDATE entities SET select_rule = '{"in": [{"var": "role_id"}, {"var": "$role_ids"}]}'::jsonb
+ WHERE table_name = 'ctx_roles';
+INSERT INTO ctx_roles (label, role_id)
+SELECT 'mine', min(ur.role_id) FROM user_roles ur JOIN users u ON u.id = ur.user_id WHERE u.external_id = 'user3'
+UNION ALL
+SELECT 'nobody''s', 0;
+
+-- A computed field that reads $role_ids, saved later over a record there is.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('ctx_backfill', 'Ctx Backfill', 'Ctx Backfills', 1, 'public:read', 'admin');
+INSERT INTO fields (table_name, field_name, title, format) VALUES ('ctx_backfill', 'first_role', 'First role', 'int64');
+INSERT INTO ctx_backfill (label) VALUES ('before the rule');
 
 -- =====================================================
 -- GROUP 1: the authentication gate
@@ -109,6 +127,18 @@ SELECT is(
     'number',
     'authenticated: $user_id is a JSON number'
 );
+
+-- $role_ids reads user_roles, so it is not part of the context every policy
+-- reads: only the predicate of a rule that reads it adds it.
+SELECT ok(NOT (public.jl_request_context() ? '$role_ids'),
+    'authenticated: $role_ids is not part of the context every policy reads');
+SELECT is((SELECT string_agg(label, ', ') FROM public.ctx_roles), 'mine',
+    'authenticated: a select_rule that reads $role_ids sees the caller''s roles');
+
+UPDATE entities SET computed_fields = '[{"name": "first_role", "jsonlogic": {"var": "$role_ids.0"}}]'::jsonb
+ WHERE table_name = 'ctx_backfill';
+SELECT is((SELECT first_role FROM public.ctx_backfill), (rbac.user_role_ids())[1],
+    'authenticated: a computed field that reads $role_ids is applied to the records there are with the roles of whoever saves it');
 
 SELECT is(
     (SELECT count(*)::int FROM public.ctx_gate),

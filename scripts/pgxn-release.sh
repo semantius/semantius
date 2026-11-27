@@ -65,10 +65,19 @@ else
 fi
 
 # ---------------------------------------------------------------- local state
-# plans/ is disposable working notes (AGENTS.md) and never reaches the archive,
-# so it is left out here as in release.sh.
-[ -z "$(git status --porcelain -- . ':(exclude)plans')" ] \
-  || die "the working tree is dirty; commit or stash before publishing"
+# extension/ must be committed: the archive is compared with it, and the
+# reproducibility check below regenerates it in place and restores it with
+# `git checkout`, which would destroy uncommitted edits there. Other uncommitted
+# changes are only reported: the archive is downloaded, not built here, and a
+# change that alters the build makes that regeneration differ, which is refused.
+# plans/ is disposable working notes (AGENTS.md) and not reported at all.
+[ -z "$(git status --porcelain -- "$EXT_DIR")" ] \
+  || die "$EXT_DIR/ has uncommitted changes; commit or stash them before publishing"
+DIRTY="$(git status --porcelain -- . ':(exclude)plans')"
+if [ -n "$DIRTY" ]; then
+  echo "pgxn-release: warning: uncommitted changes outside $EXT_DIR/ (not part of what is published):" >&2
+  printf '%s\n' "$DIRTY" | sed 's/^/  /' >&2
+fi
 
 git fetch --tags --force --quiet origin 2>/dev/null || true
 git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null \
@@ -104,7 +113,8 @@ deno task extension "$VERSION" >/dev/null
 trap - EXIT
 
 # ---------------------------------------------------------------- the artifact
-REPO="$(git remote get-url origin | sed -E 's#.*[:/]([^/]+/[^/]+?)(\.git)?$#\1#')"
+# Two steps: sed -E has no lazy `+?`, so a single pattern keeps the `.git`.
+REPO="$(git remote get-url origin | sed -E -e 's#\.git$##' -e 's#.*[:/]([^/]+/[^/]+)$#\1#')"
 ZIPNAME="$NAME-$VERSION.zip"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -195,6 +205,7 @@ Verified. About to publish $NAME $VERSION to PGXN.
   everywhere - stop re-releasing it and cut the next version for any change.
 
 EOF
+[ -z "$DIRTY" ] || echo "  Note: the working tree has uncommitted changes outside $EXT_DIR/ (listed above)." >&2
 
 if [ "$CONFIRM" != "1" ]; then
   if [ ! -t 0 ]; then

@@ -20,22 +20,22 @@ SELECT is(
 );
 
 -- =====================================================
--- TEST 2: user1 should not be able to read roles (no admin permission)
+-- TEST 2: user1 should not be able to read permissions (no admin permission)
 -- =====================================================
 
 SELECT authenticate_as('user1');
 
 SELECT is(
-    (SELECT COUNT(*)::integer FROM roles),
+    (SELECT COUNT(*)::integer FROM permissions),
     0,
-    'user1 without admin permission should not be able to read roles'
+    'user1 without admin permission should not be able to read permissions'
 );
 
 RESET ROLE;
 
 -- =====================================================
 -- TEST 3: Assign admin permission directly to user1,
--- user1 should now be able to query roles
+-- user1 should now be able to query permissions
 -- =====================================================
 
 INSERT INTO user_permissions (user_id, permission_name)
@@ -47,10 +47,10 @@ WHERE u.external_id = 'user1'
 SELECT authenticate_as('user1');
 
 SELECT cmp_ok(
-    (SELECT COUNT(*)::integer FROM roles),
+    (SELECT COUNT(*)::integer FROM permissions),
     '>',
     0,
-    'user1 with direct admin permission should be able to query roles'
+    'user1 with direct admin permission should be able to query permissions'
 );
 
 RESET ROLE;

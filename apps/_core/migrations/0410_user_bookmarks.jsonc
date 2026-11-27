@@ -1,6 +1,7 @@
 // User bookmarks: personal bookmarks (favorites) saved by users. Each bookmark
-// belongs to one user and can reference an entity and a record; users see and
-// edit only their own.
+// belongs to one user and can reference an entity and a record, whose record
+// reference (0160_dd_functions.sql) is entity_name, ':' and entity_id; users
+// see and edit only their own.
 //
 // Everything is metadata, with no hand-written trigger or policy: the
 // dictionary regenerates its own objects (compute_validate_*, the four
@@ -29,11 +30,15 @@
         "select_rule": {"==": [{"var": "user_id"}, {"var": "$user_id"}]},
         // Enables drag-and-drop reordering.
         "order_column": "row_order",
-        // The compute trigger forces user_id to the current user on every
-        // insert and update, so a bookmark can be neither created for nor handed
-        // to another user, whatever the edit_permission is. The default INSERT
-        // policy suffices: its WITH CHECK runs after the trigger.
-        "computed_fields": [{"name": "user_id", "jsonlogic": {"var": "$user_id"}}],
+        // The compute trigger sets user_id to the current user on insert and
+        // keeps it on update, so a bookmark can be neither created for nor
+        // handed to another user, whatever the edit_permission is. Kept rather
+        // than set again on update, so a write that runs the rule for somebody
+        // else - the backfill after a rule change runs it over every stored
+        // bookmark as whoever changed the rule - leaves each bookmark with its
+        // owner. The default INSERT policy suffices: its WITH CHECK runs after
+        // the trigger.
+        "computed_fields": [{"name": "user_id", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.user_id"}]}}],
         // The compute trigger reads $user_id through rbac.user_id_or_null(),
         // which is NULL for a session without claims (migrations, maintenance
         // scripts). This rule refuses such an insert or update rather than
@@ -55,8 +60,8 @@
           {"field_name": "entity_name", "title": "Entity", "description": "",
            "format": "text", "field_order": 40, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""},
-          {"field_name": "entity_id", "title": "Record", "description": "ID of the related record in the entity table (0 = no record)",
-           "format": "int64", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
+          {"field_name": "entity_id", "title": "Record", "description": "Key of the related record in the entity table, as text for every key type (empty = no record); with entity_name it forms the record reference <entity_name>:<entity_id>",
+           "format": "text", "field_order": 50, "input_type": "default", "width": "default", "searchable": false,
            "reference_table": "", "reference_delete_mode": ""}
         ]
       }

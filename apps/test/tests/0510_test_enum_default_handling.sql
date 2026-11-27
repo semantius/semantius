@@ -420,7 +420,7 @@ SELECT is(
 
 SELECT is(
     pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conname = 'valid_ctype')),
-    $$CHECK ((ctype = ANY ('{"",id,label,audit,core,rollup,computed,computed_label}'::text[])))$$,
+    $$CHECK ((ctype = ANY ('{"",id,label,audit,core,rollup,computed,computed_label,number_label,attached_to}'::text[])))$$,
     'valid_ctype holds the values of the labeled fields.ctype enum'
 );
 

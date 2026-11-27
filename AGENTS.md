@@ -134,7 +134,14 @@ once, `9900_*` runs last.
   `common.view_write_<t>` and the root's `common.is_a_dispatch_<root>`, and for a
   rollup field `common.rollup_<child>_<link>` with its `<name>_ins/_upd/_del/_trc`
   triggers on the child table, `common.rollup_guard_<t>` and `a_rollup_guard` on
-  the parent): express it through metadata, and extend the dictionary when
+  the parent, for a numbered label the counters `<t>_label_seq`, the trigger
+  `b_label_number` and the index `<t>_label_number_unique`, for an attachable
+  entity its field `attached_to` with `idx_<t>_attached_to`, the trigger
+  `d_attach_check`, `attached_to_label(<t>)` and its link entity `<t>_links` with
+  the field `<t>_id`, the index `<t>_links_attached_to_unique` and its own
+  `d_attach_check`, and for a target table its delete step
+  `common.attached_<t>(text[])` with the `attached_del` and `attached_trc`
+  triggers): express it through metadata, and extend the dictionary when
   metadata cannot say it.
 - **After a release, forward only and additive only**: never edit a released
   `.once.` file, never rename or remove a released file, never rename, drop or
@@ -142,10 +149,10 @@ once, `9900_*` runs last.
 
 ### The volatility contract
 
-The permission readers - `rbac.uid`, `user_id`, `has_permission`,
-`has_any_permission`, `get_current_user_permissions`, `whoami`,
-`public.jl_request_context`, `is_raci_actor`, `has_consultation`, the generated
-`select_rule_*` - are declared `STABLE` **and they write**, through
+The permission readers - `rbac.uid`, `user_id`, `user_role_ids`,
+`has_permission`, `has_any_permission`, `get_current_user_permissions`, `whoami`,
+`public.jl_request_context`, `public.jl_role_ids`, `is_raci_actor`,
+`has_consultation`, the generated `select_rule_*` - are declared `STABLE` **and they write**, through
 `rbac.ensure_context_initialized`. The full reasoning is in the header of
 `apps/test/tests/0950_test_volatility_contract.sql`, which pins it, and in
 `SECURITY.md`. Before changing any of them:
@@ -201,9 +208,10 @@ exceptions.**
   field's format stays `string`.
 - **The tables without an `id` key**: `entities` (keyed by `table_name`),
   `permissions` (keyed by `permission_name`; foreign keys to it carry
-  `ON UPDATE CASCADE` so a rename propagates), and `fields` plus the four
-  junction tables, which have a GENERATED TEXT `id` joining their two key
-  columns with `.` and a UNIQUE on the pair.
+  `ON UPDATE CASCADE` so a rename propagates), and `fields` plus the five
+  junction tables (`user_roles`, `role_permissions`, `user_permissions`,
+  `permission_hierarchy`, `entity_attachables`), which have a GENERATED TEXT `id`
+  joining their two key columns with `.` and a UNIQUE on the pair.
 
 **CRITICAL: NO NULL VALUES - DEFAULT EVERYTHING**
 - **If you think a field should be nullable, YOU ARE WRONG** - use an empty
@@ -224,7 +232,7 @@ exceptions.**
   edited together: the table in `0190_audit_log.once.sql` (or a later `.once.`
   file), its `fields` rows in `0300_audit_log.jsonc`.
 - The `fields` rows of an entity defined in a `.jsonc` file live in that file; the
-  ten bootstrap tables (`modules`, `users`, `entities`, `fields`, ...) have theirs
+  eleven bootstrap tables (`modules`, `users`, `entities`, `fields`, ...) have theirs
   in `0150_dd_bootstrap.once.sql`, so a change to one of those goes into a new
   `.once.` file.
 - The same applies in reverse to a DROP, and to a rename of either half.

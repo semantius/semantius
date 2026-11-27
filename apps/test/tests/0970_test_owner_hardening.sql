@@ -133,9 +133,9 @@ RESET ROLE;
 -- A table with real policies, read with a valid identity that holds no admin.
 SELECT authenticate_as('user1');
 SELECT is(
-    (SELECT count(*)::int FROM roles),
+    (SELECT count(*)::int FROM permissions),
     0,
-    'semantius_user as a plain user reads no row of roles, whose policy needs admin');
+    'semantius_user as a plain user reads no row of permissions, whose policy needs admin');
 
 SET LOCAL row_security = off;
 SELECT throws_ok(

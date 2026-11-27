@@ -131,6 +131,13 @@ BEGIN
                 );
             END IF;
 
+            -- Rename the label counter (<table>_label_seq), which carries the
+            -- entity's name and belongs to no table (dd_build_label_number).
+            IF dd_sequence_exists(OLD.table_name || '_label_seq') THEN
+                EXECUTE format('ALTER SEQUENCE public.%I RENAME TO %I',
+                    OLD.table_name || '_label_seq', NEW.table_name || '_label_seq');
+            END IF;
+
             -- Rename primary key constraint (<table>_pkey)
             IF EXISTS (
                 SELECT 1 FROM pg_constraint c
@@ -317,7 +324,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
 objects when table_name changes: updated_at trigger, order column trigger, RLS policies, GIN search_vector
-index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
+index, id sequence, label counter, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
 unique indexes, compute_validate and rule functions, select_rule and row move functions, and queue event triggers.
 For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;
@@ -516,6 +523,75 @@ CREATE OR REPLACE TRIGGER rename_jsonlogic_refs_trigger
 
 COMMENT ON TRIGGER rename_jsonlogic_refs_trigger ON entities IS
 'Updates set_record entity name references in JsonLogic rules when entities.table_name is renamed';
+
+-- =====================================================
+-- STEP 1d: TRIGGER FUNCTION: REWRITE stored record references ON entities.table_name UPDATE
+-- =====================================================
+-- A record reference (<table_name>:<key>, 0160_dd_functions.sql) carries the
+-- name of the record's entity, so a rename rewrites every stored reference
+-- into the renamed entity: the attached_to columns (ctype attached_to) of the
+-- attachable entities and their link tables, matched by prefix, and
+-- user_bookmarks.entity_name, which holds the table part on its own. Copies
+-- outside the database - webhook payloads, integrations - keep the old name.
+--
+-- The rewrite is no edit of those records, so it runs past their triggers:
+-- the rules of the entity (a bookmark's owner rule would run as the one
+-- renaming), the attach step (which keeps attached_to as it is on every
+-- update), updated_at, the audit log and the queues. dd_backfill_mute
+-- (0210_computed_validation.sql) switches every plainly enabled one of the
+-- rewritten relation off with ALTER TABLE rather than through a setting a
+-- client could write; the lock it takes holds that table's writers back until
+-- the rename commits. A table with no reference to rewrite is not locked at
+-- all.
+CREATE OR REPLACE FUNCTION rename_dd_record_refs()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_undo  TEXT[];
+    v_stmt  TEXT;
+    v_found BOOLEAN;
+    r       RECORD;
+BEGIN
+    FOR r IN
+        SELECT e.table_name AS entity, dd_relation(e.table_name, e.id_type) AS rel,
+               format('%1$I = %2$L || substr(%1$I, %3$s)', f.field_name, NEW.table_name,
+                      length(OLD.table_name) + 1) AS set_clause,
+               format('%I LIKE %L', f.field_name, dd_ref_like(OLD.table_name)) AS match
+          FROM fields f
+          JOIN entities e ON e.table_name = f.table_name
+         WHERE f.ctype = 'attached_to'
+           AND e.managed
+        UNION ALL
+        SELECT 'user_bookmarks', 'user_bookmarks', format('entity_name = %L', NEW.table_name),
+               format('entity_name = %L', OLD.table_name)
+         WHERE to_regclass('public.user_bookmarks') IS NOT NULL
+    LOOP
+        CONTINUE WHEN to_regclass(format('public.%I', r.rel)) IS NULL;
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I WHERE %s)', r.rel, r.match) INTO v_found;
+        CONTINUE WHEN NOT v_found;
+
+        v_undo := dd_backfill_mute(r.entity, TRUE);
+        EXECUTE format('UPDATE public.%I SET %s WHERE %s', r.rel, r.set_clause, r.match);
+        FOREACH v_stmt IN ARRAY v_undo LOOP
+            EXECUTE v_stmt;
+        END LOOP;
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION rename_dd_record_refs() IS
+'AFTER UPDATE trigger on entities: when table_name changes, rewrites the stored record references into the entity - the attached_to columns of attachable entities and link tables, and user_bookmarks.entity_name - past the triggers of those tables, which it disables for the rewrite (dd_backfill_mute).';
+
+REVOKE EXECUTE ON FUNCTION rename_dd_record_refs() FROM PUBLIC;
+
+CREATE OR REPLACE TRIGGER rename_record_refs_trigger
+    AFTER UPDATE ON entities
+    FOR EACH ROW
+    WHEN (OLD.table_name IS DISTINCT FROM NEW.table_name)
+    EXECUTE FUNCTION rename_dd_record_refs();
+
+COMMENT ON TRIGGER rename_record_refs_trigger ON entities IS
+'Rewrites the stored record references into an entity when entities.table_name is renamed';
 
 -- =====================================================
 -- STEP 2: TRIGGER FUNCTION: VALIDATE AND RENAME ON fields UPDATE

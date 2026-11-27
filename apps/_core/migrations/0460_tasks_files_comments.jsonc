@@ -1,0 +1,198 @@
+// Tasks, files and comments: three attachable entities (0450_attachables.sql)
+// that any module switches on for its own entities by listing them in
+// entity_attachables. All three are typeid roots, so a module can add an is_a
+// subtype later (a contract document with a signed date and its signer); their
+// key type cannot change afterwards.
+//
+// They are seen with public:read and written with public:write, which the
+// User role holds, so the records' own rules decide: the select_rule of a task,
+// the target a file or a comment follows. created_by is set to the current
+// user on insert and kept on update.
+//
+// The size of a file (b_file_size) and the caller's open tasks (my_tasks())
+// are in 0470_tasks_files_comments.sql.
+{
+  "version": 1,
+  "entities": [
+    {
+      "entity": {
+        "table_name": "tasks",
+        "icon_name": "list-checks",
+        "name_sort": "300",
+        "module_name": "_core",
+        "singular": "task",
+        "singular_label": "Task",
+        "plural_label": "Tasks",
+        "description": "Work to do, for a user or for the members of a role, attached to any number of records. A user's open tasks are their inbox (my_tasks()).",
+        "view_permission": "public:read",
+        "edit_permission": "public:write",
+        "id_type": "typeid",
+        "id_prefix": "task",
+        "id_column": "id",
+        "label_column": "title",
+        "label_column_label": "Title",
+        "entity_type": "operational_workflow",
+        // Any number of equal targets in tasks_links, or none: a to-do is a
+        // plain task. Linking a task to a record needs to see the record.
+        "attach_mode": "multiple",
+        "attach_permission": "view",
+        // A task is seen by its assignee, the members of its role (whose queue
+        // it waits in while it has no assignee), its creator and the holders
+        // of tasks:view_all. The permission comes first, so the policy checks
+        // it once per statement.
+        "select_rule": {"or": [
+          {"has_permission": "tasks:view_all"},
+          {"==": [{"var": "assigned_user"}, {"var": "$user_id"}]},
+          {"==": [{"var": "created_by"}, {"var": "$user_id"}]},
+          {"in": [{"var": "assigned_role"}, {"var": "$role_ids"}]}
+        ]},
+        "computed_fields": [
+          {"name": "created_by", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.created_by"}]}},
+          // Set when the task becomes done, kept while it stays done, cleared
+          // when it leaves done.
+          {"name": "completed_at", "jsonlogic": {"if": [{"==": [{"var": "status"}, "done"]},
+                                                         {"if": [{"==": [{"var": "$old.status"}, "done"]}, {"var": "$old.completed_at"}, {"var": "$now"}]},
+                                                         null]}}
+        ],
+        // Changing, delegating and deleting a task is for its assignee, its
+        // creator and the holders of tasks:manage_all. A member of its role may
+        // claim a task that has no assignee: set assigned_user to themselves
+        // and change nothing else. A session without a user passes: that is
+        // the installer's, a seed's, an import's or a module delete's (a
+        // privileged direct session), since every request carries a user. It
+        // comes first, so has_permission is not asked without one.
+        "validation_rules": [
+          {"code": "90279", "message": "A task is changed or deleted by its assignee, its creator or a holder of tasks:manage_all; a member of its role may only claim it", "source_module": "platform",
+           "jsonlogic": {"or": [
+             {"==": [{"var": "$user_id"}, null]},
+             {"==": [{"var": "$mode"}, "insert"]},
+             {"has_permission": "tasks:manage_all"},
+             {"==": [{"var": "$old.assigned_user"}, {"var": "$user_id"}]},
+             {"==": [{"var": "$old.created_by"}, {"var": "$user_id"}]},
+             {"and": [
+               {"==": [{"var": "$mode"}, "update"]},
+               {"==": [{"var": "$old.assigned_user"}, null]},
+               {"==": [{"var": "assigned_user"}, {"var": "$user_id"}]},
+               {"in": [{"var": "$old.assigned_role"}, {"var": "$role_ids"}]},
+               {"!": {"value_changed": "title"}},
+               {"!": {"value_changed": "description"}},
+               {"!": {"value_changed": "status"}},
+               {"!": {"value_changed": "priority"}},
+               {"!": {"value_changed": "due_at"}},
+               {"!": {"value_changed": "snoozed_until"}},
+               {"!": {"value_changed": "assigned_role"}}
+             ]}
+           ]}}
+        ],
+        // id, title (the label column), created_at and updated_at are created
+        // by the dictionary.
+        "fields": [
+          {"field_name": "description", "title": "Description", "description": "What the task is about",
+           "format": "multiline", "field_order": 30, "input_type": "default", "width": "w", "searchable": true},
+          {"field_name": "status", "title": "Status", "description": "open until the task is done or canceled",
+           "format": "enum", "field_order": 40, "input_type": "required", "width": "default", "default_value": "open",
+           "enum_values": [{"value": "open", "label": "Open"}, {"value": "done", "label": "Done"}, {"value": "canceled", "label": "Canceled"}]},
+          {"field_name": "priority", "title": "Priority", "description": "Orders a user's open tasks after the due date",
+           "format": "enum", "field_order": 50, "input_type": "required", "width": "default", "default_value": "normal",
+           "enum_values": [{"value": "low", "label": "Low"}, {"value": "normal", "label": "Normal"}, {"value": "high", "label": "High"}]},
+          {"field_name": "due_at", "title": "Due At", "description": "When the task is due",
+           "format": "date-time", "field_order": 60, "input_type": "default", "width": "default"},
+          {"field_name": "snoozed_until", "title": "Snoozed Until", "description": "The task is left out of the open tasks until then",
+           "format": "date-time", "field_order": 70, "input_type": "default", "width": "default"},
+          {"field_name": "assigned_user", "title": "Assigned User", "description": "Who does the task; empty while it waits in its role's queue",
+           "format": "reference", "field_order": 80, "input_type": "default", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "is assigned"},
+          {"field_name": "assigned_role", "title": "Assigned Role", "description": "The role whose members may claim the task while it has no assignee, and who see it",
+           "format": "reference", "field_order": 90, "input_type": "default", "width": "default",
+           "reference_table": "roles", "reference_delete_mode": "clear", "relationship_label": "queues"},
+          {"field_name": "created_by", "title": "Created By", "description": "Who created the task (set by the database)",
+           "format": "reference", "field_order": 100, "input_type": "readonly", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "created"},
+          {"field_name": "completed_at", "title": "Completed At", "description": "When the task became done (set by the database)",
+           "format": "date-time", "field_order": 110, "input_type": "readonly", "width": "default"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "files",
+        "icon_name": "paperclip",
+        "name_sort": "310",
+        "module_name": "_core",
+        "singular": "file",
+        "singular_label": "File",
+        "plural_label": "Files",
+        "description": "Files owned by one record and shown on further ones; the contents are stored with the file.",
+        "view_permission": "public:read",
+        "edit_permission": "public:write",
+        "id_type": "typeid",
+        "id_prefix": "file",
+        "id_column": "id",
+        "label_column": "name",
+        "label_column_label": "Name",
+        "entity_type": "operational_record",
+        // The owning record, in attached_to, decides who sees and changes a
+        // file; further records in files_links only show it. Attaching needs
+        // edit rights on the record, and a file goes with its owner.
+        "attach_mode": "owned_shared",
+        "attach_permission": "edit",
+        "attach_on_target_delete": "cascade",
+        "computed_fields": [
+          {"name": "created_by", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.created_by"}]}}
+        ],
+        // id, name (the label column), attached_to, created_at and updated_at
+        // are created by the dictionary.
+        "fields": [
+          {"field_name": "content_type", "title": "Content Type", "description": "The MIME type of the contents",
+           "format": "text", "field_order": 30, "input_type": "default", "width": "default"},
+          {"field_name": "size", "title": "Size", "description": "The size of the contents in bytes (set by the database)",
+           "format": "int64", "field_order": 40, "input_type": "readonly", "width": "default"},
+          {"field_name": "content", "title": "Content", "description": "The contents of the file",
+           "format": "binary", "field_order": 50, "input_type": "default", "width": "w"},
+          {"field_name": "created_by", "title": "Created By", "description": "Who uploaded the file (set by the database)",
+           "format": "reference", "field_order": 60, "input_type": "readonly", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "uploaded"}
+        ]
+      }
+    },
+    {
+      "entity": {
+        "table_name": "comments",
+        "icon_name": "message-square",
+        "name_sort": "320",
+        "module_name": "_core",
+        "singular": "comment",
+        "singular_label": "Comment",
+        "plural_label": "Comments",
+        "description": "Comments on a record, seen and changed by whoever may see and change the record.",
+        "view_permission": "public:read",
+        "edit_permission": "public:write",
+        "id_type": "typeid",
+        "id_prefix": "comment",
+        "id_column": "id",
+        "label_column": "label",
+        "label_column_label": "Label",
+        "entity_type": "operational_record",
+        // One target, in attached_to, which decides who sees and changes the
+        // comment: anyone who sees a record may comment on it, and anyone who
+        // may edit it may edit its comments. A comment goes with its target.
+        "attach_mode": "single",
+        "attach_permission": "view",
+        "attach_on_target_delete": "cascade",
+        "computed_fields": [
+          {"name": "label", "jsonlogic": {"substr": [{"var": "body"}, 0, 80]}},
+          {"name": "created_by", "jsonlogic": {"if": [{"==": [{"var": "$mode"}, "insert"]}, {"var": "$user_id"}, {"var": "$old.created_by"}]}}
+        ],
+        // id, label (the label column, the first 80 characters of the body),
+        // attached_to, created_at and updated_at are created by the dictionary.
+        "fields": [
+          {"field_name": "body", "title": "Body", "description": "The comment",
+           "format": "multiline", "field_order": 30, "input_type": "required", "width": "w", "searchable": true},
+          {"field_name": "created_by", "title": "Created By", "description": "Who wrote the comment (set by the database)",
+           "format": "reference", "field_order": 40, "input_type": "readonly", "width": "default",
+           "reference_table": "users", "reference_delete_mode": "clear", "relationship_label": "wrote"}
+        ]
+      }
+    }
+  ]
+}
