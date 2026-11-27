@@ -476,8 +476,10 @@ what it creates.
 cannot leave an attachment without its target, which needs two sessions: a delete that
 waits for an attach cascades to it or, under restrict, is refused, and an attach or a link
 that waits for a delete is refused. It also proves that two deletes that each remove one of
-a record's last two links delete the record, and that a change of the attach mode and a
-switch-off of a target wait for an insert or an attach in progress and then refuse. It runs
+a record's last two links leave the record without links, that a change of the attach mode
+and a switch-off of a target wait for an insert or an attach in progress and then refuse,
+and that a change of the attach mode does not deadlock with links and a record being
+deleted. It runs
 on the database a migrate left on the plain CLI container, and removes what it creates.
 
 ### Just deploy a module (no reset, no tests)

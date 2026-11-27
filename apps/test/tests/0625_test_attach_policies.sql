@@ -13,7 +13,7 @@
 -- Fixture entities use the 'atp' prefix; everything is rolled back.
 BEGIN;
 
-SELECT plan(35);
+SELECT plan(36);
 
 SELECT authenticate_as('user3');
 
@@ -106,10 +106,14 @@ SELECT is((SELECT label FROM atp_comment), 'c open',
     'edit follows the target: user1 may not edit atp_open, so not its comments either');
 
 SELECT authenticate_as('user3');
-UPDATE atp_comment SET label = 'c open edited', attached_to = current_setting('atp.s1') WHERE label = 'c open';
+SELECT throws_ok(
+    $$UPDATE atp_comment SET label = 'c open edited', attached_to = current_setting('atp.s1') WHERE label = 'c open'$$,
+    '91025', 'The target ${reference} of a record of ${attachable} is not changed',
+    'the target of a comment is not changed');
+UPDATE atp_comment SET label = 'c open edited', attached_to = current_setting('atp.o1') WHERE label = 'c open';
 SELECT is((SELECT label || ' ' || (attached_to = current_setting('atp.o1')) FROM atp_comment WHERE label LIKE 'c open%'),
     'c open edited true',
-    'who may edit the target edits the comment, and attached_to keeps the target it was given');
+    'who may edit the target edits the comment, and an update that sends its target as it is passes');
 
 -- =====================================================
 -- PART 3: owned_shared
@@ -245,13 +249,13 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM atp_comment WHERE label = 'c open by user1')
 -- A subtype added under a listed target after records were attached: its
 -- records are admitted and their comments seen, by the policy rebuilt then.
 SELECT authenticate_as('user3');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('atp_asset', 'Asset', 'Assets', 1, 'public:read', 'admin', 'typeid', 'atpasset');
 INSERT INTO entity_attachables (target, attachable) VALUES ('atp_asset', 'atp_comment');
 INSERT INTO atp_asset (label) VALUES ('A1');
 INSERT INTO atp_comment (label, attached_to) SELECT 'c asset', 'atp_asset:' || id FROM atp_asset;
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission,
-                      id_type, id_prefix, id_refentity)
+                      id_type, type_prefix, id_refentity)
 VALUES ('atp_laptop', 'Laptop', 'Laptops', 1, 'public:read', 'admin', 'is_a', 'atplap', 'atp_asset');
 INSERT INTO atp_laptop (label) VALUES ('L1');
 SELECT authenticate_as('user1');

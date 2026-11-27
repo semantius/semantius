@@ -1,8 +1,11 @@
 // Tasks, files and comments: three attachable entities (0450_attachables.sql)
 // that any module switches on for its own entities by listing them in
-// entity_attachables. All three are typeid roots, so a module can add an is_a
+// entity_attachables. All three are family roots, so a module can add an is_a
 // subtype later (a contract document with a signed date and its signer); their
-// key type cannot change afterwards.
+// key type cannot change afterwards. A task has a Typed Number key a person can
+// read and type: TASK-1, TASK-2 and so on, without padding (type_digits 0), so
+// TASK-01 is refused. Files and comments are referred to by the record they are
+// attached to, and keep Typed Id keys.
 //
 // They are seen with public:read and written with public:write, which the
 // User role holds, so the records' own rules decide: the select_rule of a task,
@@ -26,8 +29,8 @@
         "description": "Work to do, for a user or for the members of a role, attached to any number of records. A user's open tasks are their inbox (my_tasks()).",
         "view_permission": "public:read",
         "edit_permission": "public:write",
-        "id_type": "typeid",
-        "id_prefix": "task",
+        "id_type": "typenumber",
+        "type_prefix": "TASK",
         "id_column": "id",
         "label_column": "title",
         "label_column_label": "Title",
@@ -126,7 +129,7 @@
         "view_permission": "public:read",
         "edit_permission": "public:write",
         "id_type": "typeid",
-        "id_prefix": "file",
+        "type_prefix": "file",
         "id_column": "id",
         "label_column": "name",
         "label_column_label": "Name",
@@ -168,7 +171,7 @@
         "view_permission": "public:read",
         "edit_permission": "public:write",
         "id_type": "typeid",
-        "id_prefix": "comment",
+        "type_prefix": "comment",
         "id_column": "id",
         "label_column": "label",
         "label_column_label": "Label",

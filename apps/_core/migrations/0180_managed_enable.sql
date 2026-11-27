@@ -299,7 +299,7 @@ BEGIN
         PERFORM dd_check_id_column(NEW.table_name, NEW.id_column, NEW.id_type);
     END IF;
 
-    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.type_prefix);
 
     -- ── Secure the table ─────────────────────────────────────────────────
     -- Unconditionally, whatever the table carried before. Becoming managed means

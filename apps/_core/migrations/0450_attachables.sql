@@ -52,8 +52,8 @@
 -- level: the attach step locks the target row and the row of
 -- entity_attachables that admits it FOR KEY SHARE, so a delete of the target
 -- and a switch-off wait for the attach to commit and then find the attachment;
--- a change of the attach mode locks the entity's table and its link table
--- against inserts before it looks for records. pgdocker/pg-attach-race.sh
+-- a change of the attach mode locks the entity's table before it looks for
+-- records. pgdocker/pg-attach-race.sh
 -- runs these races. A delete or a switch-off at REPEATABLE READ may still miss
 -- an attachment committed just before it.
 
@@ -74,9 +74,12 @@
 -- the dictionary, so a field of that name it already has is refused (91022).
 -- An entity that becomes single or owned_shared starts to follow its targets,
 -- none of which may follow it in turn (dd_attach_cycle_check, 91024). A change
--- of the mode first locks the entity's table and its link table against
--- inserts (SHARE ROW EXCLUSIVE), so a record being inserted concurrently is
--- either committed and counted, or waits for the new mode.
+-- of the mode first locks the entity's table ACCESS EXCLUSIVE, so a record
+-- being inserted concurrently is either committed and counted, or waits for
+-- the new mode. The link table needs no lock of its own: a link row names a
+-- record of the table (a NOT NULL foreign key), and the rebuild of the
+-- policies that follows takes ACCESS EXCLUSIVE anyway, so taking it first
+-- leaves no lock to upgrade.
 -- A rename of an owned_shared or multiple entity to a longer name reaches
 -- 91004 here: the rename of its link entity (dd_attach_link_rename, which
 -- runs first) waits for a name that fits.
@@ -137,7 +140,6 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_rows   BOOLEAN := FALSE;
     v_listed TEXT;
-    v_tables TEXT;
 BEGIN
     IF NEW.attach_mode <> 'none' THEN
         IF NOT NEW.managed THEN
@@ -183,11 +185,7 @@ BEGIN
 
         IF OLD.attach_mode IS DISTINCT FROM NEW.attach_mode AND OLD.managed
            AND to_regclass(format('public.%I', dd_relation(OLD.table_name, OLD.id_type))) IS NOT NULL THEN
-            SELECT string_agg(format('public.%I', t), ', ') INTO v_tables
-              FROM unnest(ARRAY[dd_relation(OLD.table_name, OLD.id_type),
-                                (SELECT l.table_name FROM entities l WHERE l.link_of = OLD.table_name)]) AS t
-             WHERE t IS NOT NULL;
-            EXECUTE format('LOCK TABLE %s IN SHARE ROW EXCLUSIVE MODE', v_tables);
+            EXECUTE format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', dd_relation(OLD.table_name, OLD.id_type));
             EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I)', dd_relation(OLD.table_name, OLD.id_type))
                INTO v_rows;
             IF v_rows THEN
@@ -485,13 +483,16 @@ CREATE OR REPLACE TRIGGER zz_entity_attachables_changed_trigger
 -- record's owner editable by the caller (91023). Then, on insert and on
 -- delete, the record's own rules are asked, as for an update of it that
 -- changes nothing (common.attach_record_rules): a task's rule 90279 refuses a
--- link to whoever may see the task but not change it. The delete step of a
--- target removes links past them (common.attached_step_marked), as a
--- foreign-key cascade would; a record that is gone (its delete cascades to its
--- links) has nothing to ask.
+-- link to whoever may see the task but not change it. A link whose target
+-- record is gone passes (dd_attach_target_exists): the delete step of a target
+-- removes the links to it as a foreign-key cascade would, and a link to a
+-- record that no longer exists is no change of the attachable record. A record
+-- that is gone itself (its delete cascades to its links) has nothing to ask.
 --
--- On update, attached_to and a link row's record keep what they hold: a
--- target is set on insert and never changed.
+-- A target is set on insert and never changed: an update that changes
+-- attached_to of an attachable record is refused (91025), and so is one that
+-- changes a link row's record or target (91026), since a link is removed and
+-- added, never changed. An update that sends the stored values passes.
 --
 -- SECURITY DEFINER, owned by the owner: they read entity_attachables and the
 -- attachable records and lock the target, and get_record_by_id, which
@@ -567,10 +568,45 @@ COMMENT ON FUNCTION common.attach_target(TEXT, TEXT, BOOLEAN) IS
 
 REVOKE EXECUTE ON FUNCTION common.attach_target(TEXT, TEXT, BOOLEAN) FROM PUBLIC;
 
+-- Whether the record a reference names still exists, as the owner sees it:
+-- the row in the table of the family's root, of an entity whose module is not
+-- being deleted. A record of a target a module delete is dropping counts as
+-- gone (dd_attach_target_purge runs before its table is dropped).
+CREATE OR REPLACE FUNCTION dd_attach_target_exists(p_ref TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_split RECORD;
+    v_root  entities%ROWTYPE;
+    v_found BOOLEAN;
+BEGIN
+    SELECT * INTO v_split FROM dd_record_ref_split(p_ref);
+    SELECT e.* INTO v_root
+      FROM dd_ancestors(v_split.table_name) a
+      JOIN entities e ON e.table_name = a.table_name
+      JOIN modules m ON m.id = e.module_id
+     WHERE a.depth = 0;
+    IF NOT FOUND OR to_regclass(format('public.%I', v_root.table_name)) IS NULL
+       OR dd_key_cast(v_split.key, dd_key_type(v_root.table_name)) IS NULL THEN
+        RETURN FALSE;
+    END IF;
+    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1::%s)',
+                   v_root.table_name, v_root.id_column, dd_key_type(v_root.table_name))
+       INTO v_found
+      USING v_split.key;
+    RETURN v_found;
+END;
+-- SECURITY INVOKER: its caller, common.attach_check, runs as the owner.
+$$ LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_attach_target_exists(TEXT) IS
+'Whether the record a record reference names exists, read past row-level security; a record of an entity whose module is being deleted counts as gone.';
+
+REVOKE EXECUTE ON FUNCTION dd_attach_target_exists(TEXT) FROM PUBLIC;
+
 -- The rules of an attachable record asked as for an update that changes
 -- nothing (mode update, the record as $old and as the new record), the record
--- read as the owner. A record that is gone, an entity without rules, a
--- privileged direct session and the delete step of a target pass.
+-- read as the owner. A record that is gone, an entity without rules and a
+-- privileged direct session pass.
 CREATE OR REPLACE FUNCTION common.attach_record_rules(p_attachable TEXT, p_key TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
@@ -582,7 +618,6 @@ DECLARE
     v_row   JSONB;
 BEGIN
     IF dd_privileged_session()
-       OR common.attached_step_marked(p_attachable)
        OR to_regprocedure(format('common.%I(text, jsonb, jsonb)', v_rules)) IS NULL THEN
         RETURN;
     END IF;
@@ -598,7 +633,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION common.attach_record_rules(TEXT, TEXT) IS
-'Evaluates the rules of an attachable record as for an update that changes nothing, so a failing validation rule refuses; a record that is gone, an entity without rules, a privileged direct session and the delete step of a target pass.';
+'Evaluates the rules of an attachable record as for an update that changes nothing, so a failing validation rule refuses; a record that is gone, an entity without rules and a privileged direct session pass.';
 
 REVOKE EXECUTE ON FUNCTION common.attach_record_rules(TEXT, TEXT) FROM PUBLIC;
 
@@ -612,7 +647,6 @@ DECLARE
     v_entity     entities%ROWTYPE;
     v_attachable entities%ROWTYPE;
     v_link_field TEXT;
-    v_patch      JSONB;
     v_ref        TEXT;
     v_record     TEXT;
     v_row        JSONB;
@@ -625,57 +659,72 @@ BEGIN
         v_attachable := v_entity;
     END IF;
 
-    -- Only a link table has the trigger on delete.
+    -- Only a link table has the trigger on delete. A link to a record that is
+    -- gone is removed without the rules.
     IF TG_OP = 'DELETE' THEN
-        PERFORM common.attach_record_rules(v_attachable.table_name, to_jsonb(OLD) ->> v_link_field);
+        IF dd_attach_target_exists(to_jsonb(OLD) ->> 'attached_to') THEN
+            PERFORM common.attach_record_rules(v_attachable.table_name, to_jsonb(OLD) ->> v_link_field);
+        END IF;
         RETURN OLD;
     END IF;
 
     IF TG_OP = 'UPDATE' THEN
-        v_patch := jsonb_build_object('attached_to', to_jsonb(OLD) -> 'attached_to');
-        IF v_link_field IS NOT NULL THEN
-            v_patch := v_patch || jsonb_build_object(v_link_field, to_jsonb(OLD) -> v_link_field);
+        IF EXISTS (SELECT 1 FROM unnest(ARRAY['attached_to', v_link_field]) AS c(name)
+                    WHERE c.name IS NOT NULL AND to_jsonb(NEW) -> c.name IS DISTINCT FROM to_jsonb(OLD) -> c.name) THEN
+            IF v_link_field IS NULL THEN
+                RAISE EXCEPTION 'The target ${reference} of a record of ${attachable} is not changed'
+                    USING ERRCODE = '91025',
+                          HINT = jsonb_build_object('reference', to_jsonb(OLD) ->> 'attached_to',
+                                                    'attachable', v_attachable.table_name,
+                                                    'hint', 'Delete the record and attach a new one.')::text;
+            END IF;
+            RAISE EXCEPTION 'A link of ${attachable} to ${reference} is not changed'
+                USING ERRCODE = '91026',
+                      HINT = jsonb_build_object('reference', to_jsonb(OLD) ->> 'attached_to',
+                                                'attachable', v_attachable.table_name,
+                                                'hint', 'Remove the link and add the new one.')::text;
         END IF;
-    ELSE
-        -- An empty target is left to the required check of attached_to.
-        v_ref := to_jsonb(NEW) ->> 'attached_to';
-        IF coalesce(v_ref, '') = '' THEN
-            RETURN NEW;
-        END IF;
-        v_ref := common.attach_target(v_attachable.table_name, v_ref, v_attachable.attach_permission = 'edit');
+        RETURN NEW;
+    END IF;
 
-        IF v_link_field IS NOT NULL THEN
-            v_record := to_jsonb(NEW) ->> v_link_field;
-            v_row := get_record_by_id(v_attachable.table_name, v_record);
-            IF v_row IS NULL THEN
-                RAISE EXCEPTION 'No record ${reference} to link to ${target}'
-                    USING ERRCODE = '91021',
-                          HINT = jsonb_build_object('reference', dd_record_ref(v_attachable.table_name, v_record),
-                                                    'target', v_ref)::text;
-            END IF;
-            IF v_attachable.attach_mode = 'owned_shared'
-               AND NOT dd_attach_may_edit((SELECT t.edit_permissions
-                                             FROM dd_attach_targets(v_attachable.table_name) t
-                                            WHERE t.table_name = (dd_record_ref_split(v_row ->> 'attached_to')).table_name)) THEN
-                RAISE EXCEPTION 'Linking ${reference} needs the edit permission of its owner ${owner}'
-                    USING ERRCODE = '91023',
-                          HINT = jsonb_build_object('reference', dd_record_ref(v_attachable.table_name, v_record),
-                                                    'owner', v_row ->> 'attached_to')::text;
-            END IF;
-            PERFORM common.attach_record_rules(v_attachable.table_name, v_record);
+    -- An empty target is left to the required check of attached_to.
+    v_ref := to_jsonb(NEW) ->> 'attached_to';
+    IF coalesce(v_ref, '') = '' THEN
+        RETURN NEW;
+    END IF;
+    v_ref := common.attach_target(v_attachable.table_name, v_ref, v_attachable.attach_permission = 'edit');
+
+    IF v_link_field IS NOT NULL THEN
+        v_record := to_jsonb(NEW) ->> v_link_field;
+        v_row := get_record_by_id(v_attachable.table_name, v_record);
+        IF v_row IS NULL THEN
+            RAISE EXCEPTION 'No record ${reference} to link to ${target}'
+                USING ERRCODE = '91021',
+                      HINT = jsonb_build_object('reference', dd_record_ref(v_attachable.table_name, v_record),
+                                                'target', v_ref)::text;
         END IF;
-        v_patch := jsonb_build_object('attached_to', v_ref);
+        IF v_attachable.attach_mode = 'owned_shared'
+           AND NOT dd_attach_may_edit((SELECT t.edit_permissions
+                                         FROM dd_attach_targets(v_attachable.table_name) t
+                                        WHERE t.table_name = (dd_record_ref_split(v_row ->> 'attached_to')).table_name)) THEN
+            RAISE EXCEPTION 'Linking ${reference} needs the edit permission of its owner ${owner}'
+                USING ERRCODE = '91023',
+                      HINT = jsonb_build_object('reference', dd_record_ref(v_attachable.table_name, v_record),
+                                                'owner', v_row ->> 'attached_to')::text;
+        END IF;
+        PERFORM common.attach_record_rules(v_attachable.table_name, v_record);
     END IF;
 
     -- The row is rebuilt through EXECUTE, which plans against the table as it
     -- is now, as common.typeid_assign explains.
-    EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r' INTO NEW USING NEW, v_patch;
+    EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
+       INTO NEW USING NEW, jsonb_build_object('attached_to', v_ref);
     RETURN NEW;
 END;
 $$;
 
 COMMENT ON FUNCTION common.attach_check() IS
-'BEFORE trigger d_attach_check of an attachable entity''s table (single, owned_shared: INSERT OR UPDATE) and of its link table (INSERT OR UPDATE OR DELETE): on insert checks the target through common.attach_target and writes its canonical reference; a link row''s record must be visible (91021), an owned_shared one''s owner editable (91023), and the record''s rules pass, on insert and on delete (common.attach_record_rules). On update keeps attached_to and a link row''s record.';
+'BEFORE trigger d_attach_check of an attachable entity''s table (single, owned_shared: INSERT OR UPDATE) and of its link table (INSERT OR UPDATE OR DELETE): on insert checks the target through common.attach_target and writes its canonical reference; a link row''s record must be visible (91021), an owned_shared one''s owner editable (91023), and the record''s rules pass, on insert and on the delete of a link whose target still exists (common.attach_record_rules). On update refuses a changed attached_to (91025) and a changed link row (91026).';
 
 REVOKE EXECUTE ON FUNCTION common.attach_check() FROM PUBLIC;
 
@@ -696,12 +745,10 @@ REVOKE EXECUTE ON FUNCTION common.attach_check() FROM PUBLIC;
 --   * refuses, for a single or owned_shared entity whose
 --     attach_on_target_delete is restrict, while a record is attached in
 --     attached_to (91016), and otherwise deletes those records;
---   * removes the link rows that name them;
---   * deletes a multiple record that lost its last link here. One created
---     without any target is not touched.
--- The last two run past the attachable entity's rules, as a foreign-key
--- cascade does (common.attached_step_mark); the records in attached_to are
--- held to them.
+--   * removes the link rows that name them. Their target is gone, so the
+--     attachable entity's rules do not hold them back (common.attach_check);
+--     a multiple record that lost its last target stays, as one created
+--     without any target does.
 -- The deletes run as the definer, past the row-level security of the
 -- attachable entity, as a foreign-key cascade does; its row triggers, its
 -- rules among them, run as they do for one. A record of an is_a attachable
@@ -755,11 +802,9 @@ DECLARE
     v_ref     TEXT;
     v_del     TEXT := '';
     v_link    TEXT;
-    v_keytype REGTYPE;
     v_rels    TEXT[];
     v_names   TEXT[];
     v_hit     BOOLEAN := FALSE;
-    v_ids     BOOLEAN := FALSE;
     r         RECORD;
 BEGIN
     EXECUTE format('DROP FUNCTION IF EXISTS common.%I(text[])', v_fn);
@@ -771,8 +816,8 @@ BEGIN
     v_names := ARRAY[p_root] || ARRAY(SELECT s.table_name FROM dd_is_a_subtypes(p_root) s);
 
     -- The reference of a key (dd_record_ref).
-    SELECT format('(CASE common.typeid_prefix(o.k)%s ELSE %L END || o.k)',
-                  string_agg(format(' WHEN %L THEN %L', s.id_prefix, s.table_name || ':'), '' ORDER BY s.depth, s.table_name),
+    SELECT format('(CASE common.type_prefix(o.k)%s ELSE %L END || o.k)',
+                  string_agg(format(' WHEN %L THEN %L', s.type_prefix, s.table_name || ':'), '' ORDER BY s.depth, s.table_name),
                   p_root || ':')
       INTO v_ref
       FROM dd_is_a_subtypes(p_root) s
@@ -792,7 +837,6 @@ BEGIN
          ORDER BY a.table_name
     LOOP
         SELECT l.table_name INTO v_link FROM entities l WHERE l.link_of = r.table_name;
-        v_keytype := dd_key_type(r.table_name);
         -- Where its records are deleted: the view of each direct is_a subtype
         -- first, then the table.
         v_rels := ARRAY(SELECT s.table_name FROM dd_is_a_subtypes(r.table_name) s WHERE s.depth = 1
@@ -815,29 +859,7 @@ BEGIN
         END IF;
 
         IF v_link IS NOT NULL THEN
-            v_del := v_del || format(E'\n    PERFORM common.attached_step_mark(%L);', r.table_name);
-            IF r.attach_mode = 'multiple' THEN
-                v_ids := TRUE;
-                -- The records that lost a link here are locked first, in a
-                -- statement of their own: two deletes that each remove one of
-                -- a record's last two links would otherwise each still see
-                -- the other's link and both keep the record. Locked, the
-                -- second waits for the first, and its delete then sees that
-                -- link gone.
-                v_del := v_del || format($S$
-    WITH gone AS (DELETE FROM public.%1$I l WHERE l.attached_to = ANY (v_refs) RETURNING l.%2$I AS id)
-    SELECT array_agg(DISTINCT g.id::text) INTO v_ids FROM gone g;
-    IF v_ids IS NOT NULL THEN
-        PERFORM 1 FROM public.%3$I x WHERE x.%4$I = ANY (v_ids::%5$s[]) ORDER BY x.%4$I FOR UPDATE;%6$s
-    END IF;$S$, v_link, r.table_name || '_id', r.table_name, r.id_column, v_keytype,
-                    (SELECT string_agg(format(E'\n        DELETE FROM public.%1$I x WHERE x.%2$I = ANY (v_ids::%3$s[])'
-                                              '\n           AND NOT EXISTS (SELECT 1 FROM public.%4$I l WHERE l.%5$I = x.%2$I);',
-                                              rel, r.id_column, v_keytype, v_link, r.table_name || '_id'), '' ORDER BY n)
-                       FROM unnest(v_rels) WITH ORDINALITY AS u(rel, n)));
-            ELSE
-                v_del := v_del || format(E'\n    DELETE FROM public.%I l WHERE l.attached_to = ANY (v_refs);', v_link);
-            END IF;
-            v_del := v_del || E'\n    PERFORM common.attached_step_mark(NULL);';
+            v_del := v_del || format(E'\n    DELETE FROM public.%I l WHERE l.attached_to = ANY (v_refs);', v_link);
         END IF;
     END LOOP;
 
@@ -859,11 +881,10 @@ BEGIN
 END;
 $B$, v_ref, v_del,
          -- The variables the steps above use, and only those.
-         concat(CASE WHEN v_hit THEN E'\n    v_hit  TEXT;' END,
-                CASE WHEN v_ids THEN E'\n    v_ids  TEXT[];' END))));
+         CASE WHEN v_hit THEN E'\n    v_hit  TEXT;' ELSE '' END)));
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text[]) FROM PUBLIC', v_fn);
     EXECUTE format('COMMENT ON FUNCTION common.%I(text[]) IS %L', v_fn,
-        format('The delete step of %s for the given keys: refuses or cascades the records attached to them, removes their link rows and deletes a multiple record that lost its last target. Run by common.attached_step after a delete, and by dd_attach_target_purge when a module delete drops the table. Generated by dd_build_attached_triggers.', p_root));
+        format('The delete step of %s for the given keys: refuses or cascades the records attached to them and removes their link rows. Run by common.attached_step after a delete, and by dd_attach_target_purge when a module delete drops the table. Generated by dd_build_attached_triggers.', p_root));
     EXECUTE format('CREATE OR REPLACE TRIGGER attached_del AFTER DELETE ON public.%I REFERENCING OLD TABLE AS old_rows
                         FOR EACH STATEMENT EXECUTE FUNCTION common.attached_step(%L)', p_root, v_root.id_column);
     EXECUTE format('CREATE OR REPLACE TRIGGER attached_trc BEFORE TRUNCATE ON public.%I
@@ -877,7 +898,8 @@ COMMENT ON FUNCTION dd_build_attached_triggers(TEXT) IS
 REVOKE EXECUTE ON FUNCTION dd_build_attached_triggers(TEXT) FROM PUBLIC;
 
 -- A target entity deleted by a module delete takes the attachments to its
--- records along, as deleting each record would (its delete step): the rows
+-- records along, as deleting each record would (its delete step), and its
+-- records count as gone for the links (dd_attach_target_exists): the rows
 -- are dropped with the table, which fires no delete trigger, and the
 -- attachments would keep a target that is gone. The module's row is gone
 -- already when the cascade reaches its entities, as delete_dd_table relies

@@ -317,18 +317,6 @@ BEGIN
         END LOOP;
     END IF;
 
-    -- A numbered label is the database's to write (common.label_number_assign,
-    -- 0160_dd_functions.sql), and a rule writing it would overwrite the number
-    -- after the label step ran.
-    IF NEW.label_format = 'number' AND jsonb_typeof(NEW.computed_fields) = 'array'
-       AND EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c
-                    WHERE split_part(c ->> 'name', '.', 1) = NEW.label_column) THEN
-        RAISE EXCEPTION 'computed_fields on ${table} cannot write the label column ${field_name}, which is numbered'
-            USING ERRCODE = '90288',
-                  HINT = jsonb_build_object('table', NEW.table_name, 'field_name', NEW.label_column,
-                                            'hint', 'Set label_format to custom, or remove the rule.')::text;
-    END IF;
-
     IF jsonb_typeof(NEW.computed_fields) = 'array' THEN
         FOR v_idx IN 0 .. jsonb_array_length(NEW.computed_fields) - 1 LOOP
             v_item := NEW.computed_fields -> v_idx;
@@ -351,7 +339,7 @@ END;
 $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_rules() IS
-'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909), a select_rule or validation rule that is not one JsonLogic operation (90919), and a computed field that writes a numbered label column (90288). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
+'BEFORE INSERT OR UPDATE trigger on entities. On every write it refuses a rule that names an unknown operator (90909) and a select_rule or validation rule that is not one JsonLogic operation (90919). On a rule that is new or changed it also refuses a name or message that is not text (90900, 90903) and the mistakes of dd_check_rule_detail (90921 to 90924).';
 
 -- The check runs as whoever saves the entity, so the request role needs the
 -- helpers; the trigger function itself is called by the trigger alone.
@@ -553,7 +541,7 @@ BEGIN
         -- repeated behind this trigger, and a rule set without one loses them,
         -- so they follow every change of the rules. Only the late checks: the
         -- key triggers themselves belong to the table (dd_install_id_triggers).
-        PERFORM dd_install_key_rule_checks(v_entity.table_name, v_entity.id_column, v_entity.id_type, v_entity.id_prefix);
+        PERFORM dd_install_key_rule_checks(v_entity.table_name, v_entity.id_column, v_entity.id_type, v_entity.type_prefix);
     END IF;
     EXECUTE format('DROP FUNCTION IF EXISTS public.%I() CASCADE', v_fn_name);
 
@@ -746,12 +734,6 @@ DECLARE
     v_err_detail text;
     v_err_hint text;
 BEGIN
-    -- The delete step of a target deletes a multiple record that lost its last
-    -- target past its rules, as a foreign-key cascade would
-    -- (common.attached_step_marked).
-    IF p_mode = 'delete' AND common.attached_step_marked(%s) THEN
-        RETURN p_data;
-    END IF;
     -- Derived through rbac (lazy context initialization), never read raw from the
     -- client-writable app.current_user_id setting; NULL when unauthenticated.
     v_uid_text := rbac.user_id_or_null()::text;
@@ -766,7 +748,7 @@ BEGIN
 %s
     RETURN v_data - '$today' - '$now' - '$user_id' - '$role_ids' - '$old' - '$mode';
 END;
-$RULES$, quote_literal(p_table_name), v_extra_ctx, v_rules_block)));
+$RULES$, v_extra_ctx, v_rules_block)));
 
     EXECUTE v_body;
     EXECUTE format('REVOKE EXECUTE ON FUNCTION common.%I(text, jsonb, jsonb) FROM PUBLIC', v_rules_name);
@@ -848,12 +830,10 @@ $TRIG$, v_rules_name,
     --   INSERT  a_auto_order_<table>   the order column, so the rules see it
     --           a_rollup_guard         the rollup columns, so the rules see them
     --           a_typeid_assign        a typeid key, so the rules see it
+    --           a_typenumber_assign    a typenumber key, so the rules see it
     --           b_file_size            the size of a file's contents
     --                                  (0470_tasks_files_comments.sql), so the
     --                                  rules see it
-    --           b_label_number         a numbered label, from the id or a
-    --                                  counter picked by its prefix, so the key
-    --                                  is settled and the rules see the label
     --           compute_validate_trigger
     --           d_attach_check         the target of an attachable record or a
     --                                  link row (0450_attachables.sql), after
@@ -866,7 +846,6 @@ $TRIG$, v_rules_name,
     --                                  state that will be stored
     --           a_rollup_guard         as on INSERT
     --           b_file_size            as on INSERT
-    --           b_label_number         a numbered label keeps its stored value
     --           compute_validate_trigger
     --           d_attach_check         a target keeps its stored value
     --           pk_immutable           UPDATE OF <key>: only a key the
@@ -936,7 +915,7 @@ BEGIN
             UPDATE fields f
                SET ctype = f.ctype
              WHERE f.table_name = NEW.table_name
-               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label', 'number_label')
+               AND coalesce(f.ctype, '') IN ('', 'computed', 'label', 'computed_label')
                AND (coalesce(f.ctype, '') IN ('computed', 'computed_label')) IS DISTINCT FROM
                    EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.computed_fields) c WHERE c ->> 'name' = f.field_name);
         END IF;
@@ -979,9 +958,7 @@ REVOKE EXECUTE ON FUNCTION manage_record_logic_trigger() FROM PUBLIC;
 -- =====================================================
 -- A field that one of its entity's computed_fields names carries ctype
 -- 'computed', as a rollup field carries 'rollup', and the label column carries
--- 'computed_label' instead of 'label'; the label column of an entity whose
--- label_format is number carries 'number_label', which no rule may write
--- (90288). ctype is the one signal a client reads
+-- 'computed_label' instead of 'label'. ctype is the one signal a client reads
 -- to know the database writes the value: derived from the rule, never sent by
 -- a client (fields_ctype_lock runs first and refuses a ctype a caller sends, so
 -- the marker never passes through it). 'computed' is not a core marker
@@ -1008,7 +985,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     v_named BOOLEAN;
 BEGIN
-    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label', 'number_label') THEN
+    IF coalesce(NEW.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
         RETURN NEW;
     END IF;
     SELECT EXISTS (
@@ -1018,11 +995,7 @@ BEGIN
            AND c ->> 'name' = NEW.field_name)
       INTO v_named;
     IF dd_ctype_is_label(NEW.ctype) THEN
-        NEW.ctype := CASE WHEN EXISTS (SELECT 1 FROM entities e
-                                        WHERE e.table_name = NEW.table_name AND e.label_format = 'number')
-                          THEN 'number_label'
-                          WHEN v_named THEN 'computed_label'
-                          ELSE 'label' END;
+        NEW.ctype := CASE WHEN v_named THEN 'computed_label' ELSE 'label' END;
     ELSE
         NEW.ctype := CASE WHEN v_named THEN 'computed' ELSE '' END;
     END IF;
@@ -1031,7 +1004,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION zz_derive_computed_ctype() IS
-'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names, computed_label on such a label column and number_label on the label column of an entity whose label_format is number, and returns the marker to empty or label otherwise. input_type is left as set.';
+'BEFORE INSERT OR UPDATE trigger function on fields: sets ctype computed on a field that one of its entity''s computed_fields names and computed_label on such a label column, and returns the marker to empty or label when no rule names the field. input_type is left as set.';
 
 REVOKE EXECUTE ON FUNCTION zz_derive_computed_ctype() FROM PUBLIC;
 
@@ -1448,59 +1421,10 @@ $$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION common.row_move_matches(TEXT, TEXT) IS
 'Whether app.row_move holds the token of the given row for the current transaction, that is, whether this row is the one the running statement is writing. Called by the generated select_rule predicates.';
 
--- The delete step of a target (common.attached_step, 0450_attachables.sql)
--- removes link rows and deletes the multiple records that lost their last
--- target without asking the attachable entity's rules, as a foreign-key cascade
--- would: whoever deletes the target need not be allowed to change those
--- records, nor learn that they exist. While it runs those deletes it leaves
--- the transaction-local setting app.attached_step, which
--- common.attach_record_rules and the generated rule functions honor for that
--- attachable entity's family alone. A client can write the setting, so its
--- value is a token as the row move's: of the secret, the transaction id and
--- the family's root, which a client cannot make (see above). NULL clears it.
--- The check takes any entity of the family and finds the root itself, so a
--- generated rule function names no other entity than its own.
-CREATE OR REPLACE FUNCTION common.attached_step_mark(p_root TEXT)
-RETURNS VOID AS $$
-BEGIN
-    PERFORM set_config('app.attached_step',
-                       coalesce(common.row_move_token(common.row_move_secret(), pg_current_xact_id()::text,
-                                                      'attached_step', p_root), ''),
-                       true);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION common.attached_step_mark(TEXT) IS
-'Marks, for the rest of the delete step, that the deletes of the attachable family p_root are a cascade of a target''s delete and pass its rules (app.attached_step); NULL clears the mark.';
-
--- Not SECURITY DEFINER and not granted to the request role, as
--- common.row_move_matches: its callers run as the owner.
-CREATE OR REPLACE FUNCTION common.attached_step_marked(p_entity TEXT)
-RETURNS BOOLEAN AS $$
-DECLARE
-    v_token  TEXT := current_setting('app.attached_step', true);
-    v_xid    xid8 := pg_current_xact_id_if_assigned();
-    v_secret TEXT;
-BEGIN
-    IF COALESCE(v_token, '') = '' OR v_xid IS NULL THEN
-        RETURN FALSE;
-    END IF;
-    SELECT value INTO v_secret FROM _settings WHERE name = 'row_move_secret';
-    RETURN COALESCE(v_token = common.row_move_token(v_secret, v_xid::text, 'attached_step',
-                                                    (SELECT a.table_name FROM dd_ancestors(p_entity) a WHERE a.depth = 0)),
-                    FALSE);
-END;
-$$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION common.attached_step_marked(TEXT) IS
-'Whether the running delete step of a target has marked the deletes of the attachable family of p_entity (common.attached_step_mark), so they pass its rules.';
-
 REVOKE EXECUTE ON FUNCTION common.row_move_token(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_secret() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_clear() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.row_move_matches(TEXT, TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION common.attached_step_mark(TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION common.attached_step_marked(TEXT) FROM PUBLIC;
 
 -- On an upgrade the generated predicates and the dictionary's definer code
 -- already run as semantius_owner, while a function new in this file stays owned
@@ -1511,9 +1435,7 @@ BEGIN
         GRANT EXECUTE ON FUNCTION
             common.row_move_token(TEXT, TEXT, TEXT, TEXT),
             common.row_move_secret(),
-            common.row_move_matches(TEXT, TEXT),
-            common.attached_step_mark(TEXT),
-            common.attached_step_marked(TEXT)
+            common.row_move_matches(TEXT, TEXT)
         TO semantius_owner;
     END IF;
 END $$;
@@ -1643,11 +1565,15 @@ BEGIN
     -- permission (the catalog rule, 0150_dd_bootstrap.once.sql): one semi-join on entities,
     -- read as the caller, so the read policy of entities decides. The sub-select is
     -- uncorrelated, so PostgreSQL runs it once per statement, as a hashed SubPlan, rather
-    -- than once per row. get_record_by_id in 0160_dd_functions.sql holds a row of fields to
-    -- the same question.
-    IF p_table_name = 'fields' THEN
-        v_parent_pred := '(fields.table_name IN (SELECT p.table_name FROM public.entities p))';
-    END IF;
+    -- than once per row. A row of entity_attachables names two entities, and both rows
+    -- have to be seen. get_record_by_id in 0160_dd_functions.sql holds such a row to the
+    -- same question.
+    v_parent_pred := CASE p_table_name
+        WHEN 'fields' THEN '(fields.table_name IN (SELECT p.table_name FROM public.entities p))'
+        WHEN 'entity_attachables' THEN
+            '(entity_attachables.target IN (SELECT p.table_name FROM public.entities p)'
+            ' AND entity_attachables.attachable IN (SELECT p.table_name FROM public.entities p))'
+    END;
 
     -- An attachable record that follows its target, and a link row, add the
     -- terms of their targets to every policy below (dd_attach_policy_terms).
@@ -1658,7 +1584,7 @@ BEGIN
     -- 100k rows). 0940_test_policy_subselect_form.sql fails on the bare per-row form.
     --
     -- If select_rule is empty, the row a caller may reach is the one its view permission
-    -- lets it read, or on fields the semi-join on entities in its place: SELECT on it,
+    -- lets it read, or on fields and entity_attachables the semi-join on entities in its place: SELECT on it,
     -- UPDATE and DELETE on edit_permission AND it, no per-row rule.
     IF v_entity.select_rule = '{}'::jsonb THEN
         -- No rule, so no row can leave it: the two row move triggers go, and
@@ -1954,7 +1880,7 @@ $MARK$, v_entity.id_column, v_rel)));
         format('BEFORE INSERT OR UPDATE row trigger function of zz_row_move on the table of entity "%s": leaves the token of the row being written in the transaction-local setting app.row_move, so that row passes the select_rule when PostgreSQL holds the new row to the read policy, and keeps the secret it reads in app.row_move_secret for the rest of the transaction. An INSERT whose key is already stored is not marked. Generated by build_select_rule_policy.', p_table_name));
 
     -- The name zz_row_move sorts after every other BEFORE ROW trigger of an entity
-    -- table, so the key is the one the row is stored under: a TypeID is assigned by a
+    -- table, so the key is the one the row is stored under: a Typed Id is assigned by a
     -- trigger, and a computed field may write the key.
     EXECUTE format(
         'CREATE OR REPLACE TRIGGER zz_row_move BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION common.%I()',

@@ -321,7 +321,7 @@ SELECT is(
 );
 
 SELECT authenticate_as('user3');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('bmk_big', 'Big', 'Bigs', 1, 'public:read', 'admin', 'bigint', ''),
        ('bmk_txt', 'Txt', 'Txts', 1, 'public:read', 'admin', 'text', ''),
        ('bmk_uid', 'Uid', 'Uids', 1, 'public:read', 'admin', 'uuid', ''),

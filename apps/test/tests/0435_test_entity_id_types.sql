@@ -1,13 +1,13 @@
--- Entity key types: entities.id_type, id_prefix and id_refentity.
+-- Entity key types: entities.id_type, type_prefix and id_refentity.
 --
 -- Every entity declares the type of its key (dd_id_column_ddl in
 -- 0160_dd_functions.sql): auto_increment (a BIGINT identity, the default),
 -- bigint and text (supplied by the caller), uuid (UUIDv7 default) and typeid
--- (a prefixed TypeID filled by the a_typeid_assign trigger). computed only labels
+-- (a prefixed Typed Id filled by the a_typeid_assign trigger). computed only labels
 -- system tables. Pinned here:
---   PART 1  the helpers of 0045_typeid.sql: UUIDv7, base32, TypeID check
+--   PART 1  the helpers of 0045_typeid.sql: UUIDv7, base32, Typed Id check
 --   PART 2  the column, default and id field each id_type produces
---   PART 3  inserting: generated and supplied ids, the TypeID prefix
+--   PART 3  inserting: generated and supplied ids, the Typed Id prefix
 --   PART 4  changing the prefix, prefix format and uniqueness
 --   PART 5  what cannot change: id_type (90233) and a record key (90236)
 --   PART 6  refusals: computed (90234) and a takeover with the wrong key (90235)
@@ -24,7 +24,8 @@
 --
 -- How an is_a / has_a family changes - dictionary changes on any level, labels,
 -- key column, prefixes, rules and permissions, drops, and objects built on the
--- family views (90253-90256) - is pinned by 0436_test_entity_family_changes.sql.
+-- family views (90253-90256) - is pinned by 0436_test_entity_family_changes.sql,
+-- the Typed Number key type (typenumber) by 0438_test_entity_typenumber.sql.
 --
 -- Fixture entities use the 'idt_' and 'fam_' prefixes; everything is rolled back.
 
@@ -33,7 +34,7 @@ BEGIN;
 SELECT plan(198);
 
 -- =====================================================
--- PART 1: UUIDv7 and TypeID helpers
+-- PART 1: UUIDv7 and Typed Id helpers
 -- =====================================================
 
 SELECT is(uuid_extract_version(common.uuid_v7()), 7::smallint,
@@ -69,7 +70,7 @@ SELECT is(
     '01890a5d-ac96-774b-bcce-b302099a8057'::uuid,
     'base32: decode(encode(uuid)) round-trips');
 
--- The TypeID spec's own example value.
+-- The Typed Id spec's own example value.
 SELECT is(common.base32_encode('01890a5d-ac96-774b-bcce-b302099a8057'::uuid),
     '01h455vb4pex5vsknk084sn02q',
     'base32: encodes the spec example to its published suffix');
@@ -77,7 +78,7 @@ SELECT is(common.base32_encode('01890a5d-ac96-774b-bcce-b302099a8057'::uuid),
 SELECT ok(common.typeid_check_text('prefix_01h455vb4pex5vsknk084sn02q')
       AND common.typeid_check_text('01h455vb4pex5vsknk084sn02q')
       AND common.typeid_check_text('pre_fix_01h455vb4pex5vsknk084sn02q'),
-    'typeid_check_text: accepts a prefixed, a bare and an underscored-prefix TypeID');
+    'typeid_check_text: accepts a prefixed, a bare and an underscored-prefix Typed Id');
 
 SELECT ok(NOT common.typeid_check_text('Prefix_01h455vb4pex5vsknk084sn02q')
       AND NOT common.typeid_check_text('prefix_81h455vb4pex5vsknk084sn02q')
@@ -98,7 +99,7 @@ SELECT is(common.typeid_prefix('01h455vb4pex5vsknk084sn02q'), '',
 
 SELECT authenticate_as('user3');  -- admin: may write entities and every fixture table
 
-INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES
     ('idt_auto', 'idt_auto', 'Auto', 'Autos', 1, 'public:read', 'admin', 'auto_increment', ''),
     ('idt_big',  'idt_big',  'Big',  'Bigs',  1, 'public:read', 'admin', 'bigint',         ''),
@@ -148,7 +149,7 @@ SELECT is(
     (SELECT string_agg(table_name || '=' || format, ', ' ORDER BY table_name)
        FROM fields WHERE table_name LIKE 'idt\_%' AND field_name = 'id'),
     'idt_auto=int64, idt_big=int64, idt_plain=int64, idt_text=text, idt_tid=string, idt_uuid=uuid',
-    'each id_type gives the id field its format (typeid keeps string: TypeID is no field format)');
+    'each id_type gives the id field its format (typeid keeps string: Typed Id is no field format)');
 
 SELECT is(
     (SELECT string_agg(table_name || '=' || input_type, ', ' ORDER BY table_name)
@@ -213,7 +214,7 @@ SELECT lives_ok($$ INSERT INTO idt_uuid (id, label) VALUES ('7a1a1a1a-0000-4000-
 
 SELECT ok((SELECT id LIKE 'idtacct\_%' AND common.typeid_check_text(id) AND length(id) = 34
              FROM idt_tid WHERE label = 'g1'),
-    'typeid: a generated key carries the prefix and is a valid TypeID');
+    'typeid: a generated key carries the prefix and is a valid Typed Id');
 
 SELECT lives_ok($$ INSERT INTO idt_tid (id, label) VALUES ('idtacct_01h455vb4pex5vsknk084sn02q', 'g-own') $$,
     'typeid: a caller may supply a key with the current prefix');
@@ -231,7 +232,7 @@ SELECT throws_ok($$ INSERT INTO idt_tid (id, label) VALUES ('idtacct_not-a-typei
 -- key is generated still keeps every value the insert brought: a text field
 -- that lost its value would fail its NOT NULL, a date field would lose it
 -- without a word. idt_rw runs the trigger once before its columns change.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('idt_rw', 'Rewrite', 'Rewrites', 1, 'typeid', 'idtrw');
 INSERT INTO idt_rw (label) VALUES ('r1');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
@@ -249,7 +250,7 @@ SELECT is((SELECT due::text || '/' || note FROM idt_rw WHERE label = 'r2'), '202
 -- PART 4: the prefix
 -- =====================================================
 
-UPDATE entities SET id_prefix = 'idtcust' WHERE table_name = 'idt_tid';
+UPDATE entities SET type_prefix = 'idtcust' WHERE table_name = 'idt_tid';
 INSERT INTO idt_tid (label) VALUES ('g2');
 
 SELECT ok((SELECT id LIKE 'idtcust\_%' FROM idt_tid WHERE label = 'g2'),
@@ -265,29 +266,29 @@ SELECT throws_ok($$ INSERT INTO idt_tid (id, label) VALUES ('idtacct_01h455vb4pe
 SELECT lives_ok($$ INSERT INTO idt_tid (id, label) VALUES ('idtcust_01h455vb4pex5vsknk084sn02t', 'g-new') $$,
     'prefix change: a supplied key with the new prefix is accepted');
 
-SELECT throws_ok($$ UPDATE entities SET id_prefix = 'Bad-Prefix' WHERE table_name = 'idt_tid' $$,
+SELECT throws_ok($$ UPDATE entities SET type_prefix = 'Bad-Prefix' WHERE table_name = 'idt_tid' $$,
     '23514', NULL,
-    'the prefix must follow the TypeID prefix grammar');
+    'the prefix must follow the Typed Id prefix grammar');
 
-SELECT throws_ok($$ UPDATE entities SET id_prefix = 'idtbad_' WHERE table_name = 'idt_tid' $$,
+SELECT throws_ok($$ UPDATE entities SET type_prefix = 'idtbad_' WHERE table_name = 'idt_tid' $$,
     '23514', NULL,
     'the prefix must end with a letter');
 
-SELECT throws_ok($$ UPDATE entities SET id_prefix = 'x' WHERE table_name = 'idt_text' $$,
+SELECT throws_ok($$ UPDATE entities SET type_prefix = 'x' WHERE table_name = 'idt_text' $$,
     '23514', NULL,
     'only a typeid entity has a prefix');
 
-SELECT throws_ok($$ INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, id_type, id_prefix)
+SELECT throws_ok($$ INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, id_type, type_prefix)
                     VALUES ('idt_tid2', 'idt_tid2', 'Tid2', 'Tid2s', 1, 'typeid', '') $$,
     '23514', NULL,
     'a typeid entity needs a prefix');
 
-SELECT throws_ok($$ INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, id_type, id_prefix)
+SELECT throws_ok($$ INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, id_type, type_prefix)
                     VALUES ('idt_tid2', 'idt_tid2', 'Tid2', 'Tid2s', 1, 'typeid', 'idtcust') $$,
     '23505', NULL,
     'a prefix in use by another entity is refused');
 
-SELECT lives_ok($$ INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, id_type, id_prefix)
+SELECT lives_ok($$ INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, id_type, type_prefix)
                    VALUES ('idt_tid2', 'idt_tid2', 'Tid2', 'Tid2s', 1, 'typeid', 'idtacct') $$,
     'a released prefix may be taken by another entity');
 
@@ -431,11 +432,11 @@ SELECT is((SELECT count(*)::int FROM idt_ref r JOIN idt_tid t ON t.id = r.r_tid)
 
 SELECT throws_ok($$ INSERT INTO idt_ref (label, p_tid) VALUES ('ref2', 'not-a-typeid') $$,
     '23514', NULL,
-    'a reference column checks the TypeID format through the domain');
+    'a reference column checks the Typed Id format through the domain');
 
 -- A registered entity without a table is typed from its id_type.
 RESET ROLE;
-INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, managed, id_type, id_prefix)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, managed, id_type, type_prefix)
 VALUES ('idt_ghost_uuid', 'idt_ghost_uuid', 'GU', 'GUs', 1, false, 'uuid', ''),
        ('idt_ghost_tid',  'idt_ghost_tid',  'GT', 'GTs', 1, false, 'typeid', 'idtghost'),
        ('idt_ghost_text', 'idt_ghost_text', 'GX', 'GXs', 1, false, 'text', '');
@@ -457,7 +458,7 @@ SELECT is(
 
 SELECT is((public.get_schema('idt_tid')::jsonb) #>> '{properties,id,pattern}',
     '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$',
-    'get_schema: a typeid key carries the generic TypeID pattern');
+    'get_schema: a typeid key carries the generic Typed Id pattern');
 
 SELECT is((public.get_schema('idt_tid')::jsonb) #>> '{properties,id,type}', 'string',
     'get_schema: a typeid key is a JSON string');
@@ -522,7 +523,7 @@ SELECT throws_ok($$ SELECT get_record_by_id('idt_uuid', 'not-a-uuid') $$, '90238
     'get_record_by_id: a malformed uuid is refused');
 
 SELECT throws_ok($$ SELECT get_record_by_id('idt_tid', 'idtcust_zzz') $$, '90238', NULL,
-    'get_record_by_id: a malformed TypeID is refused');
+    'get_record_by_id: a malformed Typed Id is refused');
 
 -- A caller who may not see the entity gets the "no such thing" NULL instead:
 -- the refusal must not reveal that the entity exists or what its key is.
@@ -561,14 +562,14 @@ SELECT lives_ok($$
         "entities": [{"entity": {
             "table_name": "idt_ens", "module_name": "_core", "singular": "idt_ens",
             "singular_label": "Ens", "plural_label": "Enses",
-            "id_type": "typeid", "id_prefix": "idtens",
+            "id_type": "typeid", "type_prefix": "idtens",
             "fields": [{"field_name": "note", "title": "Note", "format": "text", "field_order": 30}]
         }}]
     }'::jsonb)
-$$, 'ensure_entities: accepts id_type and id_prefix');
+$$, 'ensure_entities: accepts id_type and type_prefix');
 
 SELECT ok(
-    (SELECT id_type = 'typeid' AND id_prefix = 'idtens' FROM entities WHERE table_name = 'idt_ens')
+    (SELECT id_type = 'typeid' AND type_prefix = 'idtens' FROM entities WHERE table_name = 'idt_ens')
     AND (SELECT format_type(atttypid, atttypmod) = 'common.typeid' FROM pg_attribute
           WHERE attrelid = 'public.idt_ens'::regclass AND attname = 'id'),
     'ensure_entities: the entity gets a typeid key');
@@ -578,14 +579,14 @@ SELECT ok(
 SELECT public.ensure_entities('{
     "version": 1,
     "entities": [{"entity": {
-        "table_name": "idt_ens", "module_name": "_core", "id_type": "typeid", "id_prefix": "idtens_two",
+        "table_name": "idt_ens", "module_name": "_core", "id_type": "typeid", "type_prefix": "idtens_two",
         "fields": [{"field_name": "note", "title": "Note", "format": "text", "field_order": 30}]
     }}]
 }'::jsonb);
 INSERT INTO idt_ens (label, note) VALUES ('after', 'after');
 
 SELECT ok((SELECT id LIKE 'idtens\_two\_%' FROM idt_ens WHERE note = 'after'),
-    'ensure_entities: a changed id_prefix is applied to the table''s trigger');
+    'ensure_entities: a changed type_prefix is applied to the table''s trigger');
 
 -- Adoption of a table whose key matches, with an id field row the author
 -- wrote while the entity was unmanaged. Switching managed on rewrites no
@@ -660,13 +661,13 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fam_activities', 'Activity', 'Activities', 1, 'typeid', 'famact');
 INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
 VALUES ('fam_activities', 'subject', 'Subject', 'text', 30, TRUE),
        ('fam_activities', 'priority', 'Priority', 'int32', 40, FALSE);
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       label_column, validation_rules)
 VALUES ('fam_emails', 'Email', 'Emails', 1, 'is_a', 'fameml', 'fam_activities', 'ignored',
         '[{"code":"99701","message":"a kept email cannot be deleted",
@@ -676,7 +677,7 @@ VALUES ('fam_emails', 'sender', 'Sender', 'text', 30);
 
 -- The classified level derives its level from the root's subject, and a
 -- locked record cannot be deleted.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('fam_classified', 'Classified Email', 'Classified Emails', 1, 'is_a', 'famcle', 'fam_emails');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('fam_classified', 'level', 'Level', 'text', 30),
@@ -687,7 +688,7 @@ UPDATE entities
                              "jsonlogic":{"!":{"and":[{"==":[{"var":"$mode"},"delete"]},{"var":"locked"}]}}}]'::jsonb
  WHERE table_name = 'fam_classified';
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('fam_tasks', 'Task', 'Tasks', 1, 'is_a', 'famtsk', 'fam_activities');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('fam_tasks', 'due', 'Due', 'date', 30);
@@ -788,7 +789,7 @@ SELECT throws_ok($$ UPDATE fam_emails_ext SET sender = 'x' $$,
     '90244', NULL,
     'is_a: a direct update of <entity>_ext is refused');
 
-SELECT throws_ok($$ UPDATE entities SET id_prefix = 'famemail' WHERE table_name = 'fam_emails' $$,
+SELECT throws_ok($$ UPDATE entities SET type_prefix = 'famemail' WHERE table_name = 'fam_emails' $$,
     '90245', NULL,
     'is_a: the prefix is fixed at creation');
 
@@ -802,7 +803,7 @@ SELECT throws_ok(
     'is_a: an id that exists cannot be inserted again: the type is fixed at creation');
 
 -- A root prefix change keeps the subtype prefixes on the root's trigger.
-UPDATE entities SET id_prefix = 'famactnew' WHERE table_name = 'fam_activities';
+UPDATE entities SET type_prefix = 'famactnew' WHERE table_name = 'fam_activities';
 SELECT lives_ok($$ INSERT INTO fam_emails (label, subject, sender) VALUES ('e2', 'after', 'cat') $$,
     'is_a: a subtype insert still works after the root''s prefix changed');
 
@@ -900,9 +901,9 @@ SELECT lives_ok($$ INSERT INTO fam_classified (label, subject, sender) VALUES ('
 -- A module delete: dropped with the family when it is empty, refused while
 -- a family entity has records.
 INSERT INTO modules (module_name) VALUES ('fam_module');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fam_mod_root', 'Mod Root', 'Mod Roots', (SELECT id FROM modules WHERE module_name = 'fam_module'), 'typeid', 'fammod');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('fam_mod_sub', 'Mod Sub', 'Mod Subs', (SELECT id FROM modules WHERE module_name = 'fam_module'), 'is_a', 'fammodsub', 'fam_mod_root');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
 VALUES ('fam_mod_extra', 'Mod Extra', 'Mod Extras', (SELECT id FROM modules WHERE module_name = 'fam_module'), 'has_a', 'fam_mod_root');
@@ -923,7 +924,7 @@ SELECT ok(
 -- PART 11: has_a - optional extensions sharing the base's key
 -- =====================================================
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fam_partners', 'Partner', 'Partners', 1, 'typeid', 'fambp');
 INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
 VALUES ('fam_partners', 'city', 'City', 'text', 30, FALSE);
@@ -994,22 +995,22 @@ SELECT throws_ok(
     '90240', NULL,
     '90240: a has_a entity needs a typeid base');
 SELECT throws_ok(
-    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
        VALUES ('fam_bad2', 'B', 'Bs', 1, 'is_a', 'fambadtwo', 'fam_customers') $$,
     '90240', NULL,
     '90240: an is_a entity cannot be based on a has_a entity');
 SELECT throws_ok(
-    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
        VALUES ('fam_bad3', 'B', 'Bs', 1, 'is_a', 'fambadthree', 'fam_bad3') $$,
     '90240', NULL,
     '90240: no entity is based on itself');
 SELECT throws_ok(
-    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
        VALUES ('fam_bad4', 'B', 'Bs', 1, 'is_a', 'fambadfour', 'idt_text') $$,
     '90240', NULL,
     '90240: an is_a entity needs a typeid or is_a base');
 SELECT throws_ok(
-    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+    $$ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
        VALUES ('fam_bad5', 'B', 'Bs', 1, 'is_a', 'fambadfive') $$,
     '23514', NULL,
     'id_refentity_matches_id_type: an is_a entity names its base');
@@ -1108,7 +1109,7 @@ SELECT ok(
     AND (SELECT name FROM fam_suppliers) = 'ACME',
     'has_a: a rename of the base''s label field renames the label column of every extension');
 
--- A reference to a derived entity points at its part and holds a TypeID.
+-- A reference to a derived entity points at its part and holds a Typed Id.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id) VALUES ('fam_notes', 'Note', 'Notes', 1);
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
 VALUES ('fam_notes', 'supplier_id', 'Supplier', 'reference', 'fam_suppliers', 'restrict', 30);
@@ -1117,7 +1118,7 @@ SELECT is(
        FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
       WHERE c.conname = 'fam_notes_supplier_id_fkey'),
     'common.typeid fam_suppliers_ext',
-    'a reference to a derived entity is a TypeID and its foreign key targets <entity>_ext');
+    'a reference to a derived entity is a Typed Id and its foreign key targets <entity>_ext');
 INSERT INTO fam_notes (label, supplier_id) SELECT 'n1', id FROM fam_suppliers;
 SELECT is((SELECT n.label || ' ' || s.name FROM fam_notes n JOIN fam_suppliers s ON s.id = n.supplier_id), 'n1 ACME',
     'a reference to a derived entity joins its view');
@@ -1166,7 +1167,7 @@ SELECT is(
 -- =====================================================
 -- PART 13: refusals of the helpers, and the paths that leave a row alone
 -- =====================================================
--- The TypeID helpers raise on input their callers never hand them (the entities
+-- The Typed Id helpers raise on input their callers never hand them (the entities
 -- CHECK and the common.typeid domain stop it first), and four dictionary
 -- functions answer "nothing to do" for an entity that has no table to act on.
 
@@ -1174,7 +1175,7 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 
 -- typeid_generate_text concatenates the prefix into the value, so it holds the
--- prefix to the TypeID grammar itself: 0 to 63 lowercase letters and
+-- prefix to the Typed Id grammar itself: 0 to 63 lowercase letters and
 -- underscores, starting and ending with a letter.
 SELECT throws_ok($$ SELECT common.typeid_generate_text('Bad-Prefix') $$,
     '22023', 'typeid prefix must match the regular expression ^([a-z]([a-z_]{0,61}[a-z])?)?$',
@@ -1195,11 +1196,11 @@ SELECT throws_ok(format($$ SELECT common.typeid_generate_text(%L) $$, repeat('a'
 SELECT lives_ok(format($$ SELECT common.typeid_generate_text(%L) $$, repeat('a', 63)),
     'typeid_generate_text: a prefix of 63 characters is accepted');
 
--- The empty prefix is the spec's bare TypeID: the suffix alone.
+-- The empty prefix is the spec's bare Typed Id: the suffix alone.
 SELECT ok(
     (SELECT length(t) = 26 AND common.typeid_check_text(t) AND common.typeid_prefix(t) = ''
        FROM (SELECT common.typeid_generate_text('') AS t) s),
-    'typeid_generate_text: the empty prefix gives the bare 26-character suffix, a valid TypeID');
+    'typeid_generate_text: the empty prefix gives the bare 26-character suffix, a valid Typed Id');
 
 SELECT is(
     (SELECT uuid_extract_version(common.base32_decode(right(t, 26)))
@@ -1238,10 +1239,10 @@ SELECT is(common.base32_decode('7zzzzzzzzzzzzzzzzzzzzzzzzz'),
 -- A prefix change on an entity without a table has no trigger to recreate: the
 -- entity row changes and nothing else does. idt_ghost_tid is registered
 -- unmanaged and typeid, with no table.
-SELECT lives_ok($$ UPDATE entities SET id_prefix = 'idtghosttwo' WHERE table_name = 'idt_ghost_tid' $$,
+SELECT lives_ok($$ UPDATE entities SET type_prefix = 'idtghosttwo' WHERE table_name = 'idt_ghost_tid' $$,
     'dd_sync_typeid_prefix: a prefix change on an unmanaged entity with no table succeeds');
 
-SELECT is((SELECT id_prefix FROM entities WHERE table_name = 'idt_ghost_tid'), 'idtghosttwo',
+SELECT is((SELECT type_prefix FROM entities WHERE table_name = 'idt_ghost_tid'), 'idtghosttwo',
     'dd_sync_typeid_prefix: ... and the prefix is stored');
 
 SELECT ok(to_regclass('public.idt_ghost_tid') IS NULL,
@@ -1250,10 +1251,10 @@ SELECT ok(to_regclass('public.idt_ghost_tid') IS NULL,
 -- An entity that was managed, with a table and its trigger, and is no longer:
 -- the author owns the table now, so the trigger keeps the prefix it has.
 UPDATE entities SET managed = FALSE WHERE table_name = 'idt_tid2';
-UPDATE entities SET id_prefix = 'idtunman' WHERE table_name = 'idt_tid2';
+UPDATE entities SET type_prefix = 'idtunman' WHERE table_name = 'idt_tid2';
 
 SELECT ok(
-    (SELECT id_prefix = 'idtunman' FROM entities WHERE table_name = 'idt_tid2')
+    (SELECT type_prefix = 'idtunman' FROM entities WHERE table_name = 'idt_tid2')
     AND (SELECT pg_get_triggerdef(t.oid) LIKE '%''idtacct''%' AND pg_get_triggerdef(t.oid) NOT LIKE '%idtunman%'
            FROM pg_trigger t
           WHERE t.tgrelid = 'public.idt_tid2'::regclass AND t.tgname = 'a_typeid_assign'),

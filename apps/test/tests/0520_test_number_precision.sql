@@ -225,13 +225,13 @@ SELECT is(
 -- alter a column a view uses, so the views are rebuilt around the change: a
 -- changed precision reaches the base column under its children's views, and
 -- the child's own column under its own.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
                       view_permission, edit_permission)
 VALUES ('pc_parties', 'Pc Party', 'Pc Parties', 1, 'typeid', 'pcp', 'id', 'public:read', 'admin');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('pc_parties', 'rate', 'Rate', 'number', 30);
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission)
 VALUES ('pc_orgs', 'Pc Org', 'Pc Orgs', 1, 'is_a', 'pco', 'pc_parties', 'public:read', 'admin');
 INSERT INTO fields (table_name, field_name, title, format, field_order)

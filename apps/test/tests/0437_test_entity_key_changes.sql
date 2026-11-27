@@ -3,8 +3,9 @@
 -- (id_refentity) and the id field row. The key column, its default and
 -- triggers, and the type of every reference to it are built from them, and no
 -- path of the dictionary rebuilds a key, so a changed value would describe a
--- key the table does not have. The one setting that may change is the prefix
--- of a typeid entity: it is read only when a new key is generated.
+-- key the table does not have. The settings that may change are the prefix
+-- of a typeid or typenumber entity and the digits of a typenumber entity:
+-- they are read only when a new key is generated.
 --
 -- This file tries every change of those settings, for every key type, along
 -- every path that writes the catalog, and pins the code that refuses it:
@@ -13,17 +14,17 @@
 --   PART 3  an entity that is not managed, with a table and without one
 --   PART 4  ensure_entities with a file that names another key type
 --   PART 5  the id field row
---   PART 6  id_prefix, id_refentity and id_column
+--   PART 6  type_prefix, type_digits, id_refentity and id_column
 --
 -- What a prefix change does to new and existing keys is pinned by PART 4 of
--- 0435_test_entity_id_types.sql, a key column per family level by PART 3 of
--- 0436_test_entity_family_changes.sql.
+-- 0435_test_entity_id_types.sql and by 0438_test_entity_typenumber.sql, a key
+-- column per family level by PART 3 of 0436_test_entity_family_changes.sql.
 --
 -- Fixture entities are named kc_*. Everything is rolled back.
 
 BEGIN;
 
-SELECT plan(47);
+SELECT plan(53);
 
 -- =====================================================
 -- Helpers and fixtures
@@ -54,20 +55,21 @@ INSERT INTO kc_types VALUES
     (3, 'text',           'kc_text',          '',      NULL),
     (4, 'uuid',           'kc_uuid',          '',      NULL),
     (5, 'typeid',         'kc_tid',           'kcnew', NULL),
-    (6, 'is_a',           'kc_isa',           'kcnew', 'kc_root'),
-    (7, 'has_a',          'kc_hasa',          '',      'kc_root'),
-    (8, 'computed',       'role_permissions', '',      NULL);
+    (6, 'typenumber',     'kc_tnum',          'KCNEW', NULL),
+    (7, 'is_a',           'kc_isa',           'kcnew', 'kc_root'),
+    (8, 'has_a',          'kc_hasa',          '',      'kc_root'),
+    (9, 'computed',       'role_permissions', '',      NULL);
 GRANT SELECT ON kc_types TO semantius_user;
 
 -- The outcome of changing the key type of p_from's entity to every other key
 -- type, as 'type=code' in key type order. With p_full the update also sets
 -- the prefix and base the new type needs, so the constraints that tie both to
--- the key type (id_prefix_matches_id_type, id_refentity_matches_id_type) hold
+-- the key type (type_prefix_matches_id_type, id_refentity_matches_id_type) hold
 -- and cannot be what refuses it.
 CREATE FUNCTION pg_temp.kc_changes(p_from TEXT, p_full BOOLEAN) RETURNS TEXT LANGUAGE sql AS $fn$
     SELECT string_agg(t.id_type || '=' || pg_temp.sqlstate_of(
                CASE WHEN p_full
-                    THEN format('UPDATE entities SET id_type = %L, id_prefix = %L, id_refentity = %L WHERE table_name = %L',
+                    THEN format('UPDATE entities SET id_type = %L, type_prefix = %L, id_refentity = %L WHERE table_name = %L',
                                 t.id_type, t.prefix, t.base, f.src)
                     ELSE format('UPDATE entities SET id_type = %L WHERE table_name = %L', t.id_type, f.src)
                END), ', ' ORDER BY t.ord)
@@ -100,15 +102,16 @@ $fn$;
 
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('kc_auto', 'Auto', 'Autos', 1, 'auto_increment', ''),
        ('kc_big',  'Big',  'Bigs',  1, 'bigint',         ''),
        ('kc_text', 'Text', 'Texts', 1, 'text',           ''),
        ('kc_uuid', 'Uuid', 'Uuids', 1, 'uuid',           ''),
        ('kc_tid',  'Tid',  'Tids',  1, 'typeid',         'kctid'),
+       ('kc_tnum', 'Tnum', 'Tnums', 1, 'typenumber',     'KCTNUM'),
        ('kc_root', 'Root', 'Roots', 1, 'typeid',         'kcroot'),
        ('kc_root2', 'Root Two', 'Root Twos', 1, 'typeid', 'kcroottwo');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('kc_isa', 'Subtype', 'Subtypes', 1, 'is_a', 'kcisa', 'kc_root');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
 VALUES ('kc_hasa', 'Extension', 'Extensions', 1, 'has_a', 'kc_root');
@@ -127,28 +130,30 @@ VALUES ('kc_hasa', 'Extension', 'Extensions', 1, 'has_a', 'kc_root');
 SELECT is(pg_temp.kc_changes(c.from_type, TRUE), c.expected,
           c.from_type || ': a change to any other key type, with the prefix and base it needs, is refused')
   FROM (VALUES
-    (1, 'auto_increment', 'bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (2, 'bigint',         'auto_increment=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (3, 'text',           'auto_increment=90233, bigint=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (4, 'uuid',           'auto_increment=90233, bigint=90233, text=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (5, 'typeid',         'auto_increment=90233, bigint=90233, text=90233, uuid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (6, 'is_a',           'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, has_a=90233, computed=90241'),
-    (7, 'has_a',          'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, is_a=90233, computed=90241'),
-    (8, 'computed',       'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241')
+    (1, 'auto_increment', 'bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (2, 'bigint',         'auto_increment=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (3, 'text',           'auto_increment=90233, bigint=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (4, 'uuid',           'auto_increment=90233, bigint=90233, text=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (5, 'typeid',         'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (6, 'typenumber',     'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
+    (7, 'is_a',           'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, typenumber=90241, has_a=90233, computed=90241'),
+    (8, 'has_a',          'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, typenumber=90241, is_a=90233, computed=90241'),
+    (9, 'computed',       'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241')
   ) AS c(ord, from_type, expected)
  ORDER BY c.ord;
 
 SELECT is(pg_temp.kc_changes(c.from_type, FALSE), c.expected,
           c.from_type || ': a change of id_type alone, to any other key type, is refused')
   FROM (VALUES
-    (1, 'auto_increment', 'bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90242, has_a=90242, computed=90233'),
-    (2, 'bigint',         'auto_increment=90233, text=90233, uuid=90233, typeid=90233, is_a=90242, has_a=90242, computed=90233'),
-    (3, 'text',           'auto_increment=90233, bigint=90233, uuid=90233, typeid=90233, is_a=90242, has_a=90242, computed=90233'),
-    (4, 'uuid',           'auto_increment=90233, bigint=90233, text=90233, typeid=90233, is_a=90242, has_a=90242, computed=90233'),
-    (5, 'typeid',         'auto_increment=90233, bigint=90233, text=90233, uuid=90233, is_a=90242, has_a=90242, computed=90233'),
-    (6, 'is_a',           'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, has_a=90233, computed=90233'),
-    (7, 'has_a',          'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90233, computed=90233'),
-    (8, 'computed',       'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90242, has_a=90242')
+    (1, 'auto_increment', 'bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90242, has_a=90242, computed=90233'),
+    (2, 'bigint',         'auto_increment=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90242, has_a=90242, computed=90233'),
+    (3, 'text',           'auto_increment=90233, bigint=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90242, has_a=90242, computed=90233'),
+    (4, 'uuid',           'auto_increment=90233, bigint=90233, text=90233, typeid=90233, typenumber=90233, is_a=90242, has_a=90242, computed=90233'),
+    (5, 'typeid',         'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typenumber=90233, is_a=90242, has_a=90242, computed=90233'),
+    (6, 'typenumber',     'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90242, has_a=90242, computed=90233'),
+    (7, 'is_a',           'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, has_a=90233, computed=90233'),
+    (8, 'has_a',          'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90233, computed=90233'),
+    (9, 'computed',       'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90242, has_a=90242')
   ) AS c(ord, from_type, expected)
  ORDER BY c.ord;
 
@@ -159,14 +164,15 @@ SET LOCAL search_path TO public, pgtap;
 SELECT is(pg_temp.kc_changes(c.from_type, TRUE), c.expected,
           c.from_type || ': as the owner, a change to any other key type is refused')
   FROM (VALUES
-    (1, 'auto_increment', 'bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (2, 'bigint',         'auto_increment=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (3, 'text',           'auto_increment=90233, bigint=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (4, 'uuid',           'auto_increment=90233, bigint=90233, text=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (5, 'typeid',         'auto_increment=90233, bigint=90233, text=90233, uuid=90233, is_a=90241, has_a=90241, computed=90233'),
-    (6, 'is_a',           'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, has_a=90233, computed=90241'),
-    (7, 'has_a',          'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, is_a=90233, computed=90241'),
-    (8, 'computed',       'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241')
+    (1, 'auto_increment', 'bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (2, 'bigint',         'auto_increment=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (3, 'text',           'auto_increment=90233, bigint=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (4, 'uuid',           'auto_increment=90233, bigint=90233, text=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (5, 'typeid',         'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typenumber=90233, is_a=90241, has_a=90241, computed=90233'),
+    (6, 'typenumber',     'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, is_a=90241, has_a=90241, computed=90233'),
+    (7, 'is_a',           'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, typenumber=90241, has_a=90233, computed=90241'),
+    (8, 'has_a',          'auto_increment=90241, bigint=90241, text=90241, uuid=90241, typeid=90241, typenumber=90241, is_a=90233, computed=90241'),
+    (9, 'computed',       'auto_increment=90233, bigint=90233, text=90233, uuid=90233, typeid=90233, typenumber=90233, is_a=90241, has_a=90241')
   ) AS c(ord, from_type, expected)
  ORDER BY c.ord;
 
@@ -189,7 +195,7 @@ UPDATE entities e SET id_type = t.id_type, description = 'kc saved'
 SELECT is(
     (SELECT string_agg(t.id_type || '=' || e.id_type || '/' || e.description, ', ' ORDER BY t.ord)
        FROM kc_types t JOIN entities e ON e.table_name = t.src),
-    'auto_increment=auto_increment/kc saved, bigint=bigint/kc saved, text=text/kc saved, uuid=uuid/kc saved, typeid=typeid/kc saved, is_a=is_a/kc saved, has_a=has_a/kc saved, computed=computed/kc saved',
+    'auto_increment=auto_increment/kc saved, bigint=bigint/kc saved, text=text/kc saved, uuid=uuid/kc saved, typeid=typeid/kc saved, typenumber=typenumber/kc saved, is_a=is_a/kc saved, has_a=has_a/kc saved, computed=computed/kc saved',
     '... and the rest of that save is applied');
 
 -- =====================================================
@@ -232,12 +238,12 @@ SELECT lives_ok(
     'ensure_entities: a file that names ' || c.to_type || ' for the ' || t.id_type || ' entity applies')
   FROM kc_types t
   JOIN (VALUES ('auto_increment', 'uuid'), ('bigint', 'text'), ('text', 'uuid'), ('uuid', 'text'),
-               ('typeid', 'uuid'), ('is_a', 'has_a'), ('has_a', 'is_a')) AS c(from_type, to_type)
+               ('typeid', 'uuid'), ('typenumber', 'typeid'), ('is_a', 'has_a'), ('has_a', 'is_a')) AS c(from_type, to_type)
     ON c.from_type = t.id_type
  ORDER BY t.ord;
 
 SELECT is(pg_temp.kc_keys(),
-    'auto_increment=auto_increment/bigint, bigint=bigint/bigint, text=text/text, uuid=uuid/uuid, typeid=typeid/common.typeid, is_a=is_a/common.typeid, has_a=has_a/common.typeid, computed=computed/text',
+    'auto_increment=auto_increment/bigint, bigint=bigint/bigint, text=text/text, uuid=uuid/uuid, typeid=typeid/common.typeid, typenumber=typenumber/common.typenumber, is_a=is_a/common.typeid, has_a=has_a/common.typeid, computed=computed/text',
     'ensure_entities: every entity keeps its key type and its key column');
 
 SELECT authenticate_as('user3');
@@ -279,18 +285,28 @@ SELECT is(pg_temp.kc_each($$INSERT INTO fields (table_name, field_name, title, f
 -- =====================================================
 -- PART 6: the prefix, the base and the key column
 -- =====================================================
--- The prefix is the one key setting that may change, and only on a typeid
--- entity, where it is read when a new key is generated. An is_a entity's
--- prefix names the type of its records, whose keys carry it (90245); every
--- other key type has none (id_prefix_matches_id_type).
+-- The prefix may change on a typeid or typenumber entity, and the digits on a
+-- typenumber entity, where both are read when a new key is generated; each
+-- within its own grammar (valid_type_prefix). An is_a entity's prefix names
+-- the type of its records, whose keys carry it (90245), and it numbers with
+-- its root's digits; every other key type has neither
+-- (type_prefix_matches_id_type, valid_type_digits).
 
-SELECT is(pg_temp.kc_each($$UPDATE entities SET id_prefix = 'kcpfx' WHERE table_name = %1$L$$),
-    'auto_increment=23514, bigint=23514, text=23514, uuid=23514, typeid=00000, is_a=90245, has_a=23514, computed=23514',
-    'id_prefix: only a typeid entity may change it');
+SELECT is(pg_temp.kc_each($$UPDATE entities SET type_prefix = 'kcpfx' WHERE table_name = %1$L$$),
+    'auto_increment=23514, bigint=23514, text=23514, uuid=23514, typeid=00000, typenumber=23514, is_a=90245, has_a=23514, computed=23514',
+    'type_prefix: a Typed Id prefix fits only a typeid entity, which may change it');
 
-SELECT is(pg_temp.kc_each($$UPDATE entities SET id_prefix = '' WHERE table_name = %1$L$$, ARRAY['typeid', 'is_a']),
-    'typeid=23514, is_a=90245',
-    'id_prefix: the key types that carry one cannot drop it');
+SELECT is(pg_temp.kc_each($$UPDATE entities SET type_prefix = 'KCPFX' WHERE table_name = %1$L$$),
+    'auto_increment=23514, bigint=23514, text=23514, uuid=23514, typeid=23514, typenumber=00000, is_a=90245, has_a=23514, computed=23514',
+    'type_prefix: a Typed Number prefix fits only a typenumber entity, which may change it');
+
+SELECT is(pg_temp.kc_each($$UPDATE entities SET type_prefix = '' WHERE table_name = %1$L$$, ARRAY['typeid', 'typenumber', 'is_a']),
+    'typeid=23514, typenumber=23514, is_a=90245',
+    'type_prefix: the key types that carry one cannot drop it');
+
+SELECT is(pg_temp.kc_each($$UPDATE entities SET type_digits = 4 WHERE table_name = %1$L$$),
+    'auto_increment=23514, bigint=23514, text=23514, uuid=23514, typeid=23514, typenumber=00000, is_a=23514, has_a=23514, computed=23514',
+    'type_digits: only a typenumber entity has digits, and may change them');
 
 SELECT is(pg_temp.kc_each($$UPDATE entities SET id_refentity = 'kc_root2' WHERE table_name = %1$L$$),
     pg_temp.kc_all('90241'),

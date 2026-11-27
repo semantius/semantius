@@ -74,19 +74,19 @@ SELECT is(
 
 -- A typeid root and an is_a entity under it. The prefix of the root can
 -- change; the prefix of the is_a entity is fixed when it is created.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('sr_root', 'SR Root', 'SR Roots', 1, 'typeid', 'srroot');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('sr_sub', 'SR Sub', 'SR Subs', 1, 'is_a', 'srsub', 'sr_root');
 
 SELECT is(
-    catch_error($$UPDATE entities SET id_prefix = 'srsubx' WHERE table_name = 'sr_sub'$$),
-    pg_temp.rule_error('90245', 'id_prefix of an is_a entity is set when it is created', 'entities'),
-    'entities: the id_prefix of an is_a entity cannot be changed (90245)');
+    catch_error($$UPDATE entities SET type_prefix = 'srsubx' WHERE table_name = 'sr_sub'$$),
+    pg_temp.rule_error('90245', 'type_prefix of an is_a entity is set when it is created', 'entities'),
+    'entities: the type_prefix of an is_a entity cannot be changed (90245)');
 
 SELECT lives_ok(
-    $$UPDATE entities SET id_prefix = 'srrootx' WHERE table_name = 'sr_root'$$,
-    'entities: the id_prefix of a typeid root can be changed');
+    $$UPDATE entities SET type_prefix = 'srrootx' WHERE table_name = 'sr_root'$$,
+    'entities: the type_prefix of a typeid root can be changed');
 
 -- =====================================================
 -- fields: 90202

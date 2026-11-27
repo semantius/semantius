@@ -474,11 +474,11 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
                       view_permission, edit_permission)
 VALUES ('rmf_parties', 'Rmf Party', 'Rmf Parties', 1, 'typeid', 'rmfp', 'id', 'public:read', 'nwind:manage');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission, select_rule)
 VALUES ('rmf_orgs', 'Rmf Org', 'Rmf Orgs', 1, 'is_a', 'rmfo', 'rmf_parties', 'public:read', 'nwind:manage',
         '{"==":[{"var":"assigned_to"},{"var":"$user_id"}]}'::jsonb);
@@ -890,11 +890,11 @@ SELECT is(
 
 -- A typeid root, and an is_a and a has_a entity below it, whose policies are
 -- on <entity>_ext and carry that relation's name.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       view_permission, edit_permission)
 VALUES ('test_norule_root', 'No-Rule Root', 'No-Rule Roots', 1, 'typeid', 'nrwroot',
         'nrw:viewer', 'nrw:editor');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission)
 VALUES ('test_norule_isa', 'No-Rule Is-A', 'No-Rule Is-As', 1, 'is_a', 'nrwisa', 'test_norule_root',
         'public:read', 'nwind:manage');

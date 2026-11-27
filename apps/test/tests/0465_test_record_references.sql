@@ -2,23 +2,23 @@
 -- references when an entity is renamed (0170_dd_rename.sql).
 --   PART 1  building and splitting a reference, every key type
 --   PART 2  the canonical spelling
---   PART 3  is_a and has_a records
+--   PART 3  is_a and has_a records, under a typeid and a typenumber root
 --   PART 4  the rename rewrite: bookmarks follow the entity and keep their user
 --
 -- Fixture entities use the 'rrf' prefix; everything is rolled back.
 BEGIN;
 
-SELECT plan(22);
+SELECT plan(26);
 
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('rrf_auto', 'Auto', 'Autos', 1, 'public:read', 'admin', 'auto_increment', ''),
        ('rrf_big', 'Big', 'Bigs', 1, 'public:read', 'admin', 'bigint', ''),
        ('rrf_txt', 'Txt', 'Txts', 1, 'public:read', 'admin', 'text', ''),
        ('rrf_uid', 'Uid', 'Uids', 1, 'public:read', 'admin', 'uuid', ''),
        ('rrf_act', 'Activity', 'Activities', 1, 'public:read', 'admin', 'typeid', 'rrfact');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('rrf_mail', 'Mail', 'Mails', 1, 'is_a', 'rrfmail', 'rrf_act');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
 VALUES ('rrf_more', 'More', 'Mores', 1, 'has_a', 'rrf_act');
@@ -29,6 +29,17 @@ INSERT INTO rrf_uid (label) VALUES ('uid');
 INSERT INTO rrf_act (label) VALUES ('plain activity');
 INSERT INTO rrf_mail (label) VALUES ('mail');
 INSERT INTO rrf_more (id) SELECT id FROM rrf_act WHERE label = 'plain activity';
+
+-- The same family shape under a typenumber root.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
+VALUES ('rrf_tkt', 'Ticket', 'Tickets', 1, 'public:read', 'admin', 'typenumber', 'RRFT');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
+VALUES ('rrf_bug', 'Bug', 'Bugs', 1, 'is_a', 'RRFBUG', 'rrf_tkt');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('rrf_tkx', 'Ticket More', 'Ticket Mores', 1, 'has_a', 'rrf_tkt');
+INSERT INTO rrf_tkt (label) VALUES ('plain ticket');
+INSERT INTO rrf_bug (label) VALUES ('bug');
+INSERT INTO rrf_tkx (id) SELECT id FROM rrf_tkt WHERE label = 'plain ticket';
 
 -- =====================================================
 -- PART 1: building and splitting
@@ -76,7 +87,7 @@ SELECT is(dd_record_ref_canonical('rrf_nowhere:1'), NULL,
     'a table that is no entity gives no reference');
 
 SELECT is(dd_record_ref_canonical('rrf_act:not_a_typeid'), NULL,
-    'typeid: a key that is no TypeID gives no reference');
+    'typeid: a key that is no Typed Id gives no reference');
 
 -- =====================================================
 -- PART 3: is_a and has_a
@@ -97,6 +108,20 @@ SELECT is(dd_record_ref('rrf_act', (SELECT id FROM rrf_act WHERE label = 'plain 
 SELECT is(dd_record_ref_canonical('rrf_more:' || (SELECT id FROM rrf_more)),
     'rrf_act:' || (SELECT id FROM rrf_more),
     'has_a: an extension record is named by its base record');
+
+SELECT is(dd_record_ref('rrf_tkt', (SELECT id FROM rrf_bug)), 'rrf_bug:' || (SELECT id FROM rrf_bug),
+    'typenumber is_a: a record reached through its root is named by its subtype, read from the key prefix');
+
+SELECT is(dd_record_ref_canonical('rrf_tkt:' || (SELECT id FROM rrf_tkt WHERE label = 'plain ticket')),
+    'rrf_tkt:RRFT-1',
+    'typenumber: a record of the root itself keeps the root''s name');
+
+SELECT is(dd_record_ref_canonical('rrf_tkx:' || (SELECT id FROM rrf_tkx)),
+    'rrf_tkt:' || (SELECT id FROM rrf_tkx),
+    'typenumber has_a: an extension record is named by its base record');
+
+SELECT is(dd_record_ref_canonical('rrf_tkt:rrft-1'), NULL,
+    'typenumber: a key that is no Typed Number gives no reference');
 
 -- =====================================================
 -- PART 4: the rename rewrite

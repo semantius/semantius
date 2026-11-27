@@ -24,15 +24,12 @@ DDL audit trail for schema change events
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `command_tag` |
 | label_column_label | Label Column Label | Command Tag |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | false |
 | searchable | Searchable | true |
@@ -85,15 +82,12 @@ DML audit trail for entity table records
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `table_name` |
 | label_column_label | Label Column Label | Table Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | false |
 | searchable | Searchable | true |
@@ -154,15 +148,12 @@ Comments on a record, seen and changed by whoever may see and change the record.
 | edit_permission | Edit Permission | `public:write` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `typeid` |
-| id_prefix | Id Prefix | `comment` |
+| type_prefix | Type Prefix | `comment` |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -213,15 +204,12 @@ User-configured dashboard layouts and configurations
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -273,15 +261,12 @@ Catalog of tables in Semantius
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `table_name` |
 | id_type | Id Type | `text` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `singular_label` |
 | label_column_label | Label Column Label | Singular Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -292,7 +277,7 @@ Catalog of tables in Semantius
 | entity_type | Entity Type | catalog |
 | name_sort | Name Sort | 220 |
 | computed_fields | Computed Fields | - |
-| validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90245","message":"id_prefix of an is_a entity is set when it is created","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"id_prefix"}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
+| validation_rules | Validation Rules | [{"code":"90201","message":"catalog_entity_code is write-once: it cannot be changed once set","jsonlogic":{"if":[{"value_changed":"catalog_entity_code"},{"or":[{"==":[{"var":"$old"},null]},{"==":[{"var":"$old.catalog_entity_code"},""]}]},true]},"source_module":"platform"},{"code":"90233","message":"id_type is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_type"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90253","message":"id_column is set when an entity is created and cannot be changed","jsonlogic":{"if":[{"value_changed":"id_column"},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"},{"code":"90245","message":"type_prefix of an is_a entity is set when it is created","jsonlogic":{"if":[{"and":[{"==":[{"var":"id_type"},"is_a"]},{"value_changed":"type_prefix"}]},{"==":[{"var":"$old"},null]},true]},"source_module":"platform"}] |
 | select_rule | Select Rule | {"or":[{"has_permission":"admin"},{"and":[{"or":[{"has_permission":{"var":"view_permission"}},{"has_permission":{"var":"edit_permission"}}]},{"or":[{"!":[{"var":"id_refentity"}]},{"set_record":["base","entities",{"var":"id_refentity"},{"!!":[{"var":"base"}]}]}]}]}]} |
 | catalog_entity_code | Catalog Entity Code | - |
 | catalog_owner_module | Catalog Owner Module | - |
@@ -317,16 +302,13 @@ Catalog of tables in Semantius
 | `view_permission` (core) | reference | View Permission | Permission required to SELECT from this table, and, next to the edit permission, to UPDATE and DELETE; a select_rule, when set, takes its place, and on fields the row of the field's entity in entities does. A holder of it, of the edit permission or of admin sees this entity in the catalog: its entities and fields rows and its schema, for an is_a or has_a entity only when it sees every base as well | string | false | public:read | 90 | default | default | core | false | - | 2 | permissions | restrict | gates viewing | - | - | false | auto | - | - | - |
 | `edit_permission` (core) | reference | Edit Permission | Permission required to INSERT, UPDATE and DELETE rows of this table; UPDATE and DELETE also need the view permission, or the select_rule when one is set, or on fields the row of the field's entity in entities. A holder of it sees this entity in the catalog, as a holder of the view permission does | string | false | admin | 100 | default | default | core | false | - | 2 | permissions | restrict | gates editing | - | - | false | auto | - | - | - |
 | `id_column` (core) | text | Id Column | Name of primary key column | string | false | id | 110 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `id_type` (core) | enum | Id Type | Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable TypeID such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. is_a: a subtype of the typeid or is_a entity named in id_refentity; each record is exactly one type, shares the key of its base record and carries the subtype's own prefix. has_a: an optional extension of the typeid entity named in id_refentity; a base record has at most one, and it takes the base record's key. computed: system tables whose key is generated from other columns; not available for new entities. | string | false | auto_increment | 120 | required | default | core | false | [{"label":"Auto-increment number","value":"auto_increment"},{"label":"Number (supplied by the caller)","value":"bigint"},{"label":"Text (supplied by the caller)","value":"text"},{"label":"UUIDv7","value":"uuid"},{"label":"TypeID","value":"typeid"},{"label":"Subtype of another entity (is_a)","value":"is_a"},{"label":"Extension of another entity (has_a)","value":"has_a"},{"label":"Computed (system tables only)","value":"computed"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"var":"created_at"},"readonly","required"]} | - | - |
-| `id_prefix` (core) | text | Id Prefix | TypeID prefix of a typeid or is_a entity: up to 63 lowercase letters and underscores, starting and ending with a letter (e.g. acct). Unique among entities. A typeid entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a prefix the entity gave up is refused on insert. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is. | string | false | - | 130 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"id_type"},["typeid","is_a"]]},"required","hidden"]} | - | - |
-| `id_refentity` (core) | reference | Base Entity | The entity an is_a or has_a entity is based on, whose key its records share. An is_a entity is based on a typeid or is_a entity, a has_a entity on a typeid entity. Set when the entity is created and never changed; empty for every other key type. | string | false | - | 140 | hidden | default | core | false | - | 2 | entities | restrict | is the base of | - | - | false | auto | {"if":[{"in":[{"var":"id_type"},["is_a","has_a"]]},{"if":[{"var":"created_at"},"readonly","required"]},"hidden"]} | - | - |
+| `id_type` (core) | enum | Id Type | Key type of the table, chosen once when the entity is created. auto_increment: a 64-bit number the database assigns (the default). bigint: a 64-bit number the caller supplies. text: a text key the caller supplies. uuid: a time-ordered UUIDv7 the database assigns. typeid: a prefixed, sortable Typed Id such as acct_01h455vb4pex5vsknk084sn02q, assigned by the database. typenumber: a prefixed number a person can read and type, such as TASK-125, assigned by the database from a counter of the entity. is_a: a subtype of the typeid, typenumber or is_a entity named in id_refentity; each record is exactly one type, shares the key of its base record and carries the subtype's own prefix. has_a: an optional extension of the typeid or typenumber entity named in id_refentity; a base record has at most one, and it takes the base record's key. computed: system tables whose key is generated from other columns; not available for new entities. | string | false | auto_increment | 120 | required | default | core | false | [{"label":"Auto-increment number","value":"auto_increment"},{"label":"Number (supplied by the caller)","value":"bigint"},{"label":"Text (supplied by the caller)","value":"text"},{"label":"UUIDv7","value":"uuid"},{"label":"Typed Id","value":"typeid"},{"label":"Typed auto-increment number","value":"typenumber"},{"label":"Subtype of another entity (is_a)","value":"is_a"},{"label":"Extension of another entity (has_a)","value":"has_a"},{"label":"Computed (system tables only)","value":"computed"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"var":"created_at"},"readonly","required"]} | - | - |
+| `type_prefix` (core) | text | Type Prefix | Prefix of the keys of a typeid, typenumber or is_a entity, which says what kind of record a key belongs to. For typeid: up to 63 lowercase letters and underscores, starting and ending with a letter (acct gives acct_01h455vb4pex5vsknk084sn02q). For typenumber: an uppercase letter and up to 9 more uppercase letters or digits (TASK gives TASK-125). An is_a entity takes the kind of its root. Unique among entities. A typeid or typenumber entity may change it later: new ids take the new prefix, existing ids keep theirs, and an id with a prefix the entity gave up is refused on insert. An is_a entity keeps the prefix it was created with, because the prefix is what says which subtype a record is. | string | false | - | 130 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"id_type"},["typeid","typenumber","is_a"]]},"required","hidden"]} | - | - |
+| `type_digits` (core) | int32 | Type Digits | Minimum number of digits of the number in a typenumber key, filled with leading zeros (0 to 18; 0 = no padding): 7 gives INC-0000042. A longer number is never cut. The is_a subtypes of a typenumber entity count with counters of their own (INC-00001, CHG-00001) and use its digits. A change applies to new numbers only, and an id a caller supplies must have the current width, so a re-import of ids written before a change is refused, as with a changed prefix. Numbers have gaps, since an insert that is rolled back has used its number up, and they are given when a record is inserted, not when it commits, so their order is not the order in which records were committed. | integer | false | 0 | 135 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"id_type"},"typenumber"]},"default","hidden"]} | - | - |
+| `id_refentity` (core) | reference | Base Entity | The entity an is_a or has_a entity is based on, whose key its records share. An is_a entity is based on a typeid, typenumber or is_a entity, a has_a entity on a typeid or typenumber entity. Set when the entity is created and never changed; empty for every other key type. | string | false | - | 140 | hidden | default | core | false | - | 2 | entities | restrict | is the base of | - | - | false | auto | {"if":[{"in":[{"var":"id_type"},["is_a","has_a"]]},{"if":[{"var":"created_at"},"readonly","required"]},"hidden"]} | - | - |
 | `label_column` (core) | text | Label Column | Name of label/display column | string | false | label | 150 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `label_column_label` (core) | text | Label Column Label | Title of the label field. Give it when the entity is created; left empty, it is derived from label_column without the entity's own name (company_name on companies gives Name, region_description on regions gives Description), except that a column ending in _number, _no, _id or _code keeps it (offer_number gives Offer Number). Always equal to the label field's title: changing either one changes both. | string | false | - | 155 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `label_parent` (core) | text | Label Parent | Names the reference/parent FK that is this entity's identity spine for the composed _label. Empty = intrinsic/self-identifying (composed label = local label). | string | false | - | 160 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `label_format` (core) | enum | Label Format | How the label column is filled. custom (the default): by the caller or a computed rule. number: by the database when a record is inserted, as label_number_prefix and a number - the record's id for an auto_increment or bigint key, the next value of a counter of the entity for every other key type. A numbered label never changes on update, and only a seed or import running as a privileged session may supply one for a counter. Numbers have gaps: an insert that is rolled back has used its number up. They are assigned when a record is inserted, not when it commits, so the order of the numbers is not the order in which records were committed. Switching an entity with records to number keeps their labels; only new records get numbers. An is_a family takes it from its root. | string | false | custom | 161 | required | default | core | false | [{"label":"Custom (by the caller or a rule)","value":"custom"},{"label":"Number (assigned by the database)","value":"number"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `label_number_prefix` (core) | text | Label Number Prefix | Text before the number of a numbered label, e.g. INC gives INC0000001: letters, digits, - and _, at most 20 characters. A change applies to new numbers only; existing labels keep theirs. An is_a subtype with a prefix of its own has its own counter, digits and start (INC0001, CHG0001); one without numbers with its root's. | string | false | - | 162 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]} | - | - |
-| `label_number_digits` (core) | int32 | Label Number Digits | Minimum number of digits of a numbered label, filled with leading zeros (0 to 18; 0 = no padding). A longer number is never cut. A change applies to new numbers only. | integer | false | 0 | 163 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]} | - | - |
-| `label_number_start` (core) | int64 | Label Number Start | First number of the counter of a numbered label whose key is not a number (uuid, typeid, is_a, text). The counter always starts above the highest existing label of the format. An auto_increment or bigint key numbers by its id and has no counter. | integer | false | 1 | 164 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"label_format"},"number"]},"default","hidden"]} | - | - |
 | `order_column` (core) | text | Order Column | Store a fixed row order in this column | string | false | - | 170 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `managed` (core) | boolean | Managed | When disabled, changes to this entity and its fields run no DDL | boolean | false | true | 180 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `searchable` (core) | boolean | Searchable | Auto-computed: true when any field of the entity's record is searchable, the fields of its is_a or has_a bases included | boolean | false | - | 190 | disabled | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
@@ -344,7 +326,7 @@ Catalog of tables in Semantius
 | `catalog_entity_aliases` (core) | json | Catalog Entity Aliases | Reuse/merge record: JSON array of {alias_code, source_domain, source_module, decided}. Append-only. Empty array = never a merge target. | json | false | [] | 310 | default | w | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `attach_mode` (core) | enum | Attach Mode | Whether and how the records of this entity are attached to records of other entities, its target entities (entity_attachables). none (the default): not attachable. single: each record is attached to exactly one target record, held in attached_to, and whoever may see and change that record may see and change it (a comment). owned_shared: one target record owns it, held in attached_to, and decides who sees and changes it; further target records in the link entity <entity>_links only show it (a file). multiple: any number of equal target records in <entity>_links, or none, under the entity's own permissions (a task). Only a managed entity that is not is_a or has_a and has a name of at most 22 bytes can be attachable; an is_a family is attachable through its root. Cannot change while the entity has records. | string | false | none | 320 | required | default | core | false | [{"label":"Not attachable","value":"none"},{"label":"Single (one target, which decides access)","value":"single"},{"label":"Owned and shared (one owner, further targets)","value":"owned_shared"},{"label":"Multiple (any number of targets)","value":"multiple"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `attach_permission` (core) | enum | Attach Permission | What attaching a record needs on the target record: view, to see it; edit, to see it and to hold the edit permission of its entity. Adding or removing a link also needs edit rights on the attachable record. Required on an attachable entity. | string | false | - | 330 | hidden | default | core | false | [{"label":"View the target","value":"view"},{"label":"Edit the target","value":"edit"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"!=":[{"var":"attach_mode"},"none"]},"required","hidden"]} | - | - |
-| `attach_on_target_delete` (core) | enum | Attach On Target Delete | What deleting the target record held in attached_to does to the records attached to it: cascade deletes them too, as a foreign key cascade does, past their own row-level security; restrict refuses the delete while records are attached. Required for single and owned_shared. A target held in the link entity loses only the link, and a multiple record that loses its last target is deleted. | string | false | - | 340 | hidden | default | core | false | [{"label":"Cascade (delete the attached records)","value":"cascade"},{"label":"Restrict (block the delete)","value":"restrict"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"attach_mode"},["single","owned_shared"]]},"required","hidden"]} | - | - |
+| `attach_on_target_delete` (core) | enum | Attach On Target Delete | What deleting the target record held in attached_to does to the records attached to it: cascade deletes them too, as a foreign key cascade does, past their own row-level security; restrict refuses the delete while records are attached. Required for single and owned_shared. A target held in the link entity loses only the link; a multiple record that loses its last target stays, without targets. | string | false | - | 340 | hidden | default | core | false | [{"label":"Cascade (delete the attached records)","value":"cascade"},{"label":"Restrict (block the delete)","value":"restrict"}] | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"attach_mode"},["single","owned_shared"]]},"required","hidden"]} | - | - |
 | `link_of` (core) | reference | Link Of | The attachable entity whose link entity <entity>_links this is, empty for every other entity. The dictionary creates, renames and drops a link entity with its attachable entity, and nobody else may change it. | string | false | - | 350 | readonly | default | core | false | - | 2 | entities | cascade | has the link entity | - | - | false | auto | - | - | - |
 
 ---
@@ -363,19 +345,16 @@ The target entities whose records the records of an attachable entity can be att
 | icon_name | Icon | paperclip |
 | description | Description | The target entities whose records the records of an attachable entity can be attached to |
 | module_id | Module | 1 |
-| view_permission | View Permission | `admin` |
+| view_permission | View Permission | `public:read` |
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -424,15 +403,12 @@ Catalog of the fields that make up a table
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `title` |
 | label_column_label | Label Column Label | Title |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | field_order |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -468,7 +444,7 @@ Catalog of the fields that make up a table
 | `field_order` (core) | int32 | Field Order | - | integer | false | - | 100 | default | default | core | false | - | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `input_type` (core) | enum | Input Type | How the UI presents the field for input; input_type_rule can override it per record. On a required field with no input_type_rule, the database also refuses a missing value; a number, boolean or duration always has one, except a rating of 0. | string | false | default | 110 | required | default | core | false | ["default","required","readonly","disabled","hidden"] | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `width` (core) | enum | Width | default (automatic), s (small), m (medium), w (wide) | string | false | default | 120 | required | default | core | false | [{"label":"Automatic","value":"default"},{"label":"Small","value":"s"},{"label":"Medium","value":"m"},{"label":"Wide","value":"w"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
-| `ctype` (core) | enum | Column Type | Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity's computed_fields rules writes, computed_label the label column when such a rule writes it, number_label the label column of an entity whose label_format is number, which the database fills on insert, and attached_to the field holding the record reference of an attachable record's target, set on insert and never changed. A form shows rollup, computed, computed_label and number_label fields disabled. Derived, never set by hand. | string | false | - | 130 | default | default | core | false | [{"label":"Regular field","value":""},{"label":"Primary key","value":"id"},{"label":"Display label","value":"label"},{"label":"Audit column","value":"audit"},{"label":"System column","value":"core"},{"label":"Rollup (aggregated by the database)","value":"rollup"},{"label":"Computed (by a rule of the entity)","value":"computed"},{"label":"Computed display label (by a rule of the entity)","value":"computed_label"},{"label":"Numbered display label (assigned by the database)","value":"number_label"},{"label":"Attached to (the target record)","value":"attached_to"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
+| `ctype` (core) | enum | Column Type | Special column type: id, label, audit and core mark a column the dictionary protects; rollup marks a field whose value the database aggregates from its rollup definition, computed a field whose value one of the entity's computed_fields rules writes, computed_label the label column when such a rule writes it, and attached_to the field holding the record reference of an attachable record's target, set on insert and never changed. A form shows rollup, computed and computed_label fields disabled. Derived, never set by hand. | string | false | - | 130 | default | default | core | false | [{"label":"Regular field","value":""},{"label":"Primary key","value":"id"},{"label":"Display label","value":"label"},{"label":"Audit column","value":"audit"},{"label":"System column","value":"core"},{"label":"Rollup (aggregated by the database)","value":"rollup"},{"label":"Computed (by a rule of the entity)","value":"computed"},{"label":"Computed display label (by a rule of the entity)","value":"computed_label"},{"label":"Attached to (the target record)","value":"attached_to"}] | 2 | - | - | - | - | - | false | auto | - | - | - |
 | `searchable` (core) | boolean | Searchable | - | boolean | false | - | 150 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"in":[{"var":"format"},["string","text","multiline","html","code"]]},"default","hidden"]} | - | - |
 | `enum_values` (core) | json | Enum Values | JSON array in display order. Each entry is a value or a {"value", "label"} object with an optional "description", "color" and "icon", e.g. ["active", {"value": "on_hold", "label": "On hold", "color": "amber"}] | json | false | - | 160 | hidden | w | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"enum"]},"required","hidden"]} | - | - |
 | `precision` (core) | int32 | Precision | Decimal scale (digits after the decimal point) used when generating NUMERIC columns for number formats | integer | false | 2 | 170 | hidden | default | core | false | - | 2 | - | - | - | - | - | false | auto | {"if":[{"==":[{"var":"format"},"number"]},"required","hidden"]} | - | - |
@@ -503,15 +479,12 @@ Files owned by one record and shown on further ones; the contents are stored wit
 | edit_permission | Edit Permission | `public:write` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `typeid` |
-| id_prefix | Id Prefix | `file` |
+| type_prefix | Type Prefix | `file` |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -564,15 +537,12 @@ Further target records of Files
 | edit_permission | Edit Permission | `public:write` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -622,15 +592,12 @@ Groups of related tables and permissions
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `module_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -697,15 +664,12 @@ Defines permission inclusion (including permission implies included permissions)
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -755,15 +719,12 @@ System permissions that can be assigned to roles and organized via hierarchy
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `permission_name` |
 | id_type | Id Type | `text` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `permission_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -812,15 +773,12 @@ Governance registry: maps entity transitions to processes
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -874,15 +832,12 @@ RACI process catalog
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -934,15 +889,12 @@ Maps table DML events to queues
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `event_name` |
 | label_column_label | Label Column Label | Event Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -993,15 +945,12 @@ Message queues backed by pgmq
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `queue_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1051,15 +1000,12 @@ RACI matrix rows assigning roles to processes
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1112,15 +1058,12 @@ Notify/consult audit log for RACI-governed record transitions
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `record_id` |
 | label_column_label | Label Column Label | Record Id |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1174,15 +1117,12 @@ Many-to-many mapping between roles and permissions
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -1233,15 +1173,12 @@ Groups of permissions that can be assigned to users
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `role_name` |
 | label_column_label | Label Column Label | Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1293,16 +1230,13 @@ Work to do, for a user or for the members of a role, attached to any number of r
 | view_permission | View Permission | `public:read` |
 | edit_permission | Edit Permission | `public:write` |
 | id_column | Id Column | `id` |
-| id_type | Id Type | `typeid` |
-| id_prefix | Id Prefix | `task` |
+| id_type | Id Type | `typenumber` |
+| type_prefix | Type Prefix | `TASK` |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `title` |
 | label_column_label | Label Column Label | Title |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1359,15 +1293,12 @@ Further target records of Tasks
 | edit_permission | Edit Permission | `public:write` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -1417,15 +1348,12 @@ Manage and order your favorites for quick access to frequently used apps and rec
 | edit_permission | Edit Permission | `user:read` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `title` |
 | label_column_label | Label Column Label | Title |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | row_order |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1477,15 +1405,12 @@ Many-to-many mapping between users and permissions for direct per-user permissio
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -1536,15 +1461,12 @@ Many-to-many mapping between users and roles
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `computed` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `id` |
 | label_column_label | Label Column Label | Id |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | false |
@@ -1595,15 +1517,12 @@ Users and agents
 | edit_permission | Edit Permission | `user:manage` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `display_name` |
 | label_column_label | Label Column Label | Display Name |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1659,15 +1578,12 @@ Log of webhook receiver events
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |
@@ -1722,15 +1638,12 @@ Configuration for webhook endpoints
 | edit_permission | Edit Permission | `admin` |
 | id_column | Id Column | `id` |
 | id_type | Id Type | `auto_increment` |
-| id_prefix | Id Prefix | - |
+| type_prefix | Type Prefix | - |
+| type_digits | Type Digits | 0 |
 | id_refentity | Base Entity | - |
 | label_column | Label Column | `label` |
 | label_column_label | Label Column Label | Label |
 | label_parent | Label Parent | - |
-| label_format | Label Format | custom |
-| label_number_prefix | Label Number Prefix | - |
-| label_number_digits | Label Number Digits | 0 |
-| label_number_start | Label Number Start | 1 |
 | order_column | Order Column | - |
 | managed | Managed | true |
 | searchable | Searchable | true |

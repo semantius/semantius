@@ -10,15 +10,15 @@
 -- Fixture entities use the 'atx' prefix; everything is rolled back.
 BEGIN;
 
-SELECT plan(58);
+SELECT plan(70);
 
 SELECT authenticate_as('user3');
 
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
 VALUES ('atx_order', 'Order', 'Orders', 1, 'public:read', 'admin');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('atx_case', 'Case', 'Cases', 1, 'public:read', 'admin', 'typeid', 'atxcase');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('atx_bug', 'Bug', 'Bugs', 1, 'is_a', 'atxbug', 'atx_case');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission,
                       attach_mode, attach_permission, attach_on_target_delete)
@@ -74,6 +74,29 @@ SELECT ok(EXISTS (SELECT 1 FROM entities WHERE table_name = 'atx_todo_links' AND
 SELECT is((SELECT id FROM entity_attachables WHERE target = 'atx_order' AND attachable = 'atx_note'), 'atx_order.atx_note',
     'entity_attachables is keyed like a junction table: target.attachable');
 
+-- Read as the rows of fields: by whoever sees the rows of both its entities in
+-- entities, and written with admin.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
+VALUES ('atx_hidden', 'Hidden', 'Hiddens', 1, 'admin', 'admin');
+INSERT INTO entity_attachables (target, attachable) VALUES ('atx_hidden', 'atx_note');
+SELECT authenticate_as('user1');
+SELECT is((SELECT string_agg(id, ', ' ORDER BY id) FROM entity_attachables WHERE attachable = 'atx_note'),
+    'atx_case.atx_note, atx_order.atx_note',
+    'a plain user reads the targets of the entities it sees, not one naming an entity it does not see');
+SELECT is(get_record_by_id('entity_attachables', 'atx_hidden.atx_note'), NULL,
+    'and get_record_by_id answers the same');
+SELECT throws_ok(
+    $$INSERT INTO entity_attachables (target, attachable) VALUES ('atx_case', 'atx_doc')$$,
+    '42501', NULL,
+    'a plain user switches no target on');
+UPDATE entity_attachables SET target = target WHERE attachable = 'atx_note';
+DELETE FROM entity_attachables WHERE attachable = 'atx_note';
+SELECT authenticate_as('user3');
+SELECT is((SELECT count(*)::int FROM entity_attachables WHERE attachable = 'atx_note'), 3,
+    'nor changes or switches off one');
+DELETE FROM entity_attachables WHERE target = 'atx_hidden';
+DELETE FROM entities WHERE table_name = 'atx_hidden';
+
 SELECT is(
     (SELECT ((get_schema('atx_note')::jsonb) -> 'attach_mode') || ((get_schema('atx_note')::jsonb) -> 'attach_targets')),
     '["single", "atx_case", "atx_order"]'::jsonb,
@@ -92,7 +115,7 @@ SELECT ok(NOT ((get_schema('atx_order')::jsonb) ? 'attach_mode'),
 -- PART 2: what is refused
 -- =====================================================
 SELECT throws_ok(
-    $$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+    $$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                             attach_mode, attach_permission, attach_on_target_delete)
       VALUES ('atx_sub', 'Sub', 'Subs', 1, 'is_a', 'atxsub', 'atx_case', 'single', 'view', 'cascade')$$,
     '91002', NULL, 'an is_a entity is attachable through its root only');
@@ -211,6 +234,27 @@ SELECT ok(NOT EXISTS (SELECT 1 FROM entity_attachables WHERE attachable = 'atx_t
           AND NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'atx_tmp_links'),
     'leaving attachable removes the link entity and the targets');
 
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission,
+                      attach_mode, attach_permission, attach_on_target_delete)
+VALUES ('atx_s2n', 'S2n', 'S2ns', 1, 'public:read', 'admin', 'single', 'view', 'cascade'),
+       ('atx_o2n', 'O2n', 'O2ns', 1, 'public:read', 'admin', 'owned_shared', 'edit', 'cascade');
+INSERT INTO entity_attachables (target, attachable) VALUES ('atx_order', 'atx_s2n'), ('atx_order', 'atx_o2n');
+UPDATE entities SET attach_mode = 'none' WHERE table_name = 'atx_s2n';
+INSERT INTO atx_s2n (label) VALUES ('plain now');
+SELECT ok(NOT EXISTS (SELECT 1 FROM fields WHERE table_name = 'atx_s2n' AND field_name = 'attached_to')
+          AND NOT EXISTS (SELECT 1 FROM entity_attachables WHERE attachable = 'atx_s2n')
+          AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.atx_s2n'::regclass AND tgname = 'd_attach_check')
+          AND EXISTS (SELECT 1 FROM atx_s2n WHERE label = 'plain now'),
+    'single to none: attached_to, the targets and the attach step go, and the entity takes records under its own policies');
+UPDATE entities SET attach_mode = 'none' WHERE table_name = 'atx_o2n';
+INSERT INTO atx_o2n (label) VALUES ('plain now');
+SELECT ok(NOT EXISTS (SELECT 1 FROM fields WHERE table_name = 'atx_o2n' AND field_name = 'attached_to')
+          AND NOT EXISTS (SELECT 1 FROM entities WHERE table_name = 'atx_o2n_links')
+          AND NOT EXISTS (SELECT 1 FROM entity_attachables WHERE attachable = 'atx_o2n')
+          AND NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = 'public.atx_o2n'::regclass AND tgname = 'd_attach_check')
+          AND EXISTS (SELECT 1 FROM atx_o2n WHERE label = 'plain now'),
+    'owned_shared to none: attached_to, the link entity, the targets and the attach step go, and the entity takes records under its own policies');
+
 INSERT INTO modules (module_name, module_slug, description, view_permission)
 VALUES ('Atx One', 'atxone', 'attachables fixture', 'user:read'),
        ('Atx Two', 'atxtwo', 'attachables fixture', 'user:read');
@@ -279,15 +323,18 @@ SELECT t.id, pg_temp.oref('o5') FROM atx_todo t WHERE t.label IN ('t1', 't2')
 UNION ALL
 SELECT t.id, 'atx_case:' || (SELECT id FROM atx_case WHERE label = 'c1') FROM atx_todo t WHERE t.label = 't2';
 DELETE FROM atx_order WHERE label = 'o5';
-SELECT is((SELECT string_agg(label, ', ' ORDER BY label) FROM atx_todo), 't2, t3',
-    'multiple: a record that loses its last target is deleted; one with a target left, and one created without any, stay');
+SELECT is((SELECT string_agg(t.label || ' ' || (SELECT count(*) FROM atx_todo_links l WHERE l.atx_todo_id = t.id), ', '
+                          ORDER BY t.label)
+             FROM atx_todo t),
+    't1 0, t2 1, t3 0',
+    'multiple: the links to the deleted target go; a record that lost its last target stays without targets, as one created without any');
 
 -- An is_a family of an attachable entity: a subtype record is attached through
 -- the root's attached_to and deleted through its subtype's view.
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission,
-                      id_type, id_prefix, attach_mode, attach_permission, attach_on_target_delete)
+                      id_type, type_prefix, attach_mode, attach_permission, attach_on_target_delete)
 VALUES ('atx_memo', 'Memo', 'Memos', 1, 'public:read', 'admin', 'typeid', 'atxmemo', 'single', 'view', 'cascade');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('atx_voice_memo', 'Voice Memo', 'Voice Memos', 1, 'is_a', 'atxvmemo', 'atx_memo');
 INSERT INTO entity_attachables (target, attachable) VALUES ('atx_order', 'atx_memo');
 INSERT INTO atx_order (label) VALUES ('o7');
@@ -302,6 +349,34 @@ SELECT is((SELECT attached_to FROM atx_note WHERE label = 'nb'), 'atx_bug:' || (
 DELETE FROM atx_bug WHERE label = 'b1';
 SELECT ok(NOT EXISTS (SELECT 1 FROM atx_note WHERE label = 'nb'),
     'is_a: deleting the subtype record reaches the delete step on the root');
+
+-- The same under a typenumber root: the delete step reads the subtype from
+-- the prefix of a Typed Number key.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
+VALUES ('atx_tkt', 'Ticket', 'Tickets', 1, 'public:read', 'admin', 'typenumber', 'ATXT');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
+VALUES ('atx_inc', 'Incident', 'Incidents', 1, 'is_a', 'ATXINC', 'atx_tkt');
+INSERT INTO entity_attachables (target, attachable) VALUES ('atx_tkt', 'atx_note');
+INSERT INTO atx_tkt (label) VALUES ('k1');
+INSERT INTO atx_inc (label) VALUES ('i1');
+
+INSERT INTO atx_note (label, attached_to) VALUES ('nk', 'atx_tkt:' || (SELECT id FROM atx_tkt WHERE label = 'k1'));
+INSERT INTO atx_note (label, attached_to) VALUES ('ni', 'atx_tkt:' || (SELECT id FROM atx_inc WHERE label = 'i1'));
+SELECT is((SELECT string_agg(attached_to, ', ' ORDER BY label) FROM atx_note WHERE label IN ('nk', 'ni')),
+    'atx_inc:ATXINC-1, atx_tkt:ATXT-1',
+    'typenumber: a record is attached to by its Typed Number key, a subtype record under its subtype');
+
+SELECT throws_ok(
+    $$INSERT INTO atx_note (label, attached_to) VALUES ('nx', 'atx_tkt:atxt-1')$$,
+    '91018', NULL, 'typenumber: a key that is no Typed Number is refused as no record');
+
+DELETE FROM atx_tkt WHERE id = 'ATXINC-1';
+SELECT ok(NOT EXISTS (SELECT 1 FROM atx_note WHERE label = 'ni') AND EXISTS (SELECT 1 FROM atx_note WHERE label = 'nk'),
+    'typenumber is_a: a delete through the root is dispatched to the subtype and reaches its attachments');
+
+DELETE FROM atx_tkt WHERE label = 'k1';
+SELECT ok(NOT EXISTS (SELECT 1 FROM atx_note WHERE label = 'nk'),
+    'typenumber: deleting a root record deletes what is attached to it');
 
 SELECT throws_ok(
     $$DELETE FROM entity_attachables WHERE target = 'atx_order' AND attachable = 'atx_doc'$$,
@@ -348,6 +423,14 @@ SELECT is(
     (SELECT count(*)::int FROM atx_file_links l JOIN atx_file f ON f.id = l.atx_file_id WHERE f.label = 'd3'),
     1,
     'a rename of the attachable entity renames its link entity and the link field, links kept');
+
+SELECT throws_ok(
+    $$UPDATE atx_file_links SET attached_to = attached_to || '0'$$,
+    '91026', 'A link of ${attachable} to ${reference} is not changed',
+    'a link is removed and added, never changed');
+SELECT lives_ok(
+    $$UPDATE atx_file_links SET attached_to = attached_to, atx_file_id = atx_file_id$$,
+    'an update that sends a link''s values as they are passes');
 
 -- ensure_entities is the migration runner's, run as the connecting role.
 RESET ROLE;

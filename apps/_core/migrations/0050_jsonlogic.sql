@@ -821,7 +821,7 @@ BEGIN
     -- Loads an entity record by id and stores it in data under the given name.
     -- Usage: {"set_record":["varName", "entityName", idExpression, logic]}
     -- Calls get_record_by_id(entityName, id) and stores the result like let.
-    -- The id goes over as text, so a text, uuid or TypeID key works as well as
+    -- The id goes over as text, so a text, uuid or Typed Id key works as well as
     -- a number; get_record_by_id casts it to the key's type. A whole JSON
     -- number is written without its fraction first (5.0 -> 5), because
     -- arithmetic in a rule yields 5.0 and '5.0' is not a valid bigint. A

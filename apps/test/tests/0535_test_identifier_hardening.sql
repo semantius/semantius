@@ -539,7 +539,7 @@ SELECT is(pg_temp.idh_value($$
 CREATE FUNCTION pg_temp.idh_dollar_base(p_base TEXT, p_prefix TEXT, p_default TEXT) RETURNS VOID LANGUAGE plpgsql AS $f$
 BEGIN
     EXECUTE format(
-        $q$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+        $q$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                                  view_permission, edit_permission)
            VALUES (%L, 'Party', 'Parties', 1, 'typeid', %L, 'public:read', 'admin')$q$, p_base, p_prefix);
     EXECUTE format(
@@ -603,10 +603,10 @@ SELECT pg_temp.idh_dollar_family('body', '$body$');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
 VALUES ('idh_len', 'Len', 'Lens', 1, 'public:read', 'admin'),
        ('idh_tl',  'Tl',  'Tls',  1, 'public:read', 'admin');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
                       view_permission, edit_permission)
 VALUES ('idh_fam', 'Fam', 'Fams', 1, 'typeid', 'idhf', 'id', 'public:read', 'admin');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission)
 VALUES ('idh_is', 'Is', 'Iss', 1, 'is_a', 'idhi', 'idh_fam', 'public:read', 'admin');
 INSERT INTO fields (table_name, field_name, title, format)

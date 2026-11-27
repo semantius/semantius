@@ -204,11 +204,11 @@ SELECT is(
 -- record compares a base column it left out with the column default, evaluated
 -- again: with the current-user default that is the attaching user's id, not the
 -- one stored, and the stored one must win without 90246.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, view_permission, edit_permission)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, view_permission, edit_permission)
 VALUES ('cu_items', 'CU Item', 'CU Items', 1, 'typeid', 'cuitm', 'public:read', 'user:read');
 INSERT INTO fields (table_name, field_name, title, format, input_type, reference_table, reference_delete_mode, default_value)
 VALUES ('cu_items', 'owner_id', 'Owner', 'reference', 'default', 'users', 'clear', 'CURRENT_USER');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity, view_permission, edit_permission)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity, view_permission, edit_permission)
 VALUES ('cu_special', 'CU Special', 'CU Specials', 1, 'is_a', 'cuspc', 'cu_items', 'public:read', 'user:read');
 INSERT INTO fields (table_name, field_name, title, format, input_type, reference_table, reference_delete_mode, default_value)
 VALUES ('cu_special', 'checker_id', 'Checker', 'reference', 'default', 'users', 'clear', 'CURRENT_USER');

@@ -173,7 +173,9 @@ export function baseBuilder(
           modifier: ".default(sql`common.uuid_v7()`)",
         };
       case "typeid":
-        // No column default: the a_typeid_assign trigger fills a missing key.
+      case "typenumber":
+        // No column default: the a_typeid_assign or a_typenumber_assign
+        // trigger fills a missing key.
         // An omitted key must reach the database as DEFAULT, which $default
         // arranges and which also makes the key optional in the insert type.
         return {

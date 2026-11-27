@@ -11,7 +11,7 @@
 --   7. A reference to an entity the caller may not see
 BEGIN;
 
-SELECT plan(194);
+SELECT plan(196);
 
 -- =====================================================
 -- PART 1: get_schema()
@@ -1414,11 +1414,11 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('gs_parties', 'Party', 'Parties', 1, 'typeid', 'gspty');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('gs_parties', 'city', 'City', 'text', 30);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('gs_orgs', 'Organization', 'Organizations', 1, 'is_a', 'gsorg', 'gs_parties');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('gs_orgs', 'vat', 'VAT', 'text', 30);
@@ -1450,7 +1450,51 @@ SELECT ok(
     (public.get_schema('gs_orgs')::jsonb) #>> '{properties,id,pattern}' IS NOT NULL
     AND (public.get_schema('gs_vendors')::jsonb) #>> '{properties,id,pattern}' IS NOT NULL
     AND (public.get_schema('gs_notes')::jsonb) #>> '{properties,org_id,pattern}' IS NOT NULL,
-    'family schema: is_a and has_a keys, and references to them, carry the TypeID pattern');
+    'family schema: is_a and has_a keys, and references to them, carry the Typed Id pattern');
+
+-- The pattern follows the key's domain, so a family under a typenumber root
+-- and a reference to it carry the Typed Number pattern.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
+VALUES ('gs_tickets', 'Ticket', 'Tickets', 1, 'typenumber', 'GST');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
+VALUES ('gs_bugs', 'Bug', 'Bugs', 1, 'is_a', 'GSBUG', 'gs_tickets');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
+VALUES ('gs_ticket_extras', 'Ticket Extra', 'Ticket Extras', 1, 'has_a', 'gs_tickets');
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('gs_notes', 'ticket_id', 'Ticket', 'reference', 'gs_tickets', 'restrict', 40);
+
+SELECT is(
+    (SELECT string_agg(DISTINCT coalesce(p, 'none'), ', ')
+       FROM (VALUES ((public.get_schema('gs_tickets')::jsonb) #>> '{properties,id,pattern}'),
+                    ((public.get_schema('gs_bugs')::jsonb) #>> '{properties,id,pattern}'),
+                    ((public.get_schema('gs_ticket_extras')::jsonb) #>> '{properties,id,pattern}'),
+                    ((public.get_schema('gs_notes')::jsonb) #>> '{properties,ticket_id,pattern}')) AS v(p)),
+    '^[A-Z][A-Z0-9]{0,9}-[0-9]{1,18}$',
+    'family schema: a typenumber key, its is_a and has_a keys and references to them carry the Typed Number pattern');
+
+-- An entity without a table has no key column whose type could be read: its
+-- key, and a reference to it, carry the pattern its id_type gives the key.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id, managed, id_type, type_prefix)
+VALUES ('gs_far_tickets', 'gs_far_tickets', 'Far Ticket', 'Far Tickets', 1, FALSE, 'typenumber', 'GSFAR'),
+       ('gs_far_accounts', 'gs_far_accounts', 'Far Account', 'Far Accounts', 1, FALSE, 'typeid', 'gsfar'),
+       ('gs_far_notes', 'gs_far_notes', 'Far Note', 'Far Notes', 1, FALSE, 'auto_increment', '');
+INSERT INTO fields (table_name, field_name, title, format, field_order)
+VALUES ('gs_far_tickets', 'id', 'Id', 'string', 10),
+       ('gs_far_accounts', 'id', 'Id', 'string', 10);
+INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
+VALUES ('gs_far_notes', 'ticket_id', 'Ticket', 'reference', 'gs_far_tickets', 'restrict', 30),
+       ('gs_far_notes', 'account_id', 'Account', 'reference', 'gs_far_accounts', 'restrict', 40);
+
+SELECT is(
+    (SELECT string_agg(coalesce(p, 'none'), ' ' ORDER BY n)
+       FROM (VALUES (1, (public.get_schema('gs_far_tickets')::jsonb) #>> '{properties,id,pattern}'),
+                    (2, (public.get_schema('gs_far_notes')::jsonb) #>> '{properties,ticket_id,pattern}'),
+                    (3, (public.get_schema('gs_far_accounts')::jsonb) #>> '{properties,id,pattern}'),
+                    (4, (public.get_schema('gs_far_notes')::jsonb) #>> '{properties,account_id,pattern}')) AS v(n, p)),
+    '^[A-Z][A-Z0-9]{0,9}-[0-9]{1,18}$ ^[A-Z][A-Z0-9]{0,9}-[0-9]{1,18}$ '
+    || '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$ '
+    || '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$',
+    'schema of entities without a table: a Typed Number and a Typed Id key, and references to them, carry their pattern');
 
 SELECT is(
     (public.get_schema('gs_orgs')::jsonb) #>> '{table,id_refentity}',
@@ -1630,11 +1674,11 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
 VALUES ('gsv_guarded', 'Guarded Schema Probe', 'Guarded Schema Probes', 1, 'gsv:view', 'gsv:edit');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       view_permission, edit_permission)
 VALUES ('gsv_root',  'Root Schema Probe',  'Root Schema Probes',  1, 'typeid', 'gsvrt',  'gsv:base',    'gsv:base_edit'),
        ('gsv_party', 'Party Schema Probe', 'Party Schema Probes', 1, 'typeid', 'gsvpty', 'public:read', 'admin');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 VALUES ('gsv_org', 'Organization Schema Probe', 'Organization Schema Probes', 1, 'is_a', 'gsvorg',
         'gsv_root', 'gsv:view', 'gsv:edit');
@@ -1790,13 +1834,13 @@ SELECT is(
 -- A field that references an entity the caller may not see keeps the
 -- target's table name, as its fields row does, and nothing more:
 -- get_schema adds no label, no key column and no <fk>_label text taken from
--- the hidden target's entities row. The JSON type and the TypeID pattern
+-- the hidden target's entities row. The JSON type and the Typed Id pattern
 -- describe the field's own column, so they stay. A caller who may see the
 -- target gets them.
 --
 -- Fixture, created as user3: gsv_pointer, viewed with public:read, with the
 -- reference fields target_id to gsv_guarded and org_id to gsv_org (PART 5),
--- whose key is a TypeID. user1 may see neither target; gsv_viewer may see
+-- whose key is a Typed Id. user1 may see neither target; gsv_viewer may see
 -- gsv_guarded. gsv_targets keeps, as stored, what a reference property takes
 -- from that target.
 --
@@ -1860,7 +1904,7 @@ SELECT is(
        FROM (SELECT pg_temp.gsv_schema('gsv_pointer') #> '{properties,org_id}' AS p) AS s),
     jsonb_build_object('type', 'string',
                        'pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$'),
-    'schema reference, hidden target: the property keeps the JSON type and the TypeID pattern of its own column');
+    'schema reference, hidden target: the property keeps the JSON type and the Typed Id pattern of its own column');
 
 -- ---------------------------------------------------------------------------
 -- A visible target

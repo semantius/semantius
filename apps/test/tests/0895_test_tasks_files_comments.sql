@@ -12,7 +12,7 @@
 -- Fixture entities use the 'tfc' prefix; everything is rolled back.
 BEGIN;
 
-SELECT plan(46);
+SELECT plan(47);
 
 SELECT authenticate_as('user3');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
@@ -46,6 +46,14 @@ SELECT is(
     (SELECT created_by || ' ' || status || ' ' || priority FROM tasks WHERE title = 'tfc mine'),
     '1001 open normal',
     'a task records its creator, and starts open with normal priority');
+-- A task's key is a Typed Number without padding. Other tests and the nwind
+-- sample take numbers too, and a rolled-back insert keeps the number it took,
+-- so the number is compared with the counter, not with a constant.
+SELECT is((SELECT id::text FROM tasks WHERE title = 'tfc mine'), 'TASK-' || currval('public.tasks_id_seq'),
+    'a task''s key is TASK- and the next number of the counter');
+SELECT throws_ok($$INSERT INTO tasks (id, title) VALUES ('TASK-0' || currval('public.tasks_id_seq') + 1000, 'tfc padded')$$,
+    '90287', NULL,
+    'a supplied task key with a leading zero is refused: at the current width a number has one spelling');
 INSERT INTO tasks (title, assigned_user) VALUES ('tfc for user2', 1002);
 
 SELECT authenticate_as('user2');
@@ -196,17 +204,18 @@ SELECT is(
     + (SELECT count(*)::int FROM tasks_links WHERE attached_to = current_setting('tfc.case')),
     0,
     'deleting the target deletes its comments and files and removes its task links');
-SELECT ok(NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc mine'),
-    'and a task whose last target it was');
+SELECT ok(EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc mine'),
+    'and a task whose last target it was stays, without targets');
 
 -- =====================================================
 -- PART 6: links and the delete of a target
 -- =====================================================
 -- A link row is written on behalf of its task, so adding or removing one needs
 -- the rights to change the task: its rule 90279 refuses whoever may see the
--- task but not change it. The delete of a target removes its links and the
--- tasks that lose their last one past the task's rules, as a foreign-key
--- cascade would, so it neither needs those rights nor tells of the tasks.
+-- task but not change it while the target exists. The delete of a target
+-- removes the links to it, as a foreign-key cascade would, so it neither needs
+-- those rights nor tells of the tasks; a task that lost its last target stays,
+-- without targets.
 SELECT authenticate_as('user3');
 UPDATE entities SET edit_permission = 'public:read' WHERE table_name = 'tfc_case';
 INSERT INTO tfc_case (label) VALUES ('Case two'), ('Case three');
@@ -233,14 +242,7 @@ SELECT throws_ok(
 SELECT throws_ok(
     $$DELETE FROM tasks_links WHERE attached_to = current_setting('tfc.case2')$$,
     '90279', NULL,
-    'nor removes its link');
--- The mark of the delete step is a token only the database makes.
-SELECT set_config('app.attached_step', 'forged', true);
-SELECT throws_ok(
-    $$DELETE FROM tasks_links WHERE attached_to = current_setting('tfc.case2')$$,
-    '90279', NULL,
-    'a mark of the delete step written by the client is no mark');
-SELECT set_config('app.attached_step', '', true);
+    'nor removes its link while the record it links to exists');
 SELECT throws_ok(
     $$INSERT INTO tasks_links (tasks_id, attached_to) VALUES (current_setting('tfc.solo'), current_setting('tfc.case3'))$$,
     '91021', 'No record ${reference} to link to ${target}',
@@ -263,8 +265,9 @@ SELECT lives_ok(
     $$DELETE FROM tfc_case WHERE label = 'Case two'$$,
     'who may delete a target deletes it, though it may not change a task linked to it');
 RESET ROLE;
-SELECT ok(NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc admin queued'),
-    'and the task that lost its last target goes, past its rules');
+SELECT ok(EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc admin queued')
+          AND NOT EXISTS (SELECT 1 FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id WHERE t.title = 'tfc admin queued'),
+    'and the task that lost its last target stays, without targets');
 
 -- A task of user1 on a record of user2, and one on that record and another.
 SELECT authenticate_as('user2');
@@ -280,10 +283,11 @@ SELECT authenticate_as('user2');
 SELECT lives_ok($$DELETE FROM tfc_case WHERE label = 'Case of user2'$$,
     'the owner of a record deletes it, whatever tasks of others are linked to it');
 SELECT authenticate_as('user1');
-SELECT ok(NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc u1 only there')
+SELECT ok(EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc u1 only there')
+          AND NOT EXISTS (SELECT 1 FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id WHERE t.title = 'tfc u1 only there')
           AND (SELECT string_agg(l.attached_to, ', ') FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id
                 WHERE t.title = 'tfc u1 there and elsewhere') = current_setting('tfc.case3'),
-    'a task linked only to it goes; one with a target left keeps that link and stays');
+    'the task linked only to it stays without targets; one with a target left keeps that link');
 
 -- A privileged direct session - the installer, a seed, an import, a module
 -- delete - has no user and passes the rule.
@@ -319,8 +323,9 @@ SELECT authenticate_as('user1');
 SELECT lives_ok($$DELETE FROM modules WHERE module_slug = 'tfcmod'$$,
     'an administrator without tasks:manage_all deletes a module whose records carry tasks of others');
 RESET ROLE;
-SELECT ok(NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc about the deal'),
-    'and the task on its record goes with it');
+SELECT ok(EXISTS (SELECT 1 FROM tasks WHERE title = 'tfc about the deal')
+          AND NOT EXISTS (SELECT 1 FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id WHERE t.title = 'tfc about the deal'),
+    'and the task on its record stays, without targets');
 
 SELECT * FROM finish();
 ROLLBACK;

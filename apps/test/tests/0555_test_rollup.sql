@@ -21,7 +21,7 @@
 --  15. Values a filter meets when a child is written
 BEGIN;
 
-SELECT plan(373);
+SELECT plan(376);
 
 SELECT authenticate_as('user3');
 
@@ -640,19 +640,32 @@ SELECT is(
     'ru_parent.probe: date_part cannot take the arguments [{"var": "ship_date"}, "hour"]',
     'and the error names the table, the field and what was refused');
 
--- A TypeID key as a filter column: the literal is checked at compile time.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+-- A Typed Id key as a filter column: the literal is checked at compile time.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('ru_root', 'Root', 'Roots', 1, 'public:read', 'admin', 'typeid', 'ruroot');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('ru_child', 'root_ref', 'Root', 'reference', 100, 'ru_root', 'clear');
 SELECT throws_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"var": "root_ref"}, "not-a-typeid"]}}', 'int64'),
-    '90265', NULL, '90265: a malformed TypeID literal against a TypeID column');
+    '90265', NULL, '90265: a malformed Typed Id literal against a Typed Id column');
 SELECT lives_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"var": "root_ref"}, "ruroot_01h455vb4pex5vsknk084sn02q"]}}', 'int64'),
-    'a well-formed TypeID literal compiles');
+    'a well-formed Typed Id literal compiles');
+DELETE FROM fields WHERE table_name = 'ru_parent' AND field_name = 'probe';
+
+-- A Typed Number key as a filter column: the same check, with its own grammar.
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
+VALUES ('ru_ticket', 'Ticket', 'Tickets', 1, 'public:read', 'admin', 'typenumber', 'RUT');
+INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
+VALUES ('ru_child', 'ticket_ref', 'Ticket', 'reference', 110, 'ru_ticket', 'clear');
+SELECT throws_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"var": "ticket_ref"}, "rut-1"]}}', 'int64'),
+    '90265', NULL, '90265: a malformed Typed Number literal against a Typed Number column');
+SELECT throws_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"var": "ticket_ref"}, 1]}}', 'int64'),
+    '90265', NULL, '90265: a number against a Typed Number column');
+SELECT lives_ok(pg_temp.ru_def('{"link_field": "ru_child.parent_id", "function": "count", "filter": {"==": [{"var": "ticket_ref"}, "RUT-1"]}}', 'int64'),
+    'a well-formed Typed Number literal compiles');
 DELETE FROM fields WHERE table_name = 'ru_parent' AND field_name = 'probe';
 
 -- An is_a child.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix, id_refentity)
 VALUES ('ru_isa', 'Isa', 'Isas', 1, 'public:read', 'admin', 'is_a', 'ruisa', 'ru_root');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('ru_isa', 'parent_ref', 'Parent', 'reference', 30, 'ru_parent', 'clear');
@@ -1212,7 +1225,7 @@ SELECT is(pg_temp.rx_filter('{"==": [{"var": "b"}, "yes"]}'), pg_temp.rx_problem
 SELECT is(pg_temp.rx_filter('{"==": [{"var": "b"}, 1]}'), pg_temp.rx_problem('number 1 compared with a column of type boolean'),
     'a number against a boolean column is refused');
 SELECT is(pg_temp.rx_filter('{"==": [{"var": "tid"}, 5]}'), pg_temp.rx_problem('number 5 compared with a column of type common.typeid'),
-    'and against a TypeID column');
+    'and against a Typed Id column');
 SELECT is(pg_temp.rx_filter('{"==": [{"var": "n"}, true]}'), pg_temp.rx_problem('boolean true compared with a column of type integer'),
     'a boolean against an integer column is refused');
 SELECT is(pg_temp.rx_filter('{"==": [{"var": "t"}, false]}'), pg_temp.rx_problem('boolean false compared with a column of type text'),
@@ -1264,9 +1277,9 @@ INSERT INTO entities (table_name, singular, singular_label, plural_label, descri
     module_id, view_permission, edit_permission, id_column, label_column)
 VALUES ('rd_parent', 'rd_parent', 'RD Parent', 'RD Parents', 'definition parent', 1, 'public:read', 'admin', 'id', 'label'),
        ('rd_child',  'rd_child',  'RD Child',  'RD Children', 'definition child',  1, 'public:read', 'admin', 'id', 'label');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('rd_root', 'Root', 'Roots', 1, 'public:read', 'admin', 'typeid', 'rdroot');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission, id_type, type_prefix, id_refentity)
 VALUES ('rd_isa', 'Isa', 'Isas', 1, 'public:read', 'admin', 'is_a', 'rdisa', 'rd_root');
 INSERT INTO fields (table_name, field_name, title, format, field_order, reference_table, reference_delete_mode)
 VALUES ('rd_child', 'parent_id', 'Parent', 'parent',    10, 'rd_parent', 'restrict'),

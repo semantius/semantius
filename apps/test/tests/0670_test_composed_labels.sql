@@ -335,12 +335,12 @@ SELECT authenticate_as('user3');
 
 INSERT INTO entities (table_name, singular_label, plural_label, module_id)
 VALUES ('lb_orgs', 'Org', 'Orgs', 1);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('lb_people', 'Person', 'People', 1, 'typeid', 'lbppl');
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
 VALUES ('lb_people', 'referrer_id', 'Referrer', 'reference', 'lb_people', 'clear', 30),
        ('lb_people', 'org_id', 'Organization', 'reference', 'lb_orgs', 'clear', 40);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('lb_staff', 'Staff', 'Staff', 1, 'is_a', 'lbstf', 'lb_people');
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
 VALUES ('lb_staff', 'manager_id', 'Manager', 'reference', 'lb_people', 'clear', 30);

@@ -571,9 +571,9 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fts_items', 'Item', 'Items', 1, 'typeid', 'ftsitm');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('fts_docs', 'Document', 'Documents', 1, 'is_a', 'ftsdoc', 'fts_items');
 INSERT INTO fields (table_name, field_name, title, format, field_order, searchable)
 VALUES ('fts_docs', 'body', 'Body', 'text', 30, TRUE);

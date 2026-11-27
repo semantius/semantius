@@ -83,6 +83,8 @@ path, with the reason and the test that pins the reason.
 |---|---|---|---|---|
 | DO block (`CREATE FUNCTION common.uuid_v7`) | the whole statement | one of two constant strings; the server version selects which | allow-list | not needed: no caller text reaches the statement |
 | `common.typeid_assign` | none | the statement is constant text; the row and the generated key are bound with `USING`, and the trigger arguments reach it only as a JSON key and a function argument | - | not needed: no caller text reaches the statement |
+| `common.typenumber_assign` | none in the statement | the statement is constant text; the row and the generated key are bound with `USING`, and the trigger arguments reach it only as a JSON key and function arguments | - | not needed: no caller text reaches the statement |
+| `common.typenumber_assign` | the counter, for `nextval` | `pg_get_serial_sequence` of `TG_TABLE_SCHEMA` and `TG_TABLE_NAME`, the trigger's own relation, quoted with `%I`, and of the key column argument `dd_install_id_triggers` writes from `entities.id_column` (CHECK `valid_id_column`) with `%L` | `%I`, catalog, cast to `regclass` | `0438_test_entity_typenumber.sql` (parts 3 and 9) |
 
 ### 0080_rbac_functions.sql
 
@@ -117,13 +119,21 @@ path, with the reason and the test that pins the reason.
 | `dd_check_id_column`, `field_data_type`, `dd_index_name_free`, `dd_drop_own_index`, `dd_constraint_exists`, `dd_sync_typeid_prefix`, `dd_family_columns`, `dd_check_family_dependents` (name lookup) | relation name inside `to_regclass(format('public.%I', ...))` | `entities.table_name`, directly or through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_install_id_triggers` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` (column of the trigger), `%L` (trigger argument) | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
 | `dd_install_id_triggers` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (parts 1 and 4) |
-| `dd_install_id_triggers` | id prefixes (trigger arguments) | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_install_id_triggers` | id prefixes and digits (trigger arguments) | `entities.type_prefix` (CHECK `valid_type_prefix`) of the entity and of its is_a descendants, `entities.type_digits` (CHECK `valid_type_digits`) | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_install_id_triggers` | trigger and function name | `a_<id_type>_assign` and `<id_type>_assign`, inside the branch for `entities.id_type` `typeid` or `typenumber` (CHECK `valid_id_type`) | `%I` | not needed: two fixed names |
+| `dd_install_id_triggers` | counter `<relation>_<key column>_seq`, its relation and key column for `OWNED BY` | `entities.table_name` through `dd_relation` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) and `entities.id_column` (CHECK `valid_id_column`), whose lengths together leave room for the suffix (`reserve_field_name_length`) | `%I` | `0438_test_entity_typenumber.sql` (parts 2, 6 and 9) |
 | `dd_typeid_trigger_args` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%L` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
-| `dd_typeid_trigger_args` | id prefixes | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_typeid_trigger_args` | id prefixes | `entities.type_prefix` (CHECK `valid_type_prefix`) of the entity and of its is_a descendants | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_typeid_trigger_args` | digits | `entities.type_digits`, a typed integer (CHECK `valid_type_digits`) | `%L` | not needed: a typed integer |
 | `dd_install_key_rule_checks` | relation | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_install_key_rule_checks` | key column (trigger argument) | `entities.id_column` (CHECK `valid_id_column`) | `%L`, helper `dd_typeid_trigger_args` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 2) |
-| `dd_install_key_rule_checks` | id prefixes (trigger arguments) | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_install_key_rule_checks` | id prefixes (trigger arguments) | `entities.type_prefix` (CHECK `valid_type_prefix`) of the entity and of its is_a descendants | helper `dd_typeid_trigger_args` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_install_key_rule_checks` | name of the trigger it drops | `pg_trigger.tgname`, filtered to `zz_key_check_insert` and `zz_key_check_update` | catalog, `%I` | not needed: no caller text reaches the statement |
+| `dd_install_key_rule_checks` | function name `<id_type>_assign` | `entities.id_type` (CHECK `valid_id_type`), reached only where the table has `a_typeid_assign` or `a_typenumber_assign` | `%I` | not needed: two fixed names |
+| `dd_id_sequence` | relation inside `to_regclass(format('public.%I', ...))` and the table argument of `pg_get_serial_sequence` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 1), `0438_test_entity_typenumber.sql` (parts 2 and 9) |
+| `dd_id_sequence_sync` | root table and its key column | `entities.table_name` and `entities.id_column` of the root through `dd_ancestors` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`; CHECK `valid_id_column`) | `%I` | `0438_test_entity_typenumber.sql` (part 9), `0730_test_fix_id_sequence.sql` |
+| `dd_id_sequence_sync` | sequence name | helper `dd_id_sequence`, which returns what `pg_get_serial_sequence` does: a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
+| `dd_id_sequence_sync` | the LIKE pattern of the prefix and the length of the prefix | `entities.type_prefix` (CHECK `valid_type_prefix`: uppercase letters and digits, so nothing LIKE reads specially), a typed integer | `%L`, integer | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `field_data_type` | column type | `pg_catalog.format_type` of the referenced entity's key column, upper-cased; otherwise the output of `dd_id_type_data_type` or `format_to_data_type` | catalog, allow-list | not needed: no caller text reaches the statement |
 | `dd_unique_predicate` | field name | `fields.field_name` (CHECK `valid_field_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_drop_own_index` | index name | built by the callers as `idx_<relation>_<field>` or `<relation>_<field>_unique`; the cut name must belong to an index on the field's own table | `%I` | `0535_test_identifier_hardening.sql` (part 3) |
@@ -218,14 +228,18 @@ path, with the reason and the test that pins the reason.
 | `dd_key_kept_sql` | record variable `p_was` | parameter; every call site passes the source literal `v_base` or `p_old`, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
 | `dd_key_kept_sql` | condition prefix `p_when` | parameter; every call site passes the source literal `v_attach` or the default empty string, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
 | `dd_key_prefix_sql` | key column | parameter `p_key`; the callers pass `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
-| `dd_key_prefix_sql` | id prefix | parameter `p_prefix`; the callers pass `entities.id_prefix` (CHECK `valid_id_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_key_prefix_sql` | id prefix | parameter `p_prefix`; the callers pass `entities.type_prefix` (CHECK `valid_type_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_key_prefix_sql` | table name | parameter `p_table`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
+| `dd_key_mint_sql` | prefix | `entities.type_prefix` (CHECK `valid_type_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_key_mint_sql` | digits of the root | `entities.type_digits`, a typed integer (CHECK `valid_type_digits`) | integer | not needed: a typed integer |
+| `dd_key_mint_sql` | counter name, the `nextval` argument | helper `dd_id_sequence`, which returns what `pg_get_serial_sequence` does: a quoted, schema-qualified name | catalog, `%L` | `0438_test_entity_typenumber.sql` (parts 6 and 7) |
 | `dd_key_prefix_sql` | condition prefix `p_when` | parameter; every call site passes the source literal `NOT v_attach` or the default empty string, and the function is revoked from PUBLIC | raw (`%s`) | not needed: no caller text reaches the statement |
 | `dd_build_record_write` | table names and relations of the family, and the row type `public.<table>` | `entities.table_name` through `dd_relation`, which adds `_ext` for an is_a or has_a entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), for the entity, its ancestors, its base and the is_a subtypes of its root; the lock statement built from them is used again as a `format()` string, which holds only because the CHECK keeps `%` out | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_build_record_write` | routine names `record_write_<table>` and `record_rules_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
 | `dd_build_record_write` | key column | `entities.id_column` (CHECK `valid_id_column`, which keeps `%` out of the lock statement that is used again as a `format()` string) | `%I` | `0535_test_identifier_hardening.sql` (part 1), `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_build_record_write` | column names | `fields.field_name` (CHECK `valid_field_name`) from `dd_family_columns`, which keeps only names that match a physical column exactly | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
-| `dd_build_record_write` | id prefixes | `entities.id_prefix` (CHECK `valid_id_prefix`) of the entity, of its base and of the is_a subtypes of its root | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_build_record_write` | id prefixes | `entities.type_prefix` (CHECK `valid_type_prefix`) of the entity, of its base and of the is_a subtypes of its root | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_build_record_write` | the expression that mints a key | helper `dd_key_mint_sql` of the entity or of its base | raw (`%s`) | `0438_test_entity_typenumber.sql` (parts 6 and 7) |
 | `dd_build_record_write` | depth and subtype numbers | `dd_ancestors.depth`, its maximum and a PL/pgSQL counter | typed integer | not needed: no caller text reaches the statement |
 | `dd_build_record_write` | default of a has_a base column | `pg_catalog.pg_get_expr` of the base column's default; the literal `NULL` when there is none | catalog | `0535_test_identifier_hardening.sql` (part 6) |
 | `dd_build_record_write` | arguments `p_was` and `p_when` of `dd_key_kept_sql` and `dd_key_prefix_sql` | the source literals `v_base`, `p_old`, `v_attach`, `NOT v_attach` | allow-list | not needed: no caller text reaches the statement |
@@ -233,7 +247,7 @@ path, with the reason and the test that pins the reason.
 | `dd_build_record_write` | function body | the generated PL/pgSQL text | `dd_dollar_quote` | `0535_test_identifier_hardening.sql` (part 6), `0910_test_no_unsafe_functions.sql` |
 | `dd_build_record_write` | function comment | constant text with `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) inside | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_dispatch_case` | subtype table names | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I`, `%L` | `0535_test_identifier_hardening.sql` (part 1) |
-| `dd_dispatch_case` | id prefix of each subtype | `entities.id_prefix` (CHECK `valid_id_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
+| `dd_dispatch_case` | id prefix of each subtype | `entities.type_prefix` (CHECK `valid_type_prefix`) | `%L` | `0537_test_dynamic_sql_values.sql` (part 1) |
 | `dd_dispatch_case` | table name of the entity the write comes through, in the hint of 90255 | parameter `p_table_name`; the callers pass `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%L` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_dispatch_case` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `dd_dispatch_case` | routine name `record_write_<table>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0535_test_identifier_hardening.sql` (part 2) |
@@ -268,13 +282,6 @@ path, with the reason and the test that pins the reason.
 | `dd_attach_case_sql` | key type of a target and the length of its name | `dd_key_type`: the `regtype` of the key column; a typed integer | catalog (`%s` in the cast), integer | not needed: no caller text reaches the statement |
 | `dd_attach_case_sql` | edit permissions of a target's levels | `entities.edit_permission`, a foreign key to `permissions.permission_name` | `%L` | `0625_test_attach_policies.sql` |
 | `dd_attach_case_sql` | the reference expression | parameter `p_ref`, built by its callers from a relation name and `attached_to` with `%I`, or the fixed `rec.attached_to` and `a.attached_to` | helper `dd_attach_policy_terms`, `rebuild_entity_label_functions` | `0625_test_attach_policies.sql` |
-| `common.label_number_assign` | label and key column | `entities.label_column` and `entities.id_column` (CHECKs `valid_label_column`, `valid_id_column`), as JSON keys, never as identifiers | none: jsonb keys | not needed: no identifier is built from them |
-| `common.label_number_assign` | counter name `<entity>_label_seq` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0545_test_numbered_labels.sql` (parts 3 and 5) |
-| `dd_build_label_number` | table, label column, counter names `<entity>_label_seq`, index name `<table>_label_number_unique` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), `entities.label_column` (CHECK `valid_label_column`) | `%I` | `0545_test_numbered_labels.sql` (parts 3, 5 and 6) |
-| `dd_build_label_number` | the label pattern and the prefix length | `entities.label_number_prefix` (CHECK `valid_label_number_prefix`: letters, digits, `-` and `_`, at most 20) through `dd_label_number_pattern`; the length a typed integer | `%L`, integer | `0545_test_numbered_labels.sql` (part 6) |
-| `dd_build_label_number` | counter start and minimum | `entities.label_number_start` and the highest number of the stored labels, typed bigints | integer | not needed: a typed integer |
-| `dd_label_number_changed` | table, key and label column | `entities.table_name`, `entities.id_column`, `entities.label_column` (CHECKs `valid_table_name`, `valid_id_column`, `valid_label_column`) | `%I` | `0545_test_numbered_labels.sql` (part 4) |
-| `dd_label_number_changed` | prefix, its pattern and the digits | `entities.label_number_prefix` (CHECK `valid_label_number_prefix`) through `dd_label_number_pattern`; `entities.label_number_digits`, a typed integer (CHECK `valid_label_number_digits`) | `%L`, integer | `0545_test_numbered_labels.sql` (part 4) |
 
 ### 0170_dd_rename.sql
 
@@ -413,11 +420,10 @@ path, with the reason and the test that pins the reason.
 
 ### 0250_public_functions.sql
 
-| Function | Value | Source of the value | How quoted | Test |
-|---|---|---|---|---|
-| `fix_id_sequence` | table | parameter `p_table`, which must equal an `entities.table_name`; the caller must hold that entity's edit permission and see the entity in the catalog (`dd_entity_viewable`) | `%I` | `0535_test_identifier_hardening.sql` (part 1), `0730_test_fix_id_sequence.sql` |
-| `fix_id_sequence` | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
-| `fix_id_sequence` | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
+No function here builds SQL. `fix_id_sequence` passes its parameter `p_table`
+to `dd_id_sequence_sync`, which only looks the entity up by it and splices the
+names of the entity's row (its rows above); `0730_test_fix_id_sequence.sql`
+calls it with an unknown name.
 
 ### 0290_ensure_entities.sql
 
@@ -432,7 +438,6 @@ path, with the reason and the test that pins the reason.
 | `ensure_entities` (records) | table | `entities[].entity.table_name` of the document, an `entities` row by then (CHECK `valid_table_name`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
 | `ensure_entities` (records) | column names | keys of the first object of `entities[].records`; every record must carry the same keys and each key must be a field of the entity | `%I` | not reachable: as for `ensure_entities_insert_rows`; `0537_test_dynamic_sql_values.sql` (part 1) |
 | `ensure_entities` (records) | key column | `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0535_test_identifier_hardening.sql` (part 1) |
-| `ensure_entities` (records) | sequence name | `pg_get_serial_sequence`, which returns a quoted, schema-qualified name | catalog | not needed: no caller text reaches the statement |
 
 ### 0310_pgmq.once.sql
 
@@ -551,17 +556,17 @@ and `delete`, always with `queues.queue_name`.
 
 | Function | Value | Source of the value | How quoted | Test |
 |---|---|---|---|---|
-| `check_entity_attach` | relation of the entity and of its link entity, for the record check and the LOCK before it | `entities.table_name` through `dd_relation`, and `entities.table_name` of the link entity (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0466_test_attachables.sql` (part 2) |
+| `check_entity_attach` | relation of the entity, for the record check and the LOCK before it | `entities.table_name` through `dd_relation` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`) | `%I` | `0466_test_attachables.sql` (part 2) |
 | `check_entity_attachable_row` | relation of the target | `entities.table_name` through `dd_relation` (CHECK `valid_table_name`), for a catalog lookup | `%I` | `0466_test_attachables.sql` (part 2) |
 | `dd_attachments_exist` | relations holding references, the LIKE patterns of the tables | `entities.table_name` through `dd_relation` of the attachable entity and its link entity (CHECK `valid_table_name`); the patterns through `dd_ref_like` of `entity_attachables.target` and its is_a subtypes (CHECK `valid_table_name`) | `%I`, `%L` | `0466_test_attachables.sql` (part 4) |
 | `common.attach_target` | the target's root table, key column and key type | `dd_attach_targets` of the attachable entity, the row of the canonical reference's table: its first relation, `entities.id_column` (CHECK `valid_id_column`) and `dd_key_type`; the reference only after `dd_record_ref_canonical` spelled it and `get_record_by_id` found its record | `%I`, catalog (`%s` in the cast) | `0625_test_attach_policies.sql` |
 | `common.attach_record_rules` | attachable table, its key column and key type, the rule function name `record_rules_<table>` | `entities.link_of` of the link entity whose trigger calls it (CHECK `valid_table_name`), `entities.id_column` (CHECK `valid_id_column`); the key type through `dd_key_type` | `%I`, catalog (`%s` in the cast) | `0895_test_tasks_files_comments.sql` |
+| `dd_attach_target_exists` | the target's root table, key column and key type | `entities.table_name` and `entities.id_column` of the root of the reference's table (CHECKs `valid_table_name`, `valid_id_column`), only once the entity is found; the key type through `dd_key_type`, and the key only after `dd_key_cast` accepted it | `%I`, catalog (`%s` in the cast) | `0895_test_tasks_files_comments.sql` (part 6) |
 | `common.attach_check` | the record with the kept and the canonical values | `jsonb_populate_record` over the trigger's own row type; no identifier is built | none: a fixed statement | not needed: no text is interpolated |
 | `common.attached_step` | key column, the name of the delete step `attached_<table>` | the trigger argument `dd_build_attached_triggers` writes from `entities.id_column` (CHECK `valid_id_column`), the trigger's own table (`entities.table_name`, CHECK `valid_table_name`) | `%I` | `0466_test_attachables.sql` (part 4) |
 | `dd_build_attached_triggers` | target root, its key column, the function name `attached_<root>` | `entities.table_name` (CHECK `valid_table_name`, at most 41 bytes by `reserve_table_namespace`), `entities.id_column` (CHECK `valid_id_column`) | `%I`, `%L` for the key column as a trigger argument | `0466_test_attachables.sql` (part 4) |
-| `dd_build_attached_triggers` | subtype prefixes and table names (CASE literals), the LIKE patterns, the attachable table names in hints and in the mark of the delete step | `entities.id_prefix` (CHECK `valid_id_prefix`), `entities.table_name` (CHECK `valid_table_name`), the patterns through `dd_ref_like` | `%L` | `0466_test_attachables.sql` (part 4) |
+| `dd_build_attached_triggers` | subtype prefixes and table names (CASE literals), the LIKE patterns, the attachable table names in hints | `entities.type_prefix` (CHECK `valid_type_prefix`), `entities.table_name` (CHECK `valid_table_name`), the patterns through `dd_ref_like` | `%L` | `0466_test_attachables.sql` (part 4) |
 | `dd_build_attached_triggers` | attachable tables, their subtype views, link tables, key and link columns | `entities.table_name` of the attachable entities, their is_a subtypes and link entities (CHECK `valid_table_name`, at most 22 bytes for an attachable entity), `entities.id_column` (CHECK `valid_id_column`) | `%I` | `0466_test_attachables.sql` (part 4) |
-| `dd_build_attached_triggers` | key type of an attachable entity | `dd_key_type`: the `regtype` of the key column | catalog (`%s` in the cast) | not needed: no caller text reaches the statement |
 | `dd_build_attached_triggers` | the generated body | built above | `dd_dollar_quote` | `0466_test_attachables.sql` (part 4) |
 | `dd_attach_target_purge` | target table, its key column, the name of its delete step `attached_<table>` | `entities.table_name` and `entities.id_column` of the deleted entity row (CHECKs `valid_table_name`, `valid_id_column`) | `%I` | `0070_test_nwind_attachables.sql` |
 | `dd_attach_refresh` | relations of the attachable and link entities | `entities.table_name` through `dd_relation` (CHECK `valid_table_name`), for the attach step `d_attach_check` | `%I` | `0466_test_attachables.sql` (part 3) |

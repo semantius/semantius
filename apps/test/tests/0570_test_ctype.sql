@@ -38,13 +38,13 @@ SELECT is(
 -- rollup for a field the database aggregates (0440_rollup.sql), computed for
 -- a field one of the entity's computed_fields writes (0210), the two managed
 -- markers dd_ctype_is_core does not count as core, computed_label for a
--- label column such a rule writes and number_label for one the database
--- numbers (label_format), which stay core like label, and attached_to for the
--- target of an attachable record (0450_attachables.sql), core as well.
+-- label column such a rule writes, which stays core like label, and
+-- attached_to for the target of an attachable record (0450_attachables.sql),
+-- core as well.
 SELECT is(
     (SELECT enum_value_list(enum_values) FROM fields WHERE table_name = 'fields' AND field_name = 'ctype'),
-    '["", "id", "label", "audit", "core", "rollup", "computed", "computed_label", "number_label", "attached_to"]'::jsonb,
-    'fields.ctype enum_values are the core markers plus rollup, computed, computed_label, number_label and attached_to');
+    '["", "id", "label", "audit", "core", "rollup", "computed", "computed_label", "attached_to"]'::jsonb,
+    'fields.ctype enum_values are the core markers plus rollup, computed, computed_label and attached_to');
 
 -- A freshly created managed table's auto-inserted timestamps carry ctype='audit'.
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description,

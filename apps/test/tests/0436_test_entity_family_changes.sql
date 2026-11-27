@@ -66,14 +66,14 @@ SELECT plan(367);
 CREATE TEMP TABLE fc_marks (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 GRANT SELECT, INSERT, UPDATE, DELETE ON fc_marks TO semantius_user;
 
--- The standard family under the name prefix p and the TypeID prefix stem x,
+-- The standard family under the name prefix p and the Typed Id prefix stem x,
 -- in module p_module, with its records, whose ids are kept in fc_marks. p_key
 -- names the root's key column, which every level inherits.
 CREATE FUNCTION pg_temp.fc_build(p TEXT, x TEXT, p_module BIGINT, p_key TEXT DEFAULT 'id')
 RETURNS VOID LANGUAGE plpgsql AS $fn$
 BEGIN
     EXECUTE format($q$
-        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
                               view_permission, edit_permission)
         VALUES (%L, 'Party', 'Parties', %s, 'typeid', %L, %L, 'public:read', 'nwind:manage')$q$,
         p || 'parties', p_module, x || 'pty', p_key);
@@ -83,7 +83,7 @@ BEGIN
         p || 'parties');
 
     EXECUTE format($q$
-        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                               view_permission, edit_permission)
         VALUES (%L, 'Organization', 'Organizations', %s, 'is_a', %L, %L, 'nwind:view', 'nwind:manage')$q$,
         p || 'orgs', p_module, x || 'org', p || 'parties');
@@ -93,7 +93,7 @@ BEGIN
         p || 'orgs');
 
     EXECUTE format($q$
-        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                               view_permission, edit_permission)
         VALUES (%L, 'Bank', 'Banks', %s, 'is_a', %L, %L, 'nwind:view', 'admin')$q$,
         p || 'banks', p_module, x || 'bnk', p || 'orgs');
@@ -108,7 +108,7 @@ BEGIN
         p || 'banks');
 
     EXECUTE format($q$
-        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+        INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                               view_permission, edit_permission)
         VALUES (%L, 'Person', 'Persons', %s, 'is_a', %L, %L, 'nwind:view', 'nwind:manage')$q$,
         p || 'persons', p_module, x || 'per', p || 'parties');
@@ -432,8 +432,8 @@ BEGIN
     -- 5
     v_out := '';
     v_have := pg_temp.fc_args(p_root, 'a_typeid_assign');
-    SELECT v_key || ',' || e.id_prefix || ','
-           || coalesce((SELECT string_agg(s.id_prefix || ',', '' ORDER BY s.id_prefix)
+    SELECT v_key || ',' || e.type_prefix || ','
+           || coalesce((SELECT string_agg(s.type_prefix || ',', '' ORDER BY s.type_prefix)
                           FROM dd_descendants(p_root) d
                           JOIN entities s ON s.table_name = d.table_name
                          WHERE s.id_type = 'is_a'), '')
@@ -1020,7 +1020,7 @@ SELECT is((public.get_schema('fcx_notes')::jsonb) #>> '{properties,bank_id,refer
 SELECT lives_ok($$UPDATE fields SET searchable = TRUE WHERE table_name = 'fcc_parties' AND field_name = 'label'$$,
     'after the change, a searchable change on the root goes through');
 
-SELECT lives_ok($$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+SELECT lives_ok($$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
                   VALUES ('fcc_trusts', 'Trust', 'Trusts', 1, 'is_a', 'fcctru', 'fcc_parties')$$,
     'after the change, a new child of the root can be created');
 
@@ -1069,7 +1069,7 @@ INSERT INTO fc_marks
 SELECT 'orgs before insurers',
        string_agg(label || ':' || common.typeid_prefix(id) || ':' || vat, ', ' ORDER BY label COLLATE "C")
   FROM fcc_orgs;
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission)
 VALUES ('fcc_insurers', 'Insurer', 'Insurers', 1, 'is_a', 'fccins', 'fcc_orgs', 'nwind:view', 'nwind:manage');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
@@ -1110,7 +1110,7 @@ DELETE FROM entities WHERE table_name = 'fcc_insurers';
 -- prefix, which is therefore not free for a new subtype: those rows would be
 -- taken for records of that subtype.
 INSERT INTO fcc_parties (label, city) VALUES ('P9', 'Pisa');
-UPDATE entities SET id_prefix = 'fccptynew' WHERE table_name = 'fcc_parties';
+UPDATE entities SET type_prefix = 'fccptynew' WHERE table_name = 'fcc_parties';
 INSERT INTO fcc_vendors (label, terms) VALUES ('S2', 'net60');
 
 SELECT is((SELECT common.typeid_prefix(id) FROM fcc_parties WHERE label = 'S2'), 'fccptynew',
@@ -1121,7 +1121,7 @@ SELECT throws_ok($$INSERT INTO fcc_vendors (id, label) VALUES ('fccpty_01h455vb4
     'root prefix change: an id with the former prefix is refused');
 
 SELECT is(pg_temp.sqlstate_of(
-    $$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+    $$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
       VALUES ('fcc_clubs', 'Club', 'Clubs', 1, 'is_a', 'fccpty', 'fcc_parties')$$),
     '90254',
     'a new subtype cannot take a prefix that rows of its root still carry');
@@ -1137,12 +1137,12 @@ SELECT lives_ok($$DELETE FROM fcc_parties WHERE label = 'P9'$$,
 SELECT is((SELECT count(*)::INTEGER FROM fcc_parties WHERE label = 'P9'), 0,
     'the delete removed the row');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fcx_misc', 'Misc', 'Miscs', 1, 'typeid', 'fccfree');
-UPDATE entities SET id_prefix = 'fccfreetwo' WHERE table_name = 'fcx_misc';
+UPDATE entities SET type_prefix = 'fccfreetwo' WHERE table_name = 'fcx_misc';
 
 SELECT lives_ok(
-    $$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+    $$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
       VALUES ('fcc_clubs', 'Club', 'Clubs', 1, 'is_a', 'fccfree', 'fcc_parties')$$,
     'a released prefix that no row of the root carries can be taken by a new subtype');
 
@@ -1541,7 +1541,7 @@ SELECT is(pg_temp.sqlstate_of($$UPDATE fields SET searchable = TRUE WHERE table_
     '90256',
     'a searchable change on the root is refused while a view of another author is built on a family view');
 
-SELECT is(pg_temp.sqlstate_of($$UPDATE entities SET id_prefix = 'fccptyother' WHERE table_name = 'fcc_parties'$$),
+SELECT is(pg_temp.sqlstate_of($$UPDATE entities SET type_prefix = 'fccptyother' WHERE table_name = 'fcc_parties'$$),
     '90256',
     'a root prefix change is refused while a view of another author is built on a family view');
 
@@ -1831,7 +1831,7 @@ SELECT is(pg_temp.fc_is_child(ARRAY['fcc_people', 'fcc_companies', 'fcc_branches
 DELETE FROM fields WHERE table_name = 'fcc_companies' AND field_name = 'org_group_id';
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode, field_order)
 VALUES ('fcc_people', 'group_id', 'Group', 'parent', 'fcx_groups', 'cascade', 180);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('fcc_teams', 'Team', 'Teams', 1, 'is_a', 'fcctea', 'fcc_people');
 
 SELECT is((SELECT is_child FROM entities WHERE table_name = 'fcc_teams'), TRUE,
@@ -1982,9 +1982,9 @@ SELECT is(
 -- A family across two modules: a module whose root has a child in another
 -- module cannot go first.
 INSERT INTO modules (module_name) VALUES ('fcm_mod_a'), ('fcm_mod_b');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fcm_parties', 'Party', 'Parties', (SELECT id FROM modules WHERE module_name = 'fcm_mod_a'), 'typeid', 'fcmpty');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('fcm_orgs', 'Organization', 'Organizations', (SELECT id FROM modules WHERE module_name = 'fcm_mod_b'),
         'is_a', 'fcmorg', 'fcm_parties');
 

@@ -1029,9 +1029,9 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('rg_parties', 'Party', 'Parties', 1, 'typeid', 'rgpty');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('rg_deals', 'Deal', 'Deals', 1, 'is_a', 'rgdeal', 'rg_parties');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rg_deals', 'stage', 'Stage', 'text', 30);

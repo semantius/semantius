@@ -286,12 +286,12 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       view_permission, edit_permission)
 VALUES ('sec_parties', 'Party', 'Parties', 1, 'typeid', 'secpty', 'public:read', 'nwind:manage');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('sec_parties', 'region', 'Region', 'text', 30);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission)
 VALUES ('sec_leads', 'Lead', 'Leads', 1, 'is_a', 'secled', 'sec_parties', 'nwind:view', 'admin');
 INSERT INTO fields (table_name, field_name, title, format, field_order)

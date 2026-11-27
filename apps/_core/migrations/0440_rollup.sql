@@ -170,7 +170,7 @@ BEGIN
     -- a planner error inside a fields trigger.
     IF v_oid <> ALL (ARRAY['text', 'bool', 'int2', 'int4', 'int8', 'numeric', 'float4', 'float8',
                            'date', 'timestamptz', 'time', 'uuid', 'interval']::regtype[])
-       AND v_oid <> 'common.typeid'::regtype THEN
+       AND v_oid <> ALL (ARRAY['common.typeid', 'common.typenumber']::regtype[]) THEN
         PERFORM rollup_filter_problem(format('column %s has type %s, which a rollup filter cannot compare', p_name, v_type));
     END IF;
     RETURN jsonb_build_object(
@@ -178,6 +178,7 @@ BEGIN
         'type',   v_type,
         'kind',   CASE WHEN v_oid = 'bool'::regtype THEN 'bool'
                        WHEN v_oid = 'common.typeid'::regtype THEN 'typeid'
+                       WHEN v_oid = 'common.typenumber'::regtype THEN 'typenumber'
                        WHEN v_oid = 'interval'::regtype THEN 'interval'
                        ELSE 'other' END,
         'is_var', TRUE);
@@ -189,8 +190,8 @@ COMMENT ON FUNCTION rollup_filter_column(TEXT, TEXT, TEXT) IS
 
 -- A literal, cast to the type of the column it is compared with. The type name
 -- comes from format_type, so it is safe to splice; the value goes through %L.
--- A TypeID literal is checked here because the domain's CHECK is not folded
--- at plan time and would slip past the EXPLAIN probe.
+-- A Typed Id or Typed Number literal is checked here because the domain's CHECK
+-- is not folded at plan time and would slip past the EXPLAIN probe.
 --
 -- A date literal is resolved to UTC here and written out with an explicit
 -- offset. Left as the admin wrote it, a value with no offset would be read in the
@@ -213,7 +214,10 @@ BEGIN
                 PERFORM rollup_filter_problem(format('string %s compared with a boolean column', v_text));
             END IF;
             IF p_kind = 'typeid' AND NOT common.typeid_check_text(v_text) THEN
-                PERFORM rollup_filter_problem(format('%s is not a well-formed TypeID', v_text));
+                PERFORM rollup_filter_problem(format('%s is not a well-formed Typed Id', v_text));
+            END IF;
+            IF p_kind = 'typenumber' AND NOT common.typenumber_check_text(v_text) THEN
+                PERFORM rollup_filter_problem(format('%s is not a well-formed Typed Number', v_text));
             END IF;
             IF p_type IN ('date', 'timestamp with time zone') THEN
                 BEGIN
@@ -227,7 +231,7 @@ BEGIN
             END IF;
             RETURN format('%L::%s', v_text, COALESCE(v_cast, 'text'));
         WHEN 'number' THEN
-            IF p_kind IN ('bool', 'typeid') THEN
+            IF p_kind IN ('bool', 'typeid', 'typenumber') THEN
                 PERFORM rollup_filter_problem(format('number %s compared with a column of type %s', v_text, p_type));
             END IF;
             -- Cast to text, a number would equal only the value written that

@@ -595,13 +595,13 @@ SELECT is(pg_temp.frn_rename('frn_host', 'e'), '90275 frn_host f.input_type_rule
 
 -- The rules of a family. An is_a or has_a entity is read and written as one
 -- record with its base, so its rules name the base's fields as their own.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
                       view_permission, edit_permission)
 VALUES ('frn_parties', 'Frn Party', 'Frn Parties', 1, 'typeid', 'frnp', 'id', 'public:read', 'admin');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('frn_parties', 'city', 'City', 'text', 30), ('frn_parties', 'zone', 'Zone', 'text', 40);
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, edit_permission)
 VALUES ('frn_orgs', 'Frn Org', 'Frn Orgs', 1, 'is_a', 'frno', 'frn_parties', 'public:read', 'admin');
 INSERT INTO fields (table_name, field_name, title, format, field_order)

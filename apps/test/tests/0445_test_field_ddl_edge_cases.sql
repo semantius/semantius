@@ -406,7 +406,7 @@ SELECT is(effective_enum_values('required', '["a", "b"]'::jsonb), '["a", "b"]'::
 -- =====================================================
 -- PART 5: families
 -- =====================================================
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('fd_fam', 'Family', 'Families', 1, 'typeid', 'fdfam');
 INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values)
 VALUES ('fd_fam', 'st', 'State', 'enum', 'required', '["a", "b"]');

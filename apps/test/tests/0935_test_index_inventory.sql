@@ -67,7 +67,7 @@ SELECT set_eq(
         'CREATE INDEX idx_entities_link_of ON public.entities USING btree (link_of)',
         'CREATE INDEX idx_entities_module ON public.entities USING btree (module_id)',
         'CREATE INDEX idx_entities_view_permission ON public.entities USING btree (view_permission)',
-        'CREATE UNIQUE INDEX unique_current_id_prefix ON public.entities USING btree (id_prefix) WHERE (id_prefix <> ''''::text)',
+        'CREATE UNIQUE INDEX unique_current_type_prefix ON public.entities USING btree (type_prefix) WHERE (type_prefix <> ''''::text)',
         'CREATE UNIQUE INDEX entity_attachables_pkey ON public.entity_attachables USING btree (id)',
         'CREATE UNIQUE INDEX entity_attachables_target_attachable_key ON public.entity_attachables USING btree (target, attachable)',
         'CREATE INDEX idx_entity_attachables_attachable ON public.entity_attachables USING btree (attachable)',

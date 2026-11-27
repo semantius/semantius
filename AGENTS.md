@@ -134,8 +134,8 @@ once, `9900_*` runs last.
   `common.view_write_<t>` and the root's `common.is_a_dispatch_<root>`, and for a
   rollup field `common.rollup_<child>_<link>` with its `<name>_ins/_upd/_del/_trc`
   triggers on the child table, `common.rollup_guard_<t>` and `a_rollup_guard` on
-  the parent, for a numbered label the counters `<t>_label_seq`, the trigger
-  `b_label_number` and the index `<t>_label_number_unique`, for an attachable
+  the parent, for a typenumber key the counter `<rel>_<id>_seq` of the root and
+  of each is_a subtype and the trigger `a_typenumber_assign`, for an attachable
   entity its field `attached_to` with `idx_<t>_attached_to`, the trigger
   `d_attach_check`, `attached_to_label(<t>)` and its link entity `<t>_links` with
   the field `<t>_id`, the index `<t>_links_attached_to_unique` and its own
@@ -204,8 +204,8 @@ exceptions.**
   generated RPCs, by PostgREST's `/table?id=eq.x` and by the UI.
 - Never build a key column by hand: the key column, the id field row and the
   key's triggers all come from `dd_id_column_ddl` / `dd_install_id_triggers` in
-  `0160_dd_functions.sql`. TypeID is a key type, not a field format: the id
-  field's format stays `string`.
+  `0160_dd_functions.sql`. Typed Id and Typed Number are key types, not field
+  formats: the id field's format stays `string`.
 - **The tables without an `id` key**: `entities` (keyed by `table_name`),
   `permissions` (keyed by `permission_name`; foreign keys to it carry
   `ON UPDATE CASCADE` so a rename propagates), and `fields` plus the five

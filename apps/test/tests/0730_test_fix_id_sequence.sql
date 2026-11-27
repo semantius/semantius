@@ -2,10 +2,11 @@
 -- public.fix_id_sequence (0730)
 -- =====================================================
 -- Pins the RPC an importer calls after writing explicit ids: it moves the id
--- sequence past max(id), never lowers it, answers NULL for keys without a
--- sequence, and is callable exactly by holders of the entity's edit_permission
--- who see the entity in the catalog, with an unknown table and a denied one
--- looking alike to non-admins.
+-- sequence past max(id), or a Typed Number key's counter past the highest
+-- number of its prefix, never lowers either, answers NULL for keys without
+-- one, a has_a extension's among them, and is callable exactly by holders of
+-- the entity's edit_permission who see the entity in the catalog, with an
+-- unknown table and a denied one looking alike to non-admins.
 --
 -- The lock-timeout path (90232) needs a second session holding a conflicting
 -- lock, which one pgTAP transaction cannot produce; pgdocker/pg-ext-lifecycle.sh
@@ -21,7 +22,7 @@
 -- public:read and edited with nwind:manage.
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(26);
 
 -- A fresh transaction carries no claims, so this is an unauthenticated caller.
 SET ROLE semantius_user;
@@ -36,9 +37,9 @@ VALUES
     ('fixseq_empty', 'fixseq_empty', 'Fixseq Empty', 'Fixseq Empties', 'fix_id_sequence empty table', 1, 'public:read', 'nwind:manage', 'id', 'label');
 INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_column, label_column, managed)
 VALUES ('fixseq_unmanaged', 'fixseq_unmanaged', 'Fixseq Unmanaged', 'Fixseq Unmanaged', 'fix_id_sequence entity without a table', 1, 'public:read', 'admin', 'id', 'label', FALSE);
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, id_prefix)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, type_prefix)
 VALUES ('fixseq_base', 'fixseq_base', 'Fixseq Base', 'Fixseq Bases', 'fix_id_sequence base only an administrator sees', 1, 'admin', 'admin', 'typeid', 'fixseqbase');
-INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, type_prefix, id_refentity)
 VALUES ('fixseq_sub', 'fixseq_sub', 'Fixseq Sub', 'Fixseq Subs', 'fix_id_sequence is_a entity under a hidden base', 1, 'public:read', 'nwind:manage', 'is_a', 'fixseqsub', 'fixseq_base');
 
 -- =====================================================
@@ -89,6 +90,38 @@ SELECT is(public.fix_id_sequence('permissions'), NULL::bigint,
     'a text key has no sequence: NULL');
 SELECT is(public.fix_id_sequence('fixseq_unmanaged'), NULL::bigint,
     'an entity whose table does not exist: NULL, not 42P01');
+SELECT is(public.fix_id_sequence('fixseq_base'), NULL::bigint,
+    'a typeid key has no sequence: NULL');
+
+-- =====================================================
+-- A Typed Number key
+-- =====================================================
+-- Its counter is owned by the key column like an identity sequence, so
+-- pg_get_serial_sequence finds it; its keys are no numbers, so the number is
+-- read after the prefix, and only the keys of the entity's current prefix
+-- count.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, type_prefix)
+VALUES ('fixseq_num', 'fixseq_num', 'Fixseq Num', 'Fixseq Nums', 'fix_id_sequence typenumber table', 1, 'public:read', 'admin', 'typenumber', 'FIXN');
+INSERT INTO fixseq_num (id, label) VALUES ('FIXN-41', 'imported');
+SELECT is(public.fix_id_sequence('fixseq_num'), 42::bigint,
+    'typenumber: returns the number after the highest supplied one');
+UPDATE entities SET type_prefix = 'FIXM' WHERE table_name = 'fixseq_num';
+INSERT INTO fixseq_num (id, label) VALUES ('FIXM-7', 'new prefix');
+SELECT is(public.fix_id_sequence('fixseq_num'), 42::bigint,
+    'typenumber: only the keys of the current prefix count, and the counter is never lowered');
+
+-- An is_a subtype numbers with a counter of its own, on its _ext table, from
+-- the keys of its prefix in the root table. A has_a extension takes its new
+-- keys from its base's counter and has none of its own.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, type_prefix, id_refentity)
+VALUES ('fixseq_numsub', 'fixseq_numsub', 'Fixseq Num Sub', 'Fixseq Num Subs', 'fix_id_sequence is_a under a typenumber root', 1, 'public:read', 'admin', 'is_a', 'FIXS', 'fixseq_num');
+INSERT INTO entities (table_name, singular, singular_label, plural_label, description, module_id, view_permission, edit_permission, id_type, id_refentity)
+VALUES ('fixseq_numplus', 'fixseq_numplus', 'Fixseq Num Plus', 'Fixseq Num Pluses', 'fix_id_sequence has_a on a typenumber base', 1, 'public:read', 'admin', 'has_a', 'fixseq_num');
+INSERT INTO fixseq_numsub (id, label) VALUES ('FIXS-9', 'imported');
+SELECT is(public.fix_id_sequence('fixseq_numsub'), 10::bigint,
+    'typenumber is_a: moves the subtype''s own counter past the numbers of its prefix');
+SELECT is(public.fix_id_sequence('fixseq_numplus'), NULL::bigint,
+    'typenumber has_a: NULL, the extension has no counter of its own');
 
 -- =====================================================
 -- Refusals

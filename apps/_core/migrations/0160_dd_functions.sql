@@ -95,10 +95,11 @@ COMMENT ON FUNCTION dd_dollar_quote(TEXT) IS
 -- ENTITY FAMILIES (id_type is_a and has_a)
 -- =====================================================
 -- An is_a entity is a subtype, a has_a entity an optional extension, of the
--- entity named in its id_refentity (its base); both share the base's TypeID
--- key. A family is a typeid root and every entity based on it, directly or
--- through other is_a entities. Every entity of a family is managed
--- (derived_entity_managed, and 90240/90252 for the bases).
+-- entity named in its id_refentity (its base); both share the base's key, a
+-- Typed Id or a Typed Number. A family is a typeid or typenumber root and every
+-- entity based on it, directly or through other is_a entities. Every entity
+-- of a family is managed (derived_entity_managed, and 90240/90252 for the
+-- bases).
 --
 -- Storage: the root is an ordinary table. A derived entity t keeps its own
 -- fields in the physical table t_ext, whose key references the physical
@@ -259,14 +260,29 @@ COMMENT ON FUNCTION dd_entity_is_child(TEXT) IS
 --   text            TEXT, supplied by the caller                  text
 --   uuid            UUID DEFAULT common.uuid_v7()                 uuid
 --   typeid          common.typeid, filled by common.typeid_assign string
---   is_a, has_a     common.typeid in <entity>_ext, referencing     string
---                   the base's relation (ENTITY FAMILIES above)
+--   typenumber      common.typenumber, filled by                 string
+--                   common.typenumber_assign from the counter
+--                   <table>_<key>_seq
+--   is_a, has_a     the base's key type in <entity>_ext,          string
+--                   referencing the base's relation (ENTITY
+--                   FAMILIES above)
 --   computed        system tables only: a generated column        text
 --
 -- BY DEFAULT rather than ALWAYS: seeds, imports and ensure_entities write
 -- explicit ids, and afterwards move the sequence past them (fix_id_sequence).
--- A caller may bring its own uuid or typeid too; only the typeid prefix is
--- checked.
+-- A caller may bring its own uuid, typeid or typenumber too; only the prefix
+-- of the last two, and the digits of a typenumber, are checked.
+--
+-- The counter of a typenumber key is a sequence named like an identity
+-- sequence and owned by the key column, so everything that handles identity
+-- sequences handles it too: the rename (rename_dd_table, 0170_dd_rename.sql),
+-- the request-role grant (pg_get_serial_sequence finds it), the ownership
+-- transfer (9900_owner_hardening.sql) and the DROP TABLE that takes it along.
+-- Whatever numbers with it or moves it finds it by that ownership, never by
+-- its name (dd_id_sequence). An is_a subtype of a typenumber root numbers
+-- with a counter of its own on its <entity>_ext table (INC-00001, CHG-00001),
+-- in the root's digits; a has_a extension takes its new keys from its base's
+-- counter.
 
 -- The column type an id_type gives a key, upper-cased like field_data_type's
 -- answers. Also what a reference to a registered entity without a table gets.
@@ -277,6 +293,8 @@ RETURNS TEXT AS $$
         WHEN 'bigint'         THEN 'BIGINT'
         WHEN 'uuid'           THEN 'UUID'
         WHEN 'typeid'         THEN 'COMMON.TYPEID'
+        WHEN 'typenumber'     THEN 'COMMON.TYPENUMBER'
+        -- Reached only for an is_a or has_a entity whose view is not built yet.
         WHEN 'is_a'           THEN 'COMMON.TYPEID'
         WHEN 'has_a'          THEN 'COMMON.TYPEID'
         ELSE 'TEXT'  -- text, and computed, whose system keys are generated TEXT
@@ -284,7 +302,7 @@ RETURNS TEXT AS $$
 $$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_id_type_data_type(TEXT) IS
-'Column type of an entity key for a given id_type (BIGINT, TEXT, UUID or COMMON.TYPEID), upper-cased like field_data_type.';
+'Column type of an entity key for a given id_type (BIGINT, TEXT, UUID, COMMON.TYPEID or COMMON.TYPENUMBER), upper-cased like field_data_type.';
 
 -- The key column's DDL and the values of its fields row, for one entity.
 --   column_ddl       the column definition inside CREATE TABLE, PRIMARY KEY included
@@ -300,10 +318,10 @@ COMMENT ON FUNCTION dd_id_type_data_type(TEXT) IS
 -- columns of a system table, which the dictionary cannot define.
 --
 -- For is_a and has_a the column is the key of <entity>_ext: the base record's
--- key, a RESTRICT foreign key to the base's physical relation, so a part can
--- never outlive the record it belongs to and a record is deleted bottom-up,
--- part by part, by the write routines. The entity row must already exist,
--- which it does in create_dd_table (AFTER INSERT).
+-- key, of the base's key type, a RESTRICT foreign key to the base's physical
+-- relation, so a part can never outlive the record it belongs to and a record
+-- is deleted bottom-up, part by part, by the write routines. The entity row
+-- must already exist, which it does in create_dd_table (AFTER INSERT).
 CREATE OR REPLACE FUNCTION dd_id_column_ddl(
     p_table_name TEXT,
     p_id_column TEXT,
@@ -332,15 +350,16 @@ BEGIN
         WHEN 'uuid' THEN
             column_ddl := format('%I UUID PRIMARY KEY DEFAULT common.uuid_v7()', p_id_column);
             id_format := 'uuid';
-        WHEN 'typeid' THEN
-            -- No default: common.typeid_assign fills the key before the NOT
-            -- NULL of the primary key is checked, and it knows the prefix.
-            column_ddl := format('%I common.typeid PRIMARY KEY', p_id_column);
+        WHEN 'typeid', 'typenumber' THEN
+            -- No default: common.typeid_assign or common.typenumber_assign
+            -- fills the key before the NOT NULL of the primary key is checked,
+            -- and it knows the prefix.
+            column_ddl := format('%I common.%s PRIMARY KEY', p_id_column, p_id_type);
             id_format := 'string';
         WHEN 'is_a', 'has_a' THEN
             SELECT e.id_refentity INTO v_base FROM entities e WHERE e.table_name = p_table_name;
-            column_ddl := format('%I common.typeid PRIMARY KEY REFERENCES public.%I(%I) ON DELETE RESTRICT',
-                p_id_column, dd_relation(v_base), p_id_column);
+            column_ddl := format('%I %s PRIMARY KEY REFERENCES public.%I(%I) ON DELETE RESTRICT',
+                p_id_column, dd_key_type(v_base), dd_relation(v_base), p_id_column);
             id_format := 'string';
             IF p_id_type = 'has_a' THEN
                 input_type := 'default';
@@ -403,6 +422,7 @@ BEGIN
         WHEN 'text'           THEN 'text'
         WHEN 'uuid'           THEN 'uuid'
         WHEN 'typeid'         THEN 'common.typeid'
+        WHEN 'typenumber'     THEN 'common.typenumber'
         ELSE p_id_type
     END;
 
@@ -413,6 +433,7 @@ BEGIN
         WHEN 'text'           THEN v_type_oid = 'pg_catalog.text'::regtype
         WHEN 'uuid'           THEN v_type_oid = 'pg_catalog.uuid'::regtype
         WHEN 'typeid'         THEN v_type_oid = 'common.typeid'::regtype
+        WHEN 'typenumber'     THEN v_type_oid = 'common.typenumber'::regtype
         ELSE FALSE
     END;
 
@@ -434,46 +455,68 @@ COMMENT ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) IS
 'Raises 90235 when an existing table''s key column does not match the entity''s id_type (or is missing). auto_increment accepts a BIGINT identity or bigserial.';
 
 -- The key's triggers on an entity's physical relation:
---   pk_immutable    BEFORE UPDATE OF <key>: common.reject_pk_change, for every
---                   key type - keys are set once
---   a_typeid_assign BEFORE INSERT: common.typeid_assign with the current
---                   prefix and the prefixes of the entity's is_a subtypes, for
---                   typeid keys only (an is_a or has_a entity takes its ids
---                   from the root)
--- A typeid key has no column default, so until a_typeid_assign has run the
--- row has no id; the name sorts before the entity's rules, so they see the id
--- it generates (the firing order is listed in build_record_logic_trigger,
--- 0210_computed_validation.sql).
--- Neither name embeds the table name, so rename_dd_table has nothing to
--- rename, and both are dropped with the table. The prefixes are trigger
--- arguments, quoted with %L. This is the one installer of a_typeid_assign, and
--- it computes the subtype list itself (dd_typeid_trigger_args), so every path
--- that installs the trigger - create_dd_table, enable_dd_table,
--- dd_sync_typeid_prefix on a prefix change and the family refresh when a
--- subtype comes or goes - installs the same one. A trigger with the root's
--- prefix alone would refuse every subtype insert.
+--   pk_immutable        BEFORE UPDATE OF <key>: common.reject_pk_change, for
+--                       every key type - keys are set once
+--   a_typeid_assign     BEFORE INSERT: common.typeid_assign with the current
+--                       prefix and the prefixes of the entity's is_a subtypes,
+--                       for typeid keys only (an is_a or has_a entity takes its
+--                       ids from the root)
+--   a_typenumber_assign the same for typenumber keys, common.typenumber_assign
+--                       with the digits as well
+-- and, before them, the counter of a typenumber root or of an is_a subtype in
+-- a typenumber family, <relation>_<key>_seq, created when the key column owns
+-- no sequence yet and moved past the numbers its prefix already has
+-- (dd_id_sequence_sync), which is what an adopted table brings. The counter
+-- is found by ownership (dd_id_sequence), so a sequence of another table that
+-- carries the name - table a with key b_id and table a_b with key id spell
+-- the same one - is never taken for it: CREATE SEQUENCE fails on the name
+-- (42P07) instead. It is created before the callers grant the key's sequence
+-- to the request role, so that grant reaches it.
+-- A typeid or typenumber key has no column default, so until its trigger has
+-- run the row has no id; the names sort before the entity's rules, so they see
+-- the id it generates (the firing order is listed in
+-- build_record_logic_trigger, 0210_computed_validation.sql).
+-- No trigger name embeds the table name, so rename_dd_table has nothing to
+-- rename, and they are dropped with the table. The prefixes and digits are
+-- trigger arguments, quoted with %L. This is the one installer of both assign
+-- triggers, and it computes the subtype list itself (dd_typeid_trigger_args),
+-- so every path that installs one - create_dd_table, enable_dd_table,
+-- dd_sync_typeid_prefix on a prefix or digits change and the family refresh
+-- when a subtype comes or goes - installs the same one. A trigger with the
+-- root's prefix alone would refuse every subtype insert.
 --
 -- Only tables the dictionary builds the key of get these triggers; the
 -- bootstrap tables are set up by hand, some on purpose with none
 -- (0070_rbac_schema.sql).
-CREATE OR REPLACE FUNCTION dd_install_id_triggers(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_id_prefix TEXT)
+CREATE OR REPLACE FUNCTION dd_install_id_triggers(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_type_prefix TEXT)
 RETURNS VOID AS $$
 DECLARE
     v_rel TEXT := dd_relation(p_table_name, p_id_type);
 BEGIN
+    -- At most 18 digits, as common.typenumber allows.
+    IF p_id_type IN ('typenumber', 'is_a')
+       AND (SELECT e.id_type FROM dd_ancestors(p_table_name) a JOIN entities e ON e.table_name = a.table_name
+             WHERE a.depth = 0) = 'typenumber'
+       AND dd_id_sequence(p_table_name) IS NULL THEN
+        EXECUTE format('CREATE SEQUENCE public.%I AS bigint MAXVALUE 999999999999999999 OWNED BY public.%I.%I',
+                       v_rel || '_' || p_id_column || '_seq', v_rel, p_id_column);
+        PERFORM dd_id_sequence_sync(p_table_name, FALSE);
+    END IF;
+
     EXECUTE format(
         'CREATE OR REPLACE TRIGGER pk_immutable BEFORE UPDATE OF %I ON public.%I
             FOR EACH ROW EXECUTE FUNCTION common.reject_pk_change(%L)',
         p_id_column, v_rel, p_id_column);
 
-    IF p_id_type = 'typeid' THEN
+    IF p_id_type IN ('typeid', 'typenumber') THEN
         EXECUTE format(
-            'CREATE OR REPLACE TRIGGER a_typeid_assign BEFORE INSERT ON public.%I
-                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%s)',
-            v_rel, dd_typeid_trigger_args(p_table_name, p_id_column, p_id_prefix));
+            'CREATE OR REPLACE TRIGGER %I BEFORE INSERT ON public.%I
+                FOR EACH ROW EXECUTE FUNCTION common.%I(%s)',
+            'a_' || p_id_type || '_assign', v_rel, p_id_type || '_assign',
+            dd_typeid_trigger_args(p_table_name, p_id_column, p_type_prefix));
     END IF;
 
-    PERFORM dd_install_key_rule_checks(p_table_name, p_id_column, p_id_type, p_id_prefix);
+    PERFORM dd_install_key_rule_checks(p_table_name, p_id_column, p_id_type, p_type_prefix);
 END;
 -- SECURITY INVOKER: its callers (create_dd_table, enable_dd_table,
 -- dd_sync_typeid_prefix, dd_refresh_family) are SECURITY DEFINER and already
@@ -481,33 +524,38 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) IS
-'Creates the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid keys, the a_typeid_assign insert trigger carrying the current prefix and the prefixes of the entity''s is_a subtypes, then brings the late key checks up to date (dd_install_key_rule_checks). a_typeid_assign sorts before compute_validate_trigger, so computed fields and validation rules see the generated id. For tables whose key the dictionary builds only.';
+'Creates the counter <relation>_<key>_seq of a typenumber root or of an is_a subtype in a typenumber family when its key column owns no sequence (dd_id_sequence), moved past the numbers the table already has; then the pk_immutable trigger (every key type) on an entity''s physical relation and, for typeid and typenumber keys, the a_typeid_assign or a_typenumber_assign insert trigger carrying the current prefix (and digits) and the prefixes of the entity''s is_a subtypes; then brings the late key checks up to date (dd_install_key_rule_checks). The assign triggers sort before compute_validate_trigger, so computed fields and validation rules see the generated id. For tables whose key the dictionary builds only.';
 
--- The arguments of a typeid table's a_typeid_assign, ready to go between the
--- parentheses of EXECUTE FUNCTION: the key column, the current prefix, then
--- the prefixes of the entity's is_a subtypes, each quoted with %L.
-CREATE OR REPLACE FUNCTION dd_typeid_trigger_args(p_table_name TEXT, p_id_column TEXT, p_id_prefix TEXT)
+-- The arguments of a typeid or typenumber table's assign trigger, ready to go
+-- between the parentheses of EXECUTE FUNCTION: the key column, the current
+-- prefix, the digits of a typenumber entity, then the prefixes of the
+-- entity's is_a subtypes, each quoted with %L. The digits are read from the
+-- entity's row, so a change of them reaches the trigger as a prefix does.
+CREATE OR REPLACE FUNCTION dd_typeid_trigger_args(p_table_name TEXT, p_id_column TEXT, p_type_prefix TEXT)
 RETURNS TEXT AS $$
-    SELECT format('%L, %L', p_id_column, p_id_prefix)
-           || coalesce(string_agg(format(', %L', e.id_prefix), '' ORDER BY e.id_prefix), '')
-      FROM dd_descendants(p_table_name) d
-      JOIN entities e ON e.table_name = d.table_name
-     WHERE e.id_type = 'is_a';
+    SELECT format('%L, %L', p_id_column, p_type_prefix)
+           || coalesce((SELECT format(', %L', e.type_digits) FROM entities e
+                         WHERE e.table_name = p_table_name AND e.id_type = 'typenumber'), '')
+           || coalesce((SELECT string_agg(format(', %L', e.type_prefix), '' ORDER BY e.type_prefix)
+                          FROM dd_descendants(p_table_name) d
+                          JOIN entities e ON e.table_name = d.table_name
+                         WHERE e.id_type = 'is_a'), '');
 $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) IS
-'The quoted argument list of a typeid table''s a_typeid_assign trigger: key column, current prefix, then the prefixes of the entity''s is_a subtypes.';
+'The quoted argument list of a typeid or typenumber table''s assign trigger: key column, current prefix, the digits of a typenumber entity, then the prefixes of the entity''s is_a subtypes.';
 
 -- A computed field may name the key column and write the key itself. Neither
--- key trigger sees what it wrote: a_typeid_assign runs before the rules, and
+-- key trigger sees what it wrote: the assign trigger runs before the rules, and
 -- pk_immutable, though it sorts after them, is an UPDATE OF trigger, which
 -- PostgreSQL fires only for a column the statement's SET list names, never
 -- for one a trigger changes. So a rule could store a typeid without the
 -- entity's prefix (or with a subtype's, a root row without its parts) and
 -- move the key of a stored record. Such a table gets the checks it has again
 -- behind the rules, with the same functions and arguments:
---   zz_key_check_insert BEFORE INSERT: common.typeid_assign, where the table
---                       has a_typeid_assign
+--   zz_key_check_insert BEFORE INSERT: common.typeid_assign or
+--                       common.typenumber_assign, where the table has
+--                       a_typeid_assign or a_typenumber_assign
 --   zz_key_check_update BEFORE UPDATE: common.reject_pk_change, where the
 --                       table has pk_immutable
 -- Repeating only the triggers the table has keeps the tables with no key
@@ -519,7 +567,7 @@ COMMENT ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) IS
 -- rules run in its write routine, which checks the key after them itself.
 -- Neither name embeds the table name, so rename_dd_table has nothing to
 -- rename.
-CREATE OR REPLACE FUNCTION dd_install_key_rule_checks(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_id_prefix TEXT)
+CREATE OR REPLACE FUNCTION dd_install_key_rule_checks(p_table_name TEXT, p_id_column TEXT, p_id_type TEXT, p_type_prefix TEXT)
 RETURNS VOID AS $$
 DECLARE
     v_rel     TEXT := dd_relation(p_table_name, p_id_type);
@@ -542,15 +590,15 @@ BEGIN
          WHERE e.table_name = p_table_name
            AND c ->> 'name' = p_id_column);
     v_insert := v_rule AND EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
-                                    WHERE t.tgrelid = v_relid AND t.tgname = 'a_typeid_assign');
+                                    WHERE t.tgrelid = v_relid AND t.tgname IN ('a_typeid_assign', 'a_typenumber_assign'));
     v_update := v_rule AND EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t
                                     WHERE t.tgrelid = v_relid AND t.tgname = 'pk_immutable');
 
     IF v_insert THEN
         EXECUTE format(
             'CREATE OR REPLACE TRIGGER zz_key_check_insert BEFORE INSERT ON public.%I
-                FOR EACH ROW EXECUTE FUNCTION common.typeid_assign(%s)',
-            v_rel, dd_typeid_trigger_args(p_table_name, p_id_column, p_id_prefix));
+                FOR EACH ROW EXECUTE FUNCTION common.%I(%s)',
+            v_rel, p_id_type || '_assign', dd_typeid_trigger_args(p_table_name, p_id_column, p_type_prefix));
     END IF;
     IF v_update THEN
         EXECUTE format(
@@ -575,7 +623,104 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_install_key_rule_checks(TEXT, TEXT, TEXT, TEXT) IS
-'When a computed field of a plain or root entity names the key column, creates zz_key_check_insert (where the table has a_typeid_assign) and zz_key_check_update (where it has pk_immutable), which repeat those key checks after the rules; otherwise drops them.';
+'When a computed field of a plain or root entity names the key column, creates zz_key_check_insert (where the table has a_typeid_assign or a_typenumber_assign) and zz_key_check_update (where it has pk_immutable), which repeat those key checks after the rules; otherwise drops them.';
+
+-- The sequence an entity's new keys are numbered from: the identity or serial
+-- sequence of a numeric key, or the counter of a typenumber root or of an
+-- is_a subtype in a typenumber family. It is the sequence the key column of
+-- the entity's relation owns (pg_get_serial_sequence), not one found by
+-- name: <relation>_<key>_seq may be the identity of another table, and the
+-- ownership survives a rename. Schema-qualified and quoted, as
+-- pg_get_serial_sequence answers. NULL for a key without one (text, uuid,
+-- typeid, a bigint the caller supplies, a has_a extension, which takes its
+-- new keys from its base) and for an entity without a table;
+-- pg_get_serial_sequence raises on a missing table or column, so it is asked
+-- only once the column is known to exist. The one lookup of the counter for
+-- the installer, the write routines that mint (dd_key_mint_sql) and the
+-- counter sync below; common.typenumber_assign asks pg_get_serial_sequence
+-- itself for its own table.
+CREATE OR REPLACE FUNCTION dd_id_sequence(p_table_name TEXT)
+RETURNS TEXT AS $$
+    SELECT pg_catalog.pg_get_serial_sequence(format('public.%I', r.rel), e.id_column)
+      FROM entities e
+     CROSS JOIN LATERAL (SELECT dd_relation(e.table_name, e.id_type) AS rel) r
+     WHERE e.table_name = p_table_name
+       AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+                    WHERE a.attrelid = pg_catalog.to_regclass(format('public.%I', r.rel))
+                      AND a.attname = e.id_column
+                      AND a.attnum > 0
+                      AND NOT a.attisdropped);
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_id_sequence(TEXT) IS
+'The sequence an entity''s new keys are numbered from, found by ownership: the identity or serial sequence of a numeric key, the counter of a typenumber root or is_a subtype. Schema-qualified, as pg_get_serial_sequence returns it; NULL for a key without one, a has_a extension and an entity without a table.';
+
+-- Moves the sequence of an entity's keys (dd_id_sequence) past the keys its
+-- table already has, never lower: lowering it would hand out the ids of
+-- deleted records again. Explicit ids - an import, a seed, a table adopted
+-- with rows - leave it behind, and the next insert that reaches one of them
+-- fails with 23505. The highest key is max(id) for a numeric key; for a
+-- typenumber key it is the highest number among the root's keys with the
+-- entity's current prefix, since keys of another prefix count with other
+-- counters, or were given under a prefix the entity no longer has. The keys
+-- of a family live in its root table, which is locked against inserts
+-- between max() and setval; a left-anchored LIKE on the key's "C" collation
+-- lets the planner read only that prefix from the primary key index.
+--
+-- How the sequence is set differs by caller, as p_is_called says:
+--   FALSE  setval(next, false), always, so the value returned is the next
+--          one the sequence hands out (fix_id_sequence, and
+--          dd_install_id_triggers when it creates a counter)
+--   TRUE   setval(highest, true), only when the sequence is behind: the
+--          state an identity is in once it handed out that id, which
+--          pg_sequence_last_value reports (ensure_entities after it wrote
+--          records)
+-- Returns the next value, NULL for an entity without a sequence.
+CREATE OR REPLACE FUNCTION dd_id_sequence_sync(p_table_name TEXT, p_is_called BOOLEAN)
+RETURNS BIGINT AS $$
+DECLARE
+    v_sequence TEXT := dd_id_sequence(p_table_name);
+    v_entity   entities%ROWTYPE;
+    v_root     entities%ROWTYPE;
+    v_max      BIGINT;
+    v_last     BIGINT;
+    v_called   BOOLEAN;
+    v_due      BIGINT;
+    v_next     BIGINT;
+BEGIN
+    IF v_sequence IS NULL THEN
+        RETURN NULL;
+    END IF;
+    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
+    SELECT e.* INTO v_root
+      FROM dd_ancestors(p_table_name) a JOIN entities e ON e.table_name = a.table_name
+     WHERE a.depth = 0;
+
+    EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', v_root.table_name);
+    IF v_root.id_type = 'typenumber' THEN
+        EXECUTE format('SELECT max(substr(t.%1$I, %2$s)::bigint) FROM public.%3$I t WHERE t.%1$I LIKE %4$L',
+                       v_root.id_column, length(v_entity.type_prefix) + 2, v_root.table_name,
+                       v_entity.type_prefix || '-%')
+           INTO v_max;
+    ELSE
+        EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_root.id_column, v_root.table_name) INTO v_max;
+    END IF;
+    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
+    -- The value the sequence would hand out next as it stands.
+    v_due := CASE WHEN v_called THEN v_last + 1 ELSE v_last END;
+    v_next := greatest(coalesce(v_max, 0) + 1, v_due);
+    IF NOT p_is_called THEN
+        PERFORM setval(v_sequence, v_next, false);
+    ELSIF v_next > v_due THEN
+        PERFORM setval(v_sequence, v_next - 1, true);
+    END IF;
+    RETURN v_next;
+END;
+-- SECURITY INVOKER: its callers are SECURITY DEFINER, or a migration.
+$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_id_sequence_sync(TEXT, BOOLEAN) IS
+'Moves the sequence of an entity''s keys (dd_id_sequence) past the highest key its table has, never lower, with the root table locked: past max(id) for a numeric key, past the highest number of the entity''s current prefix among the root''s keys for a typenumber key. p_is_called FALSE sets the next value, TRUE only catches a sequence that is behind up to the highest key, as handed out. Returns the next value, or NULL for an entity without a sequence.';
 
 -- =====================================================
 -- HELPER FUNCTION: FIELD TO COLUMN DATA TYPE
@@ -804,20 +949,6 @@ $$ LANGUAGE plpgsql SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_drop_own_index(TEXT, TEXT) IS
 'Drops a generated index when it is an index of the given table, and leaves a relation of that name on any other table alone. Returns whether it dropped one.';
-
--- Whether a sequence of the name exists in public, such as the label counter
--- <entity>_label_seq (dd_build_label_number). A relation of another kind under
--- the name does not count.
-CREATE OR REPLACE FUNCTION dd_sequence_exists(p_name TEXT)
-RETURNS BOOLEAN AS $$
-    SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
-                    WHERE c.relname = p_name::name
-                      AND c.relnamespace = 'public'::regnamespace
-                      AND c.relkind = 'S');
-$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_sequence_exists(TEXT) IS
-'TRUE when a sequence of the given name exists in public.';
 
 -- =====================================================
 -- ENUM HELPER FUNCTIONS
@@ -1709,7 +1840,7 @@ BEGIN
     IF v_existed THEN
         PERFORM dd_check_id_column(NEW.table_name, NEW.id_column, NEW.id_type);
     END IF;
-    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.type_prefix);
 
     -- Set table comment: plural label summary + optional description
     v_comment := dd_table_comment(NEW.plural_label, NEW.description);
@@ -1876,12 +2007,10 @@ CREATE OR REPLACE TRIGGER update_table_comment_trigger
 -- a rollup definition or from the entity's computed_fields and maintains the
 -- column's values, but the field itself stays the administrator's to rename,
 -- retype within its column type and delete, so they answer FALSE here.
--- 'computed_label' is the label column that a computed_fields rule names, and
--- 'number_label' the label column of an entity whose labels the database
--- numbers (label_format): either is the label column first, so it keeps the
--- label's protection and answers TRUE. 'attached_to' is the target of an
--- attachable record, which the dictionary creates and the attach step keeps:
--- core as well.
+-- 'computed_label' is the label column that a computed_fields rule names: it is
+-- the label column first, so it keeps the label's protection and answers TRUE.
+-- 'attached_to' is the target of an attachable record, which the dictionary
+-- creates and the attach step keeps: core as well.
 -- One predicate rather than a condition repeated at every site, so the two
 -- directions cannot drift apart: a site that forgot a derived marker would lock
 -- that field, a site that forgot the core markers would unlock a key column.
@@ -1892,27 +2021,25 @@ SET search_path = public, pg_temp
 AS $$ SELECT coalesce(p_ctype, '') NOT IN ('', 'rollup', 'computed') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_core(TEXT) IS
-'TRUE when a ctype marks a core column (id, label, computed_label, number_label, attached_to, audit, core) that the dictionary protects from deletion, rename, and changes of format, default, reference table and delete mode. Empty, rollup and computed are not core.';
+'TRUE when a ctype marks a core column (id, label, computed_label, attached_to, audit, core) that the dictionary protects from deletion, rename, and changes of format, default, reference table and delete mode. Empty, rollup and computed are not core.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_core(TEXT) TO semantius_user;
 
--- The label column carries one of three markers: 'label', 'computed_label'
--- when one of its entity's computed_fields names it, or 'number_label' when
--- its entity's label_format is number (zz_derive_computed_ctype,
+-- The label column carries one of two markers: 'label', or 'computed_label'
+-- when one of its entity's computed_fields names it (zz_derive_computed_ctype,
 -- 0210_computed_validation.sql). Every site that treats the label column
 -- specially (the rename and default exemptions, search weight A, the _label
 -- ordering in get_schema, the ensure_entities comparison) asks this predicate,
--- so a computed or numbered label is never mistaken for an ordinary core
--- column.
+-- so a computed label is never mistaken for an ordinary core column.
 CREATE OR REPLACE FUNCTION dd_ctype_is_label(p_ctype TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE
 SET search_path = public, pg_temp
-AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label', 'number_label') $$;
+AS $$ SELECT coalesce(p_ctype, '') IN ('label', 'computed_label') $$;
 
 COMMENT ON FUNCTION dd_ctype_is_label(TEXT) IS
-'TRUE when a ctype marks the label column: label, computed_label when one of the entity''s computed_fields names it, or number_label when the entity''s label_format is number.';
+'TRUE when a ctype marks the label column: label, or computed_label when one of the entity''s computed_fields names it.';
 
 REVOKE EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION dd_ctype_is_label(TEXT) TO semantius_user;
@@ -2610,11 +2737,6 @@ BEGIN
                     v_unique_idx_name, NEW.table_name, NEW.field_name;
             END IF;
         END;
-        -- A numbered label field with unique_value needs no index of the
-        -- format next to its own (dd_build_label_number).
-        IF dd_ctype_is_label(NEW.ctype) THEN
-            PERFORM dd_build_label_number(NEW.table_name);
-        END IF;
     END IF;
 
     RETURN NEW;
@@ -2808,12 +2930,6 @@ BEGIN
         RETURN OLD;
     END IF;
 
-    -- The label counter belongs to no table (dd_build_label_number), so the
-    -- DROP TABLE below does not take it along.
-    IF dd_sequence_exists(OLD.table_name || '_label_seq') THEN
-        EXECUTE format('DROP SEQUENCE public.%I', OLD.table_name || '_label_seq');
-    END IF;
-
     -- Dropping a family entity drops its view, and a root's DROP TABLE (only
     -- in a module-delete cascade) every view of its family; the rest of the
     -- family is rebuilt afterwards. Objects of another author built on those
@@ -2915,40 +3031,41 @@ COMMENT ON TRIGGER update_entity_policies_trigger ON entities IS
 -- =====================================================
 -- TRIGGER FUNCTION: typeid prefix change
 -- =====================================================
--- A typeid entity's prefix lives in two places: entities.id_prefix and the
--- argument of its table's a_typeid_assign trigger, which is what generates and
--- checks ids. Recreating the trigger takes a brief lock on the table and scans
--- nothing: existing rows keep the ids they were given, because a key never
--- changes, and there is no CHECK over the prefix that would have to be
--- re-validated. From the next insert on, new ids carry the new prefix and an
--- id with the old one is refused, so re-importing an export taken before the
--- change fails for the rows it would add.
+-- A typeid or typenumber entity's prefix, and a typenumber entity's digits,
+-- live in two places: entities.type_prefix and type_digits, and the arguments
+-- of its table's assign trigger, which is what generates and checks ids.
+-- Recreating the trigger takes a brief lock on the table and scans nothing:
+-- existing rows keep the ids they were given, because a key never changes,
+-- and there is no CHECK over the prefix that would have to be re-validated.
+-- From the next insert on, new ids carry the new prefix and digits, and an id
+-- with the old ones is refused, so re-importing an export taken before the
+-- change fails for the rows it would add. A typenumber entity keeps its
+-- counter, so a new prefix numbers on from where the old one stopped.
 --
 -- A family root's trigger also carries its is_a subtypes' prefixes, which
 -- dd_install_id_triggers adds itself; an is_a prefix never changes (90245).
--- The generated write routines of the root's has_a extensions check a
--- supplied id against the root's prefix, which is written into them, so the
--- family is rebuilt as well.
+-- The generated write routines of the family write the root's prefix and
+-- digits into what they mint and check, so the family is rebuilt as well.
 CREATE OR REPLACE FUNCTION dd_sync_typeid_prefix()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NOT NEW.managed OR NEW.id_type <> 'typeid'
+    IF NOT NEW.managed OR NEW.id_type NOT IN ('typeid', 'typenumber')
        OR to_regclass(format('public.%I', NEW.table_name)) IS NULL THEN
         RETURN NEW;
     END IF;
-    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.id_prefix);
+    PERFORM dd_install_id_triggers(NEW.table_name, NEW.id_column, NEW.id_type, NEW.type_prefix);
     PERFORM dd_refresh_family(ARRAY[NEW.table_name]);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_sync_typeid_prefix() IS
-'AFTER UPDATE OF id_prefix trigger on entities: recreates the a_typeid_assign trigger of a managed typeid entity''s table with the new prefix (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix.';
+'AFTER UPDATE OF type_prefix, type_digits trigger on entities: recreates the assign trigger of a managed typeid or typenumber entity''s table with the new prefix and digits (and its is_a subtypes'' prefixes), and rebuilds its family''s write routines. Takes a brief lock, scans nothing; existing ids keep their prefix and spelling.';
 
 CREATE OR REPLACE TRIGGER sync_typeid_prefix_trigger
-    AFTER UPDATE OF id_prefix ON entities
+    AFTER UPDATE OF type_prefix, type_digits ON entities
     FOR EACH ROW
-    WHEN (OLD.id_prefix IS DISTINCT FROM NEW.id_prefix)
+    WHEN (OLD.type_prefix IS DISTINCT FROM NEW.type_prefix OR OLD.type_digits IS DISTINCT FROM NEW.type_digits)
     EXECUTE FUNCTION dd_sync_typeid_prefix();
 
 -- =====================================================
@@ -3397,13 +3514,12 @@ CREATE OR REPLACE TRIGGER label_title_from_field_trigger
 -- =====================================================
 -- LABEL MARKER: the label ctype follows entities.label_column
 -- =====================================================
--- The label column's ctype (label, computed_label or number_label) is what
--- gives it the label's protection and search weight A, so it moves with
--- label_column: the field label_column leaves becomes an ordinary field again
--- (computed if a rule still names it) and loses that protection, and the field
--- it names becomes the label (computed_label if a rule names it, number_label
--- for a numbered entity; zz_derive_computed_ctype derives them from the plain
--- marker written here). Two cases write nothing:
+-- The label column's ctype (label, or computed_label) is what gives it the
+-- label's protection and search weight A, so it moves with label_column: the
+-- field label_column leaves becomes an ordinary field again (computed if a rule
+-- still names it) and loses that protection, and the field it names becomes
+-- the label (computed_label if a rule names it; zz_derive_computed_ctype
+-- derives both from the plain marker written here). Two cases write nothing:
 --   * an is_a or has_a entity: its label field is its root's (90242), and the
 --     root's own update moves the marker.
 --   * no field carries the new name. That is how a rename of the label field
@@ -3435,7 +3551,7 @@ BEGIN
     IF NOT FOUND THEN
         RETURN NULL;
     END IF;
-    IF coalesce(v_new.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label', 'number_label') THEN
+    IF coalesce(v_new.ctype, '') NOT IN ('', 'computed', 'label', 'computed_label') THEN
         RAISE EXCEPTION 'label_column of ${table} cannot name ${field_name}, which is already a ${ctype} field'
             USING ERRCODE = '90270',
                   HINT = jsonb_build_object('table', NEW.table_name, 'field_name', v_new.field_name,
@@ -3462,7 +3578,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_label_marker_follow() IS
-'AFTER UPDATE trigger on entities: moves the label marker (ctype label, computed_label or number_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
+'AFTER UPDATE trigger on entities: moves the label marker (ctype label or computed_label) from the field label_column leaves to the field it now names, refuses a field that carries another marker (90270), and rebuilds search_vector when either field is searchable. Writes nothing for an is_a or has_a entity or when no field carries the new name (a label field rename).';
 
 REVOKE EXECUTE ON FUNCTION dd_label_marker_follow() FROM PUBLIC;
 
@@ -3623,15 +3739,17 @@ COMMENT ON TRIGGER enforce_table_is_child_consistency_trigger ON entities IS
 -- =====================================================
 -- What an is_a or has_a entity may be based on, and what it inherits from its
 -- base, is decided when it is created and held from then on:
---   90240  the base: an is_a entity on a managed typeid or is_a entity, a
---          has_a entity on a managed typeid entity, neither on itself
+--   90240  the base: an is_a entity on a managed typeid, typenumber or is_a
+--          entity, a has_a entity on a managed typeid or typenumber entity,
+--          neither on itself
 --   90241  id_refentity never changes
 --   90242  label_column, label_column_label and label_parent come from the base
 --   90249  no order_column (the root's order column is no field and not in
 --          the views)
 --   90252  a base stays managed while entities are based on it
 --   90254  a new is_a entity's prefix is carried by no row of its root
---   90289  label_format is the root's
+--   90288  a new is_a entity's prefix has its root's grammar, Typed Id or
+--          Typed Number
 -- The key column and the label column with its title are set from the base on
 -- insert; the label field is the root's, which every level of a chain shares.
 -- So is is_child, which a parent field on any level above sets.
@@ -3642,6 +3760,7 @@ DECLARE
     v_base       entities%ROWTYPE;
     v_has_base   BOOLEAN := FALSE;
     v_root       TEXT;
+    v_root_type  TEXT;
     v_root_label TEXT;
     v_root_title TEXT;
     v_taken      BOOLEAN;
@@ -3655,21 +3774,36 @@ BEGIN
             -- is not: the row being inserted satisfies its own foreign key.
             IF NEW.id_refentity = NEW.table_name
                OR (v_has_base AND (NOT v_base.managed
-                    OR (NEW.id_type = 'has_a' AND v_base.id_type <> 'typeid')
-                    OR (NEW.id_type = 'is_a' AND v_base.id_type NOT IN ('typeid', 'is_a')))) THEN
+                    OR (NEW.id_type = 'has_a' AND v_base.id_type NOT IN ('typeid', 'typenumber'))
+                    OR (NEW.id_type = 'is_a' AND v_base.id_type NOT IN ('typeid', 'typenumber', 'is_a')))) THEN
                 RAISE EXCEPTION 'Entity ${table} cannot be based on ${base}'
                     USING ERRCODE = '90240',
                           HINT = jsonb_build_object(
                               'table', NEW.table_name,
                               'base', NEW.id_refentity,
-                              'hint', 'An is_a entity is based on a managed typeid or is_a entity, a has_a entity on a managed typeid entity, and no entity on itself.')::text;
+                              'hint', 'An is_a entity is based on a managed typeid, typenumber or is_a entity, a has_a entity on a managed typeid or typenumber entity, and no entity on itself.')::text;
             END IF;
             IF v_has_base THEN
-                SELECT e.label_column, e.label_column_label, e.table_name
-                  INTO v_root_label, v_root_title, v_root
+                SELECT e.label_column, e.label_column_label, e.table_name, e.id_type
+                  INTO v_root_label, v_root_title, v_root, v_root_type
                   FROM dd_ancestors(NEW.id_refentity) a
                   JOIN entities e ON e.table_name = a.table_name
                  WHERE a.depth = 0;
+                -- The subtype's keys are minted and dispatched like its
+                -- root's, so its prefix is of the root's kind. valid_type_prefix
+                -- holds it to one of the two grammars, and they differ in the
+                -- case of the first letter.
+                IF NEW.id_type = 'is_a'
+                   AND (v_root_type = 'typenumber') IS DISTINCT FROM (NEW.type_prefix ~ '^[A-Z]') THEN
+                    RAISE EXCEPTION 'The prefix ${prefix} of ${table} is not of the kind of its root ${base}, a ${id_type} entity'
+                        USING ERRCODE = '90288',
+                              HINT = jsonb_build_object(
+                                  'table', NEW.table_name,
+                                  'base', v_root,
+                                  'prefix', NEW.type_prefix,
+                                  'id_type', v_root_type,
+                                  'hint', 'Under a typeid root a prefix is lowercase letters and underscores (inc), under a typenumber root uppercase letters and digits (INC).')::text;
+                END IF;
                 -- The root dispatches a row to the subtype its id's prefix
                 -- names. A prefix the root gave up is free again, but its rows
                 -- keep it: a subtype taking it would be handed rows that have
@@ -3677,17 +3811,17 @@ BEGIN
                 -- the caller cannot read count too.
                 IF NEW.id_type = 'is_a'
                    AND pg_catalog.to_regclass(format('public.%I', v_root)) IS NOT NULL THEN
-                    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE common.typeid_prefix(t.%I) = $1)',
+                    EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE common.type_prefix(t.%I) = $1)',
                                    v_root, v_base.id_column)
                        INTO v_taken
-                      USING NEW.id_prefix;
+                      USING NEW.type_prefix;
                     IF v_taken THEN
                         RAISE EXCEPTION 'Records of ${base} already carry the prefix ${prefix}'
                             USING ERRCODE = '90254',
                                   HINT = jsonb_build_object(
                                       'table', NEW.table_name,
                                       'base', v_root,
-                                      'prefix', NEW.id_prefix,
+                                      'prefix', NEW.type_prefix,
                                       'hint', 'The prefix names the type of a record. Choose a prefix no record of the family carries.')::text;
                     END IF;
                 END IF;
@@ -3751,20 +3885,12 @@ BEGIN
                   HINT = jsonb_build_object('feature', 'order_column', 'id_type', NEW.id_type, 'table', NEW.table_name)::text;
     END IF;
 
-    -- The label is the root's, and so is how it is filled (common.label_number_assign).
-    IF v_derived AND NEW.label_format <> 'custom' THEN
-        RAISE EXCEPTION 'label_format of ${table} comes from the root of its family'
-            USING ERRCODE = '90289',
-                  HINT = jsonb_build_object('table', NEW.table_name,
-                                            'hint', 'Set label_format on the root; a subtype may set a label_number_prefix of its own.')::text;
-    END IF;
-
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION check_entity_family() IS
-'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252), refuses a new is_a entity a prefix rows of its root carry (90254) and refuses a label_format of its own on one (90289). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
+'BEFORE INSERT OR UPDATE trigger on entities: checks the base of an is_a/has_a entity (90240), keeps id_refentity write-once (90241) and label_column/label_column_label/label_parent inherited (90242), refuses an order_column on one (90249), refuses unmanaging a base with dependents (90252), refuses a new is_a entity a prefix rows of its root carry (90254) or one not of its root''s kind (90288). Sets id_column, label_column, label_column_label, label_parent and is_child from the base on insert.';
 
 CREATE OR REPLACE TRIGGER check_entity_family_trigger
     BEFORE INSERT OR UPDATE ON entities
@@ -3889,9 +4015,10 @@ CREATE OR REPLACE TRIGGER validate_family_field_trigger
 -- permissions then apply to every part.
 --
 -- The depth invariant. Inside a trigger, only record_write_* and RI actions
--- write an _ext table or insert into a typeid root with a subtype prefix:
--- common.ext_write_guard and common.typeid_assign let exactly that through by
--- testing pg_trigger_depth(), and record_write_* checks the prefix of every id
+-- write an _ext table or insert into a family root with a subtype prefix:
+-- common.ext_write_guard and the root's common.typeid_assign or
+-- common.typenumber_assign let exactly that through by testing
+-- pg_trigger_depth(), and record_write_* checks the prefix of every id
 -- it inserts. RI actions are limited to what cannot split a record: an is_a
 -- subtype's reference field cannot cascade (90249), a SET NULL on an _ext
 -- column runs without the derived rules (_ext has no rule trigger), and a
@@ -4030,7 +4157,9 @@ COMMENT ON FUNCTION dd_build_family_view(TEXT) IS
 --   dd_key_kept_sql   90236 when v_new's key differs from p_was's (a record
 --                     variable of the routine: p_old, v_base)
 --   dd_key_prefix_sql 90237 when v_new's key does not carry p_prefix
--- p_table is the entity the error names.
+-- p_table is the entity the error names. The digits of a typenumber key are
+-- checked by the root's a_typenumber_assign, which every root row a routine
+-- inserts passes.
 CREATE OR REPLACE FUNCTION dd_key_kept_sql(p_key TEXT, p_was TEXT, p_table TEXT, p_when TEXT DEFAULT '')
 RETURNS TEXT AS $$
     SELECT format(E'\n        IF %4$sv_new.%1$I IS DISTINCT FROM %2$s.%1$I THEN'
@@ -4046,7 +4175,7 @@ COMMENT ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) IS
 
 CREATE OR REPLACE FUNCTION dd_key_prefix_sql(p_key TEXT, p_prefix TEXT, p_table TEXT, p_when TEXT DEFAULT '')
 RETURNS TEXT AS $$
-    SELECT format(E'\n        IF %4$scommon.typeid_prefix(v_new.%1$I) IS DISTINCT FROM %2$L THEN'
+    SELECT format(E'\n        IF %4$scommon.type_prefix(v_new.%1$I) IS DISTINCT FROM %2$L THEN'
                   || E'\n            RAISE EXCEPTION ''Id ${id} does not carry the prefix ${prefix} of ${table}'''
                   || E'\n                USING ERRCODE = ''90237'','
                   || E'\n                      HINT = jsonb_build_object(''id'', v_new.%1$I, ''prefix'', %2$L, ''table'', %3$L)::text;'
@@ -4055,7 +4184,34 @@ RETURNS TEXT AS $$
 $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) IS
-'PL/pgSQL text for a generated write routine: raises 90237 when the key of v_new does not carry the given TypeID prefix, optionally only under a condition.';
+'PL/pgSQL text for a generated write routine: raises 90237 when the key of v_new does not carry the given prefix, optionally only under a condition.';
+
+-- The expression a generated write routine mints a new key of an entity
+-- with, for an is_a insert (the subtype's own key) and a has_a insert without
+-- a base record (the base's): a Typed Id with the entity's prefix, or in a
+-- typenumber family the next number of the entity's counter under its prefix,
+-- in the root's digits. Minting in the routine rather than in the root's
+-- assign trigger spares the INSERT a RETURNING, which would need the caller
+-- to be able to read the row back. The prefix is quoted with %L, the digits
+-- are an integer, and the counter is the sequence the entity's key column
+-- owns (dd_id_sequence) when the routine is built, quoted with %L; the family
+-- is rebuilt after every rename, which renames the counter too.
+CREATE OR REPLACE FUNCTION dd_key_mint_sql(p_table_name TEXT)
+RETURNS TEXT AS $$
+    SELECT CASE WHEN r.id_type = 'typenumber'
+                THEN format('common.typenumber_text(%L, %s, nextval(%L))', e.type_prefix, r.type_digits,
+                            dd_id_sequence(e.table_name))
+                ELSE format('common.typeid_generate_text(%L)', e.type_prefix)
+           END
+      FROM entities e
+     CROSS JOIN LATERAL (SELECT x.id_type, x.type_digits
+                           FROM dd_ancestors(e.table_name) a JOIN entities x ON x.table_name = a.table_name
+                          WHERE a.depth = 0) r
+     WHERE e.table_name = p_table_name;
+$$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
+
+COMMENT ON FUNCTION dd_key_mint_sql(TEXT) IS
+'The SQL expression that mints a new key of an entity in a generated write routine: a Typed Id with its prefix, or in a typenumber family the next number of its counter under its prefix in the root''s digits.';
 
 -- The write routine of a derived entity t: common.record_write_t(op, old,
 -- new, from_root) writes one record whose own type is t, and every entry point
@@ -4064,18 +4220,17 @@ COMMENT ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) IS
 -- input record when the caller cannot read it; NULL when the record is
 -- skipped.
 --
---   insert  is_a: the id is minted with t's prefix, or a supplied one must
+--   insert  is_a: the id is minted with t's prefix (and in a typenumber
+--           family t's counter, dd_key_mint_sql), or a supplied one must
 --           carry it (90237); the root row, then each _ext level top-down. An
 --           id that exists fails with 23505: the type is fixed at creation.
 --           has_a: no id, or one no visible base row has, inserts the base row
 --           too, with an id minted here with the base's prefix (a supplied one
---           must carry it, 90237 - the root's a_typeid_assign would accept a
+--           must carry it, 90237 - the root's assign trigger would accept a
 --           subtype prefix from here and create a subtype root row without its
---           parts). Minting it here rather than in a_typeid_assign spares the
---           INSERT a RETURNING, which would need the caller to be able to read
---           the base row back. The rules run after the id is settled, so they
+--           parts). The rules run after the id is settled, so they
 --           see it, and a computed field may write it; the key they leave is
---           checked again, since the root's a_typeid_assign would accept a
+--           checked again, since the root's assign trigger would accept a
 --           subtype prefix from a rule just as from a caller: a changed key of
 --           an attaching record raises 90236, a key without the base's prefix
 --           90237. is_a checks the prefix after the rules only. The id of a
@@ -4310,7 +4465,7 @@ BEGIN
     -- have set them.
     IF NOT v_is_a AND cardinality(v_root_cols) > 0 THEN
         FOR r IN
-            SELECT e.table_name, e.id_prefix
+            SELECT e.table_name, e.type_prefix
               FROM dd_descendants(v_root.table_name) d
               JOIN entities e ON e.table_name = d.table_name
              WHERE e.id_type = 'is_a'
@@ -4337,7 +4492,7 @@ BEGIN
                         RETURN NULL;
                     END IF;%8$s
                     v_routed := true;$RT$,
-                r.id_prefix, v_si, r.table_name, v_k, p_table_name,
+                r.type_prefix, v_si, r.table_name, v_k, p_table_name,
                 (SELECT string_agg(format(E'\n                    v_sub_new_%s.%I := v_new.%I;', v_si, x, x), '')
                    FROM unnest(v_root_cols) x),
                 'record_write_' || r.table_name,
@@ -4347,7 +4502,7 @@ BEGIN
         IF v_route_whens <> '' THEN
             v_route := format(E'\n        -- A base change of a subtype record is written by the subtype.'
                               '\n        IF v_top <= 0 THEN'
-                              '\n            CASE common.typeid_prefix(p_old.%1$I)%2$s'
+                              '\n            CASE common.type_prefix(p_old.%1$I)%2$s'
                               '\n                ELSE'
                               '\n                    NULL;'
                               '\n            END CASE;'
@@ -4405,19 +4560,19 @@ $BODY$,
         v_root.table_name,
         -- 4: insert
         CASE WHEN v_is_a THEN
-            format(E'        IF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%2$L);\n        END IF;', v_k, v_entity.id_prefix)
+            format(E'        IF v_new.%1$I IS NULL THEN\n            v_new.%1$I := %2$s;\n        END IF;', v_k, dd_key_mint_sql(p_table_name))
             || CASE WHEN v_any_rules THEN E'\n        v_data := to_jsonb(v_new);' || v_rules_ins || E'\n        v_new := jsonb_populate_record(v_new, v_data);' ELSE '' END
-            || dd_key_prefix_sql(v_k, v_entity.id_prefix, p_table_name)
+            || dd_key_prefix_sql(v_k, v_entity.type_prefix, p_table_name)
             || v_ins
         ELSE
-            format(E'        IF v_new.%1$I IS NOT NULL THEN\n            SELECT * INTO v_base FROM public.%2$I AS t WHERE t.%1$I = v_new.%1$I;\n            v_attach := FOUND;\n        END IF;\n        IF v_attach THEN%3$s\n        ELSIF v_new.%1$I IS NULL THEN\n            v_new.%1$I := common.typeid_generate_text(%4$L);\n        END IF;',
-                   v_k, v_base.table_name, v_attach_in, v_base.id_prefix)
+            format(E'        IF v_new.%1$I IS NOT NULL THEN\n            SELECT * INTO v_base FROM public.%2$I AS t WHERE t.%1$I = v_new.%1$I;\n            v_attach := FOUND;\n        END IF;\n        IF v_attach THEN%3$s\n        ELSIF v_new.%1$I IS NULL THEN\n            v_new.%1$I := %4$s;\n        END IF;',
+                   v_k, v_base.table_name, v_attach_in, dd_key_mint_sql(v_base.table_name))
             -- A supplied id that names no visible base record, checked before
             -- the rules and again after them: the rules may write the key.
-            || dd_key_prefix_sql(v_k, v_base.id_prefix, v_base.table_name, 'NOT v_attach')
+            || dd_key_prefix_sql(v_k, v_base.type_prefix, v_base.table_name, 'NOT v_attach')
             || CASE WHEN v_any_rules THEN E'\n        v_data := to_jsonb(v_new);' || v_rules_ins || E'\n        v_new := jsonb_populate_record(v_new, v_data);'
                          || dd_key_kept_sql(v_k, 'v_base', p_table_name, 'v_attach')
-                         || dd_key_prefix_sql(v_k, v_base.id_prefix, v_base.table_name, 'NOT v_attach')
+                         || dd_key_prefix_sql(v_k, v_base.type_prefix, v_base.table_name, 'NOT v_attach')
                          || CASE WHEN v_attach_out = '' THEN '' ELSE E'\n        IF v_attach THEN' || v_attach_out || E'\n        END IF;' END
                     ELSE '' END
             || v_ins
@@ -4496,7 +4651,7 @@ BEGIN
       FROM dd_family_columns(p_table_name) c;
 
     FOR r IN
-        SELECT s.table_name, s.id_prefix
+        SELECT s.table_name, s.type_prefix
           FROM dd_is_a_subtypes(p_table_name) s
          WHERE pg_catalog.to_regclass(format('public.%I', s.table_name)) IS NOT NULL
          ORDER BY s.depth, s.table_name
@@ -4528,7 +4683,7 @@ BEGIN
             IF v_res_%2$s IS NULL THEN
                 RETURN NULL;
             END IF;%8$s$BR$,
-            r.id_prefix, v_i, r.table_name, v_k,
+            r.type_prefix, v_i, r.table_name, v_k,
             (SELECT coalesce(string_agg(format(E'\n                v_new_%s.%I := NEW.%I;', v_i, x, x), ''), '')
                FROM unnest(v_cols) x),
             'record_write_' || r.table_name,
@@ -4591,7 +4746,7 @@ $BODY$,
         v_fn, p_table_name, v_case.decls, 'record_write_' || p_table_name,
         CASE WHEN v_case.branches = '' THEN v_own
              ELSE format($CASE$
-    CASE common.typeid_prefix(OLD.%1$I)%2$s
+    CASE common.type_prefix(OLD.%1$I)%2$s
         ELSE%3$s
     END CASE;
     -- A descendant's record, returned as this view shows it.
@@ -4657,7 +4812,7 @@ BEGIN
     -- Direct writes only: a deeper one comes from a write routine or an RI
     -- action (the depth invariant in 0160_dd_functions.sql).
     IF pg_trigger_depth() = 1 THEN
-        CASE common.typeid_prefix(OLD.%3$I)%4$s
+        CASE common.type_prefix(OLD.%3$I)%4$s
             ELSE
                 NULL;
         END CASE;
@@ -4701,7 +4856,10 @@ DECLARE
     v_found BOOLEAN;
 BEGIN
     FOR i IN 1 .. TG_NARGS - 1 LOOP
-        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1::common.typeid)',
+        -- No cast: the key column's "C" collation wins over the parameter's
+        -- default one, so the comparison uses the primary key index for
+        -- either key type.
+        EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1)',
                        TG_ARGV[i] || '_ext', TG_ARGV[0])
            INTO v_found
           USING to_jsonb(OLD) ->> TG_ARGV[0];
@@ -4751,7 +4909,8 @@ BEGIN
           JOIN entities e ON e.table_name = a.table_name
          ORDER BY a.depth
     LOOP
-        EXECUTE format('SELECT NOT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1::common.typeid)', r.rel, v_key)
+        -- No cast, as in common.has_a_guard: either key type compares as text.
+        EXECUTE format('SELECT NOT EXISTS (SELECT 1 FROM public.%I t WHERE t.%I = $1)', r.rel, v_key)
            INTO v_missing
           USING p_id;
         IF v_missing THEN
@@ -4899,7 +5058,7 @@ COMMENT ON FUNCTION dd_check_family_dependents(TEXT[]) IS
 'Raises 90256 when objects the dictionary did not generate depend on a view of a family containing any of the given entities, before a change drops those views. Returns at once for entities outside every family.';
 
 -- Rebuilds every family that contains one of the given entities: the views,
--- the write routines and view triggers, the root's a_typeid_assign (with the
+-- the write routines and view triggers, the root's assign trigger (with the
 -- subtype prefixes) and dispatch trigger, the has_a delete guard, and the
 -- label functions. It runs at the end of every statement on fields (from
 -- apply_field_searchable_change, after all row-level DDL), and after a change
@@ -4978,7 +5137,7 @@ BEGIN
 
         -- 3. The root's key triggers, which carry the subtype prefixes, and
         --    its dispatch trigger.
-        PERFORM dd_install_id_triggers(v_root.table_name, v_root.id_column, v_root.id_type, v_root.id_prefix);
+        PERFORM dd_install_id_triggers(v_root.table_name, v_root.id_column, v_root.id_type, v_root.type_prefix);
         PERFORM dd_build_is_a_dispatch(v_root.table_name);
 
         -- 4. The delete guard of a has_a base.
@@ -5011,7 +5170,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_refresh_family(TEXT[]) IS
-'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s a_typeid_assign and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
+'Rebuilds the families containing any of the given entities: views, write routines, view triggers, the root''s assign trigger and dispatch trigger, the has_a delete guard and the label functions, keeping that DDL out of the DDL audit (audit.generated_ddl). Returns at once, without writing, when none of them belongs to a family.';
 
 -- A family member renamed or deleted: the rest of its family is rebuilt under
 -- the new name, or without it. After the rename triggers of 0170_dd_rename.sql
@@ -5065,9 +5224,8 @@ CREATE OR REPLACE TRIGGER zz_family_refresh_delete_trigger
 -- BYPASSRLS role, has no SET ROLE in effect and carries no claims. That is a
 -- migration seeding records, and such a session can read and write the tables
 -- directly anyway, so a check that holds it to a user's rights would protect
--- nothing. get_record_by_id reads for it without the checks; the label step
--- (common.label_number_assign) lets it supply labels, and the attach step
--- (common.attach_check) lets it attach without the attach permission. Each
+-- nothing. get_record_by_id reads for it without the checks, and the attach
+-- step (common.attach_check) lets it attach without the attach permission. Each
 -- part of the test closes a way around that premise:
 --   * session_user is the login role; current_user is useless here, since
 --     inside a SECURITY DEFINER function it is always the owner.
@@ -5096,7 +5254,7 @@ RETURNS BOOLEAN AS $$
 $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_privileged_session() IS
-'TRUE in a privileged direct session: a superuser or BYPASSRLS login, no SET ROLE in effect, no claims, not a bearer session. Such a session (a migration) reads records without the access checks of get_record_by_id, may supply labels a numbered label would otherwise assign, and attaches without the attach permission.';
+'TRUE in a privileged direct session: a superuser or BYPASSRLS login, no SET ROLE in effect, no claims, not a bearer session. Such a session (a migration) reads records without the access checks of get_record_by_id and attaches without the attach permission.';
 
 -- The declared type of an entity's key, as a regtype, so it can be
 -- interpolated as a type name (%s prints it schema-qualified where `common`
@@ -5155,6 +5313,7 @@ DECLARE
     v_allowed         BOOLEAN;
     v_key_type        REGTYPE;
     v_level           RECORD;
+    v_names           TEXT[];
     v_privileged      BOOLEAN;
 BEGIN
     -- A privileged direct session reads without the checks (dd_privileged_session):
@@ -5214,14 +5373,21 @@ BEGIN
          WHERE NOT v_privileged
          ORDER BY a.depth
     LOOP
-        IF v_level.table_name = 'fields'
+        IF v_level.table_name IN ('fields', 'entity_attachables')
            AND (v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb) THEN
-            -- A row of fields is readable exactly when the row of its entity in
-            -- entities is, in the place of view_permission, as the SELECT policy
-            -- of fields has it (build_select_rule_policy); this function answers
-            -- that for the entities row by asking itself.
-            IF public.get_record_by_id('entities',
-                   (SELECT f.table_name FROM fields f WHERE f.id = p_id)) IS NULL THEN
+            -- A row of fields or entity_attachables is readable exactly when the
+            -- rows of the entities it names are, in the place of view_permission,
+            -- as the SELECT policy has it (build_select_rule_policy); this
+            -- function answers that for the entities rows by asking itself.
+            SELECT array_agg(n.table_name) INTO v_names
+              FROM (SELECT f.table_name FROM fields f WHERE f.id = p_id AND v_level.table_name = 'fields'
+                    UNION ALL
+                    SELECT unnest(ARRAY[ea.target, ea.attachable])
+                      FROM entity_attachables ea
+                     WHERE ea.id = p_id AND v_level.table_name = 'entity_attachables') AS n(table_name);
+            IF v_names IS NULL
+               OR EXISTS (SELECT 1 FROM unnest(v_names) AS n(table_name)
+                           WHERE public.get_record_by_id('entities', n.table_name) IS NULL) THEN
                 RETURN NULL;
             END IF;
         ELSIF v_level.select_rule IS NULL OR v_level.select_rule = '{}'::jsonb THEN
@@ -5313,7 +5479,7 @@ COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 -- RECORD REFERENCES
 -- =====================================================
 -- A record reference names one record of any entity, whatever its key type:
--- <table_name>:<key>, such as users:42, products:A-100 or
+-- <table_name>:<key>, such as users:42, products:A-100, tasks:TASK-125 or
 -- contracts:cntr_01k3x... A table name cannot contain ':', so a reference is
 -- split at its first ':', and the key may contain ':' and '-' itself.
 --
@@ -5333,13 +5499,12 @@ COMMENT ON FUNCTION dd_entity_viewable(TEXT) IS
 -- (rename_dd_record_refs, 0170_dd_rename.sql).
 
 -- The is_a entities below an entity with their prefixes, nearest first: the
--- one mapping from a TypeID prefix to the subtype a record belongs to. The
--- dispatch of a write (dd_dispatch_case), the record references, the label
--- counters of an is_a family and the delete step of an attachable target all
--- read it.
+-- one mapping from a key's prefix (common.type_prefix) to the subtype a
+-- record belongs to. The dispatch of a write (dd_dispatch_case), the record
+-- references and the delete step of an attachable target all read it.
 CREATE OR REPLACE FUNCTION dd_is_a_subtypes(p_table_name TEXT)
-RETURNS TABLE (table_name TEXT, id_prefix TEXT, depth INTEGER) AS $$
-    SELECT e.table_name, e.id_prefix, d.depth
+RETURNS TABLE (table_name TEXT, type_prefix TEXT, depth INTEGER) AS $$
+    SELECT e.table_name, e.type_prefix, d.depth
       FROM dd_descendants(p_table_name) d
       JOIN entities e ON e.table_name = d.table_name
      WHERE e.id_type = 'is_a'
@@ -5347,7 +5512,7 @@ RETURNS TABLE (table_name TEXT, id_prefix TEXT, depth INTEGER) AS $$
 $$ LANGUAGE sql STABLE SET search_path = public, pg_temp;
 
 COMMENT ON FUNCTION dd_is_a_subtypes(TEXT) IS
-'The is_a entities based on an entity, directly or further down, with their TypeID prefix and distance, nearest first: the prefix-to-subtype mapping of a family.';
+'The is_a entities based on an entity, directly or further down, with their type prefix and distance, nearest first: the prefix-to-subtype mapping of a family.';
 
 CREATE OR REPLACE FUNCTION dd_record_ref(p_table_name TEXT, p_key TEXT)
 RETURNS TEXT AS $$
@@ -5356,7 +5521,7 @@ RETURNS TEXT AS $$
                   FROM dd_ancestors(p_table_name) a
                  CROSS JOIN LATERAL dd_is_a_subtypes(a.table_name) s
                  WHERE a.depth = 0
-                   AND s.id_prefix = common.typeid_prefix(p_key)
+                   AND s.type_prefix = common.type_prefix(p_key)
                  ORDER BY s.depth
                  LIMIT 1),
                (SELECT a.table_name FROM dd_ancestors(p_table_name) a WHERE a.depth = 0),
@@ -5486,372 +5651,6 @@ $$ LANGUAGE plpgsql STABLE SET search_path = public, pg_temp;
 COMMENT ON FUNCTION dd_attach_case_sql(TEXT, TEXT, TEXT) IS
 'A SQL expression over a record reference that dispatches on its table name to the target tables of an attachable entity: whether the caller sees the target record (visible), sees it and holds the edit permission of every level (edit), or its composed label (label). Used by the attachable policies and attached_to_label.';
 
--- =====================================================
--- NUMBERED LABELS (entities.label_format = 'number')
--- =====================================================
--- The label of a numbered entity is written by the database on insert:
--- label_number_prefix and a number, padded with zeros to label_number_digits.
--- greatest() keeps lpad from cutting a number longer than the digits. The
--- number is
---   * the record's id, for an auto_increment or bigint key. There is no
---     counter, and the label is written from the id also when a seed or an
---     import brings one: a label of its own could be the label of the row
---     whose id it carries.
---   * the next value of a counter, the sequence <entity>_label_seq, for every
---     other key type. A privileged session (dd_privileged_session: a seed or an
---     import run by a migration) may bring a label, which is kept; one of the
---     counter's format moves the counter past it, never back, as
---     fix_id_sequence moves an id sequence, so the next number is not one a
---     record already has. A record created through the API always gets the
---     next number.
--- On update the label stays as it is stored, for every key type. Labels
--- written before an entity switched to number are kept; only new records get
--- numbers. The counter starts above the highest label of its format there is.
---
--- An is_a family numbers on its root, whose table holds the label, and the
--- root's label_format is the family's. A subtype with a label_number_prefix of
--- its own counts with its own counter <subtype>_label_seq, digits and start,
--- and so do the subtypes below it that have none; the others share the root's.
--- The record's subtype is read from the prefix of its id (dd_is_a_subtypes).
---
--- A counter's labels cannot repeat a number already given: the partial unique
--- index <table>_label_number_unique covers the labels of every prefix the
--- entity numbers with, so a kept old label of the same shape is not issued a
--- second time. A label field with unique_value has an index of its own and gets
--- no second one. A numeric key needs none: its labels follow from the id and
--- never change.
-
--- The labels of the format of the given prefixes: a prefix, then up to 18
--- digits, the most a number cast to bigint can always take. The prefixes come
--- from label_number_prefix, whose CHECK leaves nothing in them that the
--- pattern would read as an operator.
-CREATE OR REPLACE FUNCTION dd_label_number_pattern(p_prefixes TEXT[])
-RETURNS TEXT AS $$
-    SELECT '^(' || array_to_string(p_prefixes, '|') || ')[0-9]{1,18}$';
-$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_label_number_pattern(TEXT[]) IS
-'The regular expression the numbered labels of the given prefixes match: one of the prefixes, then 1 to 18 digits.';
-
-CREATE OR REPLACE FUNCTION dd_label_number_text(p_prefix TEXT, p_digits INTEGER, p_number BIGINT)
-RETURNS TEXT AS $$
-    SELECT p_prefix || lpad(p_number::text, greatest(p_digits, length(p_number::text)), '0');
-$$ LANGUAGE sql IMMUTABLE SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_label_number_text(TEXT, INTEGER, BIGINT) IS
-'A numbered label: the prefix and the number, padded with zeros to the digits and never cut.';
-
--- The label step, b_label_number. SECURITY DEFINER: it takes numbers from a
--- counter the request role is not granted. The settings are read from the
--- catalog on every insert, so a change of them needs no rebuild of the
--- trigger. The label is written through jsonb_populate_record in an EXECUTE,
--- as common.typeid_assign writes the key: a planned assignment would keep the
--- row type the table had when it first ran.
-CREATE OR REPLACE FUNCTION common.label_number_assign()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-DECLARE
-    v_entity entities%ROWTYPE;
-    v_label  TEXT;
-    v_id     TEXT;
-    v_prefix TEXT;
-    v_digits INTEGER;
-    v_seq    TEXT;
-    v_n      BIGINT;
-    v_last   BIGINT;
-    v_called BOOLEAN;
-BEGIN
-    SELECT * INTO v_entity FROM entities WHERE table_name = TG_TABLE_NAME;
-    IF NOT FOUND OR v_entity.label_format <> 'number' THEN
-        RETURN NEW;
-    END IF;
-
-    IF TG_OP = 'UPDATE' THEN
-        v_label := to_jsonb(OLD) ->> v_entity.label_column;
-    ELSE
-        v_label := to_jsonb(NEW) ->> v_entity.label_column;
-        v_id := to_jsonb(NEW) ->> v_entity.id_column;
-        v_prefix := v_entity.label_number_prefix;
-        v_digits := v_entity.label_number_digits;
-        v_seq := TG_TABLE_NAME || '_label_seq';
-
-        IF v_entity.id_type IN ('auto_increment', 'bigint') THEN
-            v_label := dd_label_number_text(v_prefix, v_digits, v_id::bigint);
-        ELSE
-            IF v_entity.id_type = 'typeid' THEN
-                SELECT e.label_number_prefix, e.label_number_digits, e.table_name || '_label_seq'
-                  INTO v_prefix, v_digits, v_seq
-                  FROM dd_is_a_subtypes(TG_TABLE_NAME) s
-                 CROSS JOIN LATERAL dd_ancestors(s.table_name) a
-                  JOIN entities e ON e.table_name = a.table_name
-                 WHERE s.id_prefix = common.typeid_prefix(v_id)
-                   AND a.depth > 0
-                   AND e.label_number_prefix <> ''
-                 ORDER BY s.depth, a.depth DESC
-                 LIMIT 1;
-                IF NOT FOUND THEN
-                    v_prefix := v_entity.label_number_prefix;
-                    v_digits := v_entity.label_number_digits;
-                    v_seq := TG_TABLE_NAME || '_label_seq';
-                END IF;
-            END IF;
-
-            IF coalesce(v_label, '') <> '' AND dd_privileged_session() THEN
-                IF v_label ~ dd_label_number_pattern(ARRAY[v_prefix]) THEN
-                    v_n := substr(v_label, length(v_prefix) + 1)::bigint;
-                    EXECUTE format('SELECT last_value, is_called FROM public.%I', v_seq) INTO v_last, v_called;
-                    IF v_n >= (CASE WHEN v_called THEN v_last + 1 ELSE v_last END) THEN
-                        PERFORM setval(format('public.%I', v_seq), v_n, true);
-                    END IF;
-                END IF;
-            ELSE
-                v_label := dd_label_number_text(v_prefix, v_digits, nextval(format('public.%I', v_seq)));
-            END IF;
-        END IF;
-    END IF;
-
-    EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
-       INTO NEW
-      USING NEW, jsonb_build_object(v_entity.label_column, v_label);
-    RETURN NEW;
-END;
-$$;
-
-COMMENT ON FUNCTION common.label_number_assign() IS
-'BEFORE INSERT OR UPDATE trigger b_label_number of an entity whose label_format is number, on its own table or, for an is_a family, on the root table: on insert writes the label as the prefix and the record''s id (numeric keys) or the next number of the counter <entity>_label_seq (other keys, by the prefix of the id the counter of its subtype), keeping a label a privileged session supplies and moving the counter past it; on update keeps the stored label.';
-
--- Brings the numbering objects of a plain entity or a family root in line
--- with the catalog: the counters, the trigger and the unique index. Called
--- when the entity is created, when its label settings, its label column or its
--- managed flag change, when an is_a subtype comes or goes, and when the label
--- field's unique_value changes. A counter is created starting above the
--- highest label of its format and its start, and an existing one is moved up
--- to that, never down. The index is built again only when what it covers
--- changed: building it scans the table.
-CREATE OR REPLACE FUNCTION dd_build_label_number(p_table_name TEXT)
-RETURNS VOID AS $$
-DECLARE
-    v_entity   entities%ROWTYPE;
-    v_number   BOOLEAN;
-    v_counted  BOOLEAN;
-    v_unique   BOOLEAN;
-    v_index    TEXT := p_table_name || '_label_number_unique';
-    v_prefixes TEXT[] := ARRAY[]::TEXT[];
-    v_pattern  TEXT;
-    v_current  TEXT;
-    v_seq      TEXT;
-    v_max      BIGINT;
-    v_next     BIGINT;
-    v_last     BIGINT;
-    v_called   BOOLEAN;
-    r          RECORD;
-BEGIN
-    SELECT * INTO v_entity FROM entities WHERE table_name = p_table_name;
-    IF NOT FOUND OR v_entity.id_type IN ('is_a', 'has_a', 'computed')
-       OR to_regclass(format('public.%I', p_table_name)) IS NULL THEN
-        RETURN;
-    END IF;
-
-    v_number := v_entity.managed AND v_entity.label_format = 'number'
-        AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
-                     WHERE a.attrelid = to_regclass(format('public.%I', p_table_name))
-                       AND a.attname = v_entity.label_column AND a.attnum > 0 AND NOT a.attisdropped);
-    v_counted := v_number AND v_entity.id_type NOT IN ('auto_increment', 'bigint');
-
-    -- The counters of a family share one table and one unique index, so the
-    -- labels of two of them must never have the same shape: a prefix may not
-    -- be another one, or another one followed by digits (INC and INC2 both
-    -- number INC20001). Either way one counter would hand out the other's
-    -- labels, and each would start above the other's highest (90290).
-    IF v_counted THEN
-        WITH counters AS (
-            SELECT p_table_name AS table_name, v_entity.label_number_prefix AS prefix
-            UNION ALL
-            SELECT e.table_name, e.label_number_prefix
-              FROM dd_is_a_subtypes(p_table_name) s
-              JOIN entities e ON e.table_name = s.table_name
-             WHERE e.label_number_prefix <> '')
-        SELECT x.table_name AS t1, x.prefix AS p1, y.table_name AS t2, y.prefix AS p2 INTO r
-          FROM counters x
-          JOIN counters y ON x.table_name < y.table_name
-           AND (y.prefix ~ ('^' || x.prefix || '[0-9]*$') OR x.prefix ~ ('^' || y.prefix || '[0-9]*$'))
-         ORDER BY x.table_name, y.table_name
-         LIMIT 1;
-        IF FOUND THEN
-            RAISE EXCEPTION 'The label prefix ${prefix} of ${table} and ${other_prefix} of ${other} would number labels of the same shape'
-                USING ERRCODE = '90290',
-                      HINT = jsonb_build_object('table', r.t1, 'prefix', r.p1,
-                                                'other', r.t2, 'other_prefix', r.p2,
-                                                'hint', 'Give each entity of the family a prefix that is neither another one nor another one followed by digits.')::text;
-        END IF;
-    END IF;
-
-    -- The counters: the entity's own, and one for each is_a subtype with a
-    -- prefix of its own. One that is no longer wanted is dropped.
-    FOR r IN
-        SELECT p_table_name AS table_name, v_entity.label_number_prefix AS prefix,
-               v_entity.label_number_start AS start, v_counted AS wanted
-        UNION ALL
-        SELECT s.table_name, e.label_number_prefix, e.label_number_start,
-               v_counted AND e.label_number_prefix <> ''
-          FROM dd_is_a_subtypes(p_table_name) s
-          JOIN entities e ON e.table_name = s.table_name
-    LOOP
-        v_seq := r.table_name || '_label_seq';
-        IF NOT r.wanted THEN
-            IF dd_sequence_exists(v_seq) THEN
-                EXECUTE format('DROP SEQUENCE public.%I', v_seq);
-            END IF;
-            CONTINUE;
-        END IF;
-
-        v_prefixes := v_prefixes || r.prefix;
-        EXECUTE format('SELECT max(substr(t.%1$I, %2$s)::bigint) FROM public.%3$I t WHERE t.%1$I ~ %4$L',
-                       v_entity.label_column, length(r.prefix) + 1, p_table_name,
-                       dd_label_number_pattern(ARRAY[r.prefix]))
-           INTO v_max;
-        v_next := greatest(r.start, coalesce(v_max + 1, r.start));
-        IF NOT dd_sequence_exists(v_seq) THEN
-            -- A relation of another kind under the name makes this fail
-            -- (42P07) rather than number from something that is no counter.
-            EXECUTE format('CREATE SEQUENCE public.%I AS bigint MINVALUE %s START WITH %s',
-                           v_seq, least(v_next, 1), v_next);
-        ELSE
-            EXECUTE format('SELECT last_value, is_called FROM public.%I', v_seq) INTO v_last, v_called;
-            v_next := greatest(v_next, CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
-            PERFORM setval(format('public.%I', v_seq), v_next, false);
-        END IF;
-    END LOOP;
-
-    IF v_number THEN
-        EXECUTE format(
-            'CREATE OR REPLACE TRIGGER b_label_number BEFORE INSERT OR UPDATE ON public.%I
-                FOR EACH ROW EXECUTE FUNCTION common.label_number_assign()',
-            p_table_name);
-    ELSE
-        EXECUTE format('DROP TRIGGER IF EXISTS b_label_number ON public.%I', p_table_name);
-    END IF;
-
-    v_unique := EXISTS (SELECT 1 FROM fields f
-                         WHERE f.table_name = p_table_name AND f.field_name = v_entity.label_column
-                           AND f.unique_value);
-    IF v_counted AND NOT v_unique THEN
-        v_pattern := dd_label_number_pattern(ARRAY(SELECT DISTINCT p FROM unnest(v_prefixes) AS p ORDER BY p));
-    END IF;
-    -- The index carries the pattern it covers as its comment, which tells it
-    -- apart from an index of a field that happens to bear the name (the
-    -- unique_value index of a field label_number), and says whether it can
-    -- stay as it is.
-    SELECT pg_catalog.obj_description(c.oid, 'pg_class') INTO v_current
-      FROM pg_catalog.pg_index i
-      JOIN pg_catalog.pg_class c ON c.oid = i.indexrelid
-     WHERE c.relname = v_index
-       AND c.relnamespace = 'public'::regnamespace
-       AND i.indrelid = to_regclass(format('public.%I', p_table_name));
-    IF v_current IS NOT DISTINCT FROM v_pattern THEN
-        RETURN;
-    END IF;
-    IF v_current IS NOT NULL THEN
-        EXECUTE format('DROP INDEX public.%I', v_index);
-    END IF;
-    IF v_pattern IS NOT NULL THEN
-        PERFORM dd_index_name_free(p_table_name, p_table_name, v_entity.label_column, v_index);
-        EXECUTE format('CREATE UNIQUE INDEX %I ON public.%I (%I) WHERE %I ~ %L',
-                       v_index, p_table_name, v_entity.label_column, v_entity.label_column, v_pattern);
-        EXECUTE format('COMMENT ON INDEX public.%I IS %L', v_index, v_pattern);
-    END IF;
-END;
--- SECURITY INVOKER: its callers are SECURITY DEFINER and already run as the
--- owner.
-$$ LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_build_label_number(TEXT) IS
-'Brings the numbered-label objects of a plain entity or a family root in line with its label settings and those of its is_a subtypes: the counters <entity>_label_seq (created above the highest label of their format, moved up and never down), the trigger b_label_number, and the partial unique index <table>_label_number_unique over the labels of the format, which a numeric key and a unique_value label field do without. Drops what is no longer wanted. Refuses two counters of a family whose prefixes would number labels of the same shape (90290).';
-
--- The label settings of an entity changed, or an is_a subtype came or went.
--- A numeric key switching to number is refused while a label of the format is
--- not its own row's number (90287): it would be the label the row whose id it
--- carries gets. The label field's marker follows the format, written as a
--- no-op so that zz_derive_computed_ctype (0210_computed_validation.sql)
--- derives it, and the objects are built for the family's root.
-CREATE OR REPLACE FUNCTION dd_label_number_changed()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_root  TEXT;
-    v_id    TEXT;
-    v_label TEXT;
-BEGIN
-    IF TG_OP = 'DELETE' THEN
-        SELECT a.table_name INTO v_root FROM dd_ancestors(OLD.id_refentity) a WHERE a.depth = 0;
-        IF v_root IS NOT NULL THEN
-            PERFORM dd_build_label_number(v_root);
-        END IF;
-        RETURN NULL;
-    END IF;
-
-    SELECT a.table_name INTO v_root FROM dd_ancestors(NEW.table_name) a WHERE a.depth = 0;
-    IF NEW.id_type NOT IN ('is_a', 'has_a') THEN
-        IF TG_OP = 'UPDATE'
-           AND NEW.managed AND NEW.label_format = 'number' AND NEW.id_type IN ('auto_increment', 'bigint')
-           AND NOT (OLD.managed AND OLD.label_format = 'number')
-           AND to_regclass(format('public.%I', NEW.table_name)) IS NOT NULL THEN
-            EXECUTE format(
-                'SELECT t.%2$I::text, t.%1$I FROM public.%3$I t
-                  WHERE t.%1$I ~ %4$L AND t.%1$I <> dd_label_number_text(%5$L, %6$s, t.%2$I)
-                  ORDER BY t.%2$I LIMIT 1',
-                NEW.label_column, NEW.id_column, NEW.table_name,
-                dd_label_number_pattern(ARRAY[NEW.label_number_prefix]), NEW.label_number_prefix,
-                NEW.label_number_digits)
-               INTO v_id, v_label;
-            IF v_id IS NOT NULL THEN
-                RAISE EXCEPTION 'Entity ${table} cannot number its labels: the label ${label} of record ${id} would be the number of another record'
-                    USING ERRCODE = '90287',
-                          HINT = jsonb_build_object('table', NEW.table_name, 'id', v_id, 'label', v_label,
-                                                    'hint', 'Change that label, or choose a prefix no label of a record starts with.')::text;
-            END IF;
-        END IF;
-
-        UPDATE fields
-           SET ctype = ctype
-         WHERE table_name = NEW.table_name
-           AND field_name = NEW.label_column
-           AND dd_ctype_is_label(ctype)
-           AND (ctype = 'number_label') IS DISTINCT FROM (NEW.label_format = 'number');
-    END IF;
-
-    PERFORM dd_build_label_number(coalesce(v_root, NEW.table_name));
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-COMMENT ON FUNCTION dd_label_number_changed() IS
-'AFTER INSERT, UPDATE (of the label settings, the label column or managed) and DELETE (of an is_a entity) trigger on entities: refuses switching a numeric key to numbered labels while a label of the format is not its row''s own number (90287), lets the label field''s ctype follow the format, and rebuilds the numbering objects of the family root (dd_build_label_number).';
-
-CREATE OR REPLACE TRIGGER zz_label_number_insert_trigger
-    AFTER INSERT ON entities
-    FOR EACH ROW
-    EXECUTE FUNCTION dd_label_number_changed();
-
-CREATE OR REPLACE TRIGGER zz_label_number_update_trigger
-    AFTER UPDATE ON entities
-    FOR EACH ROW
-    WHEN (OLD.label_format IS DISTINCT FROM NEW.label_format
-       OR OLD.label_number_prefix IS DISTINCT FROM NEW.label_number_prefix
-       OR OLD.label_number_digits IS DISTINCT FROM NEW.label_number_digits
-       OR OLD.label_number_start IS DISTINCT FROM NEW.label_number_start
-       OR OLD.label_column IS DISTINCT FROM NEW.label_column
-       OR OLD.managed IS DISTINCT FROM NEW.managed)
-    EXECUTE FUNCTION dd_label_number_changed();
-
-CREATE OR REPLACE TRIGGER zz_label_number_delete_trigger
-    AFTER DELETE ON entities
-    FOR EACH ROW
-    WHEN (OLD.id_type = 'is_a')
-    EXECUTE FUNCTION dd_label_number_changed();
-
 -- Revoke default PUBLIC execute on all DDL functions defined in this file
 REVOKE EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION get_record_by_id(TEXT, TEXT) TO semantius_user;
@@ -5894,15 +5693,9 @@ REVOKE EXECUTE ON FUNCTION dd_attach_case_sql(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_privileged_session() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_key_type(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_key_cast(TEXT, REGTYPE) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_sequence_exists(TEXT) FROM PUBLIC;
 -- dd_record_ref_canonical runs as the caller and reaches both.
 GRANT EXECUTE ON FUNCTION dd_key_type(TEXT) TO semantius_user;
 GRANT EXECUTE ON FUNCTION dd_key_cast(TEXT, REGTYPE) TO semantius_user;
-REVOKE EXECUTE ON FUNCTION dd_label_number_pattern(TEXT[]) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_label_number_text(TEXT, INTEGER, BIGINT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION common.label_number_assign() FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_build_label_number(TEXT) FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION dd_label_number_changed() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_family_columns(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_family_view(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_build_record_write(TEXT) FROM PUBLIC;
@@ -5925,6 +5718,9 @@ REVOKE EXECUTE ON FUNCTION dd_id_column_ddl(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_check_id_column(TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_install_id_triggers(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_typeid_trigger_args(TEXT, TEXT, TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_id_sequence(TEXT) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_id_sequence_sync(TEXT, BOOLEAN) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION dd_key_mint_sql(TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_install_key_rule_checks(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_key_kept_sql(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION dd_key_prefix_sql(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
@@ -6009,15 +5805,14 @@ BEGIN
             dd_record_ref_split(TEXT),
             dd_record_ref_canonical(TEXT),
             dd_ref_like(TEXT),
-            dd_label_number_pattern(TEXT[]),
-            dd_label_number_text(TEXT, INTEGER, BIGINT),
-            dd_build_label_number(TEXT),
             dd_attach_targets(TEXT),
             dd_attach_case_sql(TEXT, TEXT, TEXT),
             dd_key_type(TEXT),
             dd_key_cast(TEXT, REGTYPE),
             dd_family(TEXT),
-            dd_sequence_exists(TEXT)
+            dd_id_sequence(TEXT),
+            dd_id_sequence_sync(TEXT, BOOLEAN),
+            dd_key_mint_sql(TEXT)
         TO semantius_owner;
     END IF;
 END $$;

@@ -239,12 +239,12 @@ SELECT authenticate_as('user3');
 -- =====================================================
 -- Their records span several tables, so the pass writes through the entity's view
 -- and the root's dispatch rather than to a table of its own.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, edit_permission)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, edit_permission)
 VALUES ('bf_accounts', 'Account', 'Accounts', 1, 'typeid', 'bfacc', 'nwind:manage');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('bf_accounts', 'amount', 'Amount', 'int32', 30),
        ('bf_accounts', 'tag', 'Tag', 'text', 40);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity, edit_permission)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity, edit_permission)
 VALUES ('bf_premium', 'Premium', 'Premiums', 1, 'is_a', 'bfprm', 'bf_accounts', 'nwind:manage');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('bf_premium', 'factor', 'Factor', 'int32', 30),
@@ -325,9 +325,9 @@ SELECT is((SELECT string_agg(later_v, ' ' ORDER BY label) FROM cb_req), 'L-a L-b
 SELECT ok(EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cb_req_later_v_assert'), 'and has its required check');
 
 -- An is_a subtype is written through its view; the check is on its own table.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('cb_rfam', 'RFam', 'RFams', 1, 'typeid', 'cbrfam');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('cb_rsub', 'RSub', 'RSubs', 1, 'is_a', 'cbrsub', 'cb_rfam');
 INSERT INTO fields (table_name, field_name, title, format, input_type, default_value, field_order)
 VALUES ('cb_rsub', 'note', 'Note', 'text', 'default', '', 30),

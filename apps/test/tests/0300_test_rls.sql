@@ -334,11 +334,11 @@ INSERT INTO fields (table_name, field_name, title, format, field_order) VALUES
 -- fields of the base stay rows of the base. The base is readable with
 -- public:read, so a holder of rlsdd:view may read every level and user1 the
 -- base alone.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('rls_dd_party', 'Party Probe', 'Party Probes', 1, 'typeid', 'rlsddpty');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rls_dd_party', 'city', 'City', 'text', 30);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 VALUES ('rls_dd_org', 'Organization Probe', 'Organization Probes', 1, 'is_a', 'rlsddorg',
         'rls_dd_party', 'rlsdd:view', 'rlsdd:edit');
@@ -490,12 +490,12 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
     ('rlsdd:base',      'Views the hidden base probes', 1),
     ('rlsdd:base_edit', 'Edits the hidden base probes', 1);
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       view_permission, edit_permission)
 VALUES ('rls_dd_site', 'Site Probe', 'Site Probes', 1, 'typeid', 'rlsddsit', 'rlsdd:base', 'rlsdd:base_edit');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rls_dd_site', 'region', 'Region', 'text', 30);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 VALUES ('rls_dd_site_org', 'Site Organization Probe', 'Site Organization Probes', 1, 'is_a', 'rlsddsor',
         'rls_dd_site', 'rlsdd:view', 'rlsdd:edit');
@@ -503,11 +503,11 @@ INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_ty
                       id_refentity, view_permission, edit_permission)
 VALUES ('rls_dd_site_vendor', 'Site Vendor Probe', 'Site Vendor Probes', 1, 'has_a',
         'rls_dd_site', 'rlsdd:view', 'rlsdd:edit');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 VALUES ('rls_dd_party_mid', 'Middle Party Probe', 'Middle Party Probes', 1, 'is_a', 'rlsddmid',
         'rls_dd_party', 'rlsdd:base', 'rlsdd:base_edit');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 VALUES ('rls_dd_party_leaf', 'Leaf Party Probe', 'Leaf Party Probes', 1, 'is_a', 'rlsddlf',
         'rls_dd_party_mid', 'rlsdd:view', 'rlsdd:edit');

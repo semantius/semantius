@@ -251,15 +251,15 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, view_permission)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, view_permission)
 VALUES ('rh_parties', 'Party', 'Parties', 1, 'typeid', 'rhpty', 'public:read');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rh_parties', 'region', 'Region', 'text', 30);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity, view_permission)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity, view_permission)
 VALUES ('rh_leads', 'Lead', 'Leads', 1, 'is_a', 'rhled', 'rh_parties', 'nwind:view');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rh_leads', 'score', 'Score', 'int32', 30);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       view_permission, select_rule)
 VALUES ('rh_hot', 'Hot Lead', 'Hot Leads', 1, 'is_a', 'rhhot', 'rh_leads', 'public:read',
         '{"==":[{"var":"region"},"north"]}'::jsonb);
@@ -350,7 +350,7 @@ SELECT throws_ok(
 --   permissions  grbv:view, grbv:edit, grbv:base
 --   entities     grbv_guarded  view grbv:view, edit grbv:edit, an auto_increment key
 --                grbv_root     typeid base, view grbv:base, edit admin
---                grbv_org      is_a grbv_root, view grbv:view, edit grbv:edit, a TypeID key
+--                grbv_org      is_a grbv_root, view grbv:view, edit grbv:edit, a Typed Id key
 --   users        grbv_editor (grbv:edit), grbv_base_editor (grbv:edit and
 --                grbv:base), grbv_admin (admin), each with the User role every
 --                user gets
@@ -380,10 +380,10 @@ INSERT INTO permissions (permission_name, description, module_id) VALUES
 
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission)
 VALUES ('grbv_guarded', 'Guarded Record Probe', 'Guarded Record Probes', 1, 'grbv:view', 'grbv:edit');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       view_permission, edit_permission)
 VALUES ('grbv_root', 'Root Record Probe', 'Root Record Probes', 1, 'typeid', 'grbvrt', 'grbv:base', 'admin');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 VALUES ('grbv_org', 'Organization Record Probe', 'Organization Record Probes', 1, 'is_a', 'grbvorg',
         'grbv_root', 'grbv:view', 'grbv:edit');

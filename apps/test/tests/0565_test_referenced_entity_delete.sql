@@ -228,9 +228,9 @@ SELECT lives_ok($$DELETE FROM modules WHERE module_name = 'rd_d'$$,
 -- GROUP 7: how it sits with the family refusals
 -- =====================================================
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('rd_fam_root', 'Root', 'Roots', 1, 'typeid', 'rdroot');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('rd_fam_sub', 'Sub', 'Subs', 1, 'is_a', 'rdsub', 'rd_fam_root');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id)
 VALUES ('rd_fam_out', 'Out', 'Outs', 1);

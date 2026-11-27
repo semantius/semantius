@@ -649,7 +649,7 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('q_parties', 'Party', 'Parties', 1, 'typeid', 'qpty');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
 VALUES ('q_clients', 'Client', 'Clients', 1, 'has_a', 'q_parties');

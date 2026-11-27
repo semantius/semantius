@@ -206,9 +206,11 @@ REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM semantius_user;
 REVOKE EXECUTE ON FUNCTION common.refresh_schema_cache() FROM PUBLIC;
 
 -- USAGE on the schema stays, and is needed: the key helpers of
--- 0045_typeid.sql (common.uuid_v7, the TypeID functions, the common.typeid
--- domain) are granted to semantius_user because column defaults, triggers and
--- domain checks run as the role that writes the row. Everything else in
--- `common` is revoked from both PUBLIC and semantius_user, and common._cache
--- has RLS with no policies and no table grant.
+-- 0045_typeid.sql (common.uuid_v7, the Typed Id functions, the Typed Number
+-- functions typenumber_check_text, type_prefix and typenumber_text, and the
+-- common.typeid and common.typenumber domains) are granted to semantius_user
+-- because column defaults, triggers and domain checks run as the role that
+-- writes the row. Everything else in `common` is revoked from both PUBLIC and
+-- semantius_user, and common._cache has RLS with no policies and no table
+-- grant.
 GRANT USAGE ON SCHEMA common TO semantius_user;

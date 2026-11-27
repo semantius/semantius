@@ -36,15 +36,22 @@ CREATE TABLE IF NOT EXISTS entities (
     -- changing it would rewrite every key and every foreign key pointing at
     -- one. auto_increment is a 64-bit identity; computed labels only the system
     -- tables whose key is a generated column, and no managed entity may take it.
-    -- is_a (a subtype) and has_a (an optional extension) share the TypeID key of
-    -- the entity named in id_refentity.
+    -- typeid and typenumber keys carry the entity's type_prefix. is_a (a
+    -- subtype) and has_a (an optional extension) share the key of the entity
+    -- named in id_refentity.
     id_type TEXT NOT NULL DEFAULT 'auto_increment',
-    -- The TypeID prefix of a typeid or is_a entity, '' for every other key
-    -- type. A typeid entity may change it: new ids take the new prefix,
-    -- existing ids keep theirs, because a key is never rewritten. An is_a
-    -- entity may not (rule 90245): the prefix of an id is what says which
-    -- subtype a record is, so it has to mean the same thing for good.
-    id_prefix TEXT NOT NULL DEFAULT '',
+    -- The prefix of a typeid, typenumber or is_a entity's keys, '' for every
+    -- other key type. A typeid or typenumber entity may change it: new ids take
+    -- the new prefix, existing ids keep theirs, because a key is never
+    -- rewritten. An is_a entity may not (rule 90245): the prefix of an id is
+    -- what says which subtype a record is, so it has to mean the same thing for
+    -- good.
+    type_prefix TEXT NOT NULL DEFAULT '',
+    -- The minimum digit count of a typenumber key's number, padded with
+    -- zeros; 0 pads nothing. An is_a subtype numbers with its root's. A change
+    -- applies to the numbers given from then on; the keys already given keep
+    -- their spelling.
+    type_digits INTEGER NOT NULL DEFAULT 0,
     -- The entity an is_a or has_a entity is based on, NULL for every other key
     -- type. Its records share the base's key, so the base is chosen when the
     -- entity is created and never changes (90241, 0160_dd_functions.sql).
@@ -57,23 +64,6 @@ CREATE TABLE IF NOT EXISTS entities (
     -- 0160_dd_functions.sql keep this a copy of it.
     label_column_label TEXT NOT NULL DEFAULT '',
     label_parent TEXT NOT NULL DEFAULT '',  -- Composed-label identity spine: names a reference/parent FK on this entity (empty = intrinsic; composed _label = local label)
-    -- How the label column is filled: custom, by the caller or a computed
-    -- rule, or number, by the database on insert (common.label_number_assign,
-    -- 0160_dd_functions.sql): label_number_prefix and a number padded with
-    -- zeros to label_number_digits. The prefix reaches generated DDL, the
-    -- partial unique index over the labels of the format, so its grammar is
-    -- held here and leaves nothing that a regular expression or a literal
-    -- reads specially: letters, digits, '-' and '_', at most 20 characters. At
-    -- most 18 digits, since a bigint has at most 19. label_number_start is 1,
-    -- not the convention's 0: it is the first number a counter gives.
-    label_format TEXT NOT NULL DEFAULT 'custom'
-        CONSTRAINT valid_label_format CHECK (label_format IN ('custom', 'number')),
-    label_number_prefix TEXT NOT NULL DEFAULT ''
-        CONSTRAINT valid_label_number_prefix CHECK (label_number_prefix ~ '^[A-Za-z0-9_-]{0,20}$'),
-    label_number_digits INTEGER NOT NULL DEFAULT 0
-        CONSTRAINT valid_label_number_digits CHECK (label_number_digits BETWEEN 0 AND 18),
-    label_number_start BIGINT NOT NULL DEFAULT 1
-        CONSTRAINT valid_label_number_start CHECK (label_number_start >= 0),
     managed BOOLEAN NOT NULL DEFAULT TRUE,
     searchable BOOLEAN NOT NULL DEFAULT FALSE,
     is_child BOOLEAN NOT NULL DEFAULT FALSE,
@@ -148,17 +138,29 @@ CREATE TABLE IF NOT EXISTS entities (
     -- Inline, like valid_entity_type and for the same reason: the id_type
     -- field row is seeded before the dictionary's enum trigger exists.
     CONSTRAINT valid_id_type CHECK (id_type IN
-        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'is_a', 'has_a', 'computed')),
-    -- The TypeID prefix grammar: up to 63 lowercase letters and underscores,
-    -- starting and ending with a letter. It is concatenated into every id, so
-    -- nothing outside it may get in.
-    CONSTRAINT valid_id_prefix CHECK (id_prefix = '' OR id_prefix ~ '^[a-z]([a-z_]{0,61}[a-z])?$'),
-    -- A typeid or is_a entity has a prefix and no other kind has one. The spec
-    -- allows an empty prefix, but a bare suffix says nothing about which entity
-    -- an id belongs to, which is the reason to choose TypeIDs at all, and an
-    -- is_a record's type is read from its prefix. A has_a entity mints no ids:
-    -- its records take the key of the base record they extend.
-    CONSTRAINT id_prefix_matches_id_type CHECK ((id_type IN ('typeid', 'is_a')) = (id_prefix <> '')),
+        ('auto_increment', 'bigint', 'text', 'uuid', 'typeid', 'typenumber', 'is_a', 'has_a', 'computed')),
+    -- The two prefix grammars. A Typed Id prefix is up to 63 lowercase letters
+    -- and underscores, starting and ending with a letter; a Typed Number
+    -- prefix is an uppercase letter and up to 9 more uppercase letters or
+    -- digits (TASK, INC). The prefix is concatenated into every id, so nothing
+    -- outside them may get in. The grammars are disjoint, so the prefix of a
+    -- key is read the same way for both (common.type_prefix). A typeid entity
+    -- takes the first, a typenumber entity the second, and an is_a entity the
+    -- one of its root (90288, check_entity_family in 0160_dd_functions.sql).
+    CONSTRAINT valid_type_prefix CHECK (type_prefix = ''
+        OR (type_prefix ~ '^[a-z]([a-z_]{0,61}[a-z])?$' AND id_type IN ('typeid', 'is_a'))
+        OR (type_prefix ~ '^[A-Z][A-Z0-9]{0,9}$' AND id_type IN ('typenumber', 'is_a'))),
+    -- A typeid, typenumber or is_a entity has a prefix and no other kind has
+    -- one. The Typed Id spec allows an empty prefix, but a bare suffix says
+    -- nothing about which entity an id belongs to, which is the reason to
+    -- choose Typed Ids at all, and an is_a record's type is read from its
+    -- prefix. A has_a entity mints no ids: its records take the key of the
+    -- base record they extend.
+    CONSTRAINT type_prefix_matches_id_type CHECK ((id_type IN ('typeid', 'typenumber', 'is_a')) = (type_prefix <> '')),
+    -- At most 18 digits, so the number of every key fits a bigint. Only a
+    -- typenumber entity pads; an is_a subtype numbers with its root's digits.
+    CONSTRAINT valid_type_digits CHECK (type_digits BETWEEN 0 AND 18
+                                        AND (type_digits = 0 OR id_type = 'typenumber')),
     -- Exactly the is_a and has_a entities name a base.
     CONSTRAINT id_refentity_matches_id_type CHECK ((id_type IN ('is_a', 'has_a')) = (id_refentity IS NOT NULL)),
     -- An is_a or has_a entity is a view over tables the dictionary built and
@@ -181,7 +183,7 @@ CREATE INDEX idx_entities_id_refentity ON entities(id_refentity);
 -- family the prefix is what says which subtype a record is, so a new is_a
 -- entity cannot take a prefix that rows of its root still carry (90254,
 -- check_entity_family in 0160_dd_functions.sql).
-CREATE UNIQUE INDEX unique_current_id_prefix ON entities(id_prefix) WHERE id_prefix <> '';
+CREATE UNIQUE INDEX unique_current_type_prefix ON entities(type_prefix) WHERE type_prefix <> '';
 -- The two permission columns are RESTRICT foreign keys, so every permission
 -- delete and every rename scans them. The dictionary builds idx_<table>_<field>
 -- for a reference field it creates; these are declared by hand, so their

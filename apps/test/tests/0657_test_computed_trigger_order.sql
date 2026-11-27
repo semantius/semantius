@@ -1,9 +1,9 @@
 -- Computed fields and validation rules against the other BEFORE triggers of a
 -- table, whose firing order is listed in build_record_logic_trigger
 -- (0210_computed_validation.sql); each part pins what one position buys.
---   PART 1  the whole order, on one table carrying every such trigger, and
---           the size of a file
---   PART 2  the typeid key: the rules see the generated id
+--   PART 1  the whole order, on one table carrying every such trigger, the
+--           size of a file, and a typenumber key
+--   PART 2  the typeid and typenumber keys: the rules see the generated id
 --   PART 3  the order column: the rules see the assigned position
 --   PART 4  the rollup guard before the rules, updated_at after them
 --   PART 5  a RACI gate before and after the rules, in a family, on rename
@@ -13,7 +13,7 @@
 -- Fixture entities use the 'ct' prefix; everything is rolled back.
 BEGIN;
 
-SELECT plan(34);
+SELECT plan(36);
 
 SELECT authenticate_as('user3');
 
@@ -39,10 +39,10 @@ SELECT p.id, 'consulted', r.id, 'block'
 -- =====================================================
 -- ctall: a typeid family root (an is_a subtype, a has_a extension) with an
 -- order column, a rollup, a rule naming the key, a gated state column and,
--- while the order is read, a numbered label and an attach mode.
+-- while the order is read, an attach mode.
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id,
-    view_permission, edit_permission, id_type, id_prefix, order_column)
+    view_permission, edit_permission, id_type, type_prefix, order_column)
 VALUES ('ctall', 'ctall', 'All', 'Alls', 1, 'public:read', 'admin', 'typeid', 'ctall', 'sort_order'),
        ('ctall_line', 'ctall_line', 'All Line', 'All Lines', 1, 'public:read', 'admin', 'auto_increment', '', '');
 
@@ -60,7 +60,7 @@ UPDATE entities
                            {"name": "lines_plus", "jsonlogic": {"+": [{"var": "line_count"}, 1]}}]'::jsonb
  WHERE table_name = 'ctall';
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('ctall_sub', 'All Sub', 'All Subs', 1, 'is_a', 'ctallsub', 'ctall');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
 VALUES ('ctall_more', 'All More', 'All Mores', 1, 'has_a', 'ctall');
@@ -74,19 +74,18 @@ UPDATE entities
 INSERT INTO process_gates (process_id, entity, gate_kind, to_state, state_column, emits_events)
 SELECT id, 'ctall', 'approval', 'approved', 'status', TRUE FROM processes WHERE process_key = 'ct_review';
 
--- Numbered labels add the label step and an attach mode the attach step; the
--- parts below find their records by a label of their own and write no
--- target, so both go back after the order is read.
+-- An attach mode adds the attach step; the parts below write no target, so it
+-- goes back after the order is read.
 UPDATE entities
-   SET label_format = 'number', attach_mode = 'single', attach_permission = 'view', attach_on_target_delete = 'cascade'
+   SET attach_mode = 'single', attach_permission = 'view', attach_on_target_delete = 'cascade'
  WHERE table_name = 'ctall';
 
 SELECT is(pg_temp.before_triggers('public.ctall', 4),
-    'a_auto_order_ctall, a_rollup_guard, a_typeid_assign, b_label_number, compute_validate_trigger, d_attach_check, zz_key_check_insert',
+    'a_auto_order_ctall, a_rollup_guard, a_typeid_assign, compute_validate_trigger, d_attach_check, zz_key_check_insert',
     'order: BEFORE INSERT as listed in build_record_logic_trigger');
 
 SELECT is(pg_temp.before_triggers('public.ctall', 16),
-    'a_is_a_dispatch, a_raci_gate_on_ctall, a_rollup_guard, b_label_number, compute_validate_trigger, d_attach_check, pk_immutable, '
+    'a_is_a_dispatch, a_raci_gate_on_ctall, a_rollup_guard, compute_validate_trigger, d_attach_check, pk_immutable, '
     || 'raci_gate_on_ctall, update_ctall_updated_at, zz_key_check_update',
     'order: BEFORE UPDATE as listed in build_record_logic_trigger');
 
@@ -95,8 +94,19 @@ SELECT is(pg_temp.before_triggers('public.ctall', 8),
     'order: BEFORE DELETE as listed in build_record_logic_trigger');
 
 UPDATE entities
-   SET label_format = 'custom', attach_mode = 'none', attach_permission = '', attach_on_target_delete = ''
+   SET attach_mode = 'none', attach_permission = '', attach_on_target_delete = ''
  WHERE table_name = 'ctall';
+
+-- A typenumber key takes the typeid key's place, and its late check stands
+-- behind the rules the same way.
+INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id,
+    view_permission, edit_permission, id_type, type_prefix, computed_fields)
+VALUES ('ctnum', 'ctnum', 'Numbered', 'Numbereds', 1, 'public:read', 'admin', 'typenumber', 'CTNUM',
+    '[{"name": "id", "jsonlogic": {"var": "id"}}, {"name": "label", "jsonlogic": {"cat": ["N:", {"var": "id"}]}}]');
+
+SELECT is(pg_temp.before_triggers('public.ctnum', 4),
+    'a_typenumber_assign, compute_validate_trigger, zz_key_check_insert',
+    'order: BEFORE INSERT of a typenumber table, the key before the rules and checked again after them');
 
 -- The size of a file is set before its rules run (0470_tasks_files_comments.sql).
 SELECT is(pg_temp.before_triggers('public.files', 4),
@@ -108,14 +118,14 @@ SELECT is(pg_temp.before_triggers('public.tasks_links', 8), 'd_attach_check',
     'order: BEFORE DELETE of a link table, the attach step');
 
 -- =====================================================
--- PART 2: the typeid key
+-- PART 2: the typeid and typenumber keys
 -- =====================================================
 -- The key has no column default; behind the rules, a label computed from the
 -- id alone would be empty and refused by the required label (90258), and one
 -- with a constant part would be saved without the id.
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id,
-    view_permission, edit_permission, id_type, id_prefix, computed_fields)
+    view_permission, edit_permission, id_type, type_prefix, computed_fields)
 VALUES
     ('ctid_label', 'ctid_label', 'Label', 'Labels', 1, 'public:read', 'admin', 'typeid', 'ctlab',
      '[{"name": "label", "jsonlogic": {"cat": [{"var": "id"}]}}]'),
@@ -127,7 +137,7 @@ VALUES
     ('ctid_uuid', 'ctid_uuid', 'Uuid', 'Uuids', 1, 'public:read', 'admin', 'uuid', '',
      '[{"name": "label", "jsonlogic": {"cat": [{"var": "id"}]}}]');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('ctid_sub', 'Sub', 'Subs', 1, 'is_a', 'ctsub', 'ctid_root');
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('ctid_sub', 'ref_code', 'Ref Code', 'text', 30);
@@ -158,6 +168,11 @@ INSERT INTO ctid_uuid DEFAULT VALUES;
 
 SELECT ok((SELECT label = id::text FROM ctid_auto) AND (SELECT label = id::text FROM ctid_uuid),
     'auto_increment and uuid: a label computed from the id is the id the default filled');
+
+INSERT INTO ctnum DEFAULT VALUES;
+
+SELECT is((SELECT id || ' ' || label FROM ctnum), 'CTNUM-1 N:CTNUM-1',
+    'typenumber: a computed field sees the number a_typenumber_assign gave');
 
 -- =====================================================
 -- PART 3: the order column
@@ -293,7 +308,7 @@ SELECT is((SELECT status || ' ' || sub_note FROM ctall_sub), 'approved S:approve
 -- checks a supplied one passes, and a stored record's key never changes.
 
 INSERT INTO entities (table_name, singular, singular_label, plural_label, module_id,
-    view_permission, edit_permission, id_type, id_prefix, computed_fields)
+    view_permission, edit_permission, id_type, type_prefix, computed_fields)
 VALUES
     ('ctkey_tid', 'ctkey_tid', 'Keyed', 'Keyeds', 1, 'public:read', 'admin', 'typeid', 'ctkey',
      '[{"name": "id", "jsonlogic": {"if": [{"==": [{"var": "label"}, "wrong"]},
@@ -319,7 +334,7 @@ SELECT is((SELECT id::text FROM ctkey_tid), 'ctkey_01h455vb4pex5vsknk084sn02q',
     'key rule: an id a rule writes with the entity prefix is stored');
 
 -- A new prefix reaches the late check with the same arguments as the early one.
-UPDATE entities SET id_prefix = 'ctkeynew' WHERE table_name = 'ctkey_tid';
+UPDATE entities SET type_prefix = 'ctkeynew' WHERE table_name = 'ctkey_tid';
 
 SELECT ok((SELECT count(DISTINCT tgargs) = 1 AND bool_and(position('ctkeynew' IN encode(tgargs, 'escape')) > 0)
              FROM pg_trigger
@@ -351,7 +366,7 @@ SELECT lives_ok($$UPDATE permissions SET permission_name = 'ct:probed' WHERE per
 SELECT authenticate_as('user3');
 
 -- A subtype's and an extension's write routines check the key after the rules.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('ctkey_sub', 'Keyed Sub', 'Keyed Subs', 1, 'is_a', 'ctkeysub', 'ctid_root');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity)
 VALUES ('ctkey_attach', 'Keyed Ext', 'Keyed Exts', 1, 'has_a', 'ctid_root');

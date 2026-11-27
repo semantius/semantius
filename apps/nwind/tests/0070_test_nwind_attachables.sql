@@ -13,7 +13,20 @@
 -- =====================================================
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(17);
+
+-- The sample tasks, found where the seed puts them: in the Northwind Sales
+-- queue, linked to one of the six orders. Never by their keys, which depend on
+-- the tasks created before the module was installed. Read here, as the
+-- installer, before the module delete at the end takes the links away.
+CREATE TEMP TABLE nw_sample_tasks AS
+SELECT t.id, o.label AS order_number
+  FROM tasks t
+  JOIN tasks_links l ON l.tasks_id = t.id
+  JOIN orders o ON l.attached_to = 'orders:' || o.id
+ WHERE t.assigned_role = (SELECT r.id FROM roles r WHERE r.slug = 'northwind_sales')
+   AND o.label IN ('SO-10248', 'SO-10249', 'SO-10250', 'SO-11075', 'SO-11076', 'SO-11077');
+GRANT SELECT ON nw_sample_tasks TO semantius_user;
 
 SELECT is(
     (SELECT count(*)::int FROM entity_attachables
@@ -26,8 +39,7 @@ SELECT is(
        FROM (SELECT split_part(l.attached_to, ':', 2)::bigint AS order_id, count(*) AS n
                FROM tasks_links l
                JOIN tasks t ON t.id = l.tasks_id
-              WHERE t.id::text LIKE 'task_01jn00nwnd%'
-                AND t.status = 'open'
+              WHERE t.status = 'open'
                 AND t.assigned_role = (SELECT r.id FROM roles r WHERE r.slug = 'northwind_sales')
                 AND t.assigned_user IS NULL
               GROUP BY 1) s
@@ -36,7 +48,7 @@ SELECT is(
     'the three oldest and the three newest orders carry two open sample tasks each, waiting in the Northwind Sales queue');
 
 SELECT authenticate_as('user2');
-SELECT is((SELECT count(*)::int FROM my_tasks() m WHERE m.id::text LIKE 'task_01jn00nwnd%'), 12,
+SELECT is((SELECT count(*)::int FROM my_tasks() m WHERE m.id IN (SELECT s.id FROM nw_sample_tasks s)), 12,
     'a member of Northwind Sales finds the sample tasks in its inbox');
 
 INSERT INTO comments (body, attached_to) VALUES ('Ship it on Monday', 'orders:10248');
@@ -56,6 +68,14 @@ SELECT t.id, r.ref FROM tasks t,
  WHERE t.title = 'Call back about 10248';
 SELECT is((SELECT count(*)::int FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id WHERE t.title = 'Call back about 10248'), 2,
     'a task is linked to an order and to its customer');
+
+-- The sample tasks took their numbers from the counter. Other tests take
+-- numbers too, and a rolled-back insert keeps the number it took, so only the
+-- floor is fixed.
+SELECT ok((SELECT id::text ~ '^TASK-[1-9][0-9]*$'
+                  AND substr(id::text, 6)::bigint > (SELECT max(substr(s.id::text, 6)::bigint) FROM nw_sample_tasks s)
+             FROM tasks WHERE title = 'Call back about 10248'),
+    'a new task takes the next number of the counter, above the numbers of the sample tasks');
 
 SELECT authenticate_as('user1');
 SELECT is((SELECT count(*)::int FROM comments WHERE body = 'Ship it on Monday')
@@ -84,8 +104,9 @@ DELETE FROM orders WHERE ship_name = 'Attachments Order';
 SELECT is((SELECT count(*)::int FROM comments WHERE body = 'Gone with the order')
           + (SELECT count(*)::int FROM files WHERE name = 'packing-list.txt'), 0,
     'deleting an order deletes its comments and the files it owns');
-SELECT ok(NOT EXISTS (SELECT 1 FROM tasks WHERE title = 'Only about this order'),
-    'and a task that was about that order only');
+SELECT ok(EXISTS (SELECT 1 FROM tasks WHERE title = 'Only about this order')
+          AND NOT EXISTS (SELECT 1 FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id WHERE t.title = 'Only about this order'),
+    'a task that was about that order only stays, without targets');
 SELECT is((SELECT count(*)::int FROM tasks_links l JOIN tasks t ON t.id = l.tasks_id WHERE t.title = 'Call back about 10248'), 2,
     'a task about other records keeps its other links');
 
@@ -106,8 +127,8 @@ SELECT throws_ok(
     'and a link to one');
 
 -- A module delete takes what is attached to the module's records along, as
--- deleting each record would. The installer runs it: a privileged direct
--- session, which passes the tasks rule.
+-- deleting each record would: comments and owned files go, tasks lose their
+-- links and stay. The installer runs it: a privileged direct session.
 RESET ROLE;
 DO $$
 BEGIN
@@ -118,11 +139,12 @@ BEGIN
 END $$;
 SELECT lives_ok($$DELETE FROM modules WHERE module_slug = 'nwind'$$,
     'the nwind module is deleted while its sample tasks exist');
-SELECT ok(NOT EXISTS (SELECT 1 FROM tasks WHERE id::text LIKE 'task_01jn00nwnd%' OR title = 'Call back about 10248')
+SELECT ok((SELECT count(*) FROM tasks t JOIN nw_sample_tasks s ON s.id = t.id) = 12
+          AND EXISTS (SELECT 1 FROM tasks WHERE title = 'Call back about 10248')
           AND NOT EXISTS (SELECT 1 FROM tasks_links WHERE attached_to LIKE 'orders:%' OR attached_to LIKE 'customers:%')
           AND NOT EXISTS (SELECT 1 FROM comments WHERE attached_to LIKE 'orders:%')
           AND NOT EXISTS (SELECT 1 FROM files WHERE attached_to LIKE 'customers:%'),
-    'and the tasks, links, comments and files on its records go with it');
+    'the comments and files on its records go with them; the tasks lose their links and stay, without targets');
 
 SELECT * FROM finish();
 ROLLBACK;

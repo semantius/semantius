@@ -977,14 +977,14 @@ RESET ROLE;
 SET LOCAL search_path TO public, pgtap;
 SELECT authenticate_as('user3');
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       edit_permission, validation_rules)
 VALUES ('rl_accounts', 'Account', 'Accounts', 1, 'typeid', 'rlacc', 'nwind:manage',
         '[{"code":"99801","message":"amount too high","jsonlogic":{"<=":[{"var":"amount"},100]}}]'::jsonb);
 INSERT INTO fields (table_name, field_name, title, format, field_order)
 VALUES ('rl_accounts', 'amount', 'Amount', 'int32', 30),
        ('rl_accounts', 'note', 'Note', 'text', 40);
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity,
                       edit_permission)
 VALUES ('rl_premium', 'Premium Account', 'Premium Accounts', 1, 'is_a', 'rlprm', 'rl_accounts', 'nwind:manage');
 INSERT INTO fields (table_name, field_name, title, format, field_order)

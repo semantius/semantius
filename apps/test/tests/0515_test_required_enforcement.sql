@@ -285,9 +285,9 @@ SELECT is((SELECT public._label(l) FROM rq_link l), 'target › target', 'and it
 -- =====================================================
 -- GROUP 11: is_a and has_a
 -- =====================================================
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix) VALUES ('rq_fam', 'F', 'F', 1, 'typeid', 'rqfam');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix) VALUES ('rq_fam', 'F', 'F', 1, 'typeid', 'rqfam');
 INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_fam', 'base_v', 'B', 'text', 'required');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity) VALUES ('rq_fam_sub', 'S', 'S', 1, 'is_a', 'rqsub', 'rq_fam');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity) VALUES ('rq_fam_sub', 'S', 'S', 1, 'is_a', 'rqsub', 'rq_fam');
 INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_fam_sub', 'sub_v', 'S', 'text', 'required');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity) VALUES ('rq_fam_part', 'P', 'P', 1, 'has_a', 'rq_fam');
 INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_fam_part', 'part_v', 'P', 'text', 'required');
@@ -397,9 +397,9 @@ SELECT is((SELECT column_default FROM information_schema.columns WHERE table_nam
     'a required enum''s first value default is reset, so an omitted value is refused');
 
 -- The default of an is_a view is a copy, so the family has to be rebuilt with it.
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix) VALUES ('rq_inst_e', 'E', 'E', 1, 'typeid', 'rqinste');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix) VALUES ('rq_inst_e', 'E', 'E', 1, 'typeid', 'rqinste');
 INSERT INTO fields (table_name, field_name, title, format, input_type, enum_values) VALUES ('rq_inst_e', 's', 'S', 'enum', 'required', '["a", "b"]');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity) VALUES ('rq_inst_e_sub', 'S', 'S', 1, 'is_a', 'rqinsts', 'rq_inst_e');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity) VALUES ('rq_inst_e_sub', 'S', 'S', 1, 'is_a', 'rqinsts', 'rq_inst_e');
 ALTER TABLE rq_inst_e ALTER COLUMN s SET DEFAULT 'a';
 ALTER VIEW rq_inst_e_sub ALTER COLUMN s SET DEFAULT 'a';
 SELECT dd_install_missing_checks('rq_inst_d');
@@ -456,9 +456,9 @@ SELECT throws_ok($$INSERT INTO rq_cr_date (label) VALUES ('b')$$, '90258', NULL,
 
 -- is_a and has_a: the rules run in the write routine, and the check lives on the
 -- entity's own table
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix) VALUES ('rq_cr_fam', 'F', 'F', 1, 'typeid', 'rqcrfam');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix) VALUES ('rq_cr_fam', 'F', 'F', 1, 'typeid', 'rqcrfam');
 INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_cr_fam', 'base_src', 'B', 'text', 'default');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity) VALUES ('rq_cr_sub', 'S', 'S', 1, 'is_a', 'rqcrsub', 'rq_cr_fam');
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity) VALUES ('rq_cr_sub', 'S', 'S', 1, 'is_a', 'rqcrsub', 'rq_cr_fam');
 INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES ('rq_cr_sub', 'sub_v', 'S', 'text', 'required');
 INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_refentity) VALUES ('rq_cr_part', 'P', 'P', 1, 'has_a', 'rq_cr_fam');
 INSERT INTO fields (table_name, field_name, title, format, input_type) VALUES

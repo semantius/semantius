@@ -254,22 +254,19 @@
         "edit_permission": "nwind:manage",
         "id_column": "id",
         "label_column": "label",
-        // the label is numbered from the order id (label_format below), which
+        // the label is built from the order id (computed_fields below), which
         // the column name does not say
         "label_column_label": "Order Id",
         "entity_type": "operational_workflow",
         // composed label: an order is labeled by its customer and its number,
-        // "Vins et alcools Chevalier › SO-10248"; the local label is the
-        // number the database gives it, "SO-" and the order id without
-        // padding, so a bare number in a reference picker or a line's label
-        // still reads as a sales order
+        // "Vins et alcools Chevalier › SO-10248"; the local label is
+        // "SO-" and the order id, so a bare number in a reference picker or
+        // a line's label still reads as a sales order
         "label_parent": "customer_id",
-        "label_format": "number",
-        "label_number_prefix": "SO-",
-        "label_number_digits": 0,
         // total reads the subtotal rollup; the rollup guard runs before this
         // rule, so a line write that moves the subtotal moves the total with it
         "computed_fields": [
+          {"name": "label", "jsonlogic": {"cat": ["SO-", {"var": "id"}]}},
           {"name": "total", "jsonlogic": {"+": [{"var": "subtotal"}, {"var": "freight"}]}}
         ],
         "fields": [

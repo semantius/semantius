@@ -165,8 +165,9 @@ is wrong, say so, but they will not be treated as vulnerabilities.
     field, the fields it aggregates and filters on and the values its filter
     compares them with; and the rules are kept whole, so a rule that reads a
     record through `set_record` names the entity and the fields it reads. A
-    reference property in `get_schema` keeps the JSON type and TypeID pattern
-    of its own column, which follow the key type of the entity it references.
+    reference property in `get_schema` keeps the JSON type and the Typed Id or
+    Typed Number pattern of its own column, which follow the key type of the
+    entity it references.
     `get_schema` adds nothing else taken from a hidden entity's row.
   - Module rows are outside the rule: a visible module row shows its
     `dashboard_config`, and `modules.version` moves with changes to the

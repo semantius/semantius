@@ -122,9 +122,9 @@ SELECT is(
 -- GROUP 4: an is_a family, where a rename also rebuilds the views
 -- =====================================================
 
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix)
 VALUES ('rs_root', 'Root', 'Roots', 1, 'typeid', 'rsroot');
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_refentity)
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_refentity)
 VALUES ('rs_sub', 'Sub', 'Subs', 1, 'is_a', 'rssub', 'rs_root');
 
 INSERT INTO fields (table_name, field_name, title, format, reference_table, reference_delete_mode) VALUES

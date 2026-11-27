@@ -253,17 +253,14 @@ DECLARE
     -- and typed from them when the table is created (rules 90253 and 90233
     -- refuse a change), and id_refentity because
     -- an is_a or has_a entity's records are stored in its base (90241).
-    -- id_prefix is not: a changed prefix in the file is applied like any other
-    -- difference, and refused for an is_a entity (90245).
+    -- type_prefix and type_digits are not: a change of either in the file is
+    -- applied like any other difference, and a changed prefix is refused for
+    -- an is_a entity (90245).
     c_entity_create_only CONSTANT TEXT[] := ARRAY['id_column', 'id_type', 'id_refentity',
         'catalog_entity_code', 'catalog_entity_aliases'];
-    -- Written once the fields exist, because they name fields. The label
-    -- number settings go with computed_fields: a rule writing the label and the
-    -- number format exclude each other (90288), so a label that changes from
-    -- one to the other changes in one write.
+    -- Written once the fields exist, because they name fields.
     c_entity_deferred CONSTANT TEXT[] := ARRAY['label_parent', 'computed_fields',
-        'validation_rules', 'select_rule', 'label_format', 'label_number_prefix',
-        'label_number_digits', 'label_number_start'];
+        'validation_rules', 'select_rule'];
     c_field_ignored CONSTANT TEXT[] := ARRAY['id', 'table_name', 'created_at', 'updated_at',
         'search_vector'];
     c_field_create_only CONSTANT TEXT[] := ARRAY['ctype', 'catalog_field_code'];
@@ -887,10 +884,6 @@ BEGIN
         v_set_list TEXT;
         v_old_list TEXT;
         v_new_list TEXT;
-        v_sequence TEXT;
-        v_max      BIGINT;
-        v_last     BIGINT;
-        v_called   BOOLEAN;
     BEGIN
         SELECT array_agg(e -> 'entity' ->> 'table_name' ORDER BY i)
           INTO v_pending
@@ -1027,21 +1020,11 @@ BEGIN
             v_summary := jsonb_set(v_summary, ARRAY['records', v_table],
                 jsonb_build_object('inserted', v_n, 'updated', v_m));
 
-            -- Explicit ids leave the id sequence behind them: move it past the
-            -- highest id, never lower (the rule public.fix_id_sequence applies).
-            -- An is_a or has_a entity's key is a TypeID and has no sequence.
-            IF v_current.id_type NOT IN ('is_a', 'has_a') AND EXISTS (SELECT 1 FROM pg_attribute a
-                        WHERE a.attrelid = format('public.%I', v_table)::regclass
-                          AND a.attname = v_id_col AND a.attnum > 0 AND NOT a.attisdropped) THEN
-                v_sequence := pg_get_serial_sequence(format('public.%I', v_table), v_id_col);
-                IF v_sequence IS NOT NULL THEN
-                    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_col, v_table) INTO v_max;
-                    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
-                    IF coalesce(v_max, 0) + 1 > (CASE WHEN v_called THEN v_last + 1 ELSE v_last END) THEN
-                        PERFORM setval(v_sequence, v_max, true);
-                    END IF;
-                END IF;
-            END IF;
+            -- Explicit ids leave the id sequence, or a Typed Number key's
+            -- counter, behind them: move it past the highest id, never lower,
+            -- as public.fix_id_sequence does. Set as an identity is after
+            -- handing out that id, so pg_sequence_last_value reports it.
+            PERFORM dd_id_sequence_sync(v_table, TRUE);
             v_done := v_done || v_table;
         END LOOP;
     END;

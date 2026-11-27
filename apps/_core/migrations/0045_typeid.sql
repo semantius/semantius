@@ -12,9 +12,14 @@
 -- is read by typeid_prefix; base32_decode raises 22P02, checks the byte length
 -- and is STABLE; uuid_v7 uses the native uuidv7() on PostgreSQL 18.
 --
--- Repeatable: functions only. The common.typeid domain, which the key columns
--- of typeid entities are declared with, is in 0046_typeid.once.sql, because a
--- domain is a type and types run once.
+-- The TYPED NUMBER KEYS section at the end is not vendored code: it is the
+-- second key type with a prefix, typenumber, and the prefix parser both key
+-- types share.
+--
+-- Repeatable: functions only. The common.typeid and common.typenumber
+-- domains, which the key columns of typeid and typenumber entities are
+-- declared with, are in 0046_typeid.once.sql, because a domain is a type and
+-- types run once.
 --
 -- Everything lives in `common`, not `public`: PostgREST exposes every function
 -- in `public` as an RPC, and these are building blocks of column defaults,
@@ -81,7 +86,7 @@ COMMENT ON FUNCTION common.uuid_v7() IS
 -- -----------------------------------------------------
 -- common.base32_encode(uuid) / common.base32_decode(text)
 -- -----------------------------------------------------
--- The TypeID suffix: the 128 bits of a UUID as 26 characters of Crockford's
+-- The Typed Id suffix: the 128 bits of a UUID as 26 characters of Crockford's
 -- lowercase base32 alphabet, 2 padding bits first, so the first character is
 -- always 0-7. Written out byte by byte, as jetify does, because PL/pgSQL has
 -- no bit-string slicing that beats it.
@@ -133,10 +138,10 @@ END
 $$;
 
 COMMENT ON FUNCTION common.base32_encode(uuid) IS
-'Encodes a UUID as the 26-character Crockford base32 suffix of a TypeID.';
+'Encodes a UUID as the 26-character Crockford base32 suffix of a Typed Id.';
 
 -- Decoding raises on malformed input, unlike the check below: a caller that
--- decodes has already decided the text is a TypeID suffix and wants the UUID,
+-- decodes has already decided the text is a Typed Id suffix and wants the UUID,
 -- and a NULL would hide the bad value. The raises are PostgreSQL's
 -- invalid_text_representation, the SQLSTATE a failed cast to uuid gives.
 -- STABLE rather than jetify's IMMUTABLE: convert_to() is STABLE, since an
@@ -241,12 +246,12 @@ END
 $$;
 
 COMMENT ON FUNCTION common.base32_decode(text) IS
-'Decodes a 26-character TypeID suffix back into its UUID. Raises invalid_text_representation (22P02) on a malformed suffix.';
+'Decodes a 26-character Typed Id suffix back into its UUID. Raises invalid_text_representation (22P02) on a malformed suffix.';
 
 -- -----------------------------------------------------
 -- common.typeid_check_text(text)
 -- -----------------------------------------------------
--- TRUE when the text is a well-formed TypeID: an optional prefix of up to 63
+-- TRUE when the text is a well-formed Typed Id: an optional prefix of up to 63
 -- lowercase letters and underscores that starts and ends with a letter, an
 -- underscore separating it, and a 26-character base32 suffix whose first
 -- character is 0-7 (the spec's two padding bits must be zero, or the suffix
@@ -268,12 +273,12 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION common.typeid_check_text(text) IS
-'TRUE when the text is a well-formed TypeID (optional prefix, underscore, 26-character base32 suffix starting 0-7). Never raises; the check behind the common.typeid domain.';
+'TRUE when the text is a well-formed Typed Id (optional prefix, underscore, 26-character base32 suffix starting 0-7). Never raises; the check behind the common.typeid domain.';
 
 -- -----------------------------------------------------
 -- common.typeid_prefix(text)
 -- -----------------------------------------------------
--- The prefix of a TypeID, '' when it has none. The suffix alphabet has no
+-- The prefix of a Typed Id, '' when it has none. The suffix alphabet has no
 -- underscore, so the prefix is everything before the last one. Meaningful only
 -- for text that passes typeid_check_text.
 CREATE OR REPLACE FUNCTION common.typeid_prefix(typeid_str text)
@@ -286,12 +291,12 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION common.typeid_prefix(text) IS
-'Returns the prefix of a TypeID, or an empty string when it has none.';
+'Returns the prefix of a Typed Id, or an empty string when it has none.';
 
 -- -----------------------------------------------------
 -- common.typeid_generate_text(prefix)
 -- -----------------------------------------------------
--- A new TypeID with the given prefix: prefix, underscore, base32 of a fresh
+-- A new Typed Id with the given prefix: prefix, underscore, base32 of a fresh
 -- UUIDv7. An empty prefix gives the bare suffix, as the spec defines. The
 -- prefix is validated because it is concatenated into the value: an
 -- entity's prefix is already held to this shape by the entities CHECK, so a
@@ -315,7 +320,7 @@ END
 $$;
 
 COMMENT ON FUNCTION common.typeid_generate_text(text) IS
-'Generates a new TypeID with the given prefix from a fresh UUIDv7. Raises invalid_parameter_value (22023) for a prefix outside the TypeID spec.';
+'Generates a new Typed Id with the given prefix from a fresh UUIDv7. Raises invalid_parameter_value (22023) for a prefix outside the Typed Id spec.';
 
 -- -----------------------------------------------------
 -- common.typeid_assign()  - BEFORE INSERT trigger of typeid entity tables
@@ -329,7 +334,7 @@ COMMENT ON FUNCTION common.typeid_generate_text(text) IS
 -- and dd_install_key_rule_checks in 0160_dd_functions.sql; the firing order is
 -- listed in build_record_logic_trigger, 0210_computed_validation.sql).
 -- Only the prefix is checked here: the column's
--- common.typeid domain already holds the value to the TypeID format, and it
+-- common.typeid domain already holds the value to the Typed Id format, and it
 -- would reject a malformed id whatever this trigger did.
 --
 -- The root table of an is_a family also holds the root rows of its subtypes'
@@ -458,6 +463,152 @@ $$;
 COMMENT ON FUNCTION common.reject_pk_change() IS
 'BEFORE UPDATE trigger (TG_ARGV: key column), installed as pk_immutable (UPDATE OF <key>) and, where a rule writes the key, as zz_key_check_update after the rules: refuses a change of a record key with 90236. An update that writes the unchanged key back passes.';
 
+-- =====================================================
+-- TYPED NUMBER KEYS
+-- =====================================================
+-- A Typed Number key is one a person can read, say and type: an uppercase
+-- prefix, a hyphen and a number, such as TASK-125 or INC-0000042. The prefix
+-- is entities.type_prefix, an uppercase letter and up to 9 more uppercase
+-- letters or digits; the number comes from a counter of the entity, padded
+-- with zeros to entities.type_digits. A Typed Id prefix is lowercase and a
+-- Typed Id has no hyphen, so the two grammars never meet, and one parser reads
+-- the prefix of either (common.type_prefix).
+
+-- -----------------------------------------------------
+-- common.typenumber_check_text(text)
+-- -----------------------------------------------------
+-- TRUE when the text is a well-formed Typed Number key. At most 18 digits, so
+-- every number fits a bigint. Like typeid_check_text it never raises, is
+-- IMMUTABLE for the domain CHECK, and passes NULL through.
+CREATE OR REPLACE FUNCTION common.typenumber_check_text(typenumber_str text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog, pg_temp
+AS $$
+    SELECT typenumber_str ~ '^[A-Z][A-Z0-9]{0,9}-[0-9]{1,18}$'
+$$;
+
+COMMENT ON FUNCTION common.typenumber_check_text(text) IS
+'TRUE when the text is a well-formed Typed Number key (an uppercase prefix of up to 10 letters and digits starting with a letter, a hyphen, 1 to 18 digits). Never raises; the check behind the common.typenumber domain.';
+
+-- -----------------------------------------------------
+-- common.type_prefix(text)
+-- -----------------------------------------------------
+-- The prefix of a Typed Id or a Typed Number key: the text before the hyphen of
+-- a Typed Number, else the Typed Id prefix (typeid_prefix). Everything that
+-- reads which subtype a key names - the write dispatch, record references,
+-- the delete step of an attachable target - asks this one function, so a
+-- family behaves the same under either key type. Meaningful only for text
+-- that passes one of the two checks.
+CREATE OR REPLACE FUNCTION common.type_prefix(key_str text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog, pg_temp
+AS $$
+    SELECT CASE WHEN strpos(key_str, '-') > 0 THEN left(key_str, strpos(key_str, '-') - 1)
+                ELSE common.typeid_prefix(key_str)
+           END
+$$;
+
+COMMENT ON FUNCTION common.type_prefix(text) IS
+'Returns the prefix of a Typed Id or of a Typed Number key (the text before its hyphen); an empty string for a Typed Id without one.';
+
+-- -----------------------------------------------------
+-- common.typenumber_text(prefix, digits, n)
+-- -----------------------------------------------------
+-- The one spelling of number n under a prefix: padded with zeros to digits,
+-- and never cut (greatest), so a number longer than the digits keeps all of
+-- them. The trigger below mints with it and checks a supplied key against it,
+-- and the generated write routines of an is_a family mint with it, so a
+-- number has one spelling at the entity's current width: TASK-125 and
+-- TASK-0125 are never both given while the width stays the same.
+CREATE OR REPLACE FUNCTION common.typenumber_text(prefix text, digits integer, n bigint)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE STRICT PARALLEL SAFE
+SET search_path = common, pg_catalog, pg_temp
+AS $$
+    SELECT prefix || '-' || lpad(n::text, greatest(digits, length(n::text)), '0')
+$$;
+
+COMMENT ON FUNCTION common.typenumber_text(text, integer, bigint) IS
+'The Typed Number key of number n: the prefix, a hyphen and the number padded with zeros to the given digits, never cut.';
+
+-- -----------------------------------------------------
+-- common.typenumber_assign()  - BEFORE INSERT trigger of typenumber entity tables
+-- -----------------------------------------------------
+-- The Typed Number counterpart of common.typeid_assign, installed the same way
+-- (in a_typeid_assign's place as a_typenumber_assign, and as
+-- zz_key_check_insert behind a rule that writes the key) by
+-- dd_install_id_triggers in 0160_dd_functions.sql. TG_ARGV[0] is the key
+-- column, TG_ARGV[1] the current prefix, TG_ARGV[2] the digits, TG_ARGV[3]
+-- onwards the prefixes of the is_a subtypes, which are accepted only at
+-- pg_trigger_depth() > 1 for the reason typeid_assign gives.
+--
+-- A row without an id gets the next number of the table's counter: the
+-- sequence the key column owns, looked up by that ownership on every insert
+-- (pg_get_serial_sequence), as everything else that numbers with it or moves
+-- it does (dd_id_sequence). Not by name, which another table's identity
+-- sequence can carry, and not by an OID among the trigger arguments, which a
+-- dump and restore would leave pointing at nothing, since the restored
+-- sequence gets a new OID; the ownership survives both, and a rename of the
+-- table. Taking a number needs USAGE on it, which the request role is granted
+-- with the table.
+--
+-- Anyone may bring an id, as with an auto_increment key: it must carry the
+-- current prefix (90237), and its number must be spelled with the current
+-- digits (90287), so that a number has one spelling at the entity's current
+-- width. Keys given before a digits change keep theirs, so TASK-1 and a later
+-- TASK-001 can both exist. A subtype's prefix counts with the root's digits
+-- too, which is the width of the whole family. A supplied id does not move
+-- the counter: a later insert that reaches its number fails with 23505 until
+-- fix_id_sequence moves the counter past it, as for an identity. The column's common.typenumber domain holds the value to
+-- the format before this trigger runs, so the number parses.
+CREATE OR REPLACE FUNCTION common.typenumber_assign()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = common, pg_catalog, pg_temp
+AS $$
+DECLARE
+    v_column TEXT := TG_ARGV[0];
+    v_prefix TEXT := TG_ARGV[1];
+    v_digits INTEGER := TG_ARGV[2]::integer;
+    v_id     TEXT := to_jsonb(NEW) ->> TG_ARGV[0];
+    v_given  TEXT;
+    v_spelled TEXT;
+BEGIN
+    IF v_id IS NULL THEN
+        -- Through EXECUTE, for the reason common.typeid_assign gives.
+        EXECUTE 'SELECT r.* FROM jsonb_populate_record($1, $2) AS r'
+           INTO NEW
+          USING NEW, jsonb_build_object(v_column, common.typenumber_text(v_prefix, v_digits,
+                    nextval(pg_catalog.pg_get_serial_sequence(format('%I.%I', TG_TABLE_SCHEMA, TG_TABLE_NAME), v_column)::regclass)));
+        RETURN NEW;
+    END IF;
+    v_given := common.type_prefix(v_id);
+    IF v_given IS DISTINCT FROM v_prefix
+       AND NOT (pg_trigger_depth() > 1 AND v_given = ANY (TG_ARGV[3:])) THEN
+        RAISE EXCEPTION 'Id ${id} does not carry the prefix ${prefix} of ${table}'
+            USING ERRCODE = '90237',
+                  HINT = jsonb_build_object('id', v_id, 'prefix', v_prefix, 'table', TG_TABLE_NAME)::text;
+    END IF;
+    v_spelled := common.typenumber_text(v_given, v_digits, substr(v_id, length(v_given) + 2)::bigint);
+    IF v_id IS DISTINCT FROM v_spelled THEN
+        RAISE EXCEPTION 'Id ${id} is written ${expected} in ${table}'
+            USING ERRCODE = '90287',
+                  HINT = jsonb_build_object(
+                      'id', v_id, 'expected', v_spelled, 'digits', v_digits, 'table', TG_TABLE_NAME,
+                      'hint', 'A number is written with at least ${digits} digits and no further leading zeros.')::text;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+COMMENT ON FUNCTION common.typenumber_assign() IS
+'BEFORE INSERT trigger of a typenumber entity table (TG_ARGV: key column, current prefix, digits, then the prefixes of its is_a subtypes), installed as a_typenumber_assign before the entity''s rules and, where a rule writes the key, as zz_key_check_insert after them. Gives a row without an id the next number of the counter, the sequence its key column owns; refuses a supplied id without the current prefix (90237) or whose number is not spelled with the digits (90287). A subtype prefix is accepted only from inside a trigger, where the generated write routine inserts the whole record.';
+
 REVOKE EXECUTE ON FUNCTION common.uuid_v7() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.base32_encode(uuid) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.base32_decode(text) FROM PUBLIC;
@@ -467,6 +618,10 @@ REVOKE EXECUTE ON FUNCTION common.typeid_generate_text(text) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.typeid_assign() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.ext_write_guard() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION common.reject_pk_change() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typenumber_check_text(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.type_prefix(text) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typenumber_text(text, integer, bigint) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION common.typenumber_assign() FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION common.uuid_v7() TO semantius_user;
 GRANT EXECUTE ON FUNCTION common.base32_encode(uuid) TO semantius_user;
@@ -474,3 +629,24 @@ GRANT EXECUTE ON FUNCTION common.base32_decode(text) TO semantius_user;
 GRANT EXECUTE ON FUNCTION common.typeid_check_text(text) TO semantius_user;
 GRANT EXECUTE ON FUNCTION common.typeid_prefix(text) TO semantius_user;
 GRANT EXECUTE ON FUNCTION common.typeid_generate_text(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.typenumber_check_text(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.type_prefix(text) TO semantius_user;
+GRANT EXECUTE ON FUNCTION common.typenumber_text(text, integer, bigint) TO semantius_user;
+
+-- On an upgrade the dictionary's definer code already runs as semantius_owner,
+-- while a function new in this file stays owned by the installer until
+-- 9900_owner_hardening.sql runs last. A .jsonc file in between creates tables
+-- and triggers through that code, which would be refused the Typed Number
+-- functions: the dispatch and the family checks read prefixes with
+-- common.type_prefix, and creating a trigger checks EXECUTE on its function.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'semantius_owner') THEN
+        GRANT EXECUTE ON FUNCTION
+            common.typenumber_check_text(text),
+            common.type_prefix(text),
+            common.typenumber_text(text, integer, bigint),
+            common.typenumber_assign()
+        TO semantius_owner;
+    END IF;
+END $$;

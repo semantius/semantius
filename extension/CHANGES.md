@@ -194,19 +194,26 @@ installs the core schema as ordinary objects.
     `get_schema()` lists it in `required`.
   - `uuid`: a time-ordered UUIDv7 from the new `common.uuid_v7()` (native
     `uuidv7()` on PostgreSQL 18, a PL/pgSQL fallback on 17).
-  - `typeid`: a prefixed, sortable [TypeID](https://github.com/jetify-com/typeid)
-    such as `acct_01h455vb4pex5vsknk084sn02q`, stored in the new
+  - `typeid`: a prefixed, sortable Typed Id, following the
+    [TypeID specification](https://github.com/jetify-com/typeid), such as
+    `acct_01h455vb4pex5vsknk084sn02q`, stored in the new
     `common.typeid` domain (text, `COLLATE "C"`, format check
     `typeid_format`) and filled by a trigger when the insert brings none. The
-    prefix is `entities.id_prefix`: TypeID grammar, unique among the prefixes
+    prefix is `entities.type_prefix`: Typed Id grammar, unique among the prefixes
     in use, and changeable. After a change new ids take the new prefix,
     existing ids keep the old one, and an id with a former prefix can no
     longer be inserted (`90237`), so re-importing an export taken before the
     change fails for the rows it would add. A released prefix may be taken by
     another entity. `get_schema()` reports typeid keys and references to them
-    as `type: string` with a TypeID `pattern`; TypeID is a key type, not a
-    field format. A TypeID costs about 30 bytes per key and per referencing
+    as `type: string` with a Typed Id `pattern`; Typed Id is a key type, not a
+    field format. A Typed Id costs about 30 bytes per key and per referencing
     column, against 16 for a `uuid` and 8 for a `bigint`.
+  - `typenumber`: a Typed Number a person can read and type, such as
+    `TASK-125`, stored in the new `common.typenumber` domain (text,
+    `COLLATE "C"`, format check `typenumber_format`): `type_prefix`, an
+    uppercase letter and up to 9 more letters or digits, and a number from a
+    counter of the entity, padded with zeros to the new
+    `entities.type_digits` (0 to 18, 0 = no padding). Details below.
   - `computed` only describes the system tables whose key is a generated
     column (`fields` and the four junction tables); a new entity cannot use
     it (`90234`).
@@ -221,13 +228,15 @@ installs the core schema as ordinary objects.
   is not the one its `id_type` gives (`90239`): the switch never rewrites
   metadata, so switching it on and off again leaves everything as it was.
 - **Subtypes and extensions: `is_a` and `has_a`.** Two more key types share
-  the TypeID key of the entity named in the new `entities.id_refentity` (set
-  once, `90241`; `ON UPDATE CASCADE` follows a rename of the base):
-  - `is_a`: a subtype of a `typeid` or `is_a` entity, with a prefix of its own
-    that never changes (`90245`). Every record is exactly one type, named by
-    its id's prefix, and has a part at every level of its chain: the root
-    table holds every record's root row.
-  - `has_a`: an optional extension of a `typeid` entity; a base record has at
+  the Typed Id or Typed Number key of the entity named in the new
+  `entities.id_refentity` (set once, `90241`; `ON UPDATE CASCADE` follows a
+  rename of the base):
+  - `is_a`: a subtype of a `typeid`, `typenumber` or `is_a` entity, with a
+    prefix of its own that never changes (`90245`) and follows its root's
+    grammar (`90288`). Every record is exactly one type, named by its id's
+    prefix, and has a part at every level of its chain: the root table holds
+    every record's root row.
+  - `has_a`: an optional extension of a `typeid` or `typenumber` entity; a base record has at
     most one of each. An insert without an id, or with one no visible base
     record has, creates the base record too; the id of an existing base record
     attaches to it (a base value that differs from the stored one is refused,
@@ -485,7 +494,7 @@ installs the core schema as ordinary objects.
   every field of the error; the message `not found in tables metadata` is
   gone. `get_schema_children()` lists a child only for a caller who sees it,
   and nothing under a parent the caller does not see. A reference to an entity
-  the caller does not see keeps `reference_table` and the type and TypeID
+  the caller does not see keeps `reference_table` and the type and Typed Id
   pattern of its own column, and loses `reference_table_id_column`,
   `reference_table_label_column`, `reference_table_singular_label` and
   `reference_table_plural_label`; its `<fk>_label` description names the
@@ -608,41 +617,53 @@ installs the core schema as ordinary objects.
   `<table>:<key>`. The canonical spelling (`dd_record_ref_canonical()`) casts
   the key to its type and back and names an is_a record by the subtype its
   key's prefix belongs to. A rename of an entity rewrites the references to it.
-- **Numbered labels.** With `entities.label_format` `number` the database
-  fills the label on insert: `label_number_prefix` and a number padded to
-  `label_number_digits`, the id for an `auto_increment` or `bigint` key and the
-  counter `<entity>_label_seq` (from `label_number_start`) for every other one.
-  A numbered label never changes, and only a privileged seed may supply one;
-  the label field's `ctype` is `number_label`. An is_a subtype with a prefix
-  of its own counts on its own. Refused: switching while a label of the format
-  is not its row's own number (`90287`), a computed rule that writes the label
-  (`90288`), a format of its own on an is_a entity (`90289`), and two prefixes
-  of a family that would number labels of the same shape (`90290`). The nwind
-  orders are numbered `SO-<id>`.
+- **Typed Number keys.** An entity with `id_type` `typenumber` numbers its
+  records `<type_prefix>-<number>`, such as `TASK-125` or, with
+  `type_digits` 7, `INC-0000042`. The counter is a sequence named like an
+  identity sequence, `<table>_<key>_seq`, owned by the key column, so it is
+  renamed and dropped with the table and granted with it. Each is_a subtype
+  counts with a counter of its own (`INC-00001`, `CHG-00001`) in its root's
+  digits; a has_a extension takes its new keys from its base. Anyone may
+  supply a key, as with an identity: it must carry the current prefix
+  (`90237`) and be written with the current digits (`90287`), so a number has
+  one spelling at the entity's current width; keys given before a change of
+  the digits keep theirs. A supplied key does not move the counter;
+  `fix_id_sequence()` and `ensure_entities()` move it past the highest number
+  of the prefix, and `fix_id_sequence()` of a has_a entity answers `NULL`, as
+  its keys come from its base's counter. A change of the prefix or of the
+  digits applies to new numbers only. Numbers have
+  gaps, and their order is the order of insert, not of commit. `get_schema()`
+  reports the keys and references to them with a Typed Number `pattern`.
 - **Attachable entities.** `entities.attach_mode` `single`, `owned_shared` or
   `multiple` makes an entity's records attachable to records of the target
   entities listed in the new table `entity_attachables`: one target in the
   field `attached_to`, further ones in the link entity `<entity>_links` the
-  dictionary keeps. Reading and editing a `single` or `owned_shared` record
+  dictionary keeps. A row of `entity_attachables` is seen by whoever sees both
+  its entities, as a row of `fields` is, and written with `admin`. Reading and editing a `single` or `owned_shared` record
   follow its target; `attach_permission` says whether attaching needs to see or
   to edit the target, `attach_on_target_delete` whether the delete of a target
-  cascades to its records or is refused. The delete of a target removes its
-  links and the `multiple` records that lose their last one past the attachable
-  entity's rules, as a foreign-key cascade; the records it cascades to in
-  `attached_to` are held to them. A TRUNCATE is refused while records
+  cascades to its records or is refused. The delete of a target removes the
+  links to it, as a foreign-key cascade, past the attachable entity's rules,
+  which hold a link back only while its target exists; a `multiple` record
+  that loses its last target stays, without targets. The records it cascades
+  to in `attached_to` are held to the rules. A TRUNCATE is refused while records
   are attached. Adding or removing a link needs the rights to change its
   record. A module delete takes what is attached to the module's records
   along. `get_schema()` reports `attach_mode`, `attach_targets` and
-  `attachables`. Errors `91001`-`91024`, a block of their own.
+  `attachables`. A target is set when a record or a link is created and is
+  never changed: an update that changes `attached_to` is refused (`91025`), and
+  so is one that changes a link row (`91026`). Errors `91001`-`91026`, a block
+  of their own.
 - **Tasks, files and comments** ship as attachable entities. `tasks`
-  (`multiple`) are seen by their assignee, their creator, the members of their
+  (`multiple`, Typed Number keys `TASK-1`, `TASK-2`, ...) are seen by their assignee, their creator, the members of their
   role and holders of `tasks:view_all`, and changed by the assignee, the
   creator and holders of `tasks:manage_all`; a member of the role may claim an
   unassigned task (`90279`). A session without a user, such as the
   installer's, passes. `public.my_tasks()` lists the caller's open tasks.
   `files` (`owned_shared`) keep their content in the row, with a size the
-  database sets; `comments` are `single`. nwind switches the three on for
-  orders and customers and seeds open sample tasks on six orders.
+  database sets; `comments` are `single`; both keep Typed Id keys. nwind
+  switches the three on for orders and customers and seeds open sample tasks
+  `TASK-1` to `TASK-12` on six orders.
 - **New permissions** `public:write` (the edit permission of the three, held
   by the User role), `tasks:view_all` and `tasks:manage_all` (which includes
   it); the Administrator role holds all three. A rule may read `$role_ids`,

@@ -282,18 +282,24 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             -- from a caller who does not see it, so they are left out for that
             -- caller: of the target, the property keeps reference_table, the
             -- name the field row itself holds, and the key type of the target,
-            -- which its own column follows (key_id_type and json_type below),
+            -- which its own column follows (key_type and json_type below),
             -- and nothing else.
             (t.table_name IS NOT NULL AND dd_entity_viewable(t.table_name)) AS reference_visible,
             -- The key type the property holds a value of: the entity's own for
-            -- its key column, the referenced entity's for a reference. Drives
-            -- the TypeID pattern below. It describes the values of this field's
+            -- its key column, the referenced entity's for a reference, as the
+            -- key column declares it (dd_key_type), so an is_a or has_a key is
+            -- its root's Typed Id or Typed Number. An entity without a table
+            -- has no key column yet, so there it is the type its id_type will
+            -- give the key, as field_data_type types a reference to it. Drives
+            -- the key pattern below. It describes the values of this field's
             -- own column, so it stays when the referenced entity is hidden, as
             -- the JSON type does.
             CASE
-                WHEN f.table_name = p_table_name AND f.field_name = ent.id_column THEN ent.id_type
-                WHEN f.format IN ('reference', 'parent') THEN t.id_type
-            END AS key_id_type,
+                WHEN f.table_name = p_table_name AND f.field_name = ent.id_column
+                THEN coalesce(dd_key_type(p_table_name), dd_id_type_data_type(ent.id_type)::regtype)
+                WHEN f.format IN ('reference', 'parent')
+                THEN coalesce(dd_key_type(f.reference_table), dd_id_type_data_type(t.id_type)::regtype)
+            END AS key_type,
             -- The property's JSON type. A reference takes the type of the key it
             -- points at, so entities/permissions come out "string" and users
             -- "integer"; a hard-coded list of text-keyed tables would go stale the
@@ -362,16 +368,18 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             THEN jsonb_build_object('inherited_from', owner)
             ELSE '{}'::jsonb
         END ||
-        -- A TypeID key, and every reference to one, is described by its
-        -- shape: TypeID is a key type, not a field format (the format stays
-        -- string), so this is where a client learns what a valid value
-        -- looks like. The pattern accepts any valid prefix; which prefix a
-        -- new id must carry is enforced by the database on insert, and a
-        -- reference may hold ids minted under an entity's earlier prefix.
-        -- is_a and has_a keys are TypeIDs too, those of their root.
-        CASE
-            WHEN key_id_type IN ('typeid', 'is_a', 'has_a')
+        -- A Typed Id or Typed Number key, and every reference to one, is
+        -- described by its shape: both are key types, not field formats (the
+        -- format stays string), so this is where a client learns what a valid
+        -- value looks like. The pattern accepts any valid prefix; which
+        -- prefix a new id must carry, and the digits of a Typed Number, are
+        -- enforced by the database on insert, and a reference may hold ids
+        -- minted under an entity's earlier prefix or digits.
+        CASE key_type
+            WHEN 'common.typeid'::regtype
             THEN jsonb_build_object('pattern', '^([a-z]([a-z_]{0,61}[a-z])?_)?[0-7][0123456789abcdefghjkmnpqrstvwxyz]{25}$')
+            WHEN 'common.typenumber'::regtype
+            THEN jsonb_build_object('pattern', '^[A-Z][A-Z0-9]{0,9}-[0-9]{1,18}$')
             ELSE '{}'::jsonb
         END ||
         -- Add enum field if enum_values is present
@@ -436,7 +444,7 @@ RETURNS TABLE (field_name TEXT, sort_order NUMERIC, property JSONB, is_required 
             -- With no default the client starts it empty and leaves it out of the write, as it
             -- does for a reference to an integer-keyed entity.
             -- Nor for the key: '' is not a key a text entity may be saved
-            -- under, and a uuid or TypeID key is generated when it is left out.
+            -- under, and a uuid or Typed Id key is generated when it is left out.
             WHEN json_type::text = '"string"' AND format NOT IN ('reference', 'parent')
                  AND coalesce(ctype, '') <> 'id' THEN jsonb_build_object('default', '')
             -- For JSON types without explicit default, add empty object default
@@ -916,7 +924,12 @@ GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 -- =====================================================
 
 -- After an import writes explicit ids, the id sequence lags behind them and the
--- next ordinary insert fails with 23505. This moves the sequence past max(id).
+-- next ordinary insert fails with 23505. This moves the entity's sequence past
+-- them: past max(id), or for a Typed Number key the entity's counter past the
+-- highest number its prefix has. dd_id_sequence_sync (0160_dd_functions.sql)
+-- does both, and answers NULL for a key without a sequence of its own, a
+-- has_a extension among them: its new keys come from its base's counter,
+-- which is moved through the base.
 --
 -- Callable by whoever may insert into the table: the entity's edit_permission,
 -- held by a caller who sees the entity in the catalog (dd_entity_viewable).
@@ -927,7 +940,8 @@ GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 -- reads as "no such RPC".
 -- SECURITY DEFINER because the request role cannot setval, and under RLS its
 -- max(id) would miss the rows it cannot see.
--- The lock keeps inserts out between max() and setval. While it waits, every
+-- The lock keeps inserts out between max() and setval: of the table, or of the
+-- family's root table, which holds every typenumber key. While it waits, every
 -- later writer of the table queues behind it, so lock_timeout caps the wait at
 -- 2 s and the timeout becomes 90232 (retry) instead of 55P03 (HTTP 500).
 -- The sequence is never lowered: that would re-issue the ids of deleted rows.
@@ -935,17 +949,12 @@ GRANT EXECUTE ON FUNCTION public.get_user_cubes() TO semantius_user;
 CREATE OR REPLACE FUNCTION public.fix_id_sequence(p_table TEXT)
 RETURNS BIGINT AS $$
 DECLARE
-    v_id_column TEXT;
     v_edit_permission TEXT;
-    v_sequence TEXT;
-    v_max BIGINT;
-    v_last BIGINT;
-    v_called BOOLEAN;
     v_next BIGINT;
 BEGIN
     PERFORM rbac.uid();
 
-    SELECT e.id_column, e.edit_permission INTO v_id_column, v_edit_permission
+    SELECT e.edit_permission INTO v_edit_permission
     FROM public.entities e
     WHERE e.table_name = p_table;
 
@@ -962,24 +971,8 @@ BEGIN
                   HINT = jsonb_build_object('code', '90106', 'table', p_table)::text;
     END IF;
 
-    -- pg_get_serial_sequence raises on a missing table or column instead of
-    -- returning NULL, and a missing table would surface as 42P01.
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_catalog.pg_attribute a
-        WHERE a.attrelid = to_regclass(format('public.%I', p_table))
-          AND a.attname = v_id_column
-          AND a.attnum > 0
-          AND NOT a.attisdropped
-    ) THEN
-        RETURN NULL;
-    END IF;
-    v_sequence := pg_get_serial_sequence(format('public.%I', p_table), v_id_column);
-    IF v_sequence IS NULL THEN
-        RETURN NULL;  -- a text, uuid or otherwise non-serial key
-    END IF;
-
     BEGIN
-        EXECUTE format('LOCK TABLE public.%I IN SHARE ROW EXCLUSIVE MODE', p_table);
+        v_next := dd_id_sequence_sync(p_table, FALSE);
     EXCEPTION WHEN lock_not_available THEN
         RAISE EXCEPTION 'Table ${table} is busy, try again'
             USING ERRCODE = '90232',
@@ -987,18 +980,12 @@ BEGIN
                       'table', p_table,
                       'hint', 'Another transaction is writing to ${table}. Retry when it has finished.')::text;
     END;
-
-    EXECUTE format('SELECT max(%I)::bigint FROM public.%I', v_id_column, p_table) INTO v_max;
-    EXECUTE format('SELECT last_value, is_called FROM %s', v_sequence) INTO v_last, v_called;
-    v_next := GREATEST(COALESCE(v_max, 0) + 1,
-                       CASE WHEN v_called THEN v_last + 1 ELSE v_last END);
-    PERFORM setval(v_sequence, v_next, false);
     RETURN v_next;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET lock_timeout = '2s';
 
 COMMENT ON FUNCTION public.fix_id_sequence(TEXT) IS
-'Moves the id sequence of an entity table past its highest id, after an import wrote explicit ids. Returns the next id, or NULL when the key has no sequence. Requires the entity''s edit_permission and that the caller sees the entity in the catalog (dd_entity_viewable); anybody else gets 42501 (90106). An unknown table answers that 42501 too, and 90231 to a holder of admin. Never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
+'Moves the id sequence of an entity table past its highest id, or the counter of a Typed Number key past the highest number of the entity''s prefix, after an import wrote explicit ids. Returns the next id or number, or NULL when the key has neither, as for a has_a entity, whose new keys come from its base. Requires the entity''s edit_permission and that the caller sees the entity in the catalog (dd_entity_viewable); anybody else gets 42501 (90106). An unknown table answers that 42501 too, and 90231 to a holder of admin. Never lowers the sequence; gives up with 90232 when the table stays locked by another writer for 2 s.';
 
 REVOKE EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.fix_id_sequence(TEXT) TO semantius_user;

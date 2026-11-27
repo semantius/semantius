@@ -8,13 +8,13 @@
 #     refuses as attach_on_target_delete says; an attach that waits for a
 #     delete finds no row to lock once the delete commits, and is refused.
 #   * two deletes that each remove one of a multiple record's last two links
-#     do not both keep the record: the delete step locks the records that lost
-#     a link before it deletes the ones left without any, so the second waits
-#     for the first and then sees its link gone.
+#     both go through, and the record stays, without links.
 #   * a change of the attach mode waits for an insert under the old mode
-#     (check_entity_attach locks the tables), and a switch-off of a target
+#     (check_entity_attach locks the table), and a switch-off of a target
 #     waits for an attach to it (the attach step locks the row of
 #     entity_attachables), and both then see the record and refuse.
+#   * a change of the attach mode does not deadlock with a transaction that
+#     removes a record's links and then the record.
 # Correct at READ COMMITTED, the default and PostgREST's level.
 #
 # Runs against a database that has been migrated, on the plain CLI container
@@ -120,7 +120,7 @@ overlap "DELETE FROM public.race_targets WHERE id = $target"         "INSERT INT
 check "the link is refused (91018)" "$SECOND_RESULT" "91018"
 check "no link names the deleted target"       "$(psqlq "SELECT count(*) FROM public.race_todos_links WHERE attached_to = 'race_targets:$target'")" "0"
 
-echo "Two deletes that each remove one of a record's last two links delete the record"
+echo "Two deletes that each remove one of a record's last two links leave the record without links"
 target_a=$(new_target)
 target_b=$(new_target)
 todo=$(new_todo)
@@ -128,7 +128,8 @@ link "$todo" "$target_a"
 link "$todo" "$target_b"
 overlap "DELETE FROM public.race_targets WHERE id = $target_a"         "DELETE FROM public.race_targets WHERE id = $target_b"
 check "the second delete went through" "$SECOND_RESULT" "ok"
-check "the todo that lost both links is gone"       "$(psqlq "SELECT count(*) FROM public.race_todos WHERE id = $todo")" "0"
+check "the todo that lost both links stays, without links" \
+      "$(psqlq "SELECT count(*) || '/' || (SELECT count(*) FROM public.race_todos_links WHERE race_todos_id = $todo) FROM public.race_todos WHERE id = $todo")" "1/0"
 
 echo "A change of the attach mode waits for an insert under the old mode, and is refused"
 target=$(new_target)
@@ -141,5 +142,25 @@ target=$(new_target)
 overlap "INSERT INTO public.race_memos (label, attached_to) VALUES ('m', 'race_targets:$target')"         "DELETE FROM public.entity_attachables WHERE target = 'race_targets' AND attachable = 'race_memos'"
 check "the switch-off is refused (91015)" "$SECOND_RESULT" "91015"
 check "the memo and the row that admits it are both there"       "$(psqlq "SELECT count(*) FROM public.race_memos m, public.entity_attachables ea WHERE m.attached_to = 'race_targets:$target' AND ea.target = 'race_targets' AND ea.attachable = 'race_memos'")" "1"
+
+echo "A change of the attach mode does not deadlock with links and a record being deleted"
+target=$(new_target)
+todo=$(new_todo)
+link "$todo" "$target"
+out=$(mktemp)
+# The links first, then the record.
+( docker exec -e PGOPTIONS='-c client_min_messages=warning' "$CONTAINER" psql -U postgres -d "$DB" -X -qtA \
+    -v ON_ERROR_STOP=1 -v VERBOSITY=verbose \
+    -c "BEGIN" -c "DELETE FROM public.race_todos_links WHERE race_todos_id = $todo" -c "SELECT pg_sleep(2)" \
+    -c "DELETE FROM public.race_todos WHERE id = $todo" -c "COMMIT" >/dev/null 2>"$out" ) &
+first=$!
+sleep 1
+MODE_RESULT=$(docker exec -e PGOPTIONS='-c client_min_messages=warning' "$CONTAINER" psql -U postgres -d "$DB" -X -qtA \
+    -v VERBOSITY=verbose -c "UPDATE public.entities SET attach_mode = 'none' WHERE table_name = 'race_todos'" 2>&1 >/dev/null \
+    | grep -oE 'ERROR:  [0-9A-Z]{5}' | head -1 | cut -c9- || true)
+if wait "$first"; then DELETE_RESULT=ok; else DELETE_RESULT=$(grep -oE 'ERROR:  [0-9A-Z]{5}' "$out" | head -1 | cut -c9- || true); fi
+rm -f "$out"
+check "the mode change is refused, not deadlocked (91005)" "${MODE_RESULT:-ok}" "91005"
+check "the links and the record are deleted" "$DELETE_RESULT" "ok"
 
 exit "$FAILED"

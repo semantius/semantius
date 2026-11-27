@@ -77,9 +77,10 @@ of `has_permission(view_permission)` (the catalog, below).
   through `set_record`. A fields row follows the `entities` row its `table_name` points
   at: the dictionary builds that rule into the policies of `fields` as one semi-join on
   `entities`, read as the caller and run once per statement, and `get_record_by_id` asks
-  the same question. A user whom a `select_rule` admits to records without either
-  permission reads the records and sees no metadata of the entity. Writes to both tables
-  need `admin`.
+  the same question. A row of `entity_attachables` follows both `entities` rows it names
+  the same way. A user whom a `select_rule` admits to records without either
+  permission reads the records and sees no metadata of the entity. Writes to the three
+  tables need `admin`.
 - **A rule fails closed.** A forgotten grant denies, which is the safe direction. So does a
   rule that cannot decide. A rule that raises on a row hides that row, and raises a WARNING
   once per transaction and entity that names the entity and the SQLSTATE but not the
@@ -297,9 +298,9 @@ Each holds across all of A1-A8, except for the privileged connections D4 puts ou
       `computed_fields`, a field's `input_type_rule`) are kept whole too, and a rule that
       reads a record through `set_record` names the entity and the fields it reads.
       `get_schema` adds nothing taken from a hidden entity's row.
-    - A reference property in `get_schema` keeps the JSON type and the TypeID pattern of
-      its own column, which follow the key type of the entity it references, also when
-      that entity is hidden.
+    - A reference property in `get_schema` keeps the JSON type and the Typed Id or Typed
+      Number pattern of its own column, which follow the key type of the entity it
+      references, also when that entity is hidden.
     - The rows of `modules` are not covered: a visible module row shows its
       `dashboard_config`, and its `version` moves with changes to the entities and fields
       of the module.

@@ -111,7 +111,10 @@ BEGIN
                 );
             END IF;
 
-            -- Rename id sequence (<table>_<id_col>_seq)
+            -- Rename id sequence (<table>_<id_col>_seq): the identity
+            -- sequence, or the counter of a typenumber key or of an is_a
+            -- subtype in a typenumber family, which is named and owned the
+            -- same way (dd_install_id_triggers, 0160_dd_functions.sql).
             IF EXISTS (
                 SELECT 1 FROM pg_class c
                 WHERE c.relname = v_old_rel || '_' || OLD.id_column || '_seq'
@@ -129,13 +132,6 @@ BEGIN
                     v_old_rel || '_' || OLD.id_column || '_seq',
                     v_new_rel || '_' || NEW.id_column || '_seq'
                 );
-            END IF;
-
-            -- Rename the label counter (<table>_label_seq), which carries the
-            -- entity's name and belongs to no table (dd_build_label_number).
-            IF dd_sequence_exists(OLD.table_name || '_label_seq') THEN
-                EXECUTE format('ALTER SEQUENCE public.%I RENAME TO %I',
-                    OLD.table_name || '_label_seq', NEW.table_name || '_label_seq');
             END IF;
 
             -- Rename primary key constraint (<table>_pkey)
@@ -324,7 +320,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 COMMENT ON FUNCTION rename_dd_table IS
 'BEFORE UPDATE trigger on entities: renames the physical table and ALL associated named
 objects when table_name changes: updated_at trigger, order column trigger, RLS policies, GIN search_vector
-index, id sequence, label counter, primary key constraint, FK constraints, FK indexes, check constraints,
+index, id sequence, primary key constraint, FK constraints, FK indexes, check constraints,
 NOT NULL constraints (PG18+ named pg_constraint rows; no-op on PG<=17),
 unique indexes, compute_validate and rule functions, select_rule and row move functions, and queue event triggers.
 For an is_a or has_a entity the physical table is <entity>_ext and its view is renamed with it;

@@ -8,7 +8,8 @@
 --   PART 1  values that are safe only because a CHECK, an allow-list, a
 --           lookup or a foreign key stands in front of the statement, and
 --           values that are quoted but had no test: permission names,
---           id_prefix, the code of a validation rule, the name of a computed
+--           type_prefix of a typeid and of a typenumber entity, the code of a
+--           validation rule, the name of a computed
 --           field, reference_table, queue names, the names, literals and
 --           operators of a rollup definition, module and role names, the
 --           table of a queue mapping, the entity of a process gate, table
@@ -34,7 +35,7 @@
 -- write the dictionary. Everything is rolled back.
 BEGIN;
 
-SELECT plan(444);
+SELECT plan(458);
 
 -- =====================================================
 -- Helpers
@@ -159,10 +160,15 @@ CREATE FUNCTION pg_temp.s1_sql(p_case TEXT, p_tag TEXT, p_value TEXT) RETURNS TE
         WHEN 'perm' THEN format(
             $q$INSERT INTO permissions (permission_name, description, module_id) VALUES (%L, 'hostile', 1)$q$, p_value)
         WHEN 'prefix' THEN format(
-            $q$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix, id_column,
+            $q$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
                                      view_permission, edit_permission)
                VALUES (%L, 'Hostile', 'Hostiles', 1, 'typeid', %L, 'id', 'public:read', 'admin')$q$,
             's1_prefix_' || p_tag, p_value)
+        WHEN 'tnprefix' THEN format(
+            $q$INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix, id_column,
+                                     view_permission, edit_permission)
+               VALUES (%L, 'Hostile', 'Hostiles', 1, 'typenumber', %L, 'id', 'public:read', 'admin')$q$,
+            's1_tnprefix_' || p_tag, p_value)
         WHEN 'vcode' THEN format(
             $q$INSERT INTO entities (table_name, singular_label, plural_label, module_id, view_permission, edit_permission,
                                      validation_rules)
@@ -293,8 +299,8 @@ GRANT SELECT ON s1_cases TO semantius_user;
 INSERT INTO s1_cases VALUES
     (1,  'perm',   'permissions.permission_name',          '23514 permission_name_shape', '42501',
                                                            '23514 permission_name_shape', '42501'),
-    (2,  'prefix', 'entities.id_prefix',                   '23514 valid_id_prefix', '42501',
-                                                           '23514 valid_id_prefix', '42501'),
+    (2,  'prefix', 'entities.type_prefix',                   '23514 valid_type_prefix', '42501',
+                                                           '23514 valid_type_prefix', '42501'),
     (3,  'vcode',  'the code of a validation rule',        '90905', '42501', '90905', '42501'),
     (4,  'cname',  'the name of a computed field',         'accepted', '42501', 'accepted', '42501'),
     (5,  'reft',   'fields.reference_table',               '90212', '90212', '90212', '90212'),
@@ -318,7 +324,9 @@ INSERT INTO s1_cases VALUES
     (22, 'tren',   'entities.table_name, renamed',         '90273', 'P0002', '23514 valid_table_name', 'P0002'),
     (23, 'idcol',  'entities.id_column',                   '23514 valid_id_column', '42501',
                                                            '23514 valid_id_column', '42501'),
-    (24, 'ensure', 'public.ensure_entities',               '42501', '42501', '42501', '42501');
+    (24, 'ensure', 'public.ensure_entities',               '42501', '42501', '42501', '42501'),
+    (25, 'tnprefix', 'entities.type_prefix of a typenumber entity', '23514 valid_type_prefix', '42501',
+                                                           '23514 valid_type_prefix', '42501');
 
 -- Every pgmq function the request role may execute that takes a queue name,
 -- as a statement that calls it with the queue name as %1$L and a value of its

@@ -244,11 +244,11 @@ SELECT v.table_name, v.singular_label, v.plural_label, m.id, v.view_permission, 
        AS v(table_name, singular_label, plural_label, view_permission, edit_permission)
   CROSS JOIN modules AS m
  WHERE m.module_slug = 'cube_vis';
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       view_permission, edit_permission)
 SELECT 'cubev_root', 'Root Cube Probe', 'Root Cube Probes', m.id, 'typeid', 'cubevrt', 'cubev:base', 'admin'
   FROM modules AS m WHERE m.module_slug = 'cube_vis';
-INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, id_prefix,
+INSERT INTO entities (table_name, singular_label, plural_label, module_id, id_type, type_prefix,
                       id_refentity, view_permission, edit_permission)
 SELECT 'cubev_org', 'Organization Cube Probe', 'Organization Cube Probes', m.id, 'is_a', 'cubevorg',
        'cubev_root', 'cubev:view', 'cubev:edit'

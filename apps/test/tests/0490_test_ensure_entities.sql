@@ -415,10 +415,10 @@ CREATE TEMP TABLE ens_family_def AS SELECT '{
     "version": 1,
     "entities": [
         {"entity": {"table_name": "ens_parties", "module_name": "_core", "singular_label": "Party",
-                    "plural_label": "Parties", "id_type": "typeid", "id_prefix": "enspty",
+                    "plural_label": "Parties", "id_type": "typeid", "type_prefix": "enspty",
                     "fields": [{"field_name": "city", "title": "City", "format": "text", "field_order": 30}]}},
         {"entity": {"table_name": "ens_orgs", "module_name": "_core", "singular_label": "Org",
-                    "plural_label": "Orgs", "id_type": "is_a", "id_prefix": "ensorg", "id_refentity": "ens_parties",
+                    "plural_label": "Orgs", "id_type": "is_a", "type_prefix": "ensorg", "id_refentity": "ens_parties",
                     "fields": [{"field_name": "vat", "title": "VAT", "format": "text", "field_order": 30}]},
          "records": [{"id": "ensorg_01h455vb4pex5vsknk084sn02q", "label": "Org One", "city": "Rome", "vat": "IT1"}]}
     ]
@@ -454,7 +454,7 @@ SELECT throws_ok($$
                         "plural_label": "Lates", "id_type": "has_a", "id_refentity": "ens_later",
                         "fields": []}},
             {"entity": {"table_name": "ens_later", "module_name": "_core", "singular_label": "Later",
-                        "plural_label": "Laters", "id_type": "typeid", "id_prefix": "enslater", "fields": []}}
+                        "plural_label": "Laters", "id_type": "typeid", "type_prefix": "enslater", "fields": []}}
         ]
     }'::jsonb) $$,
     '23503', NULL,
@@ -495,11 +495,11 @@ INSERT INTO ens4_docs VALUES ('v1', '{
     "version": 1,
     "entities": [
         {"entity": {"table_name": "ens4_parties", "module_name": "_core", "singular_label": "Party",
-                    "plural_label": "Parties", "id_type": "typeid", "id_prefix": "ensfpty",
+                    "plural_label": "Parties", "id_type": "typeid", "type_prefix": "ensfpty",
                     "fields": [{"field_name": "city", "title": "City", "format": "text", "field_order": 30}]},
          "records": [{"id": "ensfpty_01h455vb4pex5vsknk084sn02q", "label": "P1", "city": "Rome"}]},
         {"entity": {"table_name": "ens4_orgs", "module_name": "_core", "singular_label": "Org",
-                    "plural_label": "Orgs", "id_type": "is_a", "id_prefix": "ensforg", "id_refentity": "ens4_parties",
+                    "plural_label": "Orgs", "id_type": "is_a", "type_prefix": "ensforg", "id_refentity": "ens4_parties",
                     "fields": [{"field_name": "vat", "title": "VAT", "format": "text", "field_order": 30}]},
          "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02r", "label": "O1", "city": "Oslo", "vat": "NO1"}]}
     ]
@@ -509,16 +509,16 @@ INSERT INTO ens4_docs VALUES ('v2', '{
     "version": 1,
     "entities": [
         {"entity": {"table_name": "ens4_parties", "module_name": "_core", "singular_label": "Party",
-                    "plural_label": "Parties", "id_type": "typeid", "id_prefix": "ensfpty",
+                    "plural_label": "Parties", "id_type": "typeid", "type_prefix": "ensfpty",
                     "fields": [{"field_name": "city", "title": "City", "format": "text", "field_order": 30},
                                {"field_name": "country", "title": "Country", "format": "text", "field_order": 40}]},
          "records": [{"id": "ensfpty_01h455vb4pex5vsknk084sn02q", "label": "P1", "city": "Rome"}]},
         {"entity": {"table_name": "ens4_orgs", "module_name": "_core", "singular_label": "Org",
-                    "plural_label": "Orgs", "id_type": "is_a", "id_prefix": "ensforg", "id_refentity": "ens4_parties",
+                    "plural_label": "Orgs", "id_type": "is_a", "type_prefix": "ensforg", "id_refentity": "ens4_parties",
                     "fields": [{"field_name": "vat", "title": "VAT", "format": "text", "field_order": 30}]},
          "records": [{"id": "ensforg_01h455vb4pex5vsknk084sn02r", "label": "O1", "city": "Oslo", "vat": "NO1"}]},
         {"entity": {"table_name": "ens4_banks", "module_name": "_core", "singular_label": "Bank",
-                    "plural_label": "Banks", "id_type": "is_a", "id_prefix": "ensfbnk", "id_refentity": "ens4_orgs",
+                    "plural_label": "Banks", "id_type": "is_a", "type_prefix": "ensfbnk", "id_refentity": "ens4_orgs",
                     "fields": [{"field_name": "bic", "title": "BIC", "format": "text", "field_order": 30}]}},
         {"entity": {"table_name": "ens4_vendors", "module_name": "_core", "singular_label": "Vendor",
                     "plural_label": "Vendors", "id_type": "has_a", "id_refentity": "ens4_parties",
@@ -542,7 +542,7 @@ INSERT INTO ens4_docs VALUES ('v4', '{
     "version": 1,
     "entities": [
         {"entity": {"table_name": "ens4_units", "module_name": "_core", "singular_label": "Unit",
-                    "plural_label": "Units", "id_type": "is_a", "id_prefix": "ensfunt", "id_refentity": "ens4_parties",
+                    "plural_label": "Units", "id_type": "is_a", "type_prefix": "ensfunt", "id_refentity": "ens4_parties",
                     "label_column": "label",
                     "fields": [{"field_name": "code", "title": "Code", "format": "text", "field_order": 30}]}}
     ]

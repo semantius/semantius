@@ -38,45 +38,42 @@ SELECT p.id, 'orders', 'transition', 'shipped', 'status', FALSE
 FROM processes p WHERE p.process_key = 'fulfill_order';
 
 -- Sample tasks: two on each of the three oldest and the three newest orders,
--- open and waiting in the queue of the Northwind Sales role, with no assignee.
--- The keys are fixed TypeIDs and the due dates fixed, so the sample is the
--- same on every install. A migration has no user, so created_by stays empty.
-INSERT INTO tasks (id, title, status, priority, due_at, assigned_role)
-SELECT v.id, v.title, 'open', v.priority, v.due_at::timestamptz, r.id
-  FROM (VALUES
-    ('task_01jn00nwnd0000000000000001', 'Send invoice', 'high', '2024-07-17 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000002', 'Confirm delivery', 'normal', '2024-07-23 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000003', 'Send invoice', 'normal', '2024-07-12 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000004', 'Collect payment', 'high', '2024-08-16 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000005', 'Send invoice', 'low', '2024-07-15 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000006', 'Follow up on freight charges', 'low', '2024-08-05 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000007', 'Confirm ship date', 'high', '2026-05-08 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000008', 'Pick and pack items', 'normal', '2026-05-20 17:00:00+00'),
-    ('task_01jn00nwnd0000000000000009', 'Confirm ship date', 'normal', '2026-05-08 17:00:00+00'),
-    ('task_01jn00nwnd000000000000000a', 'Book the carrier', 'normal', '2026-05-25 17:00:00+00'),
-    ('task_01jn00nwnd000000000000000b', 'Check stock', 'high', '2026-05-10 17:00:00+00'),
-    ('task_01jn00nwnd000000000000000c', 'Confirm ship date', 'low', '2026-05-12 17:00:00+00')
-  ) AS v(id, title, priority, due_at)
-  JOIN roles r ON r.slug = 'northwind_sales';
-
--- Each sample task is linked to its order.
+-- open and waiting in the queue of the Northwind Sales role, with no assignee,
+-- and fixed due dates. The tasks take their keys from the counter, as any
+-- other task does, so they never collide with tasks created before this
+-- module; inserted in the order listed, they are TASK-1 to TASK-12 on a fresh
+-- install. Each is linked to its order through the row the insert returns,
+-- matched on the title, priority and due date it inserted (status and role
+-- are the same for all): the title and the due date alone repeat ("Confirm
+-- ship date" on 2026-05-08). A migration has no user, so created_by stays
+-- empty.
+WITH sample (n, title, priority, due_at, order_number) AS (
+    VALUES
+        (1, 'Send invoice', 'high', '2024-07-17 17:00:00+00'::timestamptz, 'SO-10248'),
+        (2, 'Confirm delivery', 'normal', '2024-07-23 17:00:00+00'::timestamptz, 'SO-10248'),
+        (3, 'Send invoice', 'normal', '2024-07-12 17:00:00+00'::timestamptz, 'SO-10249'),
+        (4, 'Collect payment', 'high', '2024-08-16 17:00:00+00'::timestamptz, 'SO-10249'),
+        (5, 'Send invoice', 'low', '2024-07-15 17:00:00+00'::timestamptz, 'SO-10250'),
+        (6, 'Follow up on freight charges', 'low', '2024-08-05 17:00:00+00'::timestamptz, 'SO-10250'),
+        (7, 'Confirm ship date', 'high', '2026-05-08 17:00:00+00'::timestamptz, 'SO-11075'),
+        (8, 'Pick and pack items', 'normal', '2026-05-20 17:00:00+00'::timestamptz, 'SO-11075'),
+        (9, 'Confirm ship date', 'normal', '2026-05-08 17:00:00+00'::timestamptz, 'SO-11076'),
+        (10, 'Book the carrier', 'normal', '2026-05-25 17:00:00+00'::timestamptz, 'SO-11076'),
+        (11, 'Check stock', 'high', '2026-05-10 17:00:00+00'::timestamptz, 'SO-11077'),
+        (12, 'Confirm ship date', 'low', '2026-05-12 17:00:00+00'::timestamptz, 'SO-11077')
+), inserted AS (
+    INSERT INTO tasks (title, status, priority, due_at, assigned_role)
+    SELECT s.title, 'open', s.priority, s.due_at, r.id
+      FROM sample s
+      JOIN roles r ON r.slug = 'northwind_sales'
+     ORDER BY s.n
+    RETURNING id, title, priority, due_at
+)
 INSERT INTO tasks_links (tasks_id, attached_to)
-SELECT v.task, 'orders:' || o.id
-  FROM (VALUES
-    ('task_01jn00nwnd0000000000000001', 'SO-10248'),
-    ('task_01jn00nwnd0000000000000002', 'SO-10248'),
-    ('task_01jn00nwnd0000000000000003', 'SO-10249'),
-    ('task_01jn00nwnd0000000000000004', 'SO-10249'),
-    ('task_01jn00nwnd0000000000000005', 'SO-10250'),
-    ('task_01jn00nwnd0000000000000006', 'SO-10250'),
-    ('task_01jn00nwnd0000000000000007', 'SO-11075'),
-    ('task_01jn00nwnd0000000000000008', 'SO-11075'),
-    ('task_01jn00nwnd0000000000000009', 'SO-11076'),
-    ('task_01jn00nwnd000000000000000a', 'SO-11076'),
-    ('task_01jn00nwnd000000000000000b', 'SO-11077'),
-    ('task_01jn00nwnd000000000000000c', 'SO-11077')
-  ) AS v(task, order_number)
-  JOIN orders o ON o.label = v.order_number;
+SELECT i.id, 'orders:' || o.id
+  FROM inserted i
+  JOIN sample s ON s.title = i.title AND s.priority = i.priority AND s.due_at = i.due_at
+  JOIN orders o ON o.label = s.order_number;
 
 -- Queue mapping: every new order enqueues an entity_event on the 'events' queue.
 -- Created after the data load so the import itself does not enqueue 830 messages.

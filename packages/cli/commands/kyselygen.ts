@@ -24,7 +24,7 @@
  * affects every int8 column, and loses precision above 2^53 - the same limit
  * PostgREST has.
  *
- * Columns the database fills (auto_increment, uuid and typeid keys,
+ * Columns the database fills (auto_increment, uuid, typeid and typenumber keys,
  * created_at/updated_at, any field with a default) are wrapped in
  * `Generated<T>` so they are optional on insert. `enum` fields become a literal-union type ('a' | 'b' | …), matching
  * the DB's TEXT + CHECK (not a native PG enum) — with '' included for
@@ -118,14 +118,14 @@ export function effectiveEnumValues(
 /**
  * True when the database supplies the value, so the column is optional on insert
  * and should be wrapped in Kysely's `Generated<T>`: a key the database generates
- * (id_type auto_increment, uuid or typeid; a caller may still supply one), the
- * created_at/updated_at bookkeeping columns, and any field carrying a catalog
- * default_value.
+ * (id_type auto_increment, uuid, typeid or typenumber; a caller may still
+ * supply one), the created_at/updated_at bookkeeping columns, and any field
+ * carrying a catalog default_value.
  */
 function isGenerated(field: FieldRecord, idType?: string): boolean {
   if (field.is_pk) {
     return idType === "auto_increment" || idType === "uuid" ||
-      idType === "typeid";
+      idType === "typeid" || idType === "typenumber";
   }
   if (field.field_name === "created_at" || field.field_name === "updated_at") {
     return true; // DEFAULT now()
